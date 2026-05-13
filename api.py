@@ -6,6 +6,8 @@ from models import Incident
 
 from fastapi.middleware.cors import CORSMiddleware
 
+from pydantic import BaseModel
+
 app = FastAPI(
     title="Sovereign AI SOC API",
     version="0.1.0",
@@ -21,6 +23,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+VALID_INCIDENT_STATUSES = {
+    "NEW",
+    "TRIAGED",
+    "ESCALATED",
+    "CLOSED",
+    "FALSE_POSITIVE",
+}
+
+
+class IncidentStatusUpdate(BaseModel):
+    status: str
 
 @app.get("/health")
 def health():
@@ -45,6 +59,7 @@ def list_incidents(limit: int = 20):
         return [
             {
                 "id": item.id,
+                "status": item.status,
                 "timestamp": item.timestamp,
                 "agent": item.agent,
                 "rule": item.rule,
@@ -76,6 +91,7 @@ def get_incident(incident_id: int):
 
         return {
             "id": incident.id,
+            "status": incident.status,
             "wazuh_doc_id": incident.wazuh_doc_id,
             "timestamp": incident.timestamp,
             "agent": incident.agent,
@@ -93,6 +109,74 @@ def get_incident(incident_id: int):
     finally:
         db.close()
 
+@app.patch("/incidents/{incident_id}/status")
+def update_incident_status(
+    incident_id: int,
+    payload: IncidentStatusUpdate,
+):
+    requested_status = payload.status.upper()
+
+    if requested_status not in VALID_INCIDENT_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status. Allowed values: {sorted(VALID_INCIDENT_STATUSES)}",
+        )
+
+    db = SessionLocal()
+
+    try:
+        incident = (
+            db.query(Incident)
+            .filter(Incident.id == incident_id)
+            .first()
+        )
+
+        if not incident:
+            raise HTTPException(status_code=404, detail="Incident not found")
+
+        incident.status = requested_status
+
+        db.commit()
+        db.refresh(incident)
+
+        return {
+            "id": incident.id,
+            "status": incident.status,
+            "message": "Incident status updated",
+        }
+
+    finally:
+        db.close()
+
+@app.get("/metrics/status-distribution")
+def metrics_status_distribution():
+    db = SessionLocal()
+
+    try:
+        rows = (
+            db.query(
+                Incident.status,
+                func.count(Incident.id).label("count"),
+            )
+            .group_by(Incident.status)
+            .all()
+        )
+
+        result = {
+            "NEW": 0,
+            "TRIAGED": 0,
+            "ESCALATED": 0,
+            "CLOSED": 0,
+            "FALSE_POSITIVE": 0,
+        }
+
+        for row in rows:
+            result[row.status or "NEW"] = row.count
+
+        return result
+
+    finally:
+        db.close()
 
 @app.get("/metrics/summary")
 def metrics_summary():

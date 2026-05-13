@@ -14,6 +14,7 @@ import {
 
 type IncidentDetail = {
   id: number;
+  status: string | null;
   wazuh_doc_id: string | null;
   timestamp: string | null;
   agent: string | null;
@@ -30,6 +31,14 @@ type IncidentDetail = {
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8008";
+
+const INCIDENT_STATUSES = [
+  "NEW",
+  "TRIAGED",
+  "ESCALATED",
+  "CLOSED",
+  "FALSE_POSITIVE",
+];
 
 function riskLabel(score: number | null | undefined) {
   const value = score ?? 0;
@@ -90,6 +99,29 @@ export default function IncidentDetailPage() {
       setLoading(false);
     }
   }
+
+  async function updateStatus(status: string) {
+    try {
+      setError(null);
+
+      const response = await fetch(`${API_BASE}/incidents/${incidentId}/status`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ status }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`API error ${response.status}`);
+      }
+
+      await loadIncident();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    }
+  }
+
 
   useEffect(() => {
     loadIncident();
@@ -168,6 +200,37 @@ export default function IncidentDetailPage() {
                 title="Status"
                 value={incident.correlated ? "Correlated" : "Not correlated"}
               />
+            </section>
+
+            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
+              <div className="mb-4 flex items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-medium">Incident lifecycle</h2>
+                  <p className="mt-1 text-sm text-slate-400">
+                    Update the operational SOC status for this incident.
+                  </p>
+                </div>
+
+                <span className="rounded-full border border-cyan-200 bg-cyan-100 px-4 py-2 text-sm text-cyan-800">
+                  {incident.status ?? "NEW"}
+                </span>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {INCIDENT_STATUSES.map((status) => (
+                  <button
+                    key={status}
+                    onClick={() => updateStatus(status)}
+                    className={`rounded-xl border px-4 py-2 text-sm ${
+                      incident.status === status
+                        ? "border-cyan-400 bg-cyan-500 text-slate-950"
+                        : "border-slate-700 bg-slate-950 text-slate-300 hover:bg-slate-800"
+                    }`}
+                  >
+                    {status}
+                  </button>
+                ))}
+              </div>
             </section>
 
             <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">

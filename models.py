@@ -9,6 +9,8 @@ class Incident(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     wazuh_doc_id = Column(String, unique=True, index=True)
+    
+    status = Column(String, default="NEW")
 
     timestamp = Column(String)
     agent = Column(String)

@@ -23,6 +23,7 @@ import {
 
 type Incident = {
   id: number;
+  status: string | null;
   timestamp: string | null;
   agent: string | null;
   rule: string | null;
@@ -71,6 +72,18 @@ function riskClass(score: number | null | undefined) {
   if (value >= 61) return "bg-orange-100 text-orange-800 border-orange-200";
   if (value >= 31) return "bg-yellow-100 text-yellow-800 border-yellow-200";
   return "bg-emerald-100 text-emerald-800 border-emerald-200";
+}
+
+function statusClass(status: string | null | undefined) {
+  const value = status ?? "NEW";
+
+  if (value === "ESCALATED") return "bg-red-100 text-red-800 border-red-200";
+  if (value === "TRIAGED") return "bg-blue-100 text-blue-800 border-blue-200";
+  if (value === "CLOSED") return "bg-slate-200 text-slate-800 border-slate-300";
+  if (value === "FALSE_POSITIVE")
+    return "bg-purple-100 text-purple-800 border-purple-200";
+
+  return "bg-cyan-100 text-cyan-800 border-cyan-200";
 }
 
 function RiskBarShape(props: any) {
@@ -312,6 +325,7 @@ export default function Home() {
                   <thead className="border-b border-slate-800 text-xs uppercase text-slate-500">
                     <tr>
                       <th className="py-3 pr-4">ID</th>
+                      <th className="py-3 pr-4">Status</th>
                       <th className="py-3 pr-4">Time</th>
                       <th className="py-3 pr-4">Host</th>
                       <th className="py-3 pr-4">Rule</th>
@@ -335,6 +349,17 @@ export default function Home() {
                             #{incident.id}
                           </Link>
                         </td>
+
+                        <td className="py-3 pr-4">
+                          <span
+                            className={`rounded-full border px-3 py-1 text-xs ${statusClass(
+                              incident.status
+                            )}`}
+                          >
+                            {incident.status ?? "NEW"}
+                          </span>
+                        </td>
+
 
                         <td className="py-3 pr-4 text-slate-400">
                           {incident.timestamp ?? "-"}
