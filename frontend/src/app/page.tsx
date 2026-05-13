@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   Activity,
   AlertTriangle,
@@ -327,7 +328,12 @@ export default function Home() {
                         className="border-b border-slate-800/70"
                       >
                         <td className="py-3 pr-4 text-slate-400">
-                          #{incident.id}
+                          <Link
+                            href={`/incidents/${incident.id}`}
+                            className="text-cyan-300 hover:text-cyan-200"
+                          >
+                            #{incident.id}
+                          </Link>
                         </td>
 
                         <td className="py-3 pr-4 text-slate-400">
@@ -339,7 +345,12 @@ export default function Home() {
                         </td>
 
                         <td className="max-w-xl py-3 pr-4 text-slate-300">
-                          {incident.rule ?? "-"}
+                          <Link
+                            href={`/incidents/${incident.id}`}
+                            className="hover:text-cyan-200"
+                          >
+                            {incident.rule ?? "-"}
+                          </Link>
                         </td>
 
                         <td className="py-3 pr-4">{incident.level ?? 0}</td>
