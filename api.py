@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from sqlalchemy import func
 
 from database import SessionLocal
@@ -45,33 +45,49 @@ def health():
 
 
 @app.get("/incidents")
-def list_incidents(limit: int = 20):
+def list_incidents(
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+):
     db = SessionLocal()
 
     try:
+        offset = (page - 1) * limit
+
+        total = db.query(func.count(Incident.id)).scalar() or 0
+
         incidents = (
             db.query(Incident)
             .order_by(Incident.id.desc())
+            .offset(offset)
             .limit(limit)
             .all()
         )
 
-        return [
-            {
-                "id": item.id,
-                "status": item.status,
-                "timestamp": item.timestamp,
-                "agent": item.agent,
-                "rule": item.rule,
-                "level": item.level,
-                "risk_score": item.risk_score,
-                "correlation_score": item.correlation_score,
-                "correlated": item.correlated,
-                "correlation_type": item.correlation_type,
-                "recommended_priority": item.recommended_priority,
-            }
-            for item in incidents
-        ]
+        total_pages = max((total + limit - 1) // limit, 1)
+
+        return {
+            "items": [
+                {
+                    "id": item.id,
+                    "status": item.status,
+                    "timestamp": item.timestamp,
+                    "agent": item.agent,
+                    "rule": item.rule,
+                    "level": item.level,
+                    "risk_score": item.risk_score,
+                    "correlation_score": item.correlation_score,
+                    "correlated": item.correlated,
+                    "correlation_type": item.correlation_type,
+                    "recommended_priority": item.recommended_priority,
+                }
+                for item in incidents
+            ],
+            "page": page,
+            "limit": limit,
+            "total": total,
+            "total_pages": total_pages,
+        }
 
     finally:
         db.close()

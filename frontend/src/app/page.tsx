@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Activity,
@@ -33,6 +33,14 @@ type Incident = {
   correlated: boolean | null;
   correlation_type: string | null;
   recommended_priority: string | null;
+};
+
+type IncidentsResponse = {
+  items: Incident[];
+  page: number;
+  limit: number;
+  total: number;
+  total_pages: number;
 };
 
 type Summary = {
@@ -88,6 +96,26 @@ function statusClass(status: string | null | undefined) {
   return "bg-cyan-100 text-cyan-800 border-cyan-200";
 }
 
+function formatTimestamp(value: string | null | undefined) {
+  if (!value) return "-";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleString("it-CH", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+}
+
 function RiskBarShape(props: any) {
   const { x, y, width, height, payload } = props;
 
@@ -118,7 +146,14 @@ async function fetchJson<T>(path: string): Promise<T> {
 
 export default function Home() {
   const [summary, setSummary] = useState<Summary | null>(null);
-  const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [incidentsData, setIncidentsData] = useState<IncidentsResponse | null>(
+    null
+  );
+  const [currentPage, setCurrentPage] = useState(1);
+
+  const incidents = incidentsData?.items ?? [];
+  const totalPages = incidentsData?.total_pages ?? 1;
+  const totalIncidents = incidentsData?.total ?? 0;
   const [topHosts, setTopHosts] = useState<TopHost[]>([]);
   const [riskDistribution, setRiskDistribution] =
     useState<RiskDistribution | null>(null);
@@ -126,21 +161,23 @@ export default function Home() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function loadDashboard() {
+  const loadDashboard = useCallback(async () => {
     try {
       setRefreshing(true);
       setError(null);
 
-      const [summaryData, incidentsData, topHostsData, riskData] =
+      const [summaryData, incidentsResponse, topHostsData, riskData] =
         await Promise.all([
           fetchJson<Summary>("/metrics/summary"),
-          fetchJson<Incident[]>("/incidents?limit=20"),
+          fetchJson<IncidentsResponse>(
+            `/incidents?page=${currentPage}&limit=20`
+          ),
           fetchJson<TopHost[]>("/metrics/top-hosts?limit=10"),
           fetchJson<RiskDistribution>("/metrics/risk-distribution"),
         ]);
 
       setSummary(summaryData);
-      setIncidents(incidentsData);
+      setIncidentsData(incidentsResponse);
       setTopHosts(topHostsData);
       setRiskDistribution(riskData);
     } catch (err) {
@@ -149,7 +186,7 @@ export default function Home() {
       setLoading(false);
       setRefreshing(false);
     }
-  }
+  }, [currentPage]);
 
   useEffect(() => {
     loadDashboard();
@@ -159,7 +196,7 @@ export default function Home() {
     }, 30000);
 
     return () => window.clearInterval(interval);
-  }, []);
+  }, [loadDashboard]);
 
   const riskChartData = useMemo(() => {
     if (!riskDistribution) return [];
@@ -332,7 +369,7 @@ export default function Home() {
                       <th className="py-3 pr-4">Host</th>
                       <th className="py-3 pr-4">Rule</th>
                       <th className="py-3 pr-4">Level</th>
-                      <th className="py-3 pr-4">Risk</th>
+                      <th className="min-w-[150px] py-3 pr-4">Risk</th>
                       <th className="py-3 pr-4">Priority</th>
                       <th className="py-3 pr-4">Correlation</th>
                     </tr>
@@ -363,9 +400,8 @@ export default function Home() {
                           </span>
                         </td>
 
-
                         <td className="py-3 pr-4 text-slate-400">
-                          {incident.timestamp ?? "-"}
+                          {formatTimestamp(incident.timestamp)}
                         </td>
 
                         <td className="py-3 pr-4">
@@ -383,16 +419,15 @@ export default function Home() {
 
                         <td className="py-3 pr-4">{incident.level ?? 0}</td>
 
-                        <td className="py-3 pr-4">
-                          <span
-                            className={`rounded-full border px-3 py-1 text-xs ${riskClass(
-                              incident.risk_score
-                            )}`}
-                          >
-                            {riskLabel(incident.risk_score)}{" "}
-                            {incident.risk_score ?? 0}
-                          </span>
-                        </td>
+                          <td className="min-w-[150px] py-3 pr-4">
+                            <span
+                              className={`inline-flex min-w-[120px] items-center justify-center whitespace-nowrap rounded-full border px-4 py-1.5 text-xs font-medium ${riskClass(
+                                incident.risk_score
+                              )}`}
+                            >
+                              {riskLabel(incident.risk_score)} · {incident.risk_score ?? 0}
+                            </span>
+                          </td>
 
                         <td className="py-3 pr-4">
                           <span
@@ -418,12 +453,62 @@ export default function Home() {
                             <span className="text-slate-500">No</span>
                           )}
                         </td>
-                        
+
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+
+                <div className="mt-5 flex flex-col gap-3 border-t border-slate-800 pt-4 text-sm text-slate-400 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    Showing page{" "}
+                    <span className="font-medium text-slate-200">{currentPage}</span> of{" "}
+                    <span className="font-medium text-slate-200">{totalPages}</span> —{" "}
+                    <span className="font-medium text-slate-200">{totalIncidents}</span>{" "}
+                    incidents
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setCurrentPage((page) => Math.max(page - 1, 1))}
+                      disabled={currentPage <= 1}
+                      className="rounded-lg border border-slate-700 px-3 py-1.5 text-slate-300 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Previous
+                    </button>
+
+                    {Array.from({ length: Math.min(totalPages, 5) }, (_, index) => {
+                      const pageNumber = index + 1;
+
+                      return (
+                        <button
+                          key={pageNumber}
+                          onClick={() => setCurrentPage(pageNumber)}
+                          className={`rounded-lg border px-3 py-1.5 ${
+                            currentPage === pageNumber
+                              ? "border-cyan-400 bg-cyan-500 text-slate-950"
+                              : "border-slate-700 text-slate-300 hover:bg-slate-800"
+                          }`}
+                        >
+                          {pageNumber}
+                        </button>
+                      );
+                    })}
+
+                    {totalPages > 5 && <span className="px-2 text-slate-500">...</span>}
+
+                    <button
+                      onClick={() =>
+                        setCurrentPage((page) => Math.min(page + 1, totalPages))
+                      }
+                      disabled={currentPage >= totalPages}
+                      className="rounded-lg border border-slate-700 px-3 py-1.5 text-slate-300 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
             </section>
           </>
         )}
