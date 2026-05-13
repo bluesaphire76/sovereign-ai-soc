@@ -31,6 +31,8 @@ type Incident = {
   risk_score: number | null;
   correlation_score: number | null;
   correlated: boolean | null;
+  correlation_type: string | null;
+  recommended_priority: string | null;
 };
 
 type Summary = {
@@ -331,6 +333,7 @@ export default function Home() {
                       <th className="py-3 pr-4">Rule</th>
                       <th className="py-3 pr-4">Level</th>
                       <th className="py-3 pr-4">Risk</th>
+                      <th className="py-3 pr-4">Priority</th>
                       <th className="py-3 pr-4">Correlation</th>
                     </tr>
                   </thead>
@@ -392,14 +395,30 @@ export default function Home() {
                         </td>
 
                         <td className="py-3 pr-4">
+                          <span
+                            className={`rounded-full border px-3 py-1 text-xs ${riskClass(
+                              incident.risk_score
+                            )}`}
+                          >
+                            {incident.recommended_priority ?? riskLabel(incident.risk_score)}
+                          </span>
+                        </td>
+
+                        <td className="py-3 pr-4">
                           {incident.correlated ? (
-                            <span className="text-cyan-300">
-                              {incident.correlation_score ?? 0}
-                            </span>
+                            <div>
+                              <div className="text-cyan-300">
+                                {incident.correlation_score ?? 0}
+                              </div>
+                              <div className="max-w-xs truncate text-xs text-slate-500">
+                                {incident.correlation_type ?? "correlated"}
+                              </div>
+                            </div>
                           ) : (
                             <span className="text-slate-500">No</span>
                           )}
                         </td>
+                        
                       </tr>
                     ))}
                   </tbody>

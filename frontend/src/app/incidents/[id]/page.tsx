@@ -27,6 +27,10 @@ type IncidentDetail = {
   correlation_score: number | null;
   correlation_summary: string | null;
   raw_alert: string | null;
+  attack_chain: string | null;
+  correlation_type: string | null;
+  escalation_reason: string | null;
+  recommended_priority: string | null;
 };
 
 const API_BASE =
@@ -259,6 +263,32 @@ export default function IncidentDetailPage() {
               <pre className="whitespace-pre-wrap rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm leading-6 text-slate-200">
                 {incident.ai_analysis ?? "No AI analysis available."}
               </pre>
+            </section>
+
+            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
+              <div className="mb-4 flex items-center gap-2">
+                <Brain className="h-5 w-5 text-cyan-300" />
+                <h2 className="text-lg font-medium">Structured correlation</h2>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <DetailRow
+                  label="Correlation type"
+                  value={incident.correlation_type ?? "-"}
+                />
+                <DetailRow
+                  label="Recommended priority"
+                  value={incident.recommended_priority ?? "-"}
+                />
+                <DetailRow
+                  label="Attack chain"
+                  value={incident.attack_chain ?? "-"}
+                />
+                <DetailRow
+                  label="Escalation reason"
+                  value={incident.escalation_reason ?? "-"}
+                />
+              </div>
             </section>
 
             <section className="grid gap-6 lg:grid-cols-2">

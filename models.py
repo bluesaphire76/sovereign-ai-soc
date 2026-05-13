@@ -9,7 +9,7 @@ class Incident(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     wazuh_doc_id = Column(String, unique=True, index=True)
-    
+
     status = Column(String, default="NEW")
 
     timestamp = Column(String)
@@ -24,3 +24,8 @@ class Incident(Base):
     correlated = Column(Boolean, default=False)
     correlation_summary = Column(Text)
     correlation_score = Column(Integer, default=0)
+
+    attack_chain = Column(Text)
+    correlation_type = Column(String)
+    escalation_reason = Column(Text)
+    recommended_priority = Column(String)

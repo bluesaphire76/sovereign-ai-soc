@@ -67,6 +67,8 @@ def list_incidents(limit: int = 20):
                 "risk_score": item.risk_score,
                 "correlation_score": item.correlation_score,
                 "correlated": item.correlated,
+                "correlation_type": item.correlation_type,
+                "recommended_priority": item.recommended_priority,
             }
             for item in incidents
         ]
@@ -104,6 +106,10 @@ def get_incident(incident_id: int):
             "correlation_score": incident.correlation_score,
             "correlation_summary": incident.correlation_summary,
             "raw_alert": incident.raw_alert,
+            "attack_chain": incident.attack_chain,
+            "correlation_type": incident.correlation_type,
+            "escalation_reason": incident.escalation_reason,
+            "recommended_priority": incident.recommended_priority,
         }
 
     finally:
