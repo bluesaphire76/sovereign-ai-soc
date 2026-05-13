@@ -1,0 +1,19 @@
+[Unit]
+Description=Sovereign AI SOC Next.js Frontend
+After=network.target ai-soc-api.service
+Requires=ai-soc-api.service
+
+[Service]
+Type=simple
+User=lele
+Group=lele
+WorkingDirectory=/home/lele/lab/ai-soc-assistant/frontend
+Environment="NODE_ENV=production"
+Environment="PORT=3000"
+ExecStart=/bin/bash -lc 'export NVM_DIR="/home/lele/.nvm"; source "$NVM_DIR/nvm.sh"; nvm use --lts; npm run start -- -H 0.0.0.0 -p 3000'
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+
