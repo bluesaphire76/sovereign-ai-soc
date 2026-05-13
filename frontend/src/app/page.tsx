@@ -72,6 +72,22 @@ function riskClass(score: number | null | undefined) {
   return "bg-emerald-100 text-emerald-800 border-emerald-200";
 }
 
+function RiskBarShape(props: any) {
+  const { x, y, width, height, payload } = props;
+
+  return (
+    <rect
+      x={x}
+      y={y}
+      width={width}
+      height={height}
+      rx={8}
+      ry={8}
+      fill={payload.color}
+    />
+  );
+}
+
 async function fetchJson<T>(path: string): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     cache: "no-store",
@@ -133,10 +149,26 @@ export default function Home() {
     if (!riskDistribution) return [];
 
     return [
-      { name: "Low", value: riskDistribution.low_0_30 },
-      { name: "Medium", value: riskDistribution.medium_31_60 },
-      { name: "High", value: riskDistribution.high_61_80 },
-      { name: "Critical", value: riskDistribution.critical_81_100 },
+      {
+        name: "Low",
+        value: riskDistribution.low_0_30,
+        color: "#10b981",
+      },
+      {
+        name: "Medium",
+        value: riskDistribution.medium_31_60,
+        color: "#f59e0b",
+      },
+      {
+        name: "High",
+        value: riskDistribution.high_61_80,
+        color: "#f97316",
+      },
+      {
+        name: "Critical",
+        value: riskDistribution.critical_81_100,
+        color: "#ef4444",
+      },
     ];
   }, [riskDistribution]);
 
@@ -222,7 +254,10 @@ export default function Home() {
                       <XAxis dataKey="name" />
                       <YAxis allowDecimals={false} />
                       <Tooltip />
-                      <Bar dataKey="value" />
+                      <Bar
+                        dataKey="value"
+                        shape={(props) => <RiskBarShape {...props} />}
+                      />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
