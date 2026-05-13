@@ -46,3 +46,8 @@ secrets/
 # Docker overrides
 docker-compose.override.yml
 
+# Frontend
+frontend/.env.local
+frontend/.next/
+frontend/node_modules/
+
