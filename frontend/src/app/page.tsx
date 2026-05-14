@@ -25,6 +25,8 @@ type Incident = {
   id: number;
   status: string | null;
   timestamp: string | null;
+  timestamp_local?: string | null;
+  timezone?: string | null;
   agent: string | null;
   rule: string | null;
   level: number | null;
@@ -117,6 +119,7 @@ function formatTimestamp(value: string | null | undefined) {
   }
 
   return date.toLocaleString("it-CH", {
+    timeZone: "Europe/Zurich",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -124,6 +127,7 @@ function formatTimestamp(value: string | null | undefined) {
     minute: "2-digit",
     second: "2-digit",
     hour12: false,
+    timeZoneName: "short",
   });
 }
 
@@ -522,7 +526,7 @@ export default function Home() {
                         </td>
 
                         <td className="py-3 pr-4 text-slate-400">
-                          {formatTimestamp(incident.timestamp)}
+                          {incident.timestamp_local ?? formatTimestamp(incident.timestamp)}
                         </td>
 
                         <td className="py-3 pr-4">

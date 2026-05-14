@@ -17,6 +17,8 @@ type IncidentDetail = {
   status: string | null;
   wazuh_doc_id: string | null;
   timestamp: string | null;
+  timestamp_local?: string | null;
+  timezone?: string | null;
   agent: string | null;
   rule: string | null;
   level: number | null;
@@ -70,6 +72,28 @@ function prettyJson(value: string | null) {
   } catch {
     return value;
   }
+}
+
+function formatTimestamp(value: string | null | undefined) {
+  if (!value) return "-";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleString("it-CH", {
+    timeZone: "Europe/Zurich",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+    timeZoneName: "short",
+  });
 }
 
 async function fetchIncident(id: string): Promise<IncidentDetail> {
@@ -244,7 +268,7 @@ export default function IncidentDetailPage() {
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
-                <DetailRow label="Timestamp" value={incident.timestamp ?? "-"} />
+                <DetailRow label="Timestamp" value={incident.timestamp_local ?? formatTimestamp(incident.timestamp)} />
                 <DetailRow label="Agent" value={incident.agent ?? "-"} />
                 <DetailRow label="Rule" value={incident.rule ?? "-"} />
                 <DetailRow
