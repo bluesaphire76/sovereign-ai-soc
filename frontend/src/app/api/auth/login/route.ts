@@ -1,4 +1,4 @@
-import { createHash } from "crypto";
+import { scryptSync } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -27,12 +27,13 @@ function configuredSecret() {
   return process.env.LOCAL_AUTH_SESSION_SECRET || "local-dev-secret";
 }
 
-function sha256Hex(value: string) {
-  return createHash("sha256").update(value).digest("hex");
+function scryptHex(value: string) {
+  const salt = `local-auth-session:${configuredSecret()}`;
+  return scryptSync(value, salt, 32).toString("hex");
 }
 
 function expectedToken() {
-  return sha256Hex(
+  return scryptHex(
     `${configuredUsername()}:${configuredPassword()}:${configuredSecret()}`
   );
 }
