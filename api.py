@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, Query
 from sqlalchemy import func, or_
 
 from database import SessionLocal
-from models import Incident, IncidentAudit, IncidentNote
+from models import Incident, IncidentAudit, IncidentNote, IncidentCase, CaseIncident
 from timezone_utils import APP_TIMEZONE, format_timestamp_local, normalize_timestamp_utc
 
 from fastapi.middleware.cors import CORSMiddleware
@@ -487,6 +487,174 @@ def metrics_risk_distribution():
                 buckets["critical_81_100"] += 1
 
         return buckets
+
+    finally:
+        db.close()
+
+@app.get("/cases")
+def list_cases(
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    status: str | None = Query(None),
+    severity: str | None = Query(None),
+    host: str | None = Query(None),
+):
+    db = SessionLocal()
+
+    try:
+        offset = (page - 1) * limit
+
+        incident_count_subquery = (
+            db.query(
+                CaseIncident.case_id.label("case_id"),
+                func.count(CaseIncident.incident_id).label("incident_count"),
+            )
+            .group_by(CaseIncident.case_id)
+            .subquery()
+        )
+
+        query = (
+            db.query(
+                IncidentCase,
+                func.coalesce(incident_count_subquery.c.incident_count, 0).label(
+                    "incident_count"
+                ),
+            )
+            .outerjoin(
+                incident_count_subquery,
+                IncidentCase.id == incident_count_subquery.c.case_id,
+            )
+        )
+
+        if status and status.upper() != "ALL":
+            query = query.filter(IncidentCase.status == status.upper())
+
+        if severity and severity.upper() != "ALL":
+            query = query.filter(IncidentCase.severity == severity.upper())
+
+        if host:
+            query = query.filter(IncidentCase.agent.ilike(f"%{host}%"))
+
+        total = query.with_entities(func.count(IncidentCase.id)).scalar() or 0
+
+        rows = (
+            query.order_by(IncidentCase.updated_at.desc(), IncidentCase.id.desc())
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+
+        total_pages = max((total + limit - 1) // limit, 1)
+
+        return {
+            "items": [
+                {
+                    "id": case.id,
+                    "group_key": case.group_key,
+                    "title": case.title,
+                    "status": case.status,
+                    "severity": case.severity,
+                    "agent": case.agent,
+                    "correlation_type": case.correlation_type,
+                    "risk_score": case.risk_score,
+                    "summary": case.summary,
+                    "created_by": case.created_by,
+                    "created_at": case.created_at.isoformat() if case.created_at else None,
+                    "updated_at": case.updated_at.isoformat() if case.updated_at else None,
+                    "incident_count": incident_count,
+                }
+                for case, incident_count in rows
+            ],
+            "page": page,
+            "limit": limit,
+            "total": total,
+            "total_pages": total_pages,
+        }
+
+    finally:
+        db.close()
+
+
+@app.get("/cases/{case_id}")
+def get_case(case_id: int):
+    db = SessionLocal()
+
+    try:
+        case = (
+            db.query(IncidentCase)
+            .filter(IncidentCase.id == case_id)
+            .first()
+        )
+
+        if not case:
+            raise HTTPException(status_code=404, detail="Case not found")
+
+        incident_count = (
+            db.query(CaseIncident)
+            .filter(CaseIncident.case_id == case.id)
+            .count()
+        )
+
+        return {
+            "id": case.id,
+            "group_key": case.group_key,
+            "title": case.title,
+            "status": case.status,
+            "severity": case.severity,
+            "agent": case.agent,
+            "correlation_type": case.correlation_type,
+            "risk_score": case.risk_score,
+            "summary": case.summary,
+            "created_by": case.created_by,
+            "created_at": case.created_at.isoformat() if case.created_at else None,
+            "updated_at": case.updated_at.isoformat() if case.updated_at else None,
+            "incident_count": incident_count,
+        }
+
+    finally:
+        db.close()
+
+
+@app.get("/cases/{case_id}/incidents")
+def get_case_incidents(case_id: int):
+    db = SessionLocal()
+
+    try:
+        case = (
+            db.query(IncidentCase)
+            .filter(IncidentCase.id == case_id)
+            .first()
+        )
+
+        if not case:
+            raise HTTPException(status_code=404, detail="Case not found")
+
+        rows = (
+            db.query(Incident)
+            .join(CaseIncident, CaseIncident.incident_id == Incident.id)
+            .filter(CaseIncident.case_id == case_id)
+            .order_by(Incident.timestamp.asc().nullslast(), Incident.id.asc())
+            .all()
+        )
+
+        return [
+            {
+                "id": item.id,
+                "status": item.status,
+                "timestamp": normalize_timestamp_utc(item.timestamp),
+                "timestamp_local": format_timestamp_local(item.timestamp),
+                "timezone": APP_TIMEZONE,
+                "agent": item.agent,
+                "rule": item.rule,
+                "level": item.level,
+                "risk_score": item.risk_score,
+                "correlation_score": item.correlation_score,
+                "correlated": item.correlated,
+                "correlation_type": item.correlation_type,
+                "recommended_priority": item.recommended_priority,
+            }
+            for item in rows
+        ]
 
     finally:
         db.close()
