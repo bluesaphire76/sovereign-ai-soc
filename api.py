@@ -1,10 +1,11 @@
+from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, Query, Response
 from sqlalchemy import func, or_
 
 from database import SessionLocal
 from report_builder import build_case_report, build_incident_report
 from case_ai_analysis import generate_case_ai_analysis
-from models import Incident, IncidentAudit, IncidentNote, IncidentCase, CaseIncident, CaseAIAnalysis
+from models import Incident, IncidentAudit, IncidentNote, IncidentCase, CaseIncident, CaseAIAnalysis, CaseAudit
 from timezone_utils import APP_TIMEZONE, format_timestamp_local, normalize_timestamp_utc
 from platform_health import get_platform_health
 from wazuh_ingest_state import get_watermark_snapshot
@@ -38,6 +39,22 @@ VALID_INCIDENT_STATUSES = {
     "FALSE_POSITIVE",
 }
 
+VALID_CASE_STATUSES = {
+    "OPEN",
+    "TRIAGED",
+    "INVESTIGATING",
+    "ESCALATED",
+    "CLOSED",
+    "FALSE_POSITIVE",
+}
+
+VALID_CASE_SEVERITIES = {
+    "LOW",
+    "MEDIUM",
+    "HIGH",
+    "CRITICAL",
+}
+
 
 class IncidentStatusUpdate(BaseModel):
     status: str
@@ -48,13 +65,20 @@ class IncidentNoteCreate(BaseModel):
     note: str
     created_by: str | None = None
 
+class CaseWorkflowUpdate(BaseModel):
+    owner: str | None = None
+    status: str | None = None
+    severity: str | None = None
+    sla_due_at: str | None = None
+    status_reason: str | None = None
+    reviewed_by: str | None = None
+
 @app.get("/health")
 def health():
     return {
         "status": "ok",
         "service": "sovereign-ai-soc-api",
     }
-
 
 @app.get("/incidents")
 def list_incidents(
@@ -859,6 +883,55 @@ def metrics_risk_distribution():
     finally:
         db.close()
 
+
+def calculate_case_sla_status(case: IncidentCase) -> str:
+    status = (case.status or "OPEN").upper()
+
+    if status in {"CLOSED", "FALSE_POSITIVE"}:
+        return "COMPLETED"
+
+    if not case.sla_due_at:
+        return "NOT_SET"
+
+    due_at = case.sla_due_at
+
+    if due_at.tzinfo is None:
+        due_at = due_at.replace(tzinfo=timezone.utc)
+
+    now = datetime.now(timezone.utc)
+
+    if now <= due_at:
+        return "WITHIN_SLA"
+
+    return "BREACHED"
+
+
+def serialize_case(case: IncidentCase, incident_count: int | None = None) -> dict:
+    return {
+        "id": case.id,
+        "group_key": case.group_key,
+        "title": case.title,
+        "status": case.status,
+        "severity": case.severity,
+        "agent": case.agent,
+        "correlation_type": case.correlation_type,
+        "risk_score": case.risk_score,
+        "summary": case.summary,
+        "created_by": case.created_by,
+        "created_at": case.created_at.isoformat() if case.created_at else None,
+        "updated_at": case.updated_at.isoformat() if case.updated_at else None,
+        "incident_count": incident_count,
+        "owner": case.owner,
+        "sla_due_at": case.sla_due_at.isoformat() if case.sla_due_at else None,
+        "sla_status": calculate_case_sla_status(case),
+        "severity_review": case.severity_review,
+        "status_reason": case.status_reason,
+        "last_reviewed_by": case.last_reviewed_by,
+        "last_reviewed_at": case.last_reviewed_at.isoformat()
+        if case.last_reviewed_at
+        else None,
+    }
+
 @app.get("/cases")
 def list_cases(
     page: int = Query(1, ge=1),
@@ -916,21 +989,7 @@ def list_cases(
 
         return {
             "items": [
-                {
-                    "id": case.id,
-                    "group_key": case.group_key,
-                    "title": case.title,
-                    "status": case.status,
-                    "severity": case.severity,
-                    "agent": case.agent,
-                    "correlation_type": case.correlation_type,
-                    "risk_score": case.risk_score,
-                    "summary": case.summary,
-                    "created_by": case.created_by,
-                    "created_at": case.created_at.isoformat() if case.created_at else None,
-                    "updated_at": case.updated_at.isoformat() if case.updated_at else None,
-                    "incident_count": incident_count,
-                }
+                serialize_case(case, incident_count)
                 for case, incident_count in rows
             ],
             "page": page,
@@ -963,25 +1022,163 @@ def get_case(case_id: int):
             .count()
         )
 
-        return {
-            "id": case.id,
-            "group_key": case.group_key,
-            "title": case.title,
-            "status": case.status,
-            "severity": case.severity,
-            "agent": case.agent,
-            "correlation_type": case.correlation_type,
-            "risk_score": case.risk_score,
-            "summary": case.summary,
-            "created_by": case.created_by,
-            "created_at": case.created_at.isoformat() if case.created_at else None,
-            "updated_at": case.updated_at.isoformat() if case.updated_at else None,
-            "incident_count": incident_count,
-        }
+        return serialize_case(case, incident_count)
 
     finally:
         db.close()
 
+@app.patch("/cases/{case_id}/workflow")
+def update_case_workflow(
+    case_id: int,
+    payload: CaseWorkflowUpdate,
+):
+    db = SessionLocal()
+
+    try:
+        case = (
+            db.query(IncidentCase)
+            .filter(IncidentCase.id == case_id)
+            .first()
+        )
+
+        if not case:
+            raise HTTPException(status_code=404, detail="Case not found")
+
+        reviewed_by = payload.reviewed_by or "local_analyst"
+        changes = {}
+
+        if payload.owner is not None:
+            owner = payload.owner.strip() or None
+            if case.owner != owner:
+                changes["owner"] = [case.owner, owner]
+                case.owner = owner
+
+        if payload.status is not None:
+            requested_status = payload.status.upper()
+
+            if requested_status not in VALID_CASE_STATUSES:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid case status. Allowed values: {sorted(VALID_CASE_STATUSES)}",
+                )
+
+            if case.status != requested_status:
+                changes["status"] = [case.status, requested_status]
+                case.status = requested_status
+
+        if payload.severity is not None:
+            requested_severity = payload.severity.upper()
+
+            if requested_severity not in VALID_CASE_SEVERITIES:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid case severity. Allowed values: {sorted(VALID_CASE_SEVERITIES)}",
+                )
+
+            if case.severity != requested_severity:
+                changes["severity"] = [case.severity, requested_severity]
+                changes["severity_review"] = [case.severity_review, requested_severity]
+                case.severity = requested_severity
+                case.severity_review = requested_severity
+
+        if payload.sla_due_at is not None:
+            sla_due_at = None
+
+            if payload.sla_due_at.strip():
+                try:
+                    sla_due_at = datetime.fromisoformat(
+                        payload.sla_due_at.replace("Z", "+00:00")
+                    )
+                except ValueError as exc:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="sla_due_at must be a valid ISO timestamp",
+                    ) from exc
+
+            if case.sla_due_at != sla_due_at:
+                old_value = case.sla_due_at.isoformat() if case.sla_due_at else None
+                new_value = sla_due_at.isoformat() if sla_due_at else None
+                changes["sla_due_at"] = [old_value, new_value]
+                case.sla_due_at = sla_due_at
+
+        if payload.status_reason is not None:
+            status_reason = payload.status_reason.strip() or None
+
+            if case.status_reason != status_reason:
+                changes["status_reason"] = [case.status_reason, status_reason]
+                case.status_reason = status_reason
+
+        if changes:
+            now = datetime.now(timezone.utc)
+            case.last_reviewed_by = reviewed_by
+            case.last_reviewed_at = now
+            case.updated_at = now
+
+            audit = CaseAudit(
+                case_id=case.id,
+                event_type="CASE_WORKFLOW_UPDATED",
+                old_value=str({key: value[0] for key, value in changes.items()}),
+                new_value=str({key: value[1] for key, value in changes.items()}),
+                comment=payload.status_reason,
+                created_by=reviewed_by,
+            )
+
+            db.add(audit)
+
+        db.commit()
+        db.refresh(case)
+
+        incident_count = (
+            db.query(CaseIncident)
+            .filter(CaseIncident.case_id == case.id)
+            .count()
+        )
+
+        return serialize_case(case, incident_count)
+
+    finally:
+        db.close()
+
+
+@app.get("/cases/{case_id}/audit")
+def get_case_audit(case_id: int):
+    db = SessionLocal()
+
+    try:
+        case = (
+            db.query(IncidentCase)
+            .filter(IncidentCase.id == case_id)
+            .first()
+        )
+
+        if not case:
+            raise HTTPException(status_code=404, detail="Case not found")
+
+        rows = (
+            db.query(CaseAudit)
+            .filter(CaseAudit.case_id == case_id)
+            .order_by(CaseAudit.created_at.asc(), CaseAudit.id.asc())
+            .all()
+        )
+
+        return [
+            {
+                "id": row.id,
+                "case_id": row.case_id,
+                "event_type": row.event_type,
+                "old_value": row.old_value,
+                "new_value": row.new_value,
+                "comment": row.comment,
+                "created_by": row.created_by,
+                "created_at": row.created_at.isoformat()
+                if row.created_at
+                else None,
+            }
+            for row in rows
+        ]
+
+    finally:
+        db.close()
 
 @app.get("/cases/{case_id}/incidents")
 def get_case_incidents(case_id: int):

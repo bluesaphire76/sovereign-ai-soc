@@ -1,9 +1,10 @@
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 from database import SessionLocal
 from models import (
     CaseAIAnalysis,
+    CaseAudit,
     CaseIncident,
     Incident,
     IncidentAudit,
@@ -52,6 +53,28 @@ def safe_filename(value: str) -> str:
 
 def now_label():
     return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+
+
+def calculate_case_sla_status(case: IncidentCase) -> str:
+    status = (case.status or "OPEN").upper()
+
+    if status in {"CLOSED", "FALSE_POSITIVE"}:
+        return "COMPLETED"
+
+    if not case.sla_due_at:
+        return "NOT_SET"
+
+    due_at = case.sla_due_at
+
+    if due_at.tzinfo is None:
+        due_at = due_at.replace(tzinfo=timezone.utc)
+
+    now = datetime.now(timezone.utc)
+
+    if now <= due_at:
+        return "WITHIN_SLA"
+
+    return "BREACHED"
 
 
 def build_incident_payload(db, incident_id: int):
@@ -276,6 +299,13 @@ def build_case_payload(db, case_id: int):
         .first()
     )
 
+    case_audit_events = (
+        db.query(CaseAudit)
+        .filter(CaseAudit.case_id == case_id)
+        .order_by(CaseAudit.created_at.asc(), CaseAudit.id.asc())
+        .all()
+    )
+
     return {
         "generated_at": now_label(),
         "case": {
@@ -288,6 +318,15 @@ def build_case_payload(db, case_id: int):
             "correlation_type": case.correlation_type,
             "risk_score": case.risk_score,
             "summary": safe_json(case.summary),
+            "owner": case.owner,
+            "sla_due_at": case.sla_due_at.isoformat() if case.sla_due_at else None,
+            "sla_status": calculate_case_sla_status(case),
+            "severity_review": case.severity_review,
+            "status_reason": case.status_reason,
+            "last_reviewed_by": case.last_reviewed_by,
+            "last_reviewed_at": case.last_reviewed_at.isoformat()
+            if case.last_reviewed_at
+            else None,
             "created_by": case.created_by,
             "created_at": case.created_at.isoformat() if case.created_at else None,
             "updated_at": case.updated_at.isoformat() if case.updated_at else None,
@@ -305,6 +344,18 @@ def build_case_payload(db, case_id: int):
         }
         if latest_analysis
         else None,
+        "case_audit_trail": [
+            {
+                "id": row.id,
+                "event_type": row.event_type,
+                "old_value": row.old_value,
+                "new_value": row.new_value,
+                "comment": row.comment,
+                "created_by": row.created_by,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+            }
+            for row in case_audit_events
+        ],
         "incidents": [
             {
                 "id": incident.id,
@@ -342,6 +393,9 @@ def case_payload_to_markdown(payload: dict) -> str:
         f"- **Title:** {format_value(case['title'])}",
         f"- **Status:** {format_value(case['status'])}",
         f"- **Severity:** {format_value(case['severity'])}",
+        f"- **Severity review:** {format_value(case['severity_review'])}",
+        f"- **Owner:** {format_value(case['owner'])}",
+        f"- **SLA status:** {format_value(case['sla_status'])}",
         f"- **Host:** {format_value(case['agent'])}",
         f"- **Correlation type:** {format_value(case['correlation_type'])}",
         f"- **Risk score:** {format_value(case['risk_score'])}",
@@ -350,6 +404,13 @@ def case_payload_to_markdown(payload: dict) -> str:
         "## Case Metadata",
         "",
         f"- **Group key:** {format_value(case['group_key'])}",
+        f"- **Owner:** {format_value(case['owner'])}",
+        f"- **SLA due at:** {format_value(case['sla_due_at'])}",
+        f"- **SLA status:** {format_value(case['sla_status'])}",
+        f"- **Severity review:** {format_value(case['severity_review'])}",
+        f"- **Status reason:** {format_value(case['status_reason'])}",
+        f"- **Last reviewed by:** {format_value(case['last_reviewed_by'])}",
+        f"- **Last reviewed at:** {format_value(case['last_reviewed_at'])}",
         f"- **Created by:** {format_value(case['created_by'])}",
         f"- **Created at:** {format_value(case['created_at'])}",
         f"- **Updated at:** {format_value(case['updated_at'])}",
@@ -383,6 +444,32 @@ def case_payload_to_markdown(payload: dict) -> str:
                 "",
             ]
         )
+
+    lines.extend(
+        [
+            "## Case Workflow Audit Trail",
+            "",
+        ]
+    )
+
+    if payload["case_audit_trail"]:
+        for event in payload["case_audit_trail"]:
+            lines.extend(
+                [
+                    f"### Workflow Event #{event['id']}",
+                    "",
+                    f"- **Type:** {format_value(event['event_type'])}",
+                    f"- **Old value:** {format_value(event['old_value'])}",
+                    f"- **New value:** {format_value(event['new_value'])}",
+                    f"- **Created by:** {format_value(event['created_by'])}",
+                    f"- **Created at:** {format_value(event['created_at'])}",
+                    f"- **Comment:** {format_value(event['comment'])}",
+                    "",
+                ]
+            )
+    else:
+        lines.append("No case workflow audit events available.")
+        lines.append("")
 
     lines.extend(
         [

@@ -74,6 +74,14 @@ class IncidentCase(Base):
     risk_score = Column(Integer, default=0)
     summary = Column(Text)
 
+    owner = Column(String)
+    sla_due_at = Column(DateTime(timezone=True))
+    severity_review = Column(String)
+    status_reason = Column(Text)
+    last_reviewed_by = Column(String)
+    last_reviewed_at = Column(DateTime(timezone=True))
+
+
     created_by = Column(String, default="system")
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
@@ -90,6 +98,20 @@ class CaseIncident(Base):
     incident_id = Column(Integer, ForeignKey("incidents.id"), index=True, nullable=False)
 
     relationship_type = Column(String, default="CORRELATED")
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+class CaseAudit(Base):
+    __tablename__ = "case_audit"
+
+    id = Column(Integer, primary_key=True, index=True)
+    case_id = Column(Integer, ForeignKey("incident_cases.id"), index=True, nullable=False)
+
+    event_type = Column(String, nullable=False)
+    old_value = Column(Text)
+    new_value = Column(Text)
+    comment = Column(Text)
+
+    created_by = Column(String, default="local_analyst")
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
 
 class CaseAIAnalysis(Base):
