@@ -121,3 +121,27 @@ class WorkerHeartbeat(Base):
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
 
+class WazuhIngestWatermark(Base):
+    __tablename__ = "wazuh_ingest_watermarks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    component = Column(String, unique=True, index=True, nullable=False)
+
+    last_timestamp = Column(String, index=True)
+    last_doc_id = Column(String)
+
+    last_poll_at = Column(DateTime(timezone=True))
+    last_success_at = Column(DateTime(timezone=True))
+    last_error_at = Column(DateTime(timezone=True))
+    last_error = Column(Text)
+
+    alerts_seen = Column(Integer, default=0)
+    alerts_processed = Column(Integer, default=0)
+    alerts_skipped = Column(Integer, default=0)
+    total_processed = Column(Integer, default=0)
+
+    details = Column(Text)
+
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+

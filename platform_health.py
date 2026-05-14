@@ -11,6 +11,7 @@ from sqlalchemy import text as sql_text
 
 from database import engine, SessionLocal
 from models import Incident, WorkerHeartbeat, utc_now
+from wazuh_ingest_state import get_watermark_snapshot
 
 urllib3.disable_warnings()
 load_dotenv()
@@ -200,6 +201,45 @@ def check_qdrant():
         )
 
 
+
+def check_wazuh_ingest():
+    started_at = time.perf_counter()
+
+    try:
+        snapshot = get_watermark_snapshot()
+
+        last_error_at = snapshot.get("last_error_at")
+        last_success_at = snapshot.get("last_success_at")
+        last_timestamp = snapshot.get("last_timestamp")
+
+        status = "OK"
+        message = "Wazuh ingest watermark is available."
+
+        if not last_timestamp:
+            status = "WARN"
+            message = "Wazuh ingest watermark exists, but no alert timestamp has been processed yet."
+
+        if last_error_at and (not last_success_at or last_error_at > last_success_at):
+            status = "ERROR"
+            message = f"Wazuh ingest last error: {snapshot.get('last_error')}"
+
+        return component_result(
+            component="wazuh_ingest",
+            status=status,
+            message=message,
+            started_at=started_at,
+            details=snapshot,
+        )
+
+    except Exception as exc:
+        return component_result(
+            component="wazuh_ingest",
+            status="ERROR",
+            message=str(exc),
+            started_at=started_at,
+        )
+
+
 def check_worker():
     started_at = time.perf_counter()
     db = SessionLocal()
@@ -325,6 +365,7 @@ def get_platform_health():
         check_postgres(),
         check_ollama(),
         check_wazuh_indexer(),
+        check_wazuh_ingest(),
         check_qdrant(),
         check_worker(),
     ]

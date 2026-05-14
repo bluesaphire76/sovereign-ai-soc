@@ -110,7 +110,7 @@ export default function HealthPage() {
   const [error, setError] = useState<string | null>(null);
 
   const sortedComponents = useMemo(() => {
-    const order = ["api", "postgres", "ollama", "wazuh_indexer", "qdrant", "ai_soc_worker"];
+    const order = ["api", "postgres", "ollama", "wazuh_indexer", "wazuh_ingest", "qdrant", "ai_soc_worker"];
 
     return [...(health?.components ?? [])].sort((a, b) => {
       return order.indexOf(a.component) - order.indexOf(b.component);

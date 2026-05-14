@@ -6,6 +6,13 @@ from datetime import datetime, timezone
 from correlation_engine import correlate_incident
 from rag_retriever import retrieve_security_context
 from timezone_utils import normalize_timestamp_utc
+from wazuh_ingest_state import (
+    WAZUH_BATCH_SIZE,
+    build_wazuh_alert_query,
+    get_or_create_watermark,
+    update_watermark_error,
+    update_watermark_success,
+)
 
 import ollama
 import requests
@@ -27,12 +34,18 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:8b")
 POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "30"))
 
 
-def get_latest_alerts(limit=10):
-    query = {
-        "size": limit,
-        "sort": [{"@timestamp": {"order": "desc"}}],
-        "query": {"match_all": {}},
-    }
+def get_latest_alerts(limit=None):
+    db = SessionLocal()
+
+    try:
+        watermark = get_or_create_watermark(db)
+        query, query_info = build_wazuh_alert_query(
+            watermark=watermark,
+            limit=limit or WAZUH_BATCH_SIZE,
+        )
+
+    finally:
+        db.close()
 
     response = requests.get(
         f"{WAZUH_INDEXER_URL}/wazuh-alerts-*/_search",
@@ -53,7 +66,7 @@ def get_latest_alerts(limit=10):
         alert["_wazuh_doc_id"] = hit["_id"]
         alerts.append(alert)
 
-    return alerts
+    return alerts, query_info
 
 
 def incident_exists(doc_id):
@@ -205,11 +218,11 @@ def process_alert(alert):
 
     if not doc_id:
         print("[yellow]Alert senza doc_id, salto.[/yellow]")
-        return
+        return "skipped_no_doc_id"
 
     if incident_exists(doc_id):
         print(f"[dim]Già processato: {doc_id}[/dim]")
-        return
+        return "skipped_duplicate"
 
     print("\n[bold cyan]Nuovo alert rilevato[/bold cyan]")
     print(
@@ -227,6 +240,7 @@ def process_alert(alert):
     correlate_incident(incident_id)
 
     print("[bold green]Alert analizzato e salvato in PostgreSQL.[/bold green]")
+    return "processed"
 
 
 def run_worker():
@@ -243,21 +257,41 @@ def run_worker():
     )
 
     while True:
+        query_info = {}
+
         try:
-            alerts = get_latest_alerts(limit=10)
+            alerts, query_info = get_latest_alerts()
 
             if not alerts:
-                print("[dim]Nessun alert trovato.[/dim]")
+                print("[dim]Nessun nuovo alert trovato nel watermark window.[/dim]")
+
+            processed_count = 0
+            skipped_count = 0
 
             for alert in alerts:
-                process_alert(alert)
+                result = process_alert(alert)
+
+                if result == "processed":
+                    processed_count += 1
+                else:
+                    skipped_count += 1
+
+            update_watermark_success(
+                alerts=alerts,
+                processed_count=processed_count,
+                skipped_count=skipped_count,
+                query_info=query_info,
+            )
 
             update_worker_heartbeat(
                 "OK",
                 details={
                     "alerts_seen": len(alerts),
+                    "alerts_processed": processed_count,
+                    "alerts_skipped": skipped_count,
                     "poll_interval_seconds": POLL_INTERVAL_SECONDS,
                     "ollama_model": OLLAMA_MODEL,
+                    "wazuh_ingest": query_info,
                 },
             )
 
@@ -267,12 +301,15 @@ def run_worker():
             break
 
         except Exception as exc:
+            update_watermark_error(str(exc), query_info=query_info)
+
             update_worker_heartbeat(
                 "ERROR",
                 last_error=str(exc),
                 details={
                     "poll_interval_seconds": POLL_INTERVAL_SECONDS,
                     "ollama_model": OLLAMA_MODEL,
+                    "wazuh_ingest": query_info,
                 },
             )
             print(f"[bold red]Errore worker:[/bold red] {exc}")

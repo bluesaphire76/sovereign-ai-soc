@@ -6,6 +6,7 @@ from case_ai_analysis import generate_case_ai_analysis
 from models import Incident, IncidentAudit, IncidentNote, IncidentCase, CaseIncident, CaseAIAnalysis
 from timezone_utils import APP_TIMEZONE, format_timestamp_local, normalize_timestamp_utc
 from platform_health import get_platform_health
+from wazuh_ingest_state import get_watermark_snapshot
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -373,6 +374,12 @@ def create_incident_note(
 @app.get("/platform/health")
 def platform_health():
     return get_platform_health()
+
+
+
+@app.get("/platform/ingest/wazuh")
+def wazuh_ingest_watermark():
+    return get_watermark_snapshot()
 
 @app.get("/metrics/status-distribution")
 def metrics_status_distribution():
