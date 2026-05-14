@@ -18,6 +18,13 @@ type IncidentCase = {
   created_at: string | null;
   updated_at: string | null;
   incident_count: number;
+  owner: string | null;
+  sla_due_at: string | null;
+  sla_status: string | null;
+  severity_review: string | null;
+  status_reason: string | null;
+  last_reviewed_by: string | null;
+  last_reviewed_at: string | null;
 };
 
 type CasesResponse = {
@@ -49,6 +56,21 @@ function statusClass(value: string | null | undefined) {
   if (status === "CLOSED") return "bg-slate-200 text-slate-800 border-slate-300";
 
   return "bg-cyan-100 text-cyan-800 border-cyan-200";
+}
+
+function slaClass(value: string | null | undefined) {
+  const status = value ?? "NOT_SET";
+
+  if (status === "BREACHED") return "bg-red-100 text-red-800 border-red-200";
+  if (status === "WITHIN_SLA") return "bg-emerald-100 text-emerald-800 border-emerald-200";
+  if (status === "COMPLETED") return "bg-slate-200 text-slate-800 border-slate-300";
+
+  return "bg-slate-100 text-slate-700 border-slate-200";
+}
+
+function slaLabel(value: string | null | undefined) {
+  if (!value) return "NOT SET";
+  return value.replace("_", " ");
 }
 
 function formatTimestamp(value: string | null | undefined) {
@@ -95,6 +117,10 @@ export default function CasesPage() {
 
   const totalOpenCases = useMemo(() => {
     return cases.filter((item) => item.status !== "CLOSED").length;
+  }, [cases]);
+
+  const breachedCases = useMemo(() => {
+    return cases.filter((item) => item.sla_status === "BREACHED").length;
   }, [cases]);
 
   async function loadCases() {
@@ -166,9 +192,10 @@ export default function CasesPage() {
           </div>
         ) : (
           <div className="space-y-6">
-            <section className="grid gap-4 md:grid-cols-3">
+            <section className="grid gap-4 md:grid-cols-4">
               <MetricCard title="Total cases" value={data?.total ?? 0} />
               <MetricCard title="Open cases" value={totalOpenCases} />
+              <MetricCard title="SLA breached" value={breachedCases} />
               <MetricCard title="Page" value={data?.page ?? 1} />
             </section>
 
@@ -192,6 +219,8 @@ export default function CasesPage() {
                         <th className="py-3 pr-4">Case</th>
                         <th className="py-3 pr-4">Status</th>
                         <th className="py-3 pr-4">Severity</th>
+                        <th className="py-3 pr-4">Owner</th>
+                        <th className="py-3 pr-4">SLA</th>
                         <th className="py-3 pr-4">Host</th>
                         <th className="py-3 pr-4">Correlation type</th>
                         <th className="py-3 pr-4">Incidents</th>
@@ -232,6 +261,27 @@ export default function CasesPage() {
                             >
                               {item.severity ?? "LOW"} · {item.risk_score ?? 0}
                             </span>
+                          </td>
+
+                          <td className="py-3 pr-4 text-slate-300">
+                            {item.owner ?? "unassigned"}
+                          </td>
+
+                          <td className="py-3 pr-4">
+                            <div className="flex flex-col gap-1">
+                              <span
+                                className={`w-fit rounded-full border px-3 py-1 text-xs ${slaClass(
+                                  item.sla_status
+                                )}`}
+                              >
+                                {slaLabel(item.sla_status)}
+                              </span>
+                              {item.sla_due_at && (
+                                <span className="text-xs text-slate-500">
+                                  Due {formatTimestamp(item.sla_due_at)}
+                                </span>
+                              )}
+                            </div>
                           </td>
 
                           <td className="py-3 pr-4 text-slate-300">

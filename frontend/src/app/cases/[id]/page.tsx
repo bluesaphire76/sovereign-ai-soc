@@ -3,8 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft,
-  FileDown, Briefcase, ShieldAlert } from "lucide-react";
+import { ArrowLeft, Briefcase, FileDown, ShieldAlert } from "lucide-react";
 
 type IncidentCase = {
   id: number;
@@ -20,6 +19,13 @@ type IncidentCase = {
   created_at: string | null;
   updated_at: string | null;
   incident_count: number;
+  owner: string | null;
+  sla_due_at: string | null;
+  sla_status: string | null;
+  severity_review: string | null;
+  status_reason: string | null;
+  last_reviewed_by: string | null;
+  last_reviewed_at: string | null;
 };
 
 type CaseIncident = {
@@ -53,6 +59,25 @@ type CaseAIAnalysisResponse = {
   item: CaseAIAnalysis | null;
 };
 
+type CaseAudit = {
+  id: number;
+  case_id: number;
+  event_type: string;
+  old_value: string | null;
+  new_value: string | null;
+  comment: string | null;
+  created_by: string | null;
+  created_at: string | null;
+};
+
+type WorkflowForm = {
+  owner: string;
+  status: string;
+  severity: string;
+  sla_due_at: string;
+  status_reason: string;
+};
+
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8008";
 
@@ -75,6 +100,44 @@ function statusClass(value: string | null | undefined) {
   if (status === "FALSE_POSITIVE") return "bg-purple-100 text-purple-800 border-purple-200";
 
   return "bg-cyan-100 text-cyan-800 border-cyan-200";
+}
+
+function slaClass(value: string | null | undefined) {
+  const status = value ?? "NOT_SET";
+
+  if (status === "BREACHED") return "bg-red-100 text-red-800 border-red-200";
+  if (status === "WITHIN_SLA") return "bg-emerald-100 text-emerald-800 border-emerald-200";
+  if (status === "COMPLETED") return "bg-slate-200 text-slate-800 border-slate-300";
+
+  return "bg-slate-100 text-slate-700 border-slate-200";
+}
+
+function slaLabel(value: string | null | undefined) {
+  if (!value) return "NOT SET";
+  return value.replace("_", " ");
+}
+
+function toDatetimeLocalValue(value: string | null | undefined) {
+  if (!value) return "";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const offsetMs = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+}
+
+function workflowFormFromCase(item: IncidentCase): WorkflowForm {
+  return {
+    owner: item.owner ?? "",
+    status: item.status ?? "OPEN",
+    severity: item.severity_review ?? item.severity ?? "LOW",
+    sla_due_at: toDatetimeLocalValue(item.sla_due_at),
+    status_reason: item.status_reason ?? "",
+  };
 }
 
 function formatTimestamp(value: string | null | undefined) {
@@ -146,6 +209,44 @@ async function fetchCaseAnalysis(id: string): Promise<CaseAIAnalysis | null> {
   return data.item;
 }
 
+async function fetchCaseAudit(id: string): Promise<CaseAudit[]> {
+  const response = await fetch(`${API_BASE}/cases/${id}/audit`, {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`API error ${response.status}`);
+  }
+
+  return response.json();
+}
+
+async function updateCaseWorkflow(
+  id: string,
+  payload: {
+    owner: string;
+    status: string;
+    severity: string;
+    sla_due_at: string;
+    status_reason: string;
+    reviewed_by: string;
+  }
+): Promise<IncidentCase> {
+  const response = await fetch(`${API_BASE}/cases/${id}/workflow`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(`API error ${response.status}`);
+  }
+
+  return response.json();
+}
+
 async function generateCaseAnalysis(id: string): Promise<CaseAIAnalysis> {
   const response = await fetch(`${API_BASE}/cases/${id}/analysis`, {
     method: "POST",
@@ -165,7 +266,16 @@ export default function CaseDetailPage() {
   const [caseData, setCaseData] = useState<IncidentCase | null>(null);
   const [incidents, setIncidents] = useState<CaseIncident[]>([]);
   const [caseAnalysis, setCaseAnalysis] = useState<CaseAIAnalysis | null>(null);
+  const [auditTrail, setAuditTrail] = useState<CaseAudit[]>([]);
+  const [workflowForm, setWorkflowForm] = useState<WorkflowForm>({
+    owner: "",
+    status: "OPEN",
+    severity: "LOW",
+    sla_due_at: "",
+    status_reason: "",
+  });
   const [generatingAnalysis, setGeneratingAnalysis] = useState(false);
+  const [savingWorkflow, setSavingWorkflow] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -173,20 +283,49 @@ export default function CaseDetailPage() {
     try {
       setError(null);
 
-      const [caseResponse, incidentsResponse, analysisResponse] =
+      const [caseResponse, incidentsResponse, analysisResponse, auditResponse] =
         await Promise.all([
           fetchCase(caseId),
           fetchCaseIncidents(caseId),
           fetchCaseAnalysis(caseId),
+          fetchCaseAudit(caseId),
         ]);
 
       setCaseData(caseResponse);
+      setWorkflowForm(workflowFormFromCase(caseResponse));
       setIncidents(incidentsResponse);
       setCaseAnalysis(analysisResponse);
+      setAuditTrail(auditResponse);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleSaveWorkflow() {
+    try {
+      setSavingWorkflow(true);
+      setError(null);
+
+      const updatedCase = await updateCaseWorkflow(caseId, {
+        owner: workflowForm.owner,
+        status: workflowForm.status,
+        severity: workflowForm.severity,
+        sla_due_at: workflowForm.sla_due_at
+          ? new Date(workflowForm.sla_due_at).toISOString()
+          : "",
+        status_reason: workflowForm.status_reason,
+        reviewed_by: "local_analyst",
+      });
+
+      setCaseData(updatedCase);
+      setWorkflowForm(workflowFormFromCase(updatedCase));
+      setAuditTrail(await fetchCaseAudit(caseId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setSavingWorkflow(false);
     }
   }
 
@@ -279,6 +418,183 @@ export default function CaseDetailPage() {
               <InfoCard title="Incidents" value={caseData.incident_count} />
               <InfoCard title="Risk score" value={caseData.risk_score ?? 0} />
               <InfoCard title="Updated" value={formatTimestamp(caseData.updated_at)} />
+            </section>
+
+            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
+              <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h2 className="text-lg font-medium">Case workflow</h2>
+                  <p className="mt-1 text-sm text-slate-400">
+                    Assign ownership, review severity and track SLA for the investigation.
+                  </p>
+                </div>
+
+                <span
+                  className={`w-fit rounded-full border px-4 py-2 text-sm ${slaClass(
+                    caseData.sla_status
+                  )}`}
+                >
+                  SLA {slaLabel(caseData.sla_status)}
+                </span>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="block">
+                  <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                    Owner
+                  </span>
+                  <input
+                    value={workflowForm.owner}
+                    onChange={(event) =>
+                      setWorkflowForm((current) => ({
+                        ...current,
+                        owner: event.target.value,
+                      }))
+                    }
+                    placeholder="local_analyst"
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                    SLA due date
+                  </span>
+                  <input
+                    type="datetime-local"
+                    value={workflowForm.sla_due_at}
+                    onChange={(event) =>
+                      setWorkflowForm((current) => ({
+                        ...current,
+                        sla_due_at: event.target.value,
+                      }))
+                    }
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                    Status
+                  </span>
+                  <select
+                    value={workflowForm.status}
+                    onChange={(event) =>
+                      setWorkflowForm((current) => ({
+                        ...current,
+                        status: event.target.value,
+                      }))
+                    }
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                  >
+                    <option value="OPEN">OPEN</option>
+                    <option value="TRIAGED">TRIAGED</option>
+                    <option value="INVESTIGATING">INVESTIGATING</option>
+                    <option value="ESCALATED">ESCALATED</option>
+                    <option value="CLOSED">CLOSED</option>
+                    <option value="FALSE_POSITIVE">FALSE_POSITIVE</option>
+                  </select>
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                    Severity review
+                  </span>
+                  <select
+                    value={workflowForm.severity}
+                    onChange={(event) =>
+                      setWorkflowForm((current) => ({
+                        ...current,
+                        severity: event.target.value,
+                      }))
+                    }
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                  >
+                    <option value="LOW">LOW</option>
+                    <option value="MEDIUM">MEDIUM</option>
+                    <option value="HIGH">HIGH</option>
+                    <option value="CRITICAL">CRITICAL</option>
+                  </select>
+                </label>
+              </div>
+
+              <label className="mt-4 block">
+                <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                  Status reason / analyst comment
+                </span>
+                <textarea
+                  value={workflowForm.status_reason}
+                  onChange={(event) =>
+                    setWorkflowForm((current) => ({
+                      ...current,
+                      status_reason: event.target.value,
+                    }))
+                  }
+                  rows={3}
+                  placeholder="Why is this case in the selected state?"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                />
+              </label>
+
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                <div className="text-xs text-slate-500">
+                  Last reviewed by {caseData.last_reviewed_by ?? "-"} ·{" "}
+                  {formatTimestamp(caseData.last_reviewed_at)}
+                </div>
+
+                <button
+                  onClick={handleSaveWorkflow}
+                  disabled={savingWorkflow}
+                  className="rounded-xl border border-cyan-500 bg-cyan-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {savingWorkflow ? "Saving..." : "Save workflow"}
+                </button>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
+              <div className="mb-4 flex flex-col gap-2">
+                <h2 className="text-lg font-medium">Case workflow audit</h2>
+                <p className="text-sm text-slate-400">
+                  Persistent history of workflow changes made by the analyst.
+                </p>
+              </div>
+
+              {auditTrail.length === 0 ? (
+                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">
+                  No workflow audit events available yet.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {auditTrail.slice().reverse().map((event) => (
+                    <div
+                      key={event.id}
+                      className="rounded-xl border border-slate-800 bg-slate-950 p-4"
+                    >
+                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-sm font-medium text-slate-200">
+                          {event.event_type}
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          {formatTimestamp(event.created_at)} ·{" "}
+                          {event.created_by ?? "local_analyst"}
+                        </div>
+                      </div>
+
+                      {event.comment && (
+                        <div className="mb-2 text-sm text-slate-300">
+                          {event.comment}
+                        </div>
+                      )}
+
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <DetailRow label="Old value" value={event.old_value ?? "-"} />
+                        <DetailRow label="New value" value={event.new_value ?? "-"} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </section>
 
             <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
