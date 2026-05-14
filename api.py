@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Query
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from database import SessionLocal
 from models import Incident
@@ -48,17 +48,54 @@ def health():
 def list_incidents(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    status: str | None = Query(None),
+    risk: str | None = Query(None),
+    host: str | None = Query(None),
+    search: str | None = Query(None),
 ):
     db = SessionLocal()
 
     try:
         offset = (page - 1) * limit
 
-        total = db.query(func.count(Incident.id)).scalar() or 0
+        query = db.query(Incident)
+
+        if status and status.upper() != "ALL":
+            query = query.filter(Incident.status == status.upper())
+
+        if host:
+            query = query.filter(Incident.agent.ilike(f"%{host}%"))
+
+        if search:
+            query = query.filter(Incident.rule.ilike(f"%{search}%"))
+
+        if risk and risk.upper() != "ALL":
+            risk_value = risk.lower()
+
+            if risk_value == "low":
+                query = query.filter(
+                    or_(
+                        Incident.risk_score.is_(None),
+                        Incident.risk_score <= 30,
+                    )
+                )
+            elif risk_value == "medium":
+                query = query.filter(
+                    Incident.risk_score >= 31,
+                    Incident.risk_score <= 60,
+                )
+            elif risk_value == "high":
+                query = query.filter(
+                    Incident.risk_score >= 61,
+                    Incident.risk_score <= 80,
+                )
+            elif risk_value == "critical":
+                query = query.filter(Incident.risk_score >= 81)
+
+        total = query.with_entities(func.count(Incident.id)).scalar() or 0
 
         incidents = (
-            db.query(Incident)
-            .order_by(Incident.id.desc())
+            query.order_by(Incident.id.desc())
             .offset(offset)
             .limit(limit)
             .all()

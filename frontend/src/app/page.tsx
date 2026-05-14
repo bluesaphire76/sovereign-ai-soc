@@ -66,6 +66,17 @@ type RiskDistribution = {
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8008";
 
+const STATUS_OPTIONS = [
+  "ALL",
+  "NEW",
+  "TRIAGED",
+  "ESCALATED",
+  "CLOSED",
+  "FALSE_POSITIVE",
+];
+
+const RISK_OPTIONS = ["ALL", "low", "medium", "high", "critical"];
+
 function riskLabel(score: number | null | undefined) {
   const value = score ?? 0;
 
@@ -160,18 +171,41 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [riskFilter, setRiskFilter] = useState("ALL");
+  const [hostFilter, setHostFilter] = useState("");
+  const [searchFilter, setSearchFilter] = useState("");
 
   const loadDashboard = useCallback(async () => {
     try {
       setRefreshing(true);
       setError(null);
 
+      const incidentParams = new URLSearchParams({
+        page: String(currentPage),
+        limit: "20",
+      });
+
+      if (statusFilter !== "ALL") {
+        incidentParams.set("status", statusFilter);
+      }
+
+      if (riskFilter !== "ALL") {
+        incidentParams.set("risk", riskFilter);
+      }
+
+      if (hostFilter.trim()) {
+        incidentParams.set("host", hostFilter.trim());
+      }
+
+      if (searchFilter.trim()) {
+        incidentParams.set("search", searchFilter.trim());
+      }      
+
       const [summaryData, incidentsResponse, topHostsData, riskData] =
         await Promise.all([
           fetchJson<Summary>("/metrics/summary"),
-          fetchJson<IncidentsResponse>(
-            `/incidents?page=${currentPage}&limit=20`
-          ),
+          fetchJson<IncidentsResponse>(`/incidents?${incidentParams.toString()}`),
           fetchJson<TopHost[]>("/metrics/top-hosts?limit=10"),
           fetchJson<RiskDistribution>("/metrics/risk-distribution"),
         ]);
@@ -186,7 +220,7 @@ export default function Home() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [currentPage]);
+  }, [currentPage, statusFilter, riskFilter, hostFilter, searchFilter]);
 
   useEffect(() => {
     loadDashboard();
@@ -357,6 +391,93 @@ export default function Home() {
                 <span className="text-xs text-slate-500">
                   Auto refresh every 30s
                 </span>
+              </div>
+
+              <div className="mb-5 grid gap-3 rounded-2xl border border-slate-800 bg-slate-950 p-4 md:grid-cols-5">
+                <div>
+                  <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                    Status
+                  </label>
+                  <select
+                    value={statusFilter}
+                    onChange={(event) => {
+                      setStatusFilter(event.target.value);
+                      setCurrentPage(1);
+                    }}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200"
+                  >
+                    {STATUS_OPTIONS.map((status) => (
+                      <option key={status} value={status}>
+                        {status}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                    Risk
+                  </label>
+                  <select
+                    value={riskFilter}
+                    onChange={(event) => {
+                      setRiskFilter(event.target.value);
+                      setCurrentPage(1);
+                    }}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200"
+                  >
+                    {RISK_OPTIONS.map((risk) => (
+                      <option key={risk} value={risk}>
+                        {risk.toUpperCase()}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                    Host
+                  </label>
+                  <input
+                    value={hostFilter}
+                    onChange={(event) => {
+                      setHostFilter(event.target.value);
+                      setCurrentPage(1);
+                    }}
+                    placeholder="e.g. wazuh.manager"
+                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                    Search rule
+                  </label>
+                  <input
+                    value={searchFilter}
+                    onChange={(event) => {
+                      setSearchFilter(event.target.value);
+                      setCurrentPage(1);
+                    }}
+                    placeholder="e.g. CIS, sudo, ssh"
+                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600"
+                  />
+                </div>
+
+                <div className="flex items-end">
+                  <button
+                    onClick={() => {
+                      setStatusFilter("ALL");
+                      setRiskFilter("ALL");
+                      setHostFilter("");
+                      setSearchFilter("");
+                      setCurrentPage(1);
+                    }}
+                    className="w-full rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800"
+                  >
+                    Reset filters
+                  </button>
+                </div>
               </div>
 
               <div className="overflow-x-auto">
