@@ -35,6 +35,17 @@ type IncidentDetail = {
   recommended_priority: string | null;
 };
 
+type AuditEvent = {
+  id: number;
+  incident_id: number;
+  event_type: string;
+  old_value: string | null;
+  new_value: string | null;
+  comment: string | null;
+  created_by: string | null;
+  created_at: string | null;
+};
+
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8008";
 
@@ -108,19 +119,38 @@ async function fetchIncident(id: string): Promise<IncidentDetail> {
   return response.json();
 }
 
+async function fetchIncidentAudit(id: string): Promise<AuditEvent[]> {
+  const response = await fetch(`${API_BASE}/incidents/${id}/audit`, {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`API error ${response.status}`);
+  }
+
+  return response.json();
+}
+
+
 export default function IncidentDetailPage() {
   const params = useParams();
   const incidentId = String(params.id);
 
   const [incident, setIncident] = useState<IncidentDetail | null>(null);
+  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   async function loadIncident() {
     try {
       setError(null);
-      const data = await fetchIncident(incidentId);
+      const [data, auditData] = await Promise.all([
+        fetchIncident(incidentId),
+        fetchIncidentAudit(incidentId),
+      ]);
+
       setIncident(data);
+      setAuditEvents(auditData);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
@@ -259,6 +289,52 @@ export default function IncidentDetailPage() {
                   </button>
                 ))}
               </div>
+            </section>
+
+            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
+              <div className="mb-4">
+                <h2 className="text-lg font-medium">Audit trail</h2>
+                <p className="mt-1 text-sm text-slate-400">
+                  Operational history for this incident.
+                </p>
+              </div>
+
+              {auditEvents.length === 0 ? (
+                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">
+                  No audit events available.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {auditEvents.map((event) => (
+                    <div
+                      key={event.id}
+                      className="rounded-xl border border-slate-800 bg-slate-950 p-4"
+                    >
+                      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <div className="text-sm font-medium text-slate-200">
+                            {event.event_type}
+                          </div>
+
+                          <div className="mt-1 text-sm text-slate-400">
+                            {event.old_value ?? "-"} → {event.new_value ?? "-"}
+                          </div>
+                        </div>
+
+                        <div className="text-xs text-slate-500">
+                          {formatTimestamp(event.created_at)} · {event.created_by ?? "system"}
+                        </div>
+                      </div>
+
+                      {event.comment && (
+                        <div className="mt-3 rounded-lg border border-slate-800 bg-slate-900 p-3 text-sm text-slate-300">
+                          {event.comment}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </section>
 
             <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">

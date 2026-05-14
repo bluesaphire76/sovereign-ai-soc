@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, Query
 from sqlalchemy import func, or_
 
 from database import SessionLocal
-from models import Incident
+from models import Incident, IncidentAudit
 from timezone_utils import APP_TIMEZONE, format_timestamp_local, normalize_timestamp_utc
 
 from fastapi.middleware.cors import CORSMiddleware
@@ -36,6 +36,7 @@ VALID_INCIDENT_STATUSES = {
 
 class IncidentStatusUpdate(BaseModel):
     status: str
+    comment: str | None = None
 
 @app.get("/health")
 def health():
@@ -198,7 +199,20 @@ def update_incident_status(
         if not incident:
             raise HTTPException(status_code=404, detail="Incident not found")
 
-        incident.status = requested_status
+        old_status = incident.status or "NEW"
+
+        if old_status != requested_status:
+            audit = IncidentAudit(
+                incident_id=incident.id,
+                event_type="STATUS_CHANGE",
+                old_value=old_status,
+                new_value=requested_status,
+                comment=payload.comment,
+                created_by="local_analyst",
+            )
+
+            db.add(audit)
+            incident.status = requested_status
 
         db.commit()
         db.refresh(incident)
@@ -208,6 +222,46 @@ def update_incident_status(
             "status": incident.status,
             "message": "Incident status updated",
         }
+
+    finally:
+        db.close()
+
+
+
+@app.get("/incidents/{incident_id}/audit")
+def get_incident_audit(incident_id: int):
+    db = SessionLocal()
+
+    try:
+        incident = (
+            db.query(Incident)
+            .filter(Incident.id == incident_id)
+            .first()
+        )
+
+        if not incident:
+            raise HTTPException(status_code=404, detail="Incident not found")
+
+        rows = (
+            db.query(IncidentAudit)
+            .filter(IncidentAudit.incident_id == incident_id)
+            .order_by(IncidentAudit.created_at.asc(), IncidentAudit.id.asc())
+            .all()
+        )
+
+        return [
+            {
+                "id": row.id,
+                "incident_id": row.incident_id,
+                "event_type": row.event_type,
+                "old_value": row.old_value,
+                "new_value": row.new_value,
+                "comment": row.comment,
+                "created_by": row.created_by,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+            }
+            for row in rows
+        ]
 
     finally:
         db.close()

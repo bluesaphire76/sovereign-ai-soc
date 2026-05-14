@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean
+from datetime import datetime, timezone
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
@@ -29,3 +30,22 @@ class Incident(Base):
     correlation_type = Column(String)
     escalation_reason = Column(Text)
     recommended_priority = Column(String)
+
+def utc_now():
+    return datetime.now(timezone.utc)
+
+
+class IncidentAudit(Base):
+    __tablename__ = "incident_audit"
+
+    id = Column(Integer, primary_key=True, index=True)
+    incident_id = Column(Integer, ForeignKey("incidents.id"), index=True, nullable=False)
+
+    event_type = Column(String, nullable=False)
+    old_value = Column(String)
+    new_value = Column(String)
+    comment = Column(Text)
+
+    created_by = Column(String, default="local_analyst")
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+
