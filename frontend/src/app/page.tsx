@@ -10,6 +10,7 @@ import {
   Briefcase,
   Database,
   HeartPulse,
+  LogOut,
   RefreshCw,
   Server,
   Shield,
@@ -360,6 +361,18 @@ export default function Home() {
               <BarChart3 className="h-4 w-4" />
               Executive
             </Link>
+
+
+            <button
+              onClick={async () => {
+                await fetch("/api/auth/logout", { method: "POST" });
+                window.location.href = "/login";
+              }}
+              className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 shadow-sm hover:bg-slate-800"
+            >
+              <LogOut className="h-4 w-4" />
+              Logout
+            </button>
 
             <button
               onClick={loadDashboard}
