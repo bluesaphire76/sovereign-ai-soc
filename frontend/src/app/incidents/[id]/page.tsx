@@ -46,6 +46,14 @@ type AuditEvent = {
   created_at: string | null;
 };
 
+type IncidentNote = {
+  id: number;
+  incident_id: number;
+  note: string;
+  created_by: string | null;
+  created_at: string | null;
+};
+
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8008";
 
@@ -131,6 +139,18 @@ async function fetchIncidentAudit(id: string): Promise<AuditEvent[]> {
   return response.json();
 }
 
+async function fetchIncidentNotes(id: string): Promise<IncidentNote[]> {
+  const response = await fetch(`${API_BASE}/incidents/${id}/notes`, {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`API error ${response.status}`);
+  }
+
+  return response.json();
+}
+
 
 export default function IncidentDetailPage() {
   const params = useParams();
@@ -138,19 +158,24 @@ export default function IncidentDetailPage() {
 
   const [incident, setIncident] = useState<IncidentDetail | null>(null);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
+  const [notes, setNotes] = useState<IncidentNote[]>([]);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [savingNote, setSavingNote] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   async function loadIncident() {
     try {
       setError(null);
-      const [data, auditData] = await Promise.all([
+      const [data, auditData, notesData] = await Promise.all([
         fetchIncident(incidentId),
         fetchIncidentAudit(incidentId),
+        fetchIncidentNotes(incidentId),
       ]);
 
       setIncident(data);
       setAuditEvents(auditData);
+      setNotes(notesData);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
@@ -177,6 +202,41 @@ export default function IncidentDetailPage() {
       await loadIncident();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
+    }
+  }
+
+  async function addNote() {
+    const note = noteDraft.trim();
+
+    if (!note) {
+      return;
+    }
+
+    try {
+      setSavingNote(true);
+      setError(null);
+
+      const response = await fetch(`${API_BASE}/incidents/${incidentId}/notes`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          note,
+          created_by: "local_analyst",
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`API error ${response.status}`);
+      }
+
+      setNoteDraft("");
+      await loadIncident();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setSavingNote(false);
     }
   }
 
@@ -331,6 +391,57 @@ export default function IncidentDetailPage() {
                           {event.comment}
                         </div>
                       )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
+              <div className="mb-4">
+                <h2 className="text-lg font-medium">Analyst notes</h2>
+                <p className="mt-1 text-sm text-slate-400">
+                  Add investigation notes, assumptions, validation steps or closure rationale.
+                </p>
+              </div>
+
+              <div className="mb-5 space-y-3">
+                <textarea
+                  value={noteDraft}
+                  onChange={(event) => setNoteDraft(event.target.value)}
+                  placeholder="Write an analyst note for this incident..."
+                  className="min-h-28 w-full rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-200 outline-none placeholder:text-slate-600 focus:border-cyan-500"
+                />
+
+                <div className="flex justify-end">
+                  <button
+                    onClick={addNote}
+                    disabled={savingNote || !noteDraft.trim()}
+                    className="rounded-xl border border-cyan-500 bg-cyan-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {savingNote ? "Saving..." : "Add note"}
+                  </button>
+                </div>
+              </div>
+
+              {notes.length === 0 ? (
+                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">
+                  No analyst notes available.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {notes.map((note) => (
+                    <div
+                      key={note.id}
+                      className="rounded-xl border border-slate-800 bg-slate-950 p-4"
+                    >
+                      <div className="mb-2 text-xs text-slate-500">
+                        {formatTimestamp(note.created_at)} · {note.created_by ?? "local_analyst"}
+                      </div>
+
+                      <div className="whitespace-pre-wrap text-sm leading-6 text-slate-200">
+                        {note.note}
+                      </div>
                     </div>
                   ))}
                 </div>

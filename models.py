@@ -49,3 +49,13 @@ class IncidentAudit(Base):
     created_by = Column(String, default="local_analyst")
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
 
+class IncidentNote(Base):
+    __tablename__ = "incident_notes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    incident_id = Column(Integer, ForeignKey("incidents.id"), index=True, nullable=False)
+
+    note = Column(Text, nullable=False)
+    created_by = Column(String, default="local_analyst")
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+

@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, Query
 from sqlalchemy import func, or_
 
 from database import SessionLocal
-from models import Incident, IncidentAudit
+from models import Incident, IncidentAudit, IncidentNote
 from timezone_utils import APP_TIMEZONE, format_timestamp_local, normalize_timestamp_utc
 
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,6 +37,11 @@ VALID_INCIDENT_STATUSES = {
 class IncidentStatusUpdate(BaseModel):
     status: str
     comment: str | None = None
+
+
+class IncidentNoteCreate(BaseModel):
+    note: str
+    created_by: str | None = None
 
 @app.get("/health")
 def health():
@@ -262,6 +267,101 @@ def get_incident_audit(incident_id: int):
             }
             for row in rows
         ]
+
+    finally:
+        db.close()
+
+
+
+@app.get("/incidents/{incident_id}/notes")
+def get_incident_notes(incident_id: int):
+    db = SessionLocal()
+
+    try:
+        incident = (
+            db.query(Incident)
+            .filter(Incident.id == incident_id)
+            .first()
+        )
+
+        if not incident:
+            raise HTTPException(status_code=404, detail="Incident not found")
+
+        rows = (
+            db.query(IncidentNote)
+            .filter(IncidentNote.incident_id == incident_id)
+            .order_by(IncidentNote.created_at.desc(), IncidentNote.id.desc())
+            .all()
+        )
+
+        return [
+            {
+                "id": row.id,
+                "incident_id": row.incident_id,
+                "note": row.note,
+                "created_by": row.created_by,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+            }
+            for row in rows
+        ]
+
+    finally:
+        db.close()
+
+
+@app.post("/incidents/{incident_id}/notes")
+def create_incident_note(
+    incident_id: int,
+    payload: IncidentNoteCreate,
+):
+    note_text = payload.note.strip()
+
+    if not note_text:
+        raise HTTPException(status_code=400, detail="Note cannot be empty")
+
+    db = SessionLocal()
+
+    try:
+        incident = (
+            db.query(Incident)
+            .filter(Incident.id == incident_id)
+            .first()
+        )
+
+        if not incident:
+            raise HTTPException(status_code=404, detail="Incident not found")
+
+        created_by = payload.created_by or "local_analyst"
+
+        note = IncidentNote(
+            incident_id=incident.id,
+            note=note_text,
+            created_by=created_by,
+        )
+
+        db.add(note)
+        db.flush()
+
+        audit = IncidentAudit(
+            incident_id=incident.id,
+            event_type="NOTE_ADDED",
+            old_value=None,
+            new_value=f"note:{note.id}",
+            comment=note_text,
+            created_by=created_by,
+        )
+
+        db.add(audit)
+        db.commit()
+        db.refresh(note)
+
+        return {
+            "id": note.id,
+            "incident_id": note.incident_id,
+            "note": note.note,
+            "created_by": note.created_by,
+            "created_at": note.created_at.isoformat() if note.created_at else None,
+        }
 
     finally:
         db.close()
