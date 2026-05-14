@@ -5,6 +5,7 @@ import urllib3
 from datetime import datetime, timezone
 from correlation_engine import correlate_incident
 from rag_retriever import retrieve_security_context
+from timezone_utils import normalize_timestamp_utc
 
 import ollama
 import requests
@@ -29,7 +30,7 @@ POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "30"))
 def get_latest_alerts(limit=10):
     query = {
         "size": limit,
-        "sort": [{"@timestamp": {"order": "asc"}}],
+        "sort": [{"@timestamp": {"order": "desc"}}],
         "query": {"match_all": {}},
     }
 
@@ -141,7 +142,7 @@ def save_incident(alert, analysis):
     try:
         incident = Incident(
             wazuh_doc_id=alert.get("_wazuh_doc_id"),
-            timestamp=alert.get("@timestamp"),
+            timestamp=normalize_timestamp_utc(alert.get("@timestamp")),
             agent=alert.get("agent", {}).get("name"),
             rule=alert.get("rule", {}).get("description"),
             level=alert.get("rule", {}).get("level"),

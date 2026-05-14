@@ -3,6 +3,7 @@ from sqlalchemy import func, or_
 
 from database import SessionLocal
 from models import Incident
+from timezone_utils import APP_TIMEZONE, format_timestamp_local, normalize_timestamp_utc
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -95,7 +96,7 @@ def list_incidents(
         total = query.with_entities(func.count(Incident.id)).scalar() or 0
 
         incidents = (
-            query.order_by(Incident.id.desc())
+            query.order_by(Incident.timestamp.desc().nullslast(), Incident.id.desc())
             .offset(offset)
             .limit(limit)
             .all()
@@ -108,7 +109,9 @@ def list_incidents(
                 {
                     "id": item.id,
                     "status": item.status,
-                    "timestamp": item.timestamp,
+                    "timestamp": normalize_timestamp_utc(item.timestamp),
+                    "timestamp_local": format_timestamp_local(item.timestamp),
+                    "timezone": APP_TIMEZONE,
                     "agent": item.agent,
                     "rule": item.rule,
                     "level": item.level,
@@ -148,7 +151,9 @@ def get_incident(incident_id: int):
             "id": incident.id,
             "status": incident.status,
             "wazuh_doc_id": incident.wazuh_doc_id,
-            "timestamp": incident.timestamp,
+            "timestamp": normalize_timestamp_utc(incident.timestamp),
+            "timestamp_local": format_timestamp_local(incident.timestamp),
+            "timezone": APP_TIMEZONE,
             "agent": incident.agent,
             "rule": incident.rule,
             "level": incident.level,
