@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   Activity,
   AlertTriangle,
+  BarChart3,
   Brain,
   Briefcase,
   Database,
@@ -350,6 +351,14 @@ export default function Home() {
             >
               <HeartPulse className="h-4 w-4" />
               Health
+            </Link>
+
+            <Link
+              href="/executive"
+              className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 shadow-sm hover:bg-slate-800"
+            >
+              <BarChart3 className="h-4 w-4" />
+              Executive
             </Link>
 
             <button

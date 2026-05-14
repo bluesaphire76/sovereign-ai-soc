@@ -410,6 +410,261 @@ def platform_health():
 def wazuh_ingest_watermark():
     return get_watermark_snapshot()
 
+
+
+@app.get("/executive/summary")
+def executive_summary():
+    db = SessionLocal()
+
+    try:
+        total_incidents = db.query(Incident).count()
+
+        open_incidents = (
+            db.query(Incident)
+            .filter(~Incident.status.in_(["CLOSED", "FALSE_POSITIVE"]))
+            .count()
+        )
+
+        escalated_incidents = (
+            db.query(Incident)
+            .filter(Incident.status == "ESCALATED")
+            .count()
+        )
+
+        critical_incidents = (
+            db.query(Incident)
+            .filter(Incident.risk_score >= 81)
+            .count()
+        )
+
+        high_or_critical_incidents = (
+            db.query(Incident)
+            .filter(Incident.risk_score >= 61)
+            .count()
+        )
+
+        correlated_incidents = (
+            db.query(Incident)
+            .filter(Incident.correlated == True)
+            .count()
+        )
+
+        avg_risk = db.query(func.avg(Incident.risk_score)).scalar()
+        max_risk = db.query(func.max(Incident.risk_score)).scalar()
+
+        total_cases = db.query(IncidentCase).count()
+
+        open_cases = (
+            db.query(IncidentCase)
+            .filter(~IncidentCase.status.in_(["CLOSED", "FALSE_POSITIVE"]))
+            .count()
+        )
+
+        escalated_cases = (
+            db.query(IncidentCase)
+            .filter(IncidentCase.status == "ESCALATED")
+            .count()
+        )
+
+        critical_cases = (
+            db.query(IncidentCase)
+            .filter(IncidentCase.severity == "CRITICAL")
+            .count()
+        )
+
+        latest_cases = (
+            db.query(IncidentCase)
+            .order_by(IncidentCase.updated_at.desc(), IncidentCase.id.desc())
+            .limit(5)
+            .all()
+        )
+
+        latest_high_risk_incidents = (
+            db.query(Incident)
+            .filter(Incident.risk_score >= 61)
+            .order_by(Incident.timestamp.desc().nullslast(), Incident.id.desc())
+            .limit(5)
+            .all()
+        )
+
+        top_hosts_rows = (
+            db.query(
+                Incident.agent,
+                func.count(Incident.id).label("count"),
+                func.max(Incident.risk_score).label("max_risk"),
+                func.avg(Incident.risk_score).label("avg_risk"),
+            )
+            .group_by(Incident.agent)
+            .order_by(func.max(Incident.risk_score).desc(), func.count(Incident.id).desc())
+            .limit(5)
+            .all()
+        )
+
+        case_status_rows = (
+            db.query(
+                IncidentCase.status,
+                func.count(IncidentCase.id).label("count"),
+            )
+            .group_by(IncidentCase.status)
+            .all()
+        )
+
+        incident_status_rows = (
+            db.query(
+                Incident.status,
+                func.count(Incident.id).label("count"),
+            )
+            .group_by(Incident.status)
+            .all()
+        )
+
+        priority_rows = (
+            db.query(
+                Incident.recommended_priority,
+                func.count(Incident.id).label("count"),
+            )
+            .group_by(Incident.recommended_priority)
+            .all()
+        )
+
+        correlation_type_rows = (
+            db.query(
+                Incident.correlation_type,
+                func.count(Incident.id).label("count"),
+            )
+            .filter(Incident.correlation_type.isnot(None))
+            .group_by(Incident.correlation_type)
+            .order_by(func.count(Incident.id).desc())
+            .limit(5)
+            .all()
+        )
+
+        latest_case_analysis = (
+            db.query(CaseAIAnalysis)
+            .order_by(CaseAIAnalysis.created_at.desc(), CaseAIAnalysis.id.desc())
+            .first()
+        )
+
+        recommendations = []
+
+        if critical_incidents > 0 or critical_cases > 0:
+            recommendations.append(
+                "Review critical incidents and critical cases before closing operational backlog."
+            )
+
+        if escalated_incidents > 0 or escalated_cases > 0:
+            recommendations.append(
+                "Escalated items require management visibility and explicit ownership."
+            )
+
+        if open_cases > 0:
+            recommendations.append(
+                "Keep investigation cases updated with analyst notes and AI case analysis."
+            )
+
+        if high_or_critical_incidents == 0 and open_cases == 0:
+            recommendations.append(
+                "No immediate high-risk backlog detected. Continue monitoring and validate ingestion health."
+            )
+
+        executive_status = "OK"
+
+        if critical_incidents > 0 or critical_cases > 0:
+            executive_status = "CRITICAL"
+        elif escalated_incidents > 0 or escalated_cases > 0 or high_or_critical_incidents > 0:
+            executive_status = "ATTENTION"
+
+        return {
+            "status": executive_status,
+            "summary": {
+                "total_incidents": total_incidents,
+                "open_incidents": open_incidents,
+                "escalated_incidents": escalated_incidents,
+                "critical_incidents": critical_incidents,
+                "high_or_critical_incidents": high_or_critical_incidents,
+                "correlated_incidents": correlated_incidents,
+                "total_cases": total_cases,
+                "open_cases": open_cases,
+                "escalated_cases": escalated_cases,
+                "critical_cases": critical_cases,
+                "average_risk_score": round(float(avg_risk or 0), 2),
+                "max_risk_score": int(max_risk or 0),
+            },
+            "distributions": {
+                "incident_status": {
+                    row.status or "NEW": row.count
+                    for row in incident_status_rows
+                },
+                "case_status": {
+                    row.status or "OPEN": row.count
+                    for row in case_status_rows
+                },
+                "priority": {
+                    row.recommended_priority or "UNSPECIFIED": row.count
+                    for row in priority_rows
+                },
+            },
+            "top_hosts": [
+                {
+                    "agent": row.agent,
+                    "count": row.count,
+                    "max_risk": int(row.max_risk or 0),
+                    "average_risk": round(float(row.avg_risk or 0), 2),
+                }
+                for row in top_hosts_rows
+            ],
+            "top_correlation_types": [
+                {
+                    "correlation_type": row.correlation_type,
+                    "count": row.count,
+                }
+                for row in correlation_type_rows
+            ],
+            "latest_cases": [
+                {
+                    "id": item.id,
+                    "title": item.title,
+                    "status": item.status,
+                    "severity": item.severity,
+                    "agent": item.agent,
+                    "correlation_type": item.correlation_type,
+                    "risk_score": item.risk_score,
+                    "updated_at": item.updated_at.isoformat() if item.updated_at else None,
+                }
+                for item in latest_cases
+            ],
+            "latest_high_risk_incidents": [
+                {
+                    "id": item.id,
+                    "status": item.status,
+                    "timestamp": normalize_timestamp_utc(item.timestamp),
+                    "timestamp_local": format_timestamp_local(item.timestamp),
+                    "agent": item.agent,
+                    "rule": item.rule,
+                    "risk_score": item.risk_score,
+                    "recommended_priority": item.recommended_priority,
+                    "correlation_type": item.correlation_type,
+                }
+                for item in latest_high_risk_incidents
+            ],
+            "latest_case_analysis": {
+                "id": latest_case_analysis.id,
+                "case_id": latest_case_analysis.case_id,
+                "model": latest_case_analysis.model,
+                "recommended_status": latest_case_analysis.recommended_status,
+                "recommended_severity": latest_case_analysis.recommended_severity,
+                "created_at": latest_case_analysis.created_at.isoformat()
+                if latest_case_analysis.created_at
+                else None,
+            }
+            if latest_case_analysis
+            else None,
+            "recommendations": recommendations,
+        }
+
+    finally:
+        db.close()
+
 @app.get("/metrics/status-distribution")
 def metrics_status_distribution():
     db = SessionLocal()
