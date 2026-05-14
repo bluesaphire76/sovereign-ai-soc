@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
   ArrowLeft,
+  FileDown,
   Brain,
   Database,
   FileText,
@@ -358,6 +359,26 @@ export default function IncidentDetailPage() {
               </span>
             )}
           </div>
+          <div className="mt-5 flex flex-wrap gap-3">
+            <a
+              href={`${API_BASE}/reports/incidents/${incidentId}?format=markdown`}
+              download
+              className="inline-flex items-center gap-2 rounded-xl border border-cyan-700 bg-cyan-500 px-4 py-2 text-sm font-medium text-slate-950 shadow-sm hover:bg-cyan-400"
+            >
+              <FileDown className="h-4 w-4" />
+              Download Markdown report
+            </a>
+
+            <a
+              href={`${API_BASE}/reports/incidents/${incidentId}?format=json`}
+              download
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 shadow-sm hover:bg-slate-800"
+            >
+              <FileDown className="h-4 w-4" />
+              Download JSON
+            </a>
+          </div>
+
         </header>
 
         {loading && (

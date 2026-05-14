@@ -1,7 +1,8 @@
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Response
 from sqlalchemy import func, or_
 
 from database import SessionLocal
+from report_builder import build_case_report, build_incident_report
 from case_ai_analysis import generate_case_ai_analysis
 from models import Incident, IncidentAudit, IncidentNote, IncidentCase, CaseIncident, CaseAIAnalysis
 from timezone_utils import APP_TIMEZONE, format_timestamp_local, normalize_timestamp_utc
@@ -9,6 +10,7 @@ from platform_health import get_platform_health
 from wazuh_ingest_state import get_watermark_snapshot
 
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from pydantic import BaseModel
 
@@ -664,6 +666,73 @@ def executive_summary():
 
     finally:
         db.close()
+
+
+
+@app.get("/reports/incidents/{incident_id}")
+def export_incident_report(
+    incident_id: int,
+    format: str = Query("markdown"),
+):
+    if format not in {"markdown", "json"}:
+        raise HTTPException(status_code=400, detail="format must be markdown or json")
+
+    try:
+        report = build_incident_report(incident_id)
+
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    if format == "json":
+        filename = report["filename"].replace(".md", ".json")
+
+        return JSONResponse(
+            content=report["payload"],
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+            },
+        )
+
+    return Response(
+        content=report["markdown"],
+        media_type="text/markdown; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{report["filename"]}"',
+        },
+    )
+
+
+@app.get("/reports/cases/{case_id}")
+def export_case_report(
+    case_id: int,
+    format: str = Query("markdown"),
+):
+    if format not in {"markdown", "json"}:
+        raise HTTPException(status_code=400, detail="format must be markdown or json")
+
+    try:
+        report = build_case_report(case_id)
+
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    if format == "json":
+        filename = report["filename"].replace(".md", ".json")
+
+        return JSONResponse(
+            content=report["payload"],
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+            },
+        )
+
+    return Response(
+        content=report["markdown"],
+        media_type="text/markdown; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{report["filename"]}"',
+        },
+    )
 
 @app.get("/metrics/status-distribution")
 def metrics_status_distribution():
