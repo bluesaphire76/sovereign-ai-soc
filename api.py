@@ -62,6 +62,12 @@ def list_incidents(
     risk: str | None = Query(None),
     host: str | None = Query(None),
     search: str | None = Query(None),
+    priority: str | None = Query(None),
+    correlation_type: str | None = Query(None),
+    correlated: str | None = Query(None),
+    mitre: str | None = Query(None),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
 ):
     db = SessionLocal()
 
@@ -78,6 +84,29 @@ def list_incidents(
 
         if search:
             query = query.filter(Incident.rule.ilike(f"%{search}%"))
+
+        if priority and priority.upper() != "ALL":
+            query = query.filter(Incident.recommended_priority == priority.upper())
+
+        if correlation_type:
+            query = query.filter(Incident.correlation_type.ilike(f"%{correlation_type}%"))
+
+        if mitre:
+            query = query.filter(Incident.mitre.ilike(f"%{mitre}%"))
+
+        if correlated and correlated.upper() != "ALL":
+            correlated_value = correlated.lower()
+
+            if correlated_value in {"true", "yes", "1"}:
+                query = query.filter(Incident.correlated == True)
+            elif correlated_value in {"false", "no", "0"}:
+                query = query.filter(Incident.correlated == False)
+
+        if date_from:
+            query = query.filter(Incident.timestamp >= f"{date_from}T00:00:00+00:00")
+
+        if date_to:
+            query = query.filter(Incident.timestamp <= f"{date_to}T23:59:59+00:00")
 
         if risk and risk.upper() != "ALL":
             risk_value = risk.lower()

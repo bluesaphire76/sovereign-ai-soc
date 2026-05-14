@@ -81,6 +81,14 @@ const STATUS_OPTIONS = [
 
 const RISK_OPTIONS = ["ALL", "low", "medium", "high", "critical"];
 
+const PRIORITY_OPTIONS = ["ALL", "LOW", "MEDIUM", "HIGH", "CRITICAL"];
+
+const CORRELATED_OPTIONS = [
+  { label: "ALL", value: "ALL" },
+  { label: "YES", value: "true" },
+  { label: "NO", value: "false" },
+];
+
 function riskLabel(score: number | null | undefined) {
   const value = score ?? 0;
 
@@ -179,6 +187,12 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [riskFilter, setRiskFilter] = useState("ALL");
+  const [priorityFilter, setPriorityFilter] = useState("ALL");
+  const [correlatedFilter, setCorrelatedFilter] = useState("ALL");
+  const [correlationTypeFilter, setCorrelationTypeFilter] = useState("");
+  const [mitreFilter, setMitreFilter] = useState("");
+  const [dateFromFilter, setDateFromFilter] = useState("");
+  const [dateToFilter, setDateToFilter] = useState("");
   const [hostFilter, setHostFilter] = useState("");
   const [searchFilter, setSearchFilter] = useState("");
 
@@ -198,6 +212,30 @@ export default function Home() {
 
       if (riskFilter !== "ALL") {
         incidentParams.set("risk", riskFilter);
+      }
+
+      if (priorityFilter !== "ALL") {
+        incidentParams.set("priority", priorityFilter);
+      }
+
+      if (correlatedFilter !== "ALL") {
+        incidentParams.set("correlated", correlatedFilter);
+      }
+
+      if (correlationTypeFilter.trim()) {
+        incidentParams.set("correlation_type", correlationTypeFilter.trim());
+      }
+
+      if (mitreFilter.trim()) {
+        incidentParams.set("mitre", mitreFilter.trim());
+      }
+
+      if (dateFromFilter) {
+        incidentParams.set("date_from", dateFromFilter);
+      }
+
+      if (dateToFilter) {
+        incidentParams.set("date_to", dateToFilter);
       }
 
       if (hostFilter.trim()) {
@@ -226,7 +264,19 @@ export default function Home() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [currentPage, statusFilter, riskFilter, hostFilter, searchFilter]);
+  }, [
+    currentPage,
+    statusFilter,
+    riskFilter,
+    priorityFilter,
+    correlatedFilter,
+    correlationTypeFilter,
+    mitreFilter,
+    dateFromFilter,
+    dateToFilter,
+    hostFilter,
+    searchFilter,
+  ]);
 
   useEffect(() => {
     loadDashboard();
@@ -417,7 +467,7 @@ export default function Home() {
                 </span>
               </div>
 
-              <div className="mb-5 grid gap-3 rounded-2xl border border-slate-800 bg-slate-950 p-4 md:grid-cols-5">
+              <div className="mb-5 grid gap-3 rounded-2xl border border-slate-800 bg-slate-950 p-4 md:grid-cols-4 xl:grid-cols-5">
                 <div>
                   <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
                     Status
@@ -488,11 +538,117 @@ export default function Home() {
                   />
                 </div>
 
+                <div>
+                  <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                    Priority
+                  </label>
+                  <select
+                    value={priorityFilter}
+                    onChange={(event) => {
+                      setPriorityFilter(event.target.value);
+                      setCurrentPage(1);
+                    }}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200"
+                  >
+                    {PRIORITY_OPTIONS.map((priority) => (
+                      <option key={priority} value={priority}>
+                        {priority}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                    Correlated
+                  </label>
+                  <select
+                    value={correlatedFilter}
+                    onChange={(event) => {
+                      setCorrelatedFilter(event.target.value);
+                      setCurrentPage(1);
+                    }}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200"
+                  >
+                    {CORRELATED_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                    Correlation type
+                  </label>
+                  <input
+                    value={correlationTypeFilter}
+                    onChange={(event) => {
+                      setCorrelationTypeFilter(event.target.value);
+                      setCurrentPage(1);
+                    }}
+                    placeholder="e.g. COMPROMISE"
+                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                    MITRE
+                  </label>
+                  <input
+                    value={mitreFilter}
+                    onChange={(event) => {
+                      setMitreFilter(event.target.value);
+                      setCurrentPage(1);
+                    }}
+                    placeholder="e.g. T1078"
+                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                    Date from
+                  </label>
+                  <input
+                    type="date"
+                    value={dateFromFilter}
+                    onChange={(event) => {
+                      setDateFromFilter(event.target.value);
+                      setCurrentPage(1);
+                    }}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                    Date to
+                  </label>
+                  <input
+                    type="date"
+                    value={dateToFilter}
+                    onChange={(event) => {
+                      setDateToFilter(event.target.value);
+                      setCurrentPage(1);
+                    }}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200"
+                  />
+                </div>
+
                 <div className="flex items-end">
                   <button
                     onClick={() => {
                       setStatusFilter("ALL");
                       setRiskFilter("ALL");
+                      setPriorityFilter("ALL");
+                      setCorrelatedFilter("ALL");
+                      setCorrelationTypeFilter("");
+                      setMitreFilter("");
+                      setDateFromFilter("");
+                      setDateToFilter("");
                       setHostFilter("");
                       setSearchFilter("");
                       setCurrentPage(1);
