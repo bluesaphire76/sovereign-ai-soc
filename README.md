@@ -264,6 +264,7 @@ Direct HTTP access to the frontend should not be used.
 | `/cases/[id]` | Case investigation detail and AI case analysis |
 | `/health` | Platform health dashboard |
 | `/executive` | Executive summary dashboard |
+| `/detection-quality` | Detection quality dashboard for synthetic defensive scenarios |
 | `/login` | Local dashboard login |
 
 ---
