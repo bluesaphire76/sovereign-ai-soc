@@ -37,6 +37,21 @@ type CaseIncident = {
   recommended_priority: string | null;
 };
 
+type CaseAIAnalysis = {
+  id: number;
+  case_id: number;
+  model: string | null;
+  analysis: string;
+  recommended_status: string | null;
+  recommended_severity: string | null;
+  created_by: string | null;
+  created_at: string | null;
+};
+
+type CaseAIAnalysisResponse = {
+  item: CaseAIAnalysis | null;
+};
+
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8008";
 
@@ -117,12 +132,39 @@ async function fetchCaseIncidents(id: string): Promise<CaseIncident[]> {
   return response.json();
 }
 
+async function fetchCaseAnalysis(id: string): Promise<CaseAIAnalysis | null> {
+  const response = await fetch(`${API_BASE}/cases/${id}/analysis`, {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`API error ${response.status}`);
+  }
+
+  const data = (await response.json()) as CaseAIAnalysisResponse;
+  return data.item;
+}
+
+async function generateCaseAnalysis(id: string): Promise<CaseAIAnalysis> {
+  const response = await fetch(`${API_BASE}/cases/${id}/analysis`, {
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    throw new Error(`API error ${response.status}`);
+  }
+
+  return response.json();
+}
+
 export default function CaseDetailPage() {
   const params = useParams();
   const caseId = String(params.id);
 
   const [caseData, setCaseData] = useState<IncidentCase | null>(null);
   const [incidents, setIncidents] = useState<CaseIncident[]>([]);
+  const [caseAnalysis, setCaseAnalysis] = useState<CaseAIAnalysis | null>(null);
+  const [generatingAnalysis, setGeneratingAnalysis] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -130,17 +172,34 @@ export default function CaseDetailPage() {
     try {
       setError(null);
 
-      const [caseResponse, incidentsResponse] = await Promise.all([
-        fetchCase(caseId),
-        fetchCaseIncidents(caseId),
-      ]);
+      const [caseResponse, incidentsResponse, analysisResponse] =
+        await Promise.all([
+          fetchCase(caseId),
+          fetchCaseIncidents(caseId),
+          fetchCaseAnalysis(caseId),
+        ]);
 
       setCaseData(caseResponse);
       setIncidents(incidentsResponse);
+      setCaseAnalysis(analysisResponse);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleGenerateAnalysis() {
+    try {
+      setGeneratingAnalysis(true);
+      setError(null);
+
+      const result = await generateCaseAnalysis(caseId);
+      setCaseAnalysis(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setGeneratingAnalysis(false);
     }
   }
 
@@ -244,6 +303,54 @@ export default function CaseDetailPage() {
                   value={caseData.created_by ?? "system"}
                 />
               </div>
+            </section>
+
+            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
+              <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h2 className="text-lg font-medium">Case AI analysis</h2>
+                  <p className="mt-1 text-sm text-slate-400">
+                    LLM-generated investigation summary, risk interpretation and recommended next actions.
+                  </p>
+                </div>
+
+                <button
+                  onClick={handleGenerateAnalysis}
+                  disabled={generatingAnalysis}
+                  className="rounded-xl border border-cyan-500 bg-cyan-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {generatingAnalysis ? "Generating..." : caseAnalysis ? "Regenerate AI analysis" : "Generate AI analysis"}
+                </button>
+              </div>
+
+              {!caseAnalysis ? (
+                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">
+                  No AI analysis available yet for this case.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <DetailRow label="Model" value={caseAnalysis.model ?? "-"} />
+                    <DetailRow
+                      label="Recommended status"
+                      value={caseAnalysis.recommended_status ?? "-"}
+                    />
+                    <DetailRow
+                      label="Recommended severity"
+                      value={caseAnalysis.recommended_severity ?? "-"}
+                    />
+                  </div>
+
+                  <div className="text-xs text-slate-500">
+                    Generated {formatTimestamp(caseAnalysis.created_at)} by{" "}
+                    {caseAnalysis.created_by ?? "llm"}
+                  </div>
+
+                  <pre className="whitespace-pre-wrap rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm leading-6 text-slate-200">
+                    {caseAnalysis.analysis}
+                  </pre>
+                </div>
+              )}
             </section>
 
             <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">

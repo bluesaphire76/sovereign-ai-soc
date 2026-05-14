@@ -2,7 +2,8 @@ from fastapi import FastAPI, HTTPException, Query
 from sqlalchemy import func, or_
 
 from database import SessionLocal
-from models import Incident, IncidentAudit, IncidentNote, IncidentCase, CaseIncident
+from case_ai_analysis import generate_case_ai_analysis
+from models import Incident, IncidentAudit, IncidentNote, IncidentCase, CaseIncident, CaseAIAnalysis
 from timezone_utils import APP_TIMEZONE, format_timestamp_local, normalize_timestamp_utc
 
 from fastapi.middleware.cors import CORSMiddleware
@@ -658,4 +659,64 @@ def get_case_incidents(case_id: int):
 
     finally:
         db.close()
+
+@app.get("/cases/{case_id}/analysis")
+def get_case_analysis(case_id: int):
+    db = SessionLocal()
+
+    try:
+        case = (
+            db.query(IncidentCase)
+            .filter(IncidentCase.id == case_id)
+            .first()
+        )
+
+        if not case:
+            raise HTTPException(status_code=404, detail="Case not found")
+
+        row = (
+            db.query(CaseAIAnalysis)
+            .filter(CaseAIAnalysis.case_id == case_id)
+            .order_by(CaseAIAnalysis.created_at.desc(), CaseAIAnalysis.id.desc())
+            .first()
+        )
+
+        if not row:
+            return {"item": None}
+
+        return {
+            "item": {
+                "id": row.id,
+                "case_id": row.case_id,
+                "model": row.model,
+                "analysis": row.analysis,
+                "recommended_status": row.recommended_status,
+                "recommended_severity": row.recommended_severity,
+                "created_by": row.created_by,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+            }
+        }
+
+    finally:
+        db.close()
+
+
+@app.post("/cases/{case_id}/analysis")
+def create_case_analysis(case_id: int):
+    try:
+        row = generate_case_ai_analysis(case_id)
+
+        return {
+            "id": row.id,
+            "case_id": row.case_id,
+            "model": row.model,
+            "analysis": row.analysis,
+            "recommended_status": row.recommended_status,
+            "recommended_severity": row.recommended_severity,
+            "created_by": row.created_by,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        }
+
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 

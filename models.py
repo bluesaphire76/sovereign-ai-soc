@@ -92,3 +92,16 @@ class CaseIncident(Base):
     relationship_type = Column(String, default="CORRELATED")
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
 
+class CaseAIAnalysis(Base):
+    __tablename__ = "case_ai_analyses"
+
+    id = Column(Integer, primary_key=True, index=True)
+    case_id = Column(Integer, ForeignKey("incident_cases.id"), index=True, nullable=False)
+
+    model = Column(String)
+    analysis = Column(Text, nullable=False)
+    recommended_status = Column(String)
+    recommended_severity = Column(String)
+    created_by = Column(String, default="llm")
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+
