@@ -443,16 +443,4 @@ It is provided without warranty. Users are responsible for validating the system
 
 ## License
 
-License to be defined.
-
-Recommended option for this project: **Apache License 2.0**.
-
-Apache-2.0 is a permissive open source license with an explicit patent grant and warranty disclaimer. It is usually a good fit for infrastructure, security, and platform-oriented projects intended for broad reuse.
-
-If a different strategy is preferred:
-
-- **MIT**: simplest permissive option.
-- **Apache-2.0**: permissive option with stronger legal structure and patent language.
-- **AGPL-3.0**: strong copyleft option if you want modified network-service versions to remain open source.
-
-See the `LICENSE` file once added.
+License Apache License 2.0
