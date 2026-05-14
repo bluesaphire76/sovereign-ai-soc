@@ -105,3 +105,19 @@ class CaseAIAnalysis(Base):
     created_by = Column(String, default="llm")
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
 
+class WorkerHeartbeat(Base):
+    __tablename__ = "worker_heartbeats"
+
+    id = Column(Integer, primary_key=True, index=True)
+    component = Column(String, unique=True, index=True, nullable=False)
+
+    status = Column(String, default="UNKNOWN")
+    last_seen_at = Column(DateTime(timezone=True))
+    last_success_at = Column(DateTime(timezone=True))
+    last_error_at = Column(DateTime(timezone=True))
+    last_error = Column(Text)
+    details = Column(Text)
+
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+

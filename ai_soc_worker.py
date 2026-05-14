@@ -14,7 +14,7 @@ from requests.auth import HTTPBasicAuth
 from rich import print
 
 from database import SessionLocal
-from models import Incident
+from models import Incident, WorkerHeartbeat, utc_now
 
 urllib3.disable_warnings()
 load_dotenv()
@@ -67,6 +67,44 @@ def incident_exists(doc_id):
         )
 
         return existing is not None
+
+    finally:
+        db.close()
+
+
+
+def update_worker_heartbeat(status, last_error=None, details=None):
+    db = SessionLocal()
+
+    try:
+        now = utc_now()
+
+        heartbeat = (
+            db.query(WorkerHeartbeat)
+            .filter(WorkerHeartbeat.component == "ai_soc_worker")
+            .first()
+        )
+
+        if not heartbeat:
+            heartbeat = WorkerHeartbeat(component="ai_soc_worker")
+            db.add(heartbeat)
+
+        heartbeat.status = status
+        heartbeat.last_seen_at = now
+        heartbeat.updated_at = now
+        heartbeat.details = json.dumps(details or {}, ensure_ascii=False)
+
+        if status == "OK":
+            heartbeat.last_success_at = now
+
+        if last_error:
+            heartbeat.last_error_at = now
+            heartbeat.last_error = str(last_error)
+
+        db.commit()
+
+    except Exception as exc:
+        print(f"[yellow]Impossibile aggiornare worker heartbeat:[/yellow] {exc}")
 
     finally:
         db.close()
@@ -196,6 +234,14 @@ def run_worker():
     print(f"Polling interval: {POLL_INTERVAL_SECONDS} secondi")
     print(f"Modello Ollama: {OLLAMA_MODEL}")
 
+    update_worker_heartbeat(
+        "STARTING",
+        details={
+            "poll_interval_seconds": POLL_INTERVAL_SECONDS,
+            "ollama_model": OLLAMA_MODEL,
+        },
+    )
+
     while True:
         try:
             alerts = get_latest_alerts(limit=10)
@@ -206,11 +252,29 @@ def run_worker():
             for alert in alerts:
                 process_alert(alert)
 
+            update_worker_heartbeat(
+                "OK",
+                details={
+                    "alerts_seen": len(alerts),
+                    "poll_interval_seconds": POLL_INTERVAL_SECONDS,
+                    "ollama_model": OLLAMA_MODEL,
+                },
+            )
+
         except KeyboardInterrupt:
+            update_worker_heartbeat("STOPPED")
             print("\n[bold yellow]Worker fermato manualmente.[/bold yellow]")
             break
 
         except Exception as exc:
+            update_worker_heartbeat(
+                "ERROR",
+                last_error=str(exc),
+                details={
+                    "poll_interval_seconds": POLL_INTERVAL_SECONDS,
+                    "ollama_model": OLLAMA_MODEL,
+                },
+            )
             print(f"[bold red]Errore worker:[/bold red] {exc}")
 
         time.sleep(POLL_INTERVAL_SECONDS)

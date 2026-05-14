@@ -5,6 +5,7 @@ from database import SessionLocal
 from case_ai_analysis import generate_case_ai_analysis
 from models import Incident, IncidentAudit, IncidentNote, IncidentCase, CaseIncident, CaseAIAnalysis
 from timezone_utils import APP_TIMEZONE, format_timestamp_local, normalize_timestamp_utc
+from platform_health import get_platform_health
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -366,6 +367,12 @@ def create_incident_note(
 
     finally:
         db.close()
+
+
+
+@app.get("/platform/health")
+def platform_health():
+    return get_platform_health()
 
 @app.get("/metrics/status-distribution")
 def metrics_status_distribution():

@@ -8,6 +8,7 @@ import {
   Brain,
   Briefcase,
   Database,
+  HeartPulse,
   RefreshCw,
   Server,
   Shield,
@@ -291,6 +292,14 @@ export default function Home() {
             >
               <Briefcase className="h-4 w-4" />
               Cases
+            </Link>
+
+            <Link
+              href="/health"
+              className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 shadow-sm hover:bg-slate-800"
+            >
+              <HeartPulse className="h-4 w-4" />
+              Health
             </Link>
 
             <button
