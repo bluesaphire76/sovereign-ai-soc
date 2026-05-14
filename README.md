@@ -278,12 +278,12 @@ Typical backend variables include:
 POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
 POSTGRES_DB=aisoc
-POSTGRES_USER=soc
-POSTGRES_PASSWORD=socpassword
+POSTGRES_USER=soc-userX
+POSTGRES_PASSWORD=socpasswordX
 
 WAZUH_INDEXER_URL=https://localhost:9200
-WAZUH_USER=admin
-WAZUH_PASSWORD=SecretPassword
+WAZUH_USER=userXYZ
+WAZUH_PASSWORD=SecretPasswordXYZ
 
 OLLAMA_MODEL=qwen3:8b
 POLL_INTERVAL_SECONDS=30
@@ -296,7 +296,7 @@ Typical frontend local authentication variables include:
 
 ```env
 LOCAL_AUTH_ENABLED=true
-LOCAL_AUTH_USERNAME=lele
+LOCAL_AUTH_USERNAME=userXYZ
 LOCAL_AUTH_PASSWORD=change-this-password
 LOCAL_AUTH_SESSION_SECRET=change-this-secret
 LOCAL_AUTH_COOKIE_NAME=ai_soc_session
