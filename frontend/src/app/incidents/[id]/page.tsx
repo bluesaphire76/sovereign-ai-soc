@@ -54,6 +54,43 @@ type IncidentNote = {
   created_at: string | null;
 };
 
+type CorrelationSummary = {
+  agent?: string | null;
+  window_minutes?: number | null;
+  related_events?: number | null;
+  current_incident_id?: number | null;
+  base_score?: number | null;
+  pattern_score?: number | null;
+  volume_score?: number | null;
+  chain_bonus?: number | null;
+  final_correlation_score?: number | null;
+  recommended_priority?: string | null;
+  matched_patterns?: Record<
+    string,
+    {
+      keywords?: string[];
+      weight?: number;
+    }
+  >;
+  matched_attack_chains?: Array<{
+    name?: string;
+    correlation_type?: string;
+    priority?: string;
+    reason?: string;
+    score_bonus?: number;
+  }>;
+  related_event_details?: Array<{
+    id?: number;
+    timestamp?: string | null;
+    agent?: string | null;
+    rule?: string | null;
+    level?: number | null;
+    risk_score?: number | null;
+    status?: string | null;
+    correlation_score?: number | null;
+  }>;
+};
+
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8008";
 
@@ -90,6 +127,24 @@ function prettyJson(value: string | null) {
     return JSON.stringify(JSON.parse(value), null, 2);
   } catch {
     return value;
+  }
+}
+
+function parseCorrelationSummary(
+  value: string | null | undefined
+): CorrelationSummary | null {
+  if (!value) return null;
+
+  try {
+    const parsed = JSON.parse(value);
+
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as CorrelationSummary;
+    }
+
+    return null;
+  } catch {
+    return null;
   }
 }
 
@@ -252,6 +307,18 @@ export default function IncidentDetailPage() {
   const correlationSummary = useMemo(() => {
     return prettyJson(incident?.correlation_summary ?? null);
   }, [incident]);
+
+  const parsedCorrelationSummary = useMemo(() => {
+    return parseCorrelationSummary(incident?.correlation_summary);
+  }, [incident]);
+
+  const matchedPatterns = useMemo(() => {
+    return Object.entries(parsedCorrelationSummary?.matched_patterns ?? {});
+  }, [parsedCorrelationSummary]);
+
+  const matchedAttackChains = parsedCorrelationSummary?.matched_attack_chains ?? [];
+  const relatedCorrelationEvents =
+    parsedCorrelationSummary?.related_event_details ?? [];
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
@@ -474,6 +541,180 @@ export default function IncidentDetailPage() {
               <pre className="whitespace-pre-wrap rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm leading-6 text-slate-200">
                 {incident.ai_analysis ?? "No AI analysis available."}
               </pre>
+            </section>
+
+            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
+              <div className="mb-4 flex items-center gap-2">
+                <Brain className="h-5 w-5 text-cyan-300" />
+                <div>
+                  <h2 className="text-lg font-medium">Correlation explanation</h2>
+                  <p className="mt-1 text-sm text-slate-400">
+                    Explainable correlation details derived from recent events, matched patterns and score components.
+                  </p>
+                </div>
+              </div>
+
+              {!parsedCorrelationSummary ? (
+                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">
+                  No structured correlation explanation available yet. Recompute correlation summaries for this incident.
+                </div>
+              ) : (
+                <div className="space-y-5">
+                  <div className="grid gap-4 md:grid-cols-4">
+                    <InfoCard
+                      title="Base score"
+                      value={parsedCorrelationSummary.base_score ?? 0}
+                    />
+                    <InfoCard
+                      title="Pattern score"
+                      value={parsedCorrelationSummary.pattern_score ?? 0}
+                    />
+                    <InfoCard
+                      title="Volume score"
+                      value={parsedCorrelationSummary.volume_score ?? 0}
+                    />
+                    <InfoCard
+                      title="Chain bonus"
+                      value={parsedCorrelationSummary.chain_bonus ?? 0}
+                    />
+                  </div>
+
+                  <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                    <div className="mb-3 text-sm font-medium text-slate-200">
+                      Matched patterns
+                    </div>
+
+                    {matchedPatterns.length === 0 ? (
+                      <div className="text-sm text-slate-400">
+                        No security patterns matched in the correlation window.
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {matchedPatterns.map(([name, pattern]) => (
+                          <div
+                            key={name}
+                            className="rounded-lg border border-slate-800 bg-slate-900 p-3"
+                          >
+                            <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+                              <div className="text-sm font-medium text-cyan-300">
+                                {name}
+                              </div>
+                              <div className="text-xs text-slate-500">
+                                weight {pattern.weight ?? 0}
+                              </div>
+                            </div>
+
+                            <div className="mt-2 text-sm text-slate-300">
+                              {(pattern.keywords ?? []).join(", ")}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                    <div className="mb-3 text-sm font-medium text-slate-200">
+                      Matched attack chains
+                    </div>
+
+                    {matchedAttackChains.length === 0 ? (
+                      <div className="text-sm text-slate-400">
+                        No multi-step attack chain matched. The incident may still be correlated by single-host patterns and volume.
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {matchedAttackChains.map((chain, index) => (
+                          <div
+                            key={`${chain.name ?? "chain"}-${index}`}
+                            className="rounded-lg border border-slate-800 bg-slate-900 p-3"
+                          >
+                            <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+                              <div className="text-sm font-medium text-cyan-300">
+                                {chain.name ?? "Unnamed chain"}
+                              </div>
+                              <div className="text-xs text-slate-500">
+                                {chain.priority ?? "UNKNOWN"} · bonus {chain.score_bonus ?? 0}
+                              </div>
+                            </div>
+
+                            <div className="mt-2 text-sm text-slate-300">
+                              {chain.reason ?? "No explanation available."}
+                            </div>
+
+                            <div className="mt-2 text-xs text-slate-500">
+                              {chain.correlation_type ?? "-"}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                    <div className="mb-3 text-sm font-medium text-slate-200">
+                      Related events in correlation window
+                    </div>
+
+                    {relatedCorrelationEvents.length === 0 ? (
+                      <div className="text-sm text-slate-400">
+                        No related events available in the summary.
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-sm">
+                          <thead className="text-xs uppercase text-slate-500">
+                            <tr>
+                              <th className="px-3 py-2">ID</th>
+                              <th className="px-3 py-2">Time</th>
+                              <th className="px-3 py-2">Rule</th>
+                              <th className="px-3 py-2">Level</th>
+                              <th className="px-3 py-2">Risk</th>
+                              <th className="px-3 py-2">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {relatedCorrelationEvents.map((event) => (
+                              <tr
+                                key={event.id}
+                                className="border-t border-slate-800 text-slate-300"
+                              >
+                                <td className="px-3 py-2">
+                                  {event.id ? (
+                                    <Link
+                                      href={`/incidents/${event.id}`}
+                                      className="text-cyan-300 hover:text-cyan-200"
+                                    >
+                                      #{event.id}
+                                    </Link>
+                                  ) : (
+                                    "-"
+                                  )}
+                                </td>
+                                <td className="px-3 py-2">
+                                  {formatTimestamp(event.timestamp)}
+                                </td>
+                                <td className="px-3 py-2">
+                                  {event.rule ?? "-"}
+                                </td>
+                                <td className="px-3 py-2">
+                                  {event.level ?? 0}
+                                </td>
+                                <td className="px-3 py-2">
+                                  {event.risk_score ?? 0}
+                                </td>
+                                <td className="px-3 py-2">
+                                  {event.status ?? "NEW"}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </section>
 
             <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">

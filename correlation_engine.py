@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timedelta
 
 from database import SessionLocal
@@ -228,6 +229,7 @@ def build_correlation_summary(
     pattern_score,
     volume_score,
     base_score,
+    chain_bonus,
     matched_chains,
     final_score,
     recommended_priority,
@@ -236,10 +238,24 @@ def build_correlation_summary(
         "agent": incident.agent,
         "window_minutes": CORRELATION_WINDOW_MINUTES,
         "related_events": len(recent_incidents),
+        "related_event_details": [
+            {
+                "id": item.id,
+                "timestamp": item.timestamp,
+                "agent": item.agent,
+                "rule": item.rule,
+                "level": item.level,
+                "risk_score": item.risk_score,
+                "status": item.status,
+                "correlation_score": item.correlation_score,
+            }
+            for item in recent_incidents
+        ],
         "current_incident_id": incident.id,
         "base_score": base_score,
         "pattern_score": pattern_score,
         "volume_score": volume_score,
+        "chain_bonus": chain_bonus,
         "matched_patterns": detected_patterns,
         "matched_attack_chains": [
             {
@@ -324,6 +340,7 @@ def correlate_incident(incident_id):
             pattern_score=pattern_score,
             volume_score=volume_score,
             base_score=base_score,
+            chain_bonus=chain_bonus,
             matched_chains=matched_chains,
             final_score=final_score,
             recommended_priority=recommended_priority,
@@ -331,7 +348,7 @@ def correlate_incident(incident_id):
 
         incident.correlated = True
         incident.correlation_score = final_score
-        incident.correlation_summary = str(summary)
+        incident.correlation_summary = json.dumps(summary, ensure_ascii=False)
 
         incident.attack_chain = attack_chain
         incident.correlation_type = correlation_type
