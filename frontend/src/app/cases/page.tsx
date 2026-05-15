@@ -485,7 +485,15 @@ export default function CasesPage() {
             </p>
           </div>
 
-          <button
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/cases/kanban"
+              className="rounded-xl border border-cyan-700 bg-slate-900 px-4 py-2 text-sm text-cyan-200 shadow-sm hover:bg-slate-800"
+            >
+              Kanban view
+            </Link>
+
+            <button
             onClick={loadCases}
             className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 shadow-sm hover:bg-slate-800"
           >
@@ -494,6 +502,7 @@ export default function CasesPage() {
             />
             Refresh
           </button>
+          </div>
         </header>
 
         {error && (
