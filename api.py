@@ -4,6 +4,7 @@ from sqlalchemy import func, or_
 
 from database import SessionLocal
 from report_builder import build_case_report, build_incident_report
+from evidence_pack_builder import build_case_evidence_pack
 from case_ai_analysis import generate_case_ai_analysis
 from case_action_suggestions import generate_case_action_suggestions
 from models import Incident, IncidentAudit, IncidentNote, IncidentCase, CaseIncident, CaseAIAnalysis, CaseAudit, CaseAction, CaseClosureChecklist
@@ -826,6 +827,39 @@ def export_case_report(
             "Content-Disposition": f'attachment; filename="{report["filename"]}"',
         },
     )
+
+@app.get("/reports/cases/{case_id}/evidence-pack")
+def export_case_evidence_pack(
+    case_id: int,
+    format: str = Query("markdown"),
+):
+    if format not in {"markdown", "json"}:
+        raise HTTPException(status_code=400, detail="format must be markdown or json")
+
+    try:
+        report = build_case_evidence_pack(case_id)
+
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    if format == "json":
+        filename = report["filename"].replace(".md", ".json")
+
+        return JSONResponse(
+            content=report["payload"],
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+            },
+        )
+
+    return Response(
+        content=report["markdown"],
+        media_type="text/markdown; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{report["filename"]}"',
+        },
+    )
+
 
 @app.get("/metrics/status-distribution")
 def metrics_status_distribution():

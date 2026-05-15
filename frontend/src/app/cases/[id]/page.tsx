@@ -864,6 +864,15 @@ export default function CaseDetailPage() {
               <FileDown className="h-4 w-4" />
               Download JSON
             </a>
+
+            <a
+              href={`/reports/cases/${caseId}/evidence-pack?format=markdown`}
+              download
+              className="inline-flex items-center gap-2 rounded-xl border border-emerald-700 bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 shadow-sm hover:bg-emerald-400"
+            >
+              <FileDown className="h-4 w-4" />
+              Download Evidence Pack
+            </a>
           </div>
 
         </header>
