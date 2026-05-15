@@ -60,6 +60,36 @@ type ScenarioSummary = {
 
 type Tone = "success" | "warning" | "danger" | "primary" | "neutral";
 
+type SyntheticScenario = {
+  id: string;
+  title: string;
+  rule: string;
+  recommended_priority: string;
+  risk_score: number;
+  correlation_type: string;
+  mitre: string[];
+};
+
+type SyntheticScenariosResponse = {
+  items: SyntheticScenario[];
+};
+
+type SyntheticRunResponse = {
+  status: string;
+  scenario: string;
+  host: string;
+  count_per_scenario: number;
+  created: number;
+  incidents: Array<{
+    id: number;
+    scenario: string | null;
+    rule: string | null;
+    risk_score: number | null;
+    recommended_priority: string | null;
+    correlation_score: number | null;
+  }>;
+};
+
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8008";
 
@@ -80,6 +110,41 @@ async function fetchJson<T>(path: string): Promise<T> {
 
   if (!response.ok) {
     throw new Error(`API error ${response.status}`);
+  }
+
+  return response.json();
+}
+
+
+async function fetchSyntheticScenarios(): Promise<SyntheticScenariosResponse> {
+  return fetchJson<SyntheticScenariosResponse>("/synthetic-tests/scenarios");
+}
+
+async function runSyntheticTest(payload: {
+  scenario: string;
+  count: number;
+  host: string;
+  created_by: string;
+}): Promise<SyntheticRunResponse> {
+  const response = await fetch(`${API_BASE}/synthetic-tests/run`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    let detail = `API error ${response.status}`;
+
+    try {
+      const body = await response.json();
+      detail = body?.detail?.message ?? body?.detail ?? detail;
+    } catch {
+      // keep default error
+    }
+
+    throw new Error(String(detail));
   }
 
   return response.json();
@@ -246,6 +311,14 @@ export default function DetectionQualityPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [syntheticScenarios, setSyntheticScenarios] = useState<SyntheticScenario[]>([]);
+  const [selectedScenario, setSelectedScenario] = useState("all");
+  const [syntheticCount, setSyntheticCount] = useState(1);
+  const [syntheticHost, setSyntheticHost] = useState("synthetic-sensor-01");
+  const [syntheticCreatedBy, setSyntheticCreatedBy] = useState("local_analyst");
+  const [runningSynthetic, setRunningSynthetic] = useState(false);
+  const [syntheticResult, setSyntheticResult] = useState<SyntheticRunResponse | null>(null);
+  const [syntheticError, setSyntheticError] = useState<string | null>(null);
 
   const loadDetectionQuality = useCallback(async () => {
     try {
@@ -280,6 +353,39 @@ export default function DetectionQualityPage() {
 
     return () => window.clearInterval(interval);
   }, [loadDetectionQuality]);
+
+
+  useEffect(() => {
+    fetchSyntheticScenarios()
+      .then((response) => setSyntheticScenarios(response.items))
+      .catch((err) =>
+        setSyntheticError(
+          err instanceof Error ? err.message : "Unable to load synthetic scenarios"
+        )
+      );
+  }, []);
+
+  async function handleRunSyntheticTest() {
+    try {
+      setRunningSynthetic(true);
+      setSyntheticError(null);
+      setSyntheticResult(null);
+
+      const response = await runSyntheticTest({
+        scenario: selectedScenario,
+        count: syntheticCount,
+        host: syntheticHost,
+        created_by: syntheticCreatedBy,
+      });
+
+      setSyntheticResult(response);
+      await loadDetectionQuality();
+    } catch (err) {
+      setSyntheticError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setRunningSynthetic(false);
+    }
+  }
 
   const syntheticIncidents = useMemo(() => {
     const items = incidentsData?.items ?? [];
@@ -423,6 +529,100 @@ export default function DetectionQualityPage() {
           </section>
         ) : (
           <div className="space-y-3">
+            <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
+              <div className="mb-3 flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <h2 className="text-sm font-semibold">Synthetic test runner</h2>
+                  <p className="mt-0.5 text-[11px] leading-4 text-slate-500">
+                    Generate controlled synthetic incidents to validate detection, correlation, priority and MITRE coverage from the GUI.
+                  </p>
+                </div>
+
+                <button
+                  onClick={handleRunSyntheticTest}
+                  disabled={runningSynthetic}
+                  className="h-8 rounded-lg border border-cyan-700 bg-cyan-500 px-3 text-xs font-medium text-slate-950 shadow-sm hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {runningSynthetic ? "Running..." : "Run synthetic test"}
+                </button>
+              </div>
+
+              <div className="grid gap-2 md:grid-cols-4">
+                <label>
+                  <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                    Scenario
+                  </span>
+                  <select
+                    value={selectedScenario}
+                    onChange={(event) => setSelectedScenario(event.target.value)}
+                    className="h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500"
+                  >
+                    <option value="all">All scenarios</option>
+                    {syntheticScenarios.map((scenario) => (
+                      <option key={scenario.id} value={scenario.id}>
+                        {scenario.id.replaceAll("_", " ")}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label>
+                  <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                    Count per scenario
+                  </span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={syntheticCount}
+                    onChange={(event) =>
+                      setSyntheticCount(
+                        Math.max(1, Math.min(Number(event.target.value || 1), 10))
+                      )
+                    }
+                    className="h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500"
+                  />
+                </label>
+
+                <label>
+                  <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                    Host
+                  </span>
+                  <input
+                    value={syntheticHost}
+                    onChange={(event) => setSyntheticHost(event.target.value)}
+                    className="h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500"
+                  />
+                </label>
+
+                <label>
+                  <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                    Created by
+                  </span>
+                  <input
+                    value={syntheticCreatedBy}
+                    onChange={(event) => setSyntheticCreatedBy(event.target.value)}
+                    className="h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500"
+                  />
+                </label>
+              </div>
+
+              {syntheticError && (
+                <div className="mt-2 rounded-md border border-red-800 bg-red-950/60 p-2 text-xs text-red-200">
+                  Synthetic test error: {syntheticError}
+                </div>
+              )}
+
+              {syntheticResult && (
+                <div className="mt-2 rounded-md border border-emerald-800 bg-emerald-950/30 p-2 text-xs text-emerald-200">
+                  Created {syntheticResult.created} synthetic incident(s) on host{" "}
+                  <strong>{syntheticResult.host}</strong>. Latest IDs:{" "}
+                  {syntheticResult.incidents.slice(0, 6).map((item) => `#${item.id}`).join(", ")}
+                  {syntheticResult.incidents.length > 6 ? "…" : ""}
+                </div>
+              )}
+            </section>
+
             <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
               <QualityMetric
                 title="Synthetic incidents"
