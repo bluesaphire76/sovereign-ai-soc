@@ -175,6 +175,13 @@ type ActionForm = {
   due_at: string;
 };
 
+type CaseSectionFocus =
+  | "ALL"
+  | "OVERVIEW"
+  | "WORKBENCH"
+  | "EVIDENCE"
+  | "REPORTS";
+
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8008";
 
@@ -661,6 +668,7 @@ export default function CaseDetailPage() {
   const [savingWorkflow, setSavingWorkflow] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [sectionFocus, setSectionFocus] = useState<CaseSectionFocus>("ALL");
 
   async function loadCase() {
     try {
@@ -1011,7 +1019,41 @@ export default function CaseDetailPage() {
         )}
 
         {caseData && (
-          <div className="space-y-6">
+          <div className="space-y-6" data-case-focus={sectionFocus}>
+            <style>{`
+              [data-case-focus="OVERVIEW"] #case-workflow,
+              [data-case-focus="OVERVIEW"] #case-action-plan,
+              [data-case-focus="OVERVIEW"] #case-closure-checklist,
+              [data-case-focus="OVERVIEW"] #case-timeline,
+              [data-case-focus="OVERVIEW"] #case-audit,
+              [data-case-focus="OVERVIEW"] #related-incidents {
+                display: none;
+              }
+
+              [data-case-focus="WORKBENCH"] #reports-center,
+              [data-case-focus="WORKBENCH"] #case-timeline,
+              [data-case-focus="WORKBENCH"] #case-audit,
+              [data-case-focus="WORKBENCH"] #case-summary,
+              [data-case-focus="WORKBENCH"] #related-incidents {
+                display: none;
+              }
+
+              [data-case-focus="EVIDENCE"] #reports-center,
+              [data-case-focus="EVIDENCE"] #case-workflow,
+              [data-case-focus="EVIDENCE"] #case-action-plan,
+              [data-case-focus="EVIDENCE"] #case-closure-checklist {
+                display: none;
+              }
+
+              [data-case-focus="REPORTS"] #case-workflow,
+              [data-case-focus="REPORTS"] #case-action-plan,
+              [data-case-focus="REPORTS"] #case-closure-checklist,
+              [data-case-focus="REPORTS"] #case-timeline,
+              [data-case-focus="REPORTS"] #case-audit,
+              [data-case-focus="REPORTS"] #related-incidents {
+                display: none;
+              }
+            `}</style>
             <section className="grid gap-4 md:grid-cols-4">
               <InfoCard title="Host" value={caseData.agent ?? "unknown"} />
               <InfoCard title="Incidents" value={caseData.incident_count} />
@@ -1026,6 +1068,11 @@ export default function CaseDetailPage() {
               completedActionCount={completedActionCount}
               closureReady={closureReady}
               hasAIAnalysis={hasAIAnalysis}
+            />
+
+            <CaseFocusMode
+              value={sectionFocus}
+              onChange={setSectionFocus}
             />
 
             <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg" id="reports-center">
@@ -2211,6 +2258,89 @@ export default function CaseDetailPage() {
 }
 
 
+
+
+function CaseFocusMode({
+  value,
+  onChange,
+}: {
+  value: CaseSectionFocus;
+  onChange: (value: CaseSectionFocus) => void;
+}) {
+  const modes: {
+    value: CaseSectionFocus;
+    label: string;
+    description: string;
+  }[] = [
+    {
+      value: "ALL",
+      label: "All sections",
+      description: "Show the full case detail page.",
+    },
+    {
+      value: "OVERVIEW",
+      label: "Overview",
+      description: "Summary, reports and AI analysis.",
+    },
+    {
+      value: "WORKBENCH",
+      label: "Analyst workbench",
+      description: "Workflow, actions, closure and AI analysis.",
+    },
+    {
+      value: "EVIDENCE",
+      label: "Evidence review",
+      description: "Timeline, audit trail, related incidents and evidence.",
+    },
+    {
+      value: "REPORTS",
+      label: "Reports",
+      description: "Exports, executive report and machine-readable payload.",
+    },
+  ];
+
+  const activeMode = modes.find((mode) => mode.value === value) ?? modes[0];
+
+  return (
+    <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
+      <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h2 className="text-lg font-medium">Focus Mode</h2>
+          <p className="mt-1 text-sm text-slate-400">
+            Collapse non-relevant sections and focus on the current analyst workflow.
+          </p>
+        </div>
+
+        <span className="w-fit rounded-full border border-cyan-700 bg-cyan-950 px-4 py-2 text-sm text-cyan-200">
+          {activeMode.label}
+        </span>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-5">
+        {modes.map((mode) => (
+          <button
+            key={mode.value}
+            onClick={() => onChange(mode.value)}
+            className={`rounded-xl border p-4 text-left transition ${
+              value === mode.value
+                ? "border-cyan-500 bg-cyan-500 text-slate-950"
+                : "border-slate-800 bg-slate-950 text-slate-300 hover:border-cyan-800 hover:bg-slate-900"
+            }`}
+          >
+            <div className="text-sm font-medium">{mode.label}</div>
+            <div
+              className={`mt-2 text-xs leading-5 ${
+                value === mode.value ? "text-slate-800" : "text-slate-500"
+              }`}
+            >
+              {mode.description}
+            </div>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 function CaseCommandCenter({
   caseData,
