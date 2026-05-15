@@ -1,24 +1,16 @@
 import { NextResponse } from "next/server";
 
-export const runtime = "nodejs";
-
-function cookieName() {
-  return process.env.LOCAL_AUTH_COOKIE_NAME || "ai_soc_session";
-}
-
-function cookieSecure() {
-  return (process.env.LOCAL_AUTH_COOKIE_SECURE ?? "false").toLowerCase() === "true";
-}
+const COOKIE_NAME = "ai_soc_access_token";
 
 export async function POST() {
-  const response = NextResponse.json({
-    ok: true,
-  });
+  const response = NextResponse.json({ status: "logged_out" });
 
-  response.cookies.set(cookieName(), "", {
-    httpOnly: true,
+  response.cookies.set({
+    name: COOKIE_NAME,
+    value: "",
+    httpOnly: false,
     sameSite: "lax",
-    secure: cookieSecure(),
+    secure: false,
     path: "/",
     maxAge: 0,
   });

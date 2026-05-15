@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -10,7 +11,13 @@ import {
   LayoutDashboard,
   LogOut,
   Shield,
+  Users,
 } from "lucide-react";
+import {
+  clearAuthSession,
+  getStoredUser,
+  type AuthUser,
+} from "../lib/auth";
 
 type NavItem = {
   href: string;
@@ -75,11 +82,29 @@ function isActive(pathname: string, item: NavItem) {
 
 export default function AppNavigation() {
   const pathname = usePathname();
+  const [user, setUser] = useState<AuthUser | null>(null);
+
+  useEffect(() => {
+    setUser(getStoredUser());
+  }, []);
 
   async function handleLogout() {
-    await fetch("/api/auth/logout", { method: "POST" });
+    await clearAuthSession();
     window.location.href = "/login";
   }
+
+  const navItems =
+    user?.role === "ADMIN"
+      ? [
+          ...NAV_ITEMS,
+          {
+            href: "/admin/users",
+            label: "Users",
+            icon: <Users className="h-3.5 w-3.5" />,
+            match: "prefix" as const,
+          },
+        ]
+      : NAV_ITEMS;
 
   return (
     <nav className="mb-5 rounded-xl border border-slate-800 bg-slate-900/95 px-3 py-2 shadow-lg">
@@ -100,7 +125,7 @@ export default function AppNavigation() {
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
-          {NAV_ITEMS.map((item) => {
+          {navItems.map((item) => {
             const active = isActive(pathname, item);
 
             return (
@@ -118,6 +143,12 @@ export default function AppNavigation() {
               </Link>
             );
           })}
+
+          {user && (
+            <div className="hidden max-w-[180px] truncate px-2 text-[11px] text-slate-500 xl:block">
+              {user.display_name || user.username}
+            </div>
+          )}
 
           <button
             onClick={handleLogout}

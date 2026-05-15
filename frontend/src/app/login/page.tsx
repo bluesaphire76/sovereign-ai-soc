@@ -1,30 +1,42 @@
 "use client";
 
-import { FormEvent, Suspense, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { Lock, Shield } from "lucide-react";
+import { FormEvent, useEffect, useState } from "react";
+import { Shield, LogIn } from "lucide-react";
+import { API_BASE, setAuthSession, type AuthUser } from "../../lib/auth";
 
-function LoginForm() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
+type LoginResponse = {
+  access_token: string;
+  token_type: string;
+  expires_at: number;
+  user: AuthUser;
+};
 
-  const nextPath = useMemo(() => {
-    return searchParams.get("next") || "/";
-  }, [searchParams]);
-
-  const [username, setUsername] = useState("");
+export default function LoginPage() {
+  const [nextPath, setNextPath] = useState("/");
+  const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [loggingIn, setLoggingIn] = useState(false);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setNextPath(params.get("next") || "/");
+
+    const reason = params.get("reason");
+
+    if (reason === "session_validation_failed") {
+      setError("Session validation failed. Please sign in again.");
+    }
+  }, []);
+
+  async function handleLogin(event: FormEvent) {
     event.preventDefault();
 
     try {
-      setSubmitting(true);
+      setLoggingIn(true);
       setError(null);
 
-      const response = await fetch("/api/auth/login", {
+      const response = await fetch(`${API_BASE}/auth/login`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -36,101 +48,99 @@ function LoginForm() {
       });
 
       if (!response.ok) {
-        setError("Invalid username or password.");
-        return;
+        let message = `Login failed: ${response.status}`;
+
+        try {
+          const body = await response.json();
+          message = body?.detail ?? message;
+        } catch {
+          // keep default message
+        }
+
+        throw new Error(String(message));
       }
 
-      router.push(nextPath);
-      router.refresh();
+      const data = (await response.json()) as LoginResponse;
+      await setAuthSession(data.access_token, data.user);
+
+      window.location.href = nextPath;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed.");
+      setError(err instanceof Error ? err.message : "Unknown login error");
     } finally {
-      setSubmitting(false);
+      setLoggingIn(false);
     }
   }
 
   return (
-    <div className="w-full rounded-3xl border border-slate-800 bg-slate-900 p-8 shadow-2xl">
-      <div className="mb-8">
-        <div className="mb-4 inline-flex rounded-2xl bg-slate-950 p-3 text-cyan-300">
-          <Shield className="h-7 w-7" />
+    <main className="flex min-h-screen items-center justify-center bg-slate-950 px-4 text-slate-100">
+      <form
+        onSubmit={handleLogin}
+        className="w-full max-w-md rounded-xl border border-slate-800 bg-slate-900 p-5 shadow-2xl"
+      >
+        <div className="mb-5 flex items-center gap-3">
+          <div className="rounded-lg border border-cyan-900 bg-cyan-950 p-2 text-cyan-300">
+            <Shield className="h-5 w-5" />
+          </div>
+
+          <div>
+            <div className="text-sm font-semibold uppercase tracking-wide">
+              Sovereign AI SOC
+            </div>
+            <div className="text-xs text-slate-500">
+              Personal login required
+            </div>
+          </div>
         </div>
 
-        <h1 className="text-3xl font-semibold tracking-tight">
-          Sovereign AI SOC
-        </h1>
+        <h1 className="mb-1 text-xl font-semibold tracking-tight">Sign in</h1>
 
-        <p className="mt-2 text-sm text-slate-400">
-          Local dashboard authentication.
+        <p className="mb-5 text-xs leading-5 text-slate-500">
+          Use your personal SOC account to access dashboards, cases, incidents
+          and administrative functions.
         </p>
-      </div>
 
-      {error && (
-        <div className="mb-5 rounded-xl border border-red-800 bg-red-950/60 p-3 text-sm text-red-200">
-          {error}
-        </div>
-      )}
-
-      <form onSubmit={handleSubmit} className="space-y-5">
-        <div>
-          <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
-            Username
+        <div className="space-y-3">
+          <label>
+            <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-slate-500">
+              Username
+            </span>
+            <input
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+              className="h-9 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-slate-100 outline-none focus:border-cyan-500"
+              autoComplete="username"
+            />
           </label>
-          <input
-            value={username}
-            onChange={(event) => setUsername(event.target.value)}
-            className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none focus:border-cyan-500"
-            autoComplete="username"
-          />
+
+          <label>
+            <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-slate-500">
+              Password
+            </span>
+            <input
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              className="h-9 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-slate-100 outline-none focus:border-cyan-500"
+              autoComplete="current-password"
+            />
+          </label>
         </div>
 
-        <div>
-          <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
-            Password
-          </label>
-          <input
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            type="password"
-            className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none focus:border-cyan-500"
-            autoComplete="current-password"
-            autoFocus
-          />
-        </div>
+        {error && (
+          <div className="mt-4 rounded-lg border border-red-800 bg-red-950/60 p-3 text-xs text-red-200">
+            {error}
+          </div>
+        )}
 
         <button
           type="submit"
-          disabled={submitting}
-          className="flex w-full items-center justify-center gap-2 rounded-xl border border-cyan-700 bg-cyan-500 px-4 py-3 text-sm font-medium text-slate-950 shadow-sm hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={loggingIn || !username.trim() || !password.trim()}
+          className="mt-5 flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-cyan-700 bg-cyan-500 px-3 text-sm font-medium text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          <Lock className="h-4 w-4" />
-          {submitting ? "Signing in..." : "Sign in"}
+          <LogIn className="h-4 w-4" />
+          {loggingIn ? "Signing in..." : "Sign in"}
         </button>
       </form>
-
-      <p className="mt-6 text-xs leading-5 text-slate-500">
-        Credentials are read from the local frontend environment file.
-      </p>
-    </div>
-  );
-}
-
-function LoginFallback() {
-  return (
-    <div className="w-full rounded-3xl border border-slate-800 bg-slate-900 p-8 shadow-2xl">
-      <div className="text-sm text-slate-400">Loading login...</div>
-    </div>
-  );
-}
-
-export default function LoginPage() {
-  return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto flex min-h-screen max-w-md items-center px-6">
-        <Suspense fallback={<LoginFallback />}>
-          <LoginForm />
-        </Suspense>
-      </div>
     </main>
   );
 }
