@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, Query, Response
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, case as sql_case
 
 from database import SessionLocal
 from report_builder import build_case_report, build_incident_report
@@ -94,6 +94,17 @@ VALID_CLOSURE_DECISIONS = {
     "ACCEPTED_RISK",
     "DUPLICATE",
     "OTHER",
+}
+
+
+CLOSURE_REQUIRED_FIELDS = {
+    "root_cause": "Root cause / conclusion",
+    "evidence_reviewed": "Evidence reviewed",
+    "actions_summary": "Actions summary",
+    "closure_reason": "Closure reason",
+    "closure_decision": "Closure decision",
+    "final_severity": "Final severity",
+    "residual_risk": "Residual risk",
 }
 
 
@@ -1028,8 +1039,12 @@ def calculate_case_sla_status(case: IncidentCase) -> str:
     return "BREACHED"
 
 
-def serialize_case(case: IncidentCase, incident_count: int | None = None) -> dict:
-    return {
+def serialize_case(
+    case: IncidentCase,
+    incident_count: int | None = None,
+    queue_enrichment: dict | None = None,
+) -> dict:
+    payload = {
         "id": case.id,
         "group_key": case.group_key,
         "title": case.title,
@@ -1054,6 +1069,10 @@ def serialize_case(case: IncidentCase, incident_count: int | None = None) -> dic
         else None,
     }
 
+    if queue_enrichment:
+        payload.update(queue_enrichment)
+
+    return payload
 
 def parse_optional_iso_datetime(value: str | None):
     if value is None:
@@ -1203,6 +1222,155 @@ def validate_case_closure_readiness(
         "checklist": serialize_case_closure_checklist(checklist),
     }
 
+def safe_isoformat(value):
+    if not value:
+        return None
+
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+
+    return str(value)
+
+
+def build_closure_missing_items_from_row(
+    checklist: CaseClosureChecklist | None,
+    open_action_count: int,
+) -> list[str]:
+    missing_items = []
+
+    if open_action_count > 0:
+        missing_items.append(
+            f"{open_action_count} action(s) are still OPEN or IN_PROGRESS"
+        )
+
+    if not checklist:
+        missing_items.extend(CLOSURE_REQUIRED_FIELDS.values())
+        return missing_items
+
+    for field, label in CLOSURE_REQUIRED_FIELDS.items():
+        value = getattr(checklist, field, None)
+        if not value or not str(value).strip():
+            missing_items.append(label)
+
+    if checklist.final_severity and checklist.final_severity not in VALID_CASE_SEVERITIES:
+        missing_items.append(
+            f"Final severity must be one of {sorted(VALID_CASE_SEVERITIES)}"
+        )
+
+    if checklist.closure_decision and checklist.closure_decision not in VALID_CLOSURE_DECISIONS:
+        missing_items.append(
+            f"Closure decision must be one of {sorted(VALID_CLOSURE_DECISIONS)}"
+        )
+
+    return missing_items
+
+
+def build_case_queue_flags(
+    case: IncidentCase,
+    *,
+    action_stats: dict,
+    latest_analysis: CaseAIAnalysis | None,
+    closure_checklist: CaseClosureChecklist | None,
+    ready_to_close: bool,
+) -> list[str]:
+    flags = []
+    status = (case.status or "OPEN").upper()
+    severity = (case.severity_review or case.severity or "LOW").upper()
+    sla_status = calculate_case_sla_status(case)
+    open_action_count = int(action_stats.get("open_action_count") or 0)
+
+    if status not in TERMINAL_CASE_STATUSES and not case.owner:
+        flags.append("NO_OWNER")
+
+    if sla_status == "BREACHED":
+        flags.append("SLA_BREACHED")
+
+    if status == "ESCALATED":
+        flags.append("ESCALATED")
+
+    if severity in {"CRITICAL", "HIGH"}:
+        flags.append("HIGH_RISK")
+
+    if open_action_count > 0:
+        flags.append("OPEN_ACTIONS")
+
+    if status not in TERMINAL_CASE_STATUSES and not latest_analysis:
+        flags.append("NO_AI_ANALYSIS")
+
+    if status not in TERMINAL_CASE_STATUSES and not closure_checklist:
+        flags.append("NO_CLOSURE_CHECKLIST")
+
+    if ready_to_close and status not in TERMINAL_CASE_STATUSES:
+        flags.append("READY_TO_CLOSE")
+
+    return flags
+
+
+def build_case_queue_enrichment(
+    case: IncidentCase,
+    *,
+    action_stats: dict | None = None,
+    latest_analysis: CaseAIAnalysis | None = None,
+    closure_checklist: CaseClosureChecklist | None = None,
+) -> dict:
+    stats = action_stats or {}
+
+    action_count = int(stats.get("action_count") or 0)
+    open_action_count = int(stats.get("open_action_count") or 0)
+    completed_action_count = int(stats.get("completed_action_count") or 0)
+    cancelled_action_count = int(stats.get("cancelled_action_count") or 0)
+
+    missing_items = build_closure_missing_items_from_row(
+        closure_checklist,
+        open_action_count,
+    )
+    ready_to_close = len(missing_items) == 0
+
+    latest_action_at = stats.get("latest_action_at")
+
+    enrichment = {
+        "action_count": action_count,
+        "open_action_count": open_action_count,
+        "completed_action_count": completed_action_count,
+        "cancelled_action_count": cancelled_action_count,
+        "latest_action_at": safe_isoformat(latest_action_at),
+        "has_ai_analysis": latest_analysis is not None,
+        "latest_ai_analysis_at": safe_isoformat(latest_analysis.created_at)
+        if latest_analysis
+        else None,
+        "latest_ai_model": latest_analysis.model if latest_analysis else None,
+        "latest_ai_recommended_status": latest_analysis.recommended_status
+        if latest_analysis
+        else None,
+        "latest_ai_recommended_severity": latest_analysis.recommended_severity
+        if latest_analysis
+        else None,
+        "has_closure_checklist": closure_checklist is not None,
+        "ready_to_close": ready_to_close,
+        "closure_missing_count": len(missing_items),
+        "closure_missing_items": missing_items,
+        "closure_decision": closure_checklist.closure_decision
+        if closure_checklist
+        else None,
+        "final_severity": closure_checklist.final_severity
+        if closure_checklist
+        else None,
+        "closure_reviewed_at": safe_isoformat(closure_checklist.reviewed_at)
+        if closure_checklist
+        else None,
+    }
+
+    enrichment["queue_flags"] = build_case_queue_flags(
+        case,
+        action_stats=stats,
+        latest_analysis=latest_analysis,
+        closure_checklist=closure_checklist,
+        ready_to_close=ready_to_close,
+    )
+
+    return enrichment
+
+
 @app.get("/cases")
 def list_cases(
     page: int = Query(1, ge=1),
@@ -1258,11 +1426,92 @@ def list_cases(
 
         total_pages = max((total + limit - 1) // limit, 1)
 
+        case_ids = [case_row.id for case_row, _ in rows]
+
+        action_stats_by_case = {}
+        latest_analysis_by_case = {}
+        closure_checklist_by_case = {}
+
+        if case_ids:
+            action_rows = (
+                db.query(
+                    CaseAction.case_id.label("case_id"),
+                    func.count(CaseAction.id).label("action_count"),
+                    func.sum(
+                        sql_case(
+                            (
+                                CaseAction.status.in_(["OPEN", "IN_PROGRESS"]),
+                                1,
+                            ),
+                            else_=0,
+                        )
+                    ).label("open_action_count"),
+                    func.sum(
+                        sql_case((CaseAction.status == "DONE", 1), else_=0)
+                    ).label("completed_action_count"),
+                    func.sum(
+                        sql_case((CaseAction.status == "CANCELLED", 1), else_=0)
+                    ).label("cancelled_action_count"),
+                    func.max(CaseAction.updated_at).label("latest_action_at"),
+                )
+                .filter(CaseAction.case_id.in_(case_ids))
+                .group_by(CaseAction.case_id)
+                .all()
+            )
+
+            for row in action_rows:
+                action_stats_by_case[row.case_id] = {
+                    "action_count": row.action_count,
+                    "open_action_count": row.open_action_count,
+                    "completed_action_count": row.completed_action_count,
+                    "cancelled_action_count": row.cancelled_action_count,
+                    "latest_action_at": row.latest_action_at,
+                }
+
+            analysis_rows = (
+                db.query(CaseAIAnalysis)
+                .filter(CaseAIAnalysis.case_id.in_(case_ids))
+                .order_by(
+                    CaseAIAnalysis.case_id.asc(),
+                    CaseAIAnalysis.created_at.desc().nullslast(),
+                    CaseAIAnalysis.id.desc(),
+                )
+                .all()
+            )
+
+            for row in analysis_rows:
+                if row.case_id not in latest_analysis_by_case:
+                    latest_analysis_by_case[row.case_id] = row
+
+            closure_rows = (
+                db.query(CaseClosureChecklist)
+                .filter(CaseClosureChecklist.case_id.in_(case_ids))
+                .all()
+            )
+
+            for row in closure_rows:
+                closure_checklist_by_case[row.case_id] = row
+
+        items = []
+
+        for case_row, incident_count in rows:
+            enrichment = build_case_queue_enrichment(
+                case_row,
+                action_stats=action_stats_by_case.get(case_row.id),
+                latest_analysis=latest_analysis_by_case.get(case_row.id),
+                closure_checklist=closure_checklist_by_case.get(case_row.id),
+            )
+
+            items.append(
+                serialize_case(
+                    case_row,
+                    incident_count,
+                    queue_enrichment=enrichment,
+                )
+            )
+
         return {
-            "items": [
-                serialize_case(case, incident_count)
-                for case, incident_count in rows
-            ],
+            "items": items,
             "page": page,
             "limit": limit,
             "total": total,

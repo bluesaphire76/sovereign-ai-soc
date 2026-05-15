@@ -2,7 +2,19 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Briefcase, RefreshCw, ShieldAlert } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Bot,
+  Briefcase,
+  CheckCircle2,
+  CircleDashed,
+  Filter,
+  RefreshCw,
+  Search,
+  ShieldAlert,
+  SlidersHorizontal,
+} from "lucide-react";
 
 type IncidentCase = {
   id: number;
@@ -25,6 +37,28 @@ type IncidentCase = {
   status_reason: string | null;
   last_reviewed_by: string | null;
   last_reviewed_at: string | null;
+
+  action_count: number | null;
+  open_action_count: number | null;
+  completed_action_count: number | null;
+  cancelled_action_count: number | null;
+  latest_action_at: string | null;
+
+  has_ai_analysis: boolean | null;
+  latest_ai_analysis_at: string | null;
+  latest_ai_model: string | null;
+  latest_ai_recommended_status: string | null;
+  latest_ai_recommended_severity: string | null;
+
+  has_closure_checklist: boolean | null;
+  ready_to_close: boolean | null;
+  closure_missing_count: number | null;
+  closure_missing_items: string[] | null;
+  closure_decision: string | null;
+  final_severity: string | null;
+  closure_reviewed_at: string | null;
+
+  queue_flags: string[] | null;
 };
 
 type CasesResponse = {
@@ -37,6 +71,8 @@ type CasesResponse = {
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8008";
+
+const TERMINAL_STATUSES = new Set(["CLOSED", "FALSE_POSITIVE"]);
 
 function severityClass(value: string | null | undefined) {
   const severity = value ?? "LOW";
@@ -52,8 +88,10 @@ function statusClass(value: string | null | undefined) {
   const status = value ?? "OPEN";
 
   if (status === "ESCALATED") return "bg-red-100 text-red-800 border-red-200";
+  if (status === "INVESTIGATING") return "bg-violet-100 text-violet-800 border-violet-200";
   if (status === "TRIAGED") return "bg-blue-100 text-blue-800 border-blue-200";
   if (status === "CLOSED") return "bg-slate-200 text-slate-800 border-slate-300";
+  if (status === "FALSE_POSITIVE") return "bg-purple-100 text-purple-800 border-purple-200";
 
   return "bg-cyan-100 text-cyan-800 border-cyan-200";
 }
@@ -68,9 +106,33 @@ function slaClass(value: string | null | undefined) {
   return "bg-slate-100 text-slate-700 border-slate-200";
 }
 
+function readinessClass(item: IncidentCase) {
+  if (item.ready_to_close) {
+    return "border-emerald-200 bg-emerald-100 text-emerald-800";
+  }
+
+  if ((item.open_action_count ?? 0) > 0) {
+    return "border-orange-200 bg-orange-100 text-orange-800";
+  }
+
+  if (!item.has_closure_checklist) {
+    return "border-yellow-200 bg-yellow-100 text-yellow-800";
+  }
+
+  return "border-slate-300 bg-slate-200 text-slate-800";
+}
+
+function aiClass(item: IncidentCase) {
+  if (item.has_ai_analysis) {
+    return "border-violet-200 bg-violet-100 text-violet-800";
+  }
+
+  return "border-yellow-200 bg-yellow-100 text-yellow-800";
+}
+
 function slaLabel(value: string | null | undefined) {
   if (!value) return "NOT SET";
-  return value.replace("_", " ");
+  return value.replaceAll("_", " ");
 }
 
 function formatTimestamp(value: string | null | undefined) {
@@ -95,8 +157,43 @@ function formatTimestamp(value: string | null | undefined) {
   });
 }
 
+function normalize(value: string | null | undefined) {
+  return (value ?? "").trim().toLowerCase();
+}
+
+function isOpenCase(item: IncidentCase) {
+  const status = item.status ?? "OPEN";
+  return !TERMINAL_STATUSES.has(status);
+}
+
+function hasFlag(item: IncidentCase, flag: string) {
+  return Boolean(item.queue_flags?.includes(flag));
+}
+
+function operationalPriority(item: IncidentCase) {
+  let score = 0;
+
+  const status = item.status ?? "OPEN";
+  const severity = item.severity_review ?? item.final_severity ?? item.severity ?? "LOW";
+
+  if (item.sla_status === "BREACHED") score += 1000;
+  if (status === "ESCALATED") score += 800;
+  if (severity === "CRITICAL") score += 600;
+  if (severity === "HIGH") score += 400;
+  if ((item.open_action_count ?? 0) > 0) score += 250;
+  if (!item.has_ai_analysis && isOpenCase(item)) score += 180;
+  if (!item.has_closure_checklist && isOpenCase(item)) score += 140;
+  if (!item.owner && isOpenCase(item)) score += 100;
+  if (item.ready_to_close && isOpenCase(item)) score += 90;
+
+  score += item.risk_score ?? 0;
+  score += Math.min(item.incident_count ?? 0, 100);
+
+  return score;
+}
+
 async function fetchCases(): Promise<CasesResponse> {
-  const response = await fetch(`${API_BASE}/cases`, {
+  const response = await fetch(`${API_BASE}/cases?limit=100`, {
     cache: "no-store",
   });
 
@@ -113,15 +210,234 @@ export default function CasesPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [searchText, setSearchText] = useState("");
+  const [statusFilter, setStatusFilter] = useState("ACTIVE");
+  const [severityFilter, setSeverityFilter] = useState("ALL");
+  const [slaFilter, setSlaFilter] = useState("ALL");
+  const [ownerFilter, setOwnerFilter] = useState("ALL");
+  const [quickView, setQuickView] = useState("OPERATIONS");
+
   const cases = data?.items ?? [];
 
-  const totalOpenCases = useMemo(() => {
-    return cases.filter((item) => item.status !== "CLOSED").length;
+  const owners = useMemo(() => {
+    const values = Array.from(
+      new Set(
+        cases
+          .map((item) => item.owner?.trim())
+          .filter((value): value is string => Boolean(value))
+      )
+    );
+
+    return values.sort((a, b) => a.localeCompare(b));
   }, [cases]);
 
-  const breachedCases = useMemo(() => {
-    return cases.filter((item) => item.sla_status === "BREACHED").length;
+  const metrics = useMemo(() => {
+    const activeCases = cases.filter(isOpenCase);
+    const breachedCases = cases.filter((item) => item.sla_status === "BREACHED");
+    const unassignedCases = cases.filter((item) => isOpenCase(item) && !item.owner);
+    const criticalHighCases = cases.filter((item) =>
+      ["CRITICAL", "HIGH"].includes(
+        item.severity_review ?? item.final_severity ?? item.severity ?? "LOW"
+      )
+    );
+    const readyToCloseCases = cases.filter(
+      (item) => isOpenCase(item) && Boolean(item.ready_to_close)
+    );
+    const blockedByActionsCases = cases.filter(
+      (item) => isOpenCase(item) && (item.open_action_count ?? 0) > 0
+    );
+    const needsAiCases = cases.filter(
+      (item) => isOpenCase(item) && !item.has_ai_analysis
+    );
+    const needsClosureCases = cases.filter(
+      (item) => isOpenCase(item) && !item.has_closure_checklist
+    );
+    const escalatedCases = cases.filter((item) => item.status === "ESCALATED");
+    const closedCases = cases.filter((item) => item.status === "CLOSED");
+
+    return {
+      total: cases.length,
+      active: activeCases.length,
+      breached: breachedCases.length,
+      unassigned: unassignedCases.length,
+      criticalHigh: criticalHighCases.length,
+      readyToClose: readyToCloseCases.length,
+      blockedByActions: blockedByActionsCases.length,
+      needsAi: needsAiCases.length,
+      needsClosure: needsClosureCases.length,
+      escalated: escalatedCases.length,
+      closed: closedCases.length,
+    };
   }, [cases]);
+
+  const filteredCases = useMemo(() => {
+    const query = normalize(searchText);
+
+    return cases
+      .filter((item) => {
+        const status = item.status ?? "OPEN";
+        const severity = item.severity_review ?? item.final_severity ?? item.severity ?? "LOW";
+        const owner = item.owner ?? "unassigned";
+        const sla = item.sla_status ?? "NOT_SET";
+
+        if (quickView === "BREACHED" && sla !== "BREACHED") return false;
+        if (quickView === "UNASSIGNED" && (owner !== "unassigned" || !isOpenCase(item))) return false;
+        if (quickView === "HIGH_RISK" && !["CRITICAL", "HIGH"].includes(severity)) return false;
+        if (quickView === "ESCALATED" && status !== "ESCALATED") return false;
+        if (quickView === "READY_TO_CLOSE" && !(item.ready_to_close && isOpenCase(item))) return false;
+        if (quickView === "BLOCKED_ACTIONS" && !((item.open_action_count ?? 0) > 0 && isOpenCase(item))) return false;
+        if (quickView === "NEEDS_AI" && !(!item.has_ai_analysis && isOpenCase(item))) return false;
+        if (quickView === "NEEDS_CLOSURE" && !(!item.has_closure_checklist && isOpenCase(item))) return false;
+        if (quickView === "CLOSED" && status !== "CLOSED") return false;
+
+        if (statusFilter === "ACTIVE" && !isOpenCase(item)) return false;
+        if (statusFilter !== "ALL" && statusFilter !== "ACTIVE" && status !== statusFilter) {
+          return false;
+        }
+
+        if (severityFilter !== "ALL" && severity !== severityFilter) return false;
+        if (slaFilter !== "ALL" && sla !== slaFilter) return false;
+
+        if (ownerFilter === "UNASSIGNED" && item.owner) return false;
+        if (ownerFilter !== "ALL" && ownerFilter !== "UNASSIGNED" && item.owner !== ownerFilter) {
+          return false;
+        }
+
+        if (!query) return true;
+
+        const haystack = [
+          item.id,
+          item.title,
+          item.group_key,
+          item.agent,
+          item.correlation_type,
+          item.owner,
+          item.status,
+          item.severity,
+          item.severity_review,
+          item.status_reason,
+          item.closure_decision,
+          item.final_severity,
+          item.queue_flags?.join(" "),
+        ]
+          .map((value) => normalize(String(value ?? "")))
+          .join(" ");
+
+        return haystack.includes(query);
+      })
+      .sort((a, b) => {
+        const priorityDelta = operationalPriority(b) - operationalPriority(a);
+
+        if (priorityDelta !== 0) {
+          return priorityDelta;
+        }
+
+        const updatedA = new Date(a.updated_at ?? 0).getTime();
+        const updatedB = new Date(b.updated_at ?? 0).getTime();
+
+        return updatedB - updatedA;
+      });
+  }, [
+    cases,
+    ownerFilter,
+    quickView,
+    searchText,
+    severityFilter,
+    slaFilter,
+    statusFilter,
+  ]);
+
+  function resetFilters() {
+    setSearchText("");
+    setStatusFilter("ACTIVE");
+    setSeverityFilter("ALL");
+    setSlaFilter("ALL");
+    setOwnerFilter("ALL");
+    setQuickView("OPERATIONS");
+  }
+
+  function applyQuickView(value: string) {
+    setQuickView(value);
+
+    if (value === "OPERATIONS") {
+      setStatusFilter("ACTIVE");
+      setSeverityFilter("ALL");
+      setSlaFilter("ALL");
+      setOwnerFilter("ALL");
+      return;
+    }
+
+    if (value === "BREACHED") {
+      setStatusFilter("ACTIVE");
+      setSlaFilter("BREACHED");
+      setSeverityFilter("ALL");
+      setOwnerFilter("ALL");
+      return;
+    }
+
+    if (value === "UNASSIGNED") {
+      setStatusFilter("ACTIVE");
+      setOwnerFilter("UNASSIGNED");
+      setSeverityFilter("ALL");
+      setSlaFilter("ALL");
+      return;
+    }
+
+    if (value === "HIGH_RISK") {
+      setStatusFilter("ACTIVE");
+      setSeverityFilter("ALL");
+      setSlaFilter("ALL");
+      setOwnerFilter("ALL");
+      return;
+    }
+
+    if (value === "ESCALATED") {
+      setStatusFilter("ESCALATED");
+      setSeverityFilter("ALL");
+      setSlaFilter("ALL");
+      setOwnerFilter("ALL");
+      return;
+    }
+
+    if (value === "READY_TO_CLOSE") {
+      setStatusFilter("ACTIVE");
+      setSeverityFilter("ALL");
+      setSlaFilter("ALL");
+      setOwnerFilter("ALL");
+      return;
+    }
+
+    if (value === "BLOCKED_ACTIONS") {
+      setStatusFilter("ACTIVE");
+      setSeverityFilter("ALL");
+      setSlaFilter("ALL");
+      setOwnerFilter("ALL");
+      return;
+    }
+
+    if (value === "NEEDS_AI") {
+      setStatusFilter("ACTIVE");
+      setSeverityFilter("ALL");
+      setSlaFilter("ALL");
+      setOwnerFilter("ALL");
+      return;
+    }
+
+    if (value === "NEEDS_CLOSURE") {
+      setStatusFilter("ACTIVE");
+      setSeverityFilter("ALL");
+      setSlaFilter("ALL");
+      setOwnerFilter("ALL");
+      return;
+    }
+
+    if (value === "CLOSED") {
+      setStatusFilter("CLOSED");
+      setSeverityFilter("ALL");
+      setSlaFilter("ALL");
+      setOwnerFilter("ALL");
+    }
+  }
 
   async function loadCases() {
     try {
@@ -160,12 +476,12 @@ export default function CasesPage() {
             </div>
 
             <h1 className="text-3xl font-semibold tracking-tight">
-              Case Grouping
+              SOC Case Queue
             </h1>
 
             <p className="mt-2 max-w-3xl text-sm text-slate-400">
-              Group correlated incidents into investigation cases by host,
-              correlation type and event day.
+              Prioritized operational queue for grouped investigations, SLA
+              tracking, ownership, action progress, AI analysis and closure readiness.
             </p>
           </div>
 
@@ -192,35 +508,169 @@ export default function CasesPage() {
           </div>
         ) : (
           <div className="space-y-6">
-            <section className="grid gap-4 md:grid-cols-4">
-              <MetricCard title="Total cases" value={data?.total ?? 0} />
-              <MetricCard title="Open cases" value={totalOpenCases} />
-              <MetricCard title="SLA breached" value={breachedCases} />
-              <MetricCard title="Page" value={data?.page ?? 1} />
+            <section className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
+              <MetricCard title="Active" value={metrics.active} subtitle={`${metrics.total} total`} />
+              <MetricCard title="SLA breached" value={metrics.breached} subtitle="Immediate review" danger={metrics.breached > 0} />
+              <MetricCard title="High / Critical" value={metrics.criticalHigh} subtitle="Priority queue" warning={metrics.criticalHigh > 0} />
+              <MetricCard title="Ready to close" value={metrics.readyToClose} subtitle="Can be closed" success={metrics.readyToClose > 0} />
+              <MetricCard title="Open actions" value={metrics.blockedByActions} subtitle="Blocked cases" warning={metrics.blockedByActions > 0} />
+              <MetricCard title="Needs AI" value={metrics.needsAi} subtitle="No analysis yet" warning={metrics.needsAi > 0} />
             </section>
 
             <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-lg font-medium">Cases</h2>
-                <span className="text-xs text-slate-500">
-                  {data?.total ?? 0} total
+              <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <div className="mb-2 flex items-center gap-2 text-cyan-300">
+                    <SlidersHorizontal className="h-4 w-4" />
+                    <h2 className="text-lg font-medium text-slate-100">
+                      Queue controls
+                    </h2>
+                  </div>
+                  <p className="text-sm text-slate-400">
+                    Filter and prioritize cases by operational urgency.
+                  </p>
+                </div>
+
+                <button
+                  onClick={resetFilters}
+                  className="w-fit rounded-xl border border-slate-700 bg-slate-950 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800"
+                >
+                  Reset filters
+                </button>
+              </div>
+
+              <div className="mb-5 flex flex-wrap gap-2">
+                <QuickViewButton label="Operations" active={quickView === "OPERATIONS"} onClick={() => applyQuickView("OPERATIONS")} />
+                <QuickViewButton label={`SLA breached (${metrics.breached})`} active={quickView === "BREACHED"} onClick={() => applyQuickView("BREACHED")} />
+                <QuickViewButton label={`Unassigned (${metrics.unassigned})`} active={quickView === "UNASSIGNED"} onClick={() => applyQuickView("UNASSIGNED")} />
+                <QuickViewButton label={`High risk (${metrics.criticalHigh})`} active={quickView === "HIGH_RISK"} onClick={() => applyQuickView("HIGH_RISK")} />
+                <QuickViewButton label={`Ready to close (${metrics.readyToClose})`} active={quickView === "READY_TO_CLOSE"} onClick={() => applyQuickView("READY_TO_CLOSE")} />
+                <QuickViewButton label={`Open actions (${metrics.blockedByActions})`} active={quickView === "BLOCKED_ACTIONS"} onClick={() => applyQuickView("BLOCKED_ACTIONS")} />
+                <QuickViewButton label={`Needs AI (${metrics.needsAi})`} active={quickView === "NEEDS_AI"} onClick={() => applyQuickView("NEEDS_AI")} />
+                <QuickViewButton label={`Needs closure (${metrics.needsClosure})`} active={quickView === "NEEDS_CLOSURE"} onClick={() => applyQuickView("NEEDS_CLOSURE")} />
+                <QuickViewButton label={`Escalated (${metrics.escalated})`} active={quickView === "ESCALATED"} onClick={() => applyQuickView("ESCALATED")} />
+                <QuickViewButton label={`Closed (${metrics.closed})`} active={quickView === "CLOSED"} onClick={() => applyQuickView("CLOSED")} />
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-5">
+                <label className="lg:col-span-2">
+                  <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                    Search
+                  </span>
+                  <div className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-950 px-3 py-2">
+                    <Search className="h-4 w-4 text-slate-500" />
+                    <input
+                      value={searchText}
+                      onChange={(event) => setSearchText(event.target.value)}
+                      placeholder="Case, host, owner, correlation type, flags..."
+                      className="w-full bg-transparent text-sm text-slate-100 outline-none placeholder:text-slate-600"
+                    />
+                  </div>
+                </label>
+
+                <FilterSelect
+                  label="Status"
+                  value={statusFilter}
+                  onChange={setStatusFilter}
+                  options={[
+                    ["ALL", "All"],
+                    ["ACTIVE", "Active"],
+                    ["OPEN", "Open"],
+                    ["TRIAGED", "Triaged"],
+                    ["INVESTIGATING", "Investigating"],
+                    ["ESCALATED", "Escalated"],
+                    ["CLOSED", "Closed"],
+                    ["FALSE_POSITIVE", "False positive"],
+                  ]}
+                />
+
+                <FilterSelect
+                  label="Severity"
+                  value={severityFilter}
+                  onChange={setSeverityFilter}
+                  options={[
+                    ["ALL", "All"],
+                    ["CRITICAL", "Critical"],
+                    ["HIGH", "High"],
+                    ["MEDIUM", "Medium"],
+                    ["LOW", "Low"],
+                  ]}
+                />
+
+                <FilterSelect
+                  label="SLA"
+                  value={slaFilter}
+                  onChange={setSlaFilter}
+                  options={[
+                    ["ALL", "All"],
+                    ["BREACHED", "Breached"],
+                    ["WITHIN_SLA", "Within SLA"],
+                    ["COMPLETED", "Completed"],
+                    ["NOT_SET", "Not set"],
+                  ]}
+                />
+              </div>
+
+              <div className="mt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+                <FilterSelect
+                  label="Owner"
+                  value={ownerFilter}
+                  onChange={setOwnerFilter}
+                  options={[
+                    ["ALL", "All"],
+                    ["UNASSIGNED", "Unassigned"],
+                    ...owners.map((owner) => [owner, owner] as [string, string]),
+                  ]}
+                />
+
+                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 lg:col-span-4">
+                  <div className="flex flex-wrap items-center gap-3 text-sm text-slate-300">
+                    <Filter className="h-4 w-4 text-cyan-300" />
+                    <span>
+                      Showing <strong>{filteredCases.length}</strong> of{" "}
+                      <strong>{cases.length}</strong> loaded cases.
+                    </span>
+                    <span className="text-slate-500">
+                      Sorted by SLA breach, escalation, severity, open actions,
+                      missing AI, closure readiness, ownership and risk score.
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
+              <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h2 className="text-lg font-medium">Cases</h2>
+                  <p className="mt-1 text-sm text-slate-400">
+                    Operational queue ordered by urgency.
+                  </p>
+                </div>
+
+                <span className="rounded-full border border-slate-700 bg-slate-950 px-4 py-2 text-sm text-slate-300">
+                  {filteredCases.length} visible
                 </span>
               </div>
 
-              {cases.length === 0 ? (
+              {filteredCases.length === 0 ? (
                 <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">
-                  No cases available yet. Run the case grouping script first.
+                  No cases match the current filters.
                 </div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-sm">
                     <thead className="border-b border-slate-800 text-xs uppercase text-slate-500">
                       <tr>
+                        <th className="py-3 pr-4">Priority</th>
                         <th className="py-3 pr-4">Case</th>
                         <th className="py-3 pr-4">Status</th>
                         <th className="min-w-32 whitespace-nowrap py-3 pr-4">Severity</th>
                         <th className="py-3 pr-4">Owner</th>
-                        <th className="py-3 pr-4">SLA</th>
+                        <th className="min-w-40 whitespace-nowrap py-3 pr-4">SLA</th>
+                        <th className="min-w-40 whitespace-nowrap py-3 pr-4">Readiness</th>
+                        <th className="min-w-32 whitespace-nowrap py-3 pr-4">Actions</th>
+                        <th className="min-w-32 whitespace-nowrap py-3 pr-4">AI</th>
                         <th className="py-3 pr-4">Host</th>
                         <th className="py-3 pr-4">Correlation type</th>
                         <th className="py-3 pr-4">Incidents</th>
@@ -229,81 +679,114 @@ export default function CasesPage() {
                     </thead>
 
                     <tbody>
-                      {cases.map((item) => (
-                        <tr
-                          key={item.id}
-                          className="border-b border-slate-800/70"
-                        >
-                          <td className="max-w-xl py-3 pr-4">
-                            <Link
-                              href={`/cases/${item.id}`}
-                              className="text-cyan-300 hover:text-cyan-200"
-                            >
-                              #{item.id} {item.title}
-                            </Link>
-                          </td>
+                      {filteredCases.map((item) => {
+                        const priority = operationalPriority(item);
+                        const severity = item.severity_review ?? item.final_severity ?? item.severity;
 
-                          <td className="py-3 pr-4">
-                            <span
-                              className={`rounded-full border px-3 py-1 text-xs ${statusClass(
-                                item.status
-                              )}`}
-                            >
-                              {item.status ?? "OPEN"}
-                            </span>
-                          </td>
+                        return (
+                          <tr
+                            key={item.id}
+                            className="border-b border-slate-800/70"
+                          >
+                            <td className="py-3 pr-4">
+                              <OperationalPriorityBadge item={item} score={priority} />
+                            </td>
 
-                          <td className="min-w-32 whitespace-nowrap py-3 pr-4">
-                            <span
-                              className={`inline-flex whitespace-nowrap rounded-full border px-3 py-1 text-xs ${severityClass(
-                                item.severity
-                              )}`}
-                            >
-                              {item.severity ?? "LOW"} · {item.risk_score ?? 0}
-                            </span>
-                          </td>
+                            <td className="max-w-xl py-3 pr-4">
+                              <Link
+                                href={`/cases/${item.id}`}
+                                className="text-cyan-300 hover:text-cyan-200"
+                              >
+                                #{item.id} {item.title}
+                              </Link>
+                              {item.status_reason && (
+                                <div className="mt-1 max-w-md truncate text-xs text-slate-500">
+                                  {item.status_reason}
+                                </div>
+                              )}
+                            </td>
 
-                          <td className="py-3 pr-4 text-slate-300">
-                            {item.owner ?? "unassigned"}
-                          </td>
-
-                          <td className="py-3 pr-4">
-                            <div className="flex flex-col gap-1">
+                            <td className="py-3 pr-4">
                               <span
-                                className={`w-fit rounded-full border px-3 py-1 text-xs ${slaClass(
-                                  item.sla_status
+                                className={`rounded-full border px-3 py-1 text-xs ${statusClass(
+                                  item.status
                                 )}`}
                               >
-                                {slaLabel(item.sla_status)}
+                                {item.status ?? "OPEN"}
                               </span>
-                              {item.sla_due_at && (
-                                <span className="text-xs text-slate-500">
-                                  Due {formatTimestamp(item.sla_due_at)}
+                            </td>
+
+                            <td className="min-w-32 whitespace-nowrap py-3 pr-4">
+                              <span
+                                className={`inline-flex whitespace-nowrap rounded-full border px-3 py-1 text-xs ${severityClass(
+                                  severity
+                                )}`}
+                              >
+                                {severity ?? "LOW"} · {item.risk_score ?? 0}
+                              </span>
+                            </td>
+
+                            <td className="py-3 pr-4 text-slate-300">
+                              {item.owner ? (
+                                item.owner
+                              ) : (
+                                <span className="inline-flex items-center gap-1 whitespace-nowrap text-orange-300">
+                                  <AlertTriangle className="h-3 w-3" />
+                                  unassigned
                                 </span>
                               )}
-                            </div>
-                          </td>
+                            </td>
 
-                          <td className="py-3 pr-4 text-slate-300">
-                            {item.agent ?? "unknown"}
-                          </td>
+                            <td className="min-w-40 whitespace-nowrap py-3 pr-4">
+                              <div className="flex min-w-40 flex-col gap-1">
+                                <span
+                                  className={`inline-flex w-fit whitespace-nowrap rounded-full border px-3 py-1 text-xs ${slaClass(
+                                    item.sla_status
+                                  )}`}
+                                >
+                                  {slaLabel(item.sla_status)}
+                                </span>
+                                {item.sla_due_at && (
+                                  <span className="whitespace-nowrap text-xs text-slate-500">
+                                    Due {formatTimestamp(item.sla_due_at)}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
 
-                          <td className="py-3 pr-4 text-slate-400">
-                            {item.correlation_type ?? "-"}
-                          </td>
+                            <td className="min-w-40 whitespace-nowrap py-3 pr-4">
+                              <ClosureReadinessBadge item={item} />
+                            </td>
 
-                          <td className="py-3 pr-4">
-                            <div className="inline-flex items-center gap-2 text-slate-300">
-                              <ShieldAlert className="h-4 w-4 text-cyan-300" />
-                              {item.incident_count}
-                            </div>
-                          </td>
+                            <td className="min-w-32 whitespace-nowrap py-3 pr-4">
+                              <ActionProgress item={item} />
+                            </td>
 
-                          <td className="py-3 pr-4 text-slate-400">
-                            {formatTimestamp(item.updated_at)}
-                          </td>
-                        </tr>
-                      ))}
+                            <td className="min-w-32 whitespace-nowrap py-3 pr-4">
+                              <AIStatusBadge item={item} />
+                            </td>
+
+                            <td className="py-3 pr-4 text-slate-300">
+                              {item.agent ?? "unknown"}
+                            </td>
+
+                            <td className="py-3 pr-4 text-slate-400">
+                              {item.correlation_type ?? "-"}
+                            </td>
+
+                            <td className="py-3 pr-4">
+                              <div className="inline-flex items-center gap-2 text-slate-300">
+                                <ShieldAlert className="h-4 w-4 text-cyan-300" />
+                                {item.incident_count}
+                              </div>
+                            </td>
+
+                            <td className="py-3 pr-4 text-slate-400">
+                              {formatTimestamp(item.updated_at)}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -316,11 +799,266 @@ export default function CasesPage() {
   );
 }
 
-function MetricCard({ title, value }: { title: string; value: number }) {
+function MetricCard({
+  title,
+  value,
+  subtitle,
+  danger = false,
+  warning = false,
+  success = false,
+}: {
+  title: string;
+  value: number;
+  subtitle?: string;
+  danger?: boolean;
+  warning?: boolean;
+  success?: boolean;
+}) {
+  const className = danger
+    ? "border-red-800 bg-red-950/50"
+    : warning
+      ? "border-orange-800 bg-orange-950/40"
+      : success
+        ? "border-emerald-800 bg-emerald-950/40"
+        : "border-slate-800 bg-slate-900";
+
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
+    <div className={`rounded-2xl border p-5 shadow-lg ${className}`}>
       <div className="mb-3 text-sm text-slate-400">{title}</div>
       <div className="text-3xl font-semibold">{value}</div>
+      {subtitle && <div className="mt-2 text-xs text-slate-500">{subtitle}</div>}
     </div>
+  );
+}
+
+function QuickViewButton({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`rounded-full border px-4 py-2 text-sm ${
+        active
+          ? "border-cyan-500 bg-cyan-500 text-slate-950"
+          : "border-slate-700 bg-slate-950 text-slate-300 hover:bg-slate-800"
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+function FilterSelect({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: [string, string][];
+}) {
+  return (
+    <label>
+      <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+        {label}
+      </span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+      >
+        {options.map(([optionValue, optionLabel]) => (
+          <option key={optionValue} value={optionValue}>
+            {optionLabel}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function OperationalPriorityBadge({
+  item,
+  score,
+}: {
+  item: IncidentCase;
+  score: number;
+}) {
+  const severity = item.severity_review ?? item.final_severity ?? item.severity ?? "LOW";
+
+  if (item.sla_status === "BREACHED") {
+    return (
+      <span className="rounded-full border border-red-200 bg-red-100 px-3 py-1 text-xs text-red-800">
+        SLA
+      </span>
+    );
+  }
+
+  if (item.status === "ESCALATED") {
+    return (
+      <span className="rounded-full border border-red-200 bg-red-100 px-3 py-1 text-xs text-red-800">
+        Escalated
+      </span>
+    );
+  }
+
+  if (["CRITICAL", "HIGH"].includes(severity)) {
+    return (
+      <span className="rounded-full border border-orange-200 bg-orange-100 px-3 py-1 text-xs text-orange-800">
+        High risk
+      </span>
+    );
+  }
+
+  if ((item.open_action_count ?? 0) > 0) {
+    return (
+      <span className="rounded-full border border-orange-200 bg-orange-100 px-3 py-1 text-xs text-orange-800">
+        Actions
+      </span>
+    );
+  }
+
+  if (!item.has_ai_analysis && isOpenCase(item)) {
+    return (
+      <span className="rounded-full border border-yellow-200 bg-yellow-100 px-3 py-1 text-xs text-yellow-800">
+        Needs AI
+      </span>
+    );
+  }
+
+  if (item.ready_to_close && isOpenCase(item)) {
+    return (
+      <span className="rounded-full border border-emerald-200 bg-emerald-100 px-3 py-1 text-xs text-emerald-800">
+        Close
+      </span>
+    );
+  }
+
+  if (!item.owner && isOpenCase(item)) {
+    return (
+      <span className="rounded-full border border-yellow-200 bg-yellow-100 px-3 py-1 text-xs text-yellow-800">
+        No owner
+      </span>
+    );
+  }
+
+  if (score > 200) {
+    return (
+      <span className="rounded-full border border-cyan-200 bg-cyan-100 px-3 py-1 text-xs text-cyan-800">
+        Review
+      </span>
+    );
+  }
+
+  return (
+    <span className="rounded-full border border-slate-300 bg-slate-200 px-3 py-1 text-xs text-slate-800">
+      Normal
+    </span>
+  );
+}
+
+function ClosureReadinessBadge({ item }: { item: IncidentCase }) {
+  if (item.ready_to_close) {
+    return (
+      <div className="flex flex-col gap-1">
+        <span className={`inline-flex w-fit items-center gap-1 whitespace-nowrap rounded-full border px-3 py-1 text-xs ${readinessClass(item)}`}>
+          <CheckCircle2 className="h-3 w-3" />
+          Ready
+        </span>
+        {item.closure_decision && (
+          <span className="text-xs text-slate-500">{item.closure_decision}</span>
+        )}
+      </div>
+    );
+  }
+
+  if ((item.open_action_count ?? 0) > 0) {
+    return (
+      <div className="flex flex-col gap-1">
+        <span className={`inline-flex w-fit items-center gap-1 whitespace-nowrap rounded-full border px-3 py-1 text-xs ${readinessClass(item)}`}>
+          <CircleDashed className="h-3 w-3" />
+          Blocked
+        </span>
+        <span className="text-xs text-slate-500">
+          {item.open_action_count} open action(s)
+        </span>
+      </div>
+    );
+  }
+
+  if (!item.has_closure_checklist) {
+    return (
+      <span className={`inline-flex w-fit whitespace-nowrap rounded-full border px-3 py-1 text-xs ${readinessClass(item)}`}>
+        Needs checklist
+      </span>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      <span className={`inline-flex w-fit whitespace-nowrap rounded-full border px-3 py-1 text-xs ${readinessClass(item)}`}>
+        In progress
+      </span>
+      {(item.closure_missing_count ?? 0) > 0 && (
+        <span className="text-xs text-slate-500">
+          {item.closure_missing_count} missing
+        </span>
+      )}
+    </div>
+  );
+}
+
+function ActionProgress({ item }: { item: IncidentCase }) {
+  const total = item.action_count ?? 0;
+  const open = item.open_action_count ?? 0;
+  const done = item.completed_action_count ?? 0;
+  const cancelled = item.cancelled_action_count ?? 0;
+
+  if (total === 0) {
+    return <span className="text-xs text-slate-500">No actions</span>;
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="whitespace-nowrap text-sm text-slate-300">
+        {done}/{total} done
+      </span>
+      <span className="whitespace-nowrap text-xs text-slate-500">
+        {open} open · {cancelled} cancelled
+      </span>
+    </div>
+  );
+}
+
+function AIStatusBadge({ item }: { item: IncidentCase }) {
+  if (item.has_ai_analysis) {
+    return (
+      <div className="flex flex-col gap-1">
+        <span className={`inline-flex w-fit items-center gap-1 whitespace-nowrap rounded-full border px-3 py-1 text-xs ${aiClass(item)}`}>
+          <Bot className="h-3 w-3" />
+          AI done
+        </span>
+        {item.latest_ai_analysis_at && (
+          <span className="text-xs text-slate-500">
+            {formatTimestamp(item.latest_ai_analysis_at)}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <span className={`inline-flex w-fit items-center gap-1 whitespace-nowrap rounded-full border px-3 py-1 text-xs ${aiClass(item)}`}>
+      <Bot className="h-3 w-3" />
+      Needs AI
+    </span>
   );
 }
