@@ -553,18 +553,18 @@ export default function Home() {
         />
 
         {error && (
-          <div className="mb-4 rounded-xl border border-red-800 bg-red-950/60 p-3 text-xs text-red-200">
+          <div className="mb-2 rounded-xl border border-red-800 bg-red-950/60 p-3 text-xs text-red-200">
             API error: {error}
           </div>
         )}
 
         {loading ? (
           <EnterpriseSection>
-            <div className="text-sm text-slate-300">Loading dashboard...</div>
+            <div className="text-xs text-slate-300">Loading dashboard...</div>
           </EnterpriseSection>
         ) : (
-          <div className="space-y-4">
-            <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+          <div className="space-y-3">
+            <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
               <EnterpriseMetricCard
                 title="Incidents"
                 value={summary?.total_incidents ?? 0}
@@ -629,24 +629,24 @@ export default function Home() {
               />
             </section>
 
-            <section className="grid gap-4 xl:grid-cols-3">
+            <section className="grid gap-2 xl:grid-cols-3">
               <EnterpriseChartCard
                 title="Incident Risk Distribution"
                 description="Current incident distribution by calculated risk band."
-                height="h-56"
+                height="h-40"
               >
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={riskChartData}>
                     <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
                     <XAxis
                       dataKey="name"
-                      tick={{ fill: CHART_TICK, fontSize: 11 }}
+                      tick={{ fill: CHART_TICK, fontSize: 10 }}
                       axisLine={{ stroke: CHART_AXIS }}
                       tickLine={{ stroke: CHART_AXIS }}
                     />
                     <YAxis
                       allowDecimals={false}
-                      tick={{ fill: CHART_TICK, fontSize: 11 }}
+                      tick={{ fill: CHART_TICK, fontSize: 10 }}
                       axisLine={{ stroke: CHART_AXIS }}
                       tickLine={{ stroke: CHART_AXIS }}
                     />
@@ -672,7 +672,7 @@ export default function Home() {
               <EnterpriseChartCard
                 title="Case Status Distribution"
                 description="Investigation cases grouped by operational status."
-                height="h-56"
+                height="h-40"
               >
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={caseStatusChartData}>
@@ -685,7 +685,7 @@ export default function Home() {
                     />
                     <YAxis
                       allowDecimals={false}
-                      tick={{ fill: CHART_TICK, fontSize: 11 }}
+                      tick={{ fill: CHART_TICK, fontSize: 10 }}
                       axisLine={{ stroke: CHART_AXIS }}
                       tickLine={{ stroke: CHART_AXIS }}
                     />
@@ -711,7 +711,7 @@ export default function Home() {
               <EnterpriseChartCard
                 title="Operational Backlog"
                 description="SLA, actions, AI coverage and closure readiness."
-                height="h-56"
+                height="h-40"
               >
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={operationsChartData}>
@@ -724,7 +724,7 @@ export default function Home() {
                     />
                     <YAxis
                       allowDecimals={false}
-                      tick={{ fill: CHART_TICK, fontSize: 11 }}
+                      tick={{ fill: CHART_TICK, fontSize: 10 }}
                       axisLine={{ stroke: CHART_AXIS }}
                       tickLine={{ stroke: CHART_AXIS }}
                     />
@@ -748,7 +748,7 @@ export default function Home() {
               </EnterpriseChartCard>
             </section>
 
-            <section className="grid gap-4 xl:grid-cols-[1.25fr_0.75fr]">
+            <section className="grid gap-2 xl:grid-cols-[1.25fr_0.75fr]">
               <EnterpriseSection
                 title="Priority Case Queue"
                 description="Highest operational attention based on SLA breach, open actions and risk."
@@ -767,13 +767,13 @@ export default function Home() {
                   <table className="w-full text-left text-xs">
                     <thead className="border-b border-slate-800 uppercase tracking-wide text-slate-500">
                       <tr>
-                        <th className="py-2 pr-3">Case</th>
-                        <th className="py-2 pr-3">Status</th>
-                        <th className="py-2 pr-3">Severity</th>
-                        <th className="py-2 pr-3">SLA</th>
-                        <th className="py-2 pr-3">Owner</th>
-                        <th className="py-2 pr-3">Actions</th>
-                        <th className="py-2 pr-3">AI</th>
+                        <th className="py-1.5 pr-2">Case</th>
+                        <th className="py-1.5 pr-2">Status</th>
+                        <th className="py-1.5 pr-2">Severity</th>
+                        <th className="py-1.5 pr-2">SLA</th>
+                        <th className="py-1.5 pr-2">Owner</th>
+                        <th className="py-1.5 pr-2">Actions</th>
+                        <th className="py-1.5 pr-2">AI</th>
                       </tr>
                     </thead>
 
@@ -784,7 +784,7 @@ export default function Home() {
 
                         return (
                           <tr key={item.id} className="hover:bg-slate-800/40">
-                            <td className="max-w-md py-2 pr-3">
+                            <td className="max-w-md py-1.5 pr-2">
                               <Link
                                 href={`/cases/${item.id}`}
                                 className="font-medium text-cyan-300 hover:text-cyan-200"
@@ -797,19 +797,19 @@ export default function Home() {
                               </div>
                             </td>
 
-                            <td className="py-2 pr-3">
+                            <td className="py-1.5 pr-2">
                               <EnterpriseBadge tone={statusTone(item.status) as any}>
                                 {item.status ?? "OPEN"}
                               </EnterpriseBadge>
                             </td>
 
-                            <td className="py-2 pr-3">
+                            <td className="py-1.5 pr-2">
                               <EnterpriseBadge tone={severityTone(effectiveSeverity) as any}>
                                 {effectiveSeverity}
                               </EnterpriseBadge>
                             </td>
 
-                            <td className="py-2 pr-3">
+                            <td className="py-1.5 pr-2">
                               <EnterpriseBadge tone={slaTone(item.sla_status) as any}>
                                 {item.sla_status ?? "UNKNOWN"}
                               </EnterpriseBadge>
@@ -823,7 +823,7 @@ export default function Home() {
                               {item.open_action_count ?? 0}/{item.action_count ?? 0} open
                             </td>
 
-                            <td className="py-2 pr-3">
+                            <td className="py-1.5 pr-2">
                               <EnterpriseBadge
                                 tone={item.has_ai_analysis ? "success" : "warning"}
                               >
@@ -876,7 +876,7 @@ export default function Home() {
                   ))}
 
                   {topHosts.length === 0 && (
-                    <div className="rounded-lg border border-slate-800 bg-slate-950 p-3 text-xs text-slate-500">
+                    <div className="rounded-md border border-slate-800 bg-slate-950 p-2 text-xs text-slate-500">
                       No host data available.
                     </div>
                   )}
@@ -893,7 +893,7 @@ export default function Home() {
                 </EnterpriseBadge>
               }
             >
-              <div className="mb-4 grid gap-2 rounded-xl border border-slate-800 bg-slate-950 p-3 md:grid-cols-4 xl:grid-cols-6">
+              <div className="mb-2 grid gap-2 rounded-md border border-slate-800 bg-slate-950 p-2 md:grid-cols-4 xl:grid-cols-6">
                 <FilterSelect
                   label="Status"
                   value={statusFilter}
@@ -1012,22 +1012,22 @@ export default function Home() {
                 <table className="w-full text-left text-xs">
                   <thead className="border-b border-slate-800 uppercase tracking-wide text-slate-500">
                     <tr>
-                      <th className="py-2 pr-3">ID</th>
-                      <th className="py-2 pr-3">Status</th>
-                      <th className="py-2 pr-3">Time</th>
-                      <th className="py-2 pr-3">Host</th>
-                      <th className="py-2 pr-3">Rule</th>
-                      <th className="py-2 pr-3">Level</th>
-                      <th className="py-2 pr-3">Risk</th>
-                      <th className="py-2 pr-3">Priority</th>
-                      <th className="py-2 pr-3">Correlation</th>
+                      <th className="py-1.5 pr-2">ID</th>
+                      <th className="py-1.5 pr-2">Status</th>
+                      <th className="py-1.5 pr-2">Time</th>
+                      <th className="py-1.5 pr-2">Host</th>
+                      <th className="py-1.5 pr-2">Rule</th>
+                      <th className="py-1.5 pr-2">Level</th>
+                      <th className="py-1.5 pr-2">Risk</th>
+                      <th className="py-1.5 pr-2">Priority</th>
+                      <th className="py-1.5 pr-2">Correlation</th>
                     </tr>
                   </thead>
 
                   <tbody className="divide-y divide-slate-800/80">
                     {incidents.map((incident) => (
                       <tr key={incident.id} className="hover:bg-slate-800/40">
-                        <td className="py-2 pr-3">
+                        <td className="py-1.5 pr-2">
                           <Link
                             href={`/incidents/${incident.id}`}
                             className="font-medium text-cyan-300 hover:text-cyan-200"
@@ -1036,7 +1036,7 @@ export default function Home() {
                           </Link>
                         </td>
 
-                        <td className="py-2 pr-3">
+                        <td className="py-1.5 pr-2">
                           <EnterpriseBadge tone={statusTone(incident.status) as any}>
                             {incident.status ?? "NEW"}
                           </EnterpriseBadge>
@@ -1064,21 +1064,21 @@ export default function Home() {
                           {incident.level ?? 0}
                         </td>
 
-                        <td className="py-2 pr-3">
+                        <td className="py-1.5 pr-2">
                           <EnterpriseBadge tone={riskTone(incident.risk_score) as any}>
                             {riskLabel(incident.risk_score)} ·{" "}
                             {incident.risk_score ?? 0}
                           </EnterpriseBadge>
                         </td>
 
-                        <td className="py-2 pr-3">
+                        <td className="py-1.5 pr-2">
                           <EnterpriseBadge tone={riskTone(incident.risk_score) as any}>
                             {incident.recommended_priority ??
                               riskLabel(incident.risk_score)}
                           </EnterpriseBadge>
                         </td>
 
-                        <td className="py-2 pr-3">
+                        <td className="py-1.5 pr-2">
                           {incident.correlated ? (
                             <div>
                               <div className="text-cyan-300">
@@ -1106,7 +1106,7 @@ export default function Home() {
                 </table>
               </div>
 
-              <div className="mt-4 flex flex-col gap-3 border-t border-slate-800 pt-3 text-xs text-slate-400 md:flex-row md:items-center md:justify-between">
+              <div className="mt-2 flex flex-col gap-3 border-t border-slate-800 pt-3 text-xs text-slate-400 md:flex-row md:items-center md:justify-between">
                 <div>
                   Showing page{" "}
                   <span className="font-medium text-slate-200">{currentPage}</span>{" "}

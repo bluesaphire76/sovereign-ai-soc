@@ -520,11 +520,11 @@ export default function CasesPage() {
     <main className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto max-w-[1600px] px-4 py-4">
         <AppNavigation />
-        <header className="mb-8 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <header className="mb-2 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
             <Link
               href="/"
-              className="mb-6 inline-flex items-center gap-2 text-sm text-cyan-300 hover:text-cyan-200"
+              className="mb-3 inline-flex items-center gap-2 text-sm text-cyan-300 hover:text-cyan-200"
             >
               <ArrowLeft className="h-4 w-4" />
               Back to dashboard
@@ -535,20 +535,20 @@ export default function CasesPage() {
               Investigation cases
             </div>
 
-            <h1 className="text-3xl font-semibold tracking-tight">
+            <h1 className="text-xl font-semibold tracking-tight">
               SOC Case Queue
             </h1>
 
-            <p className="mt-2 max-w-3xl text-sm text-slate-400">
+            <p className="mt-2 max-w-3xl text-xs text-slate-500">
               Prioritized operational queue for grouped investigations, SLA
               tracking, ownership, action progress, AI analysis and closure readiness.
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-1.5">
             <button
               onClick={loadCases}
-              className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 shadow-sm hover:bg-slate-800"
+              className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-xs text-slate-200 shadow-sm hover:bg-slate-800"
             >
               <RefreshCw
                 className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`}
@@ -559,18 +559,18 @@ export default function CasesPage() {
         </header>
 
         {error && (
-          <div className="mb-6 rounded-2xl border border-red-800 bg-red-950/60 p-4 text-sm text-red-200">
+          <div className="mb-3 rounded-2xl border border-red-800 bg-red-950/60 p-4 text-sm text-red-200">
             API error: {error}
           </div>
         )}
 
         {loading ? (
           <EnterpriseSection>
-            <div className="text-sm text-slate-300">Loading cases...</div>
+            <div className="text-xs text-slate-300">Loading cases...</div>
           </EnterpriseSection>
         ) : (
-          <div className="space-y-4">
-            <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          <div className="space-y-3">
+            <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
               <EnterpriseMetricCard title="Active" value={metrics.active} subtitle={`${metrics.total} total`} tone="primary" icon={<Briefcase className="h-4 w-4" />} />
               <EnterpriseMetricCard title="SLA breached" value={metrics.breached} subtitle="Immediate review" tone={metrics.breached > 0 ? "danger" : "success"} icon={<AlertTriangle className="h-4 w-4" />} />
               <EnterpriseMetricCard title="High / Critical" value={metrics.criticalHigh} subtitle="Priority queue" tone={metrics.criticalHigh > 0 ? "warning" : "success"} icon={<ShieldAlert className="h-4 w-4" />} />
@@ -588,7 +588,7 @@ export default function CasesPage() {
                 </EnterpriseButton>
               }
             >
-              <div className="mb-4 flex flex-wrap gap-1.5">
+              <div className="mb-2 flex flex-wrap gap-1.5">
                 <QuickViewButton label="Operations" active={quickView === "OPERATIONS"} onClick={() => applyQuickView("OPERATIONS")} />
                 <QuickViewButton label={`SLA breached (${metrics.breached})`} active={quickView === "BREACHED"} onClick={() => applyQuickView("BREACHED")} />
                 <QuickViewButton label={`Unassigned (${metrics.unassigned})`} active={quickView === "UNASSIGNED"} onClick={() => applyQuickView("UNASSIGNED")} />
@@ -601,7 +601,7 @@ export default function CasesPage() {
                 <QuickViewButton label={`Closed (${metrics.closed})`} active={quickView === "CLOSED"} onClick={() => applyQuickView("CLOSED")} />
               </div>
 
-              <div className="grid gap-3 lg:grid-cols-5">
+              <div className="grid gap-2 lg:grid-cols-5">
                 <label className="lg:col-span-2">
                   <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-slate-500">
                     Search
@@ -660,7 +660,7 @@ export default function CasesPage() {
                 />
               </div>
 
-              <div className="mt-3 grid gap-3 md:grid-cols-2 lg:grid-cols-5">
+              <div className="mt-2 grid gap-2 md:grid-cols-2 lg:grid-cols-5">
                 <FilterSelect
                   label="Owner"
                   value={ownerFilter}
@@ -672,7 +672,7 @@ export default function CasesPage() {
                   ]}
                 />
 
-                <div className="mt-5 flex h-8 min-w-0 items-center rounded-lg border border-slate-800 bg-slate-950 px-2 lg:col-span-4">
+                <div className="mt-2 flex h-8 min-w-0 items-center rounded-lg border border-slate-800 bg-slate-950 px-2 lg:col-span-4">
                   <div className="flex min-w-0 items-center gap-2 overflow-hidden text-xs leading-none text-slate-300">
                     <Filter className="h-3.5 w-3.5 shrink-0 text-cyan-300" />
                     <span className="shrink-0">
@@ -698,27 +698,27 @@ export default function CasesPage() {
             >
 
               {filteredCases.length === 0 ? (
-                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">
+                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 text-xs text-slate-500">
                   No cases match the current filters.
                 </div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs">
-                    <thead className="sticky top-0 z-10 border-b border-slate-800 bg-slate-900 text-[11px] uppercase tracking-wide text-slate-500">
+                    <thead className="sticky top-0 z-10 border-b border-slate-800 bg-slate-900 text-[10px] uppercase tracking-wide text-slate-500">
                       <tr>
-                        <th className="py-2 pr-3">Priority</th>
-                        <th className="py-2 pr-3">Case</th>
-                        <th className="py-2 pr-3">Status</th>
+                        <th className="py-1.5 pr-2">Priority</th>
+                        <th className="py-1.5 pr-2">Case</th>
+                        <th className="py-1.5 pr-2">Status</th>
                         <th className="min-w-28 whitespace-nowrap py-2 pr-3">Severity</th>
-                        <th className="py-2 pr-3">Owner</th>
+                        <th className="py-1.5 pr-2">Owner</th>
                         <th className="min-w-36 whitespace-nowrap py-2 pr-3">SLA</th>
                         <th className="min-w-36 whitespace-nowrap py-2 pr-3">Readiness</th>
                         <th className="min-w-28 whitespace-nowrap py-2 pr-3">Actions</th>
                         <th className="min-w-28 whitespace-nowrap py-2 pr-3">AI</th>
-                        <th className="py-2 pr-3">Host</th>
-                        <th className="py-2 pr-3">Correlation type</th>
-                        <th className="py-2 pr-3">Incidents</th>
-                        <th className="py-2 pr-3">Updated</th>
+                        <th className="py-1.5 pr-2">Host</th>
+                        <th className="py-1.5 pr-2">Correlation type</th>
+                        <th className="py-1.5 pr-2">Incidents</th>
+                        <th className="py-1.5 pr-2">Updated</th>
                       </tr>
                     </thead>
 
@@ -732,11 +732,11 @@ export default function CasesPage() {
                             key={item.id}
                             className="border-b border-slate-800/70 hover:bg-slate-800/35"
                           >
-                            <td className="py-2 pr-3">
+                            <td className="py-1.5 pr-2">
                               <OperationalPriorityBadge item={item} score={priority} />
                             </td>
 
-                            <td className="max-w-[520px] py-2 pr-3">
+                            <td className="max-w-[520px] py-1.5 pr-2">
                               <Link
                                 href={`/cases/${item.id}`}
                                 className="text-cyan-300 hover:text-cyan-200"
@@ -750,9 +750,9 @@ export default function CasesPage() {
                               )}
                             </td>
 
-                            <td className="py-2 pr-3">
+                            <td className="py-1.5 pr-2">
                               <span
-                                className={`rounded-full border px-3 py-1 text-xs ${statusClass(
+                                className={`rounded-md border px-2 py-0.5 text-[11px] ${statusClass(
                                   item.status
                                 )}`}
                               >
@@ -762,7 +762,7 @@ export default function CasesPage() {
 
                             <td className="min-w-28 whitespace-nowrap py-2 pr-3">
                               <span
-                                className={`inline-flex whitespace-nowrap rounded-full border px-3 py-1 text-xs ${severityClass(
+                                className={`inline-flex whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] ${severityClass(
                                   severity
                                 )}`}
                               >
@@ -784,7 +784,7 @@ export default function CasesPage() {
                             <td className="min-w-36 whitespace-nowrap py-2 pr-3">
                               <div className="flex min-w-40 flex-col gap-1">
                                 <span
-                                  className={`inline-flex w-fit whitespace-nowrap rounded-full border px-3 py-1 text-xs ${slaClass(
+                                  className={`inline-flex w-fit whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] ${slaClass(
                                     item.sla_status
                                   )}`}
                                 >
@@ -818,7 +818,7 @@ export default function CasesPage() {
                               {item.correlation_type ?? "-"}
                             </td>
 
-                            <td className="py-2 pr-3">
+                            <td className="py-1.5 pr-2">
                               <div className="inline-flex items-center gap-2 text-slate-300">
                                 <ShieldAlert className="h-4 w-4 text-cyan-300" />
                                 {item.incident_count}
@@ -868,7 +868,7 @@ function MetricCard({
 
   return (
     <div className={`rounded-2xl border p-5 shadow-lg ${className}`}>
-      <div className="mb-3 text-sm text-slate-400">{title}</div>
+      <div className="mb-3 text-xs text-slate-500">{title}</div>
       <div className="text-3xl font-semibold">{value}</div>
       {subtitle && <div className="mt-2 text-xs text-slate-500">{subtitle}</div>}
     </div>
@@ -1013,7 +1013,7 @@ function ClosureReadinessBadge({ item }: { item: IncidentCase }) {
   if (item.ready_to_close) {
     return (
       <div className="flex flex-col gap-1">
-        <span className={`inline-flex w-fit items-center gap-1 whitespace-nowrap rounded-full border px-3 py-1 text-xs ${readinessClass(item)}`}>
+        <span className={`inline-flex w-fit items-center gap-1 whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] ${readinessClass(item)}`}>
           <CheckCircle2 className="h-3 w-3" />
           Ready
         </span>
@@ -1027,7 +1027,7 @@ function ClosureReadinessBadge({ item }: { item: IncidentCase }) {
   if ((item.open_action_count ?? 0) > 0) {
     return (
       <div className="flex flex-col gap-1">
-        <span className={`inline-flex w-fit items-center gap-1 whitespace-nowrap rounded-full border px-3 py-1 text-xs ${readinessClass(item)}`}>
+        <span className={`inline-flex w-fit items-center gap-1 whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] ${readinessClass(item)}`}>
           <CircleDashed className="h-3 w-3" />
           Blocked
         </span>
@@ -1040,7 +1040,7 @@ function ClosureReadinessBadge({ item }: { item: IncidentCase }) {
 
   if (!item.has_closure_checklist) {
     return (
-      <span className={`inline-flex w-fit whitespace-nowrap rounded-full border px-3 py-1 text-xs ${readinessClass(item)}`}>
+      <span className={`inline-flex w-fit whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] ${readinessClass(item)}`}>
         Needs checklist
       </span>
     );
@@ -1048,7 +1048,7 @@ function ClosureReadinessBadge({ item }: { item: IncidentCase }) {
 
   return (
     <div className="flex flex-col gap-1">
-      <span className={`inline-flex w-fit whitespace-nowrap rounded-full border px-3 py-1 text-xs ${readinessClass(item)}`}>
+      <span className={`inline-flex w-fit whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] ${readinessClass(item)}`}>
         In progress
       </span>
       {(item.closure_missing_count ?? 0) > 0 && (
@@ -1072,7 +1072,7 @@ function ActionProgress({ item }: { item: IncidentCase }) {
 
   return (
     <div className="flex flex-col gap-1">
-      <span className="whitespace-nowrap text-sm text-slate-300">
+      <span className="whitespace-nowrap text-xs text-slate-300">
         {done}/{total} done
       </span>
       <span className="whitespace-nowrap text-xs text-slate-500">
@@ -1086,7 +1086,7 @@ function AIStatusBadge({ item }: { item: IncidentCase }) {
   if (item.has_ai_analysis) {
     return (
       <div className="flex flex-col gap-1">
-        <span className={`inline-flex w-fit items-center gap-1 whitespace-nowrap rounded-full border px-3 py-1 text-xs ${aiClass(item)}`}>
+        <span className={`inline-flex w-fit items-center gap-1 whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] ${aiClass(item)}`}>
           <Bot className="h-3 w-3" />
           AI done
         </span>
@@ -1100,7 +1100,7 @@ function AIStatusBadge({ item }: { item: IncidentCase }) {
   }
 
   return (
-    <span className={`inline-flex w-fit items-center gap-1 whitespace-nowrap rounded-full border px-3 py-1 text-xs ${aiClass(item)}`}>
+    <span className={`inline-flex w-fit items-center gap-1 whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] ${aiClass(item)}`}>
       <Bot className="h-3 w-3" />
       Needs AI
     </span>
