@@ -5,6 +5,7 @@ import urllib3
 from datetime import datetime, timezone
 from correlation_engine import correlate_incident
 from rag_retriever import retrieve_security_context
+from llm_output import is_invalid_llm_output, sanitize_llm_output
 from timezone_utils import normalize_timestamp_utc
 from wazuh_ingest_state import (
     WAZUH_BATCH_SIZE,
@@ -140,31 +141,39 @@ def analyze_alert(alert):
     )
 
     prompt = f"""
-Sei un AI SOC Assistant difensivo.
+/no_think
 
-Usa il contesto della knowledge base quando rilevante.
-Se il contesto non è sufficiente, dillo chiaramente.
+You are a defensive AI SOC Assistant.
+
+Use the knowledge base context when relevant.
+If the context is insufficient, state that clearly.
 
 Knowledge base context:
 {context_text}
 
-Analizza questo alert Wazuh.
+Analyze the following Wazuh alert.
 
-Rispondi in italiano con:
+Respond in English using the following sections:
 
-1. Tipo evento
-2. Severità reale
-3. MITRE ATT&CK probabile
-4. Rischio per l'azienda
-5. Verifiche consigliate
-6. Remediation suggerita
-7. Executive summary breve
+1. Event type
+2. Actual severity
+3. Likely MITRE ATT&CK mapping
+4. Business risk
+5. Recommended checks
+6. Suggested remediation
+7. Short executive summary
 
-Regole:
-- Non proporre attività offensive.
-- Non eseguire remediation automatica.
-- Richiedi sempre validazione umana.
-- Sii pragmatico e sintetico.
+Output constraints:
+- English only.
+- Return only the final SOC analysis.
+- Do not include hidden reasoning, chain-of-thought, internal deliberation, or <think> tags.
+- Do not use Chinese, Italian, or any other language unless explicitly configured.
+
+Rules:
+- Do not propose offensive activities.
+- Do not perform or suggest automatic remediation without human validation.
+- Always require human analyst validation.
+- Be pragmatic, concise, and operationally useful.
 
 Alert JSON:
 {json.dumps(alert, ensure_ascii=False)}
@@ -175,7 +184,13 @@ Alert JSON:
         messages=[
             {
                 "role": "system",
-                "content": "Sei un AI SOC Assistant professionale, difensivo e orientato al triage operativo.",
+                "content": (
+                    "You are a professional defensive AI SOC Assistant focused on "
+                    "operational triage, alert investigation, and response guidance. "
+                    "Always answer in English unless explicitly configured otherwise. "
+                    "Return only the final answer. Do not include chain-of-thought, "
+                    "hidden reasoning, or <think> tags."
+                ),
             },
             {
                 "role": "user",
@@ -184,7 +199,36 @@ Alert JSON:
         ],
     )
 
-    return response["message"]["content"]
+    raw_analysis = response["message"]["content"]
+    analysis = sanitize_llm_output(raw_analysis)
+
+    if is_invalid_llm_output(raw_analysis) or is_invalid_llm_output(analysis):
+        retry_response = ollama.chat(
+            model=OLLAMA_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "The previous output was invalid. You must answer in English only. "
+                        "Return only the final SOC analysis. Do not include chain-of-thought, "
+                        "hidden reasoning, Chinese text, Italian text, or <think> tags."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "/no_think\n\n"
+                        "Regenerate the Wazuh alert analysis below in English only. "
+                        "Return only the final answer.\n\n"
+                        f"{prompt}"
+                    ),
+                },
+            ],
+        )
+
+        analysis = sanitize_llm_output(retry_response["message"]["content"])
+
+    return analysis
 
 
 def save_incident(alert, analysis):

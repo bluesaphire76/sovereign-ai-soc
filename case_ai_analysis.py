@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from database import SessionLocal
 from models import CaseAIAnalysis, CaseIncident, Incident, IncidentCase
 from rag_retriever import retrieve_security_context
+from llm_output import is_invalid_llm_output, sanitize_llm_output
 
 load_dotenv()
 
@@ -86,7 +87,6 @@ def build_case_prompt(case: IncidentCase, incidents: list[Incident]) -> str:
                 "recommended_priority": incident.recommended_priority,
                 "attack_chain": incident.attack_chain,
                 "escalation_reason": incident.escalation_reason,
-                "ai_analysis": incident.ai_analysis,
                 "correlation_summary": correlation_summary,
             }
         )
@@ -106,10 +106,12 @@ def build_case_prompt(case: IncidentCase, incidents: list[Incident]) -> str:
     }
 
     return f"""
-Sei un AI SOC Assistant difensivo e professionale.
+/no_think
 
-Devi analizzare un CASE investigativo composto da più incidenti Wazuh correlati.
-Il tuo compito è aiutare un analista SOC umano a capire cosa sta succedendo e cosa fare.
+You are a professional defensive AI SOC Assistant.
+
+You must analyze an investigation CASE composed of multiple correlated Wazuh incidents.
+Your task is to help a human SOC analyst understand what is happening, assess the risk, and decide what to do next.
 
 Knowledge base context:
 {context_text}
@@ -117,49 +119,55 @@ Knowledge base context:
 CASE DATA:
 {json.dumps(payload, ensure_ascii=False, indent=2)}
 
-Rispondi in italiano, in modo pragmatico e operativo, con queste sezioni:
+Respond in English, using a pragmatic and operational SOC style, with the following sections:
 
 1. Executive summary
-   - Sintesi breve del caso in 3-5 righe.
+   - Provide a concise 3-5 line summary of the case.
 
-2. Valutazione del rischio
-   - Severità reale.
-   - Perché il caso è o non è critico.
-   - Impatto potenziale su host, account, privilegi o servizi.
+2. Risk assessment
+   - Assess the actual severity.
+   - Explain why the case is or is not critical.
+   - Describe the potential impact on hosts, accounts, privileges, or services.
 
-3. Evidenze principali
-   - Elenca gli incidenti più importanti.
-   - Spiega come sono collegati.
-   - Evidenzia MITRE ATT&CK se presente.
+3. Key evidence
+   - List the most relevant incidents.
+   - Explain how they are connected.
+   - Highlight MITRE ATT&CK techniques when available.
 
-4. Ipotesi SOC
-   - Possibile falso positivo?
-   - Possibile attività amministrativa legittima?
-   - Possibile compromissione?
-   - Cosa manca per confermare.
+4. SOC hypothesis
+   - Could this be a false positive?
+   - Could this be legitimate administrative activity?
+   - Could this indicate compromise?
+   - What evidence is missing to confirm the hypothesis?
 
-5. Azioni immediate consigliate
-   - Verifiche concrete da fare ora.
-   - Log da controllare.
-   - Account/processi/host da validare.
-   - Nessuna azione offensiva.
+5. Recommended immediate actions
+   - Provide concrete checks to perform now.
+   - Mention logs to review.
+   - Mention accounts, processes, or hosts to validate.
+   - Do not suggest offensive actions.
 
-6. Remediation suggerita
-   - Azioni difensive e conservative.
-   - Hardening o controlli da applicare.
-   - Validazione umana obbligatoria.
+6. Suggested remediation
+   - Recommend defensive and conservative actions only.
+   - Include hardening or control improvements where relevant.
+   - Require human validation before any operational change.
 
-7. Raccomandazione operativa
-   - Status consigliato tra: OPEN, TRIAGED, ESCALATED, CLOSED, FALSE_POSITIVE.
-   - Severità consigliata tra: LOW, MEDIUM, HIGH, CRITICAL.
-   - Prossimo passo più importante.
+7. Operational recommendation
+   - Recommended status, one of: OPEN, TRIAGED, ESCALATED, CLOSED, FALSE_POSITIVE.
+   - Recommended severity, one of: LOW, MEDIUM, HIGH, CRITICAL.
+   - The single most important next step.
 
-Regole:
-- Non inventare dati non presenti.
-- Se mancano evidenze, dillo chiaramente.
-- Non proporre attività offensive.
-- Non eseguire remediation automatica.
-- Sii concreto, sintetico e utile per un SOC analyst.
+Output constraints:
+- English only.
+- Return only the final SOC analysis.
+- Do not include hidden reasoning, chain-of-thought, internal deliberation, or <think> tags.
+- Do not use Chinese, Italian, or any other language unless explicitly configured.
+
+Rules:
+- Do not invent facts that are not present in the case data.
+- If evidence is missing, state that clearly.
+- Do not propose offensive activities.
+- Do not perform or suggest automatic remediation without human validation.
+- Be concrete, concise, and useful for a SOC analyst.
 """
 
 
@@ -202,8 +210,11 @@ def generate_case_ai_analysis(case_id: int) -> CaseAIAnalysis:
                 {
                     "role": "system",
                     "content": (
-                        "Sei un AI SOC Assistant difensivo, orientato al triage, "
-                        "alla correlazione e alla risposta operativa."
+                        "You are a defensive AI SOC Assistant focused on triage, "
+                        "correlation, investigation support, and operational response guidance. "
+                        "Always answer in English unless explicitly configured otherwise. "
+                        "Return only the final answer. Do not include chain-of-thought, "
+                        "hidden reasoning, or <think> tags."
                     ),
                 },
                 {
@@ -213,7 +224,37 @@ def generate_case_ai_analysis(case_id: int) -> CaseAIAnalysis:
             ],
         )
 
-        analysis_text = response["message"]["content"]
+        raw_analysis_text = response["message"]["content"]
+        analysis_text = sanitize_llm_output(raw_analysis_text)
+
+        if is_invalid_llm_output(raw_analysis_text) or is_invalid_llm_output(analysis_text):
+            retry_response = ollama.chat(
+                model=OLLAMA_MODEL,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "The previous output was invalid. You must answer in English only. "
+                            "Return only the final SOC analysis. Do not include chain-of-thought, "
+                            "hidden reasoning, Chinese text, Italian text, or <think> tags."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            "/no_think\n\n"
+                            "Regenerate the SOC case analysis below in English only. "
+                            "Return only the final answer.\n\n"
+                            f"{prompt}"
+                        ),
+                    },
+                ],
+            )
+
+            analysis_text = sanitize_llm_output(
+                retry_response["message"]["content"]
+            )
+
         recommended_status, recommended_severity = extract_recommendation(analysis_text)
 
         row = CaseAIAnalysis(

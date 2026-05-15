@@ -8,6 +8,7 @@ from requests.auth import HTTPBasicAuth
 from dotenv import load_dotenv
 import ollama
 from rich import print
+from llm_output import is_invalid_llm_output, sanitize_llm_output
 
 urllib3.disable_warnings()
 
@@ -58,19 +59,27 @@ def get_latest_alerts(limit=3):
 def analyze_alert(alert):
 
     prompt = f"""
-Sei un AI SOC Assistant professionale.
+/no_think
 
-Analizza questo alert Wazuh.
+You are a professional defensive AI SOC Assistant.
 
-Rispondi in italiano con:
+Analyze the following Wazuh alert.
 
-1. Tipo evento
-2. Severità reale
-3. MITRE ATT&CK probabile
-4. Rischio per l'azienda
-5. Verifiche consigliate
-6. Remediation suggerita
-7. Executive summary breve
+Respond in English using the following sections:
+
+1. Event type
+2. Actual severity
+3. Likely MITRE ATT&CK mapping
+4. Business risk
+5. Recommended checks
+6. Suggested remediation
+7. Short executive summary
+
+Output constraints:
+- English only.
+- Return only the final SOC analysis.
+- Do not include hidden reasoning, chain-of-thought, internal deliberation, or <think> tags.
+- Do not use Chinese, Italian, or any other language unless explicitly configured.
 
 Alert:
 {alert}
@@ -82,12 +91,13 @@ Alert:
             {
                 "role": "system",
                 "content": """
-Sei un AI SOC Assistant difensivo.
+You are a defensive AI SOC Assistant.
 
-NON proporre attività offensive.
-NON generare exploit.
-NON eseguire remediation automatiche.
-Richiedi sempre validazione umana.
+Do not propose offensive activities.
+Do not generate exploits.
+Do not perform or suggest automatic remediation without human validation.
+Always require human analyst validation before any operational action.
+Return only the final answer. Do not include chain-of-thought, hidden reasoning, or <think> tags.
 """
             },
             {
@@ -97,7 +107,36 @@ Richiedi sempre validazione umana.
         ]
     )
 
-    return response["message"]["content"]
+    raw_analysis = response["message"]["content"]
+    analysis = sanitize_llm_output(raw_analysis)
+
+    if is_invalid_llm_output(raw_analysis) or is_invalid_llm_output(analysis):
+        retry_response = ollama.chat(
+            model=OLLAMA_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "The previous output was invalid. You must answer in English only. "
+                        "Return only the final SOC analysis. Do not include chain-of-thought, "
+                        "hidden reasoning, Chinese text, Italian text, or <think> tags."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "/no_think\n\n"
+                        "Regenerate the Wazuh alert analysis below in English only. "
+                        "Return only the final answer.\n\n"
+                        f"{prompt}"
+                    ),
+                },
+            ],
+        )
+
+        analysis = sanitize_llm_output(retry_response["message"]["content"])
+
+    return analysis
 
 def save_incident(alert, analysis):
 
