@@ -70,6 +70,26 @@ type CaseAudit = {
   created_at: string | null;
 };
 
+type CaseTimelineItem = {
+  timestamp: string | null;
+  event_type: string;
+  title: string;
+  description: string | null;
+  actor: string | null;
+  severity: string | null;
+  status: string | null;
+  source: string | null;
+  reference_id: number | string | null;
+  details: Record<string, unknown>;
+};
+
+type CaseTimelineResponse = {
+  case_id: number;
+  generated_at: string | null;
+  count: number;
+  items: CaseTimelineItem[];
+};
+
 type CaseClosureChecklist = {
   id: number;
   case_id: number;
@@ -178,6 +198,37 @@ function slaClass(value: string | null | undefined) {
   if (status === "COMPLETED") return "bg-slate-200 text-slate-800 border-slate-300";
 
   return "bg-slate-100 text-slate-700 border-slate-200";
+}
+
+function timelineEventClass(value: string | null | undefined) {
+  const eventType = value ?? "";
+
+  if (eventType.includes("INCIDENT")) {
+    return "border-orange-500 bg-orange-500";
+  }
+
+  if (eventType.includes("AI")) {
+    return "border-violet-500 bg-violet-500";
+  }
+
+  if (eventType.includes("ACTION")) {
+    return "border-cyan-500 bg-cyan-500";
+  }
+
+  if (eventType.includes("CLOSURE") || eventType.includes("CLOSED")) {
+    return "border-emerald-500 bg-emerald-500";
+  }
+
+  if (eventType.includes("AUDIT") || eventType.includes("WORKFLOW")) {
+    return "border-slate-500 bg-slate-500";
+  }
+
+  return "border-slate-400 bg-slate-400";
+}
+
+function timelineEventLabel(value: string | null | undefined) {
+  if (!value) return "Event";
+  return value.replaceAll("_", " ");
 }
 
 function slaLabel(value: string | null | undefined) {
@@ -402,6 +453,20 @@ async function updateCaseWorkflow(
   return response.json();
 }
 
+async function fetchCaseTimeline(id: string): Promise<CaseTimelineResponse> {
+  const response = await fetch(`${API_BASE}/cases/${id}/timeline`, {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      await extractApiErrorMessage(response, `API error ${response.status}`)
+    );
+  }
+
+  return response.json();
+}
+
 async function fetchCaseClosure(id: string): Promise<CaseClosureResponse> {
   const response = await fetch(`${API_BASE}/cases/${id}/closure`, {
     cache: "no-store",
@@ -542,6 +607,13 @@ export default function CaseDetailPage() {
   const [auditTrail, setAuditTrail] = useState<CaseAudit[]>([]);
   const [caseActions, setCaseActions] = useState<CaseAction[]>([]);
   const [caseClosure, setCaseClosure] = useState<CaseClosureResponse | null>(null);
+  const [caseTimeline, setCaseTimeline] = useState<CaseTimelineItem[]>([]);
+  const [timelineOpen, setTimelineOpen] = useState(false);
+  const [timelineExpanded, setTimelineExpanded] = useState(false);
+  const [auditTrailOpen, setAuditTrailOpen] = useState(false);
+  const [auditTrailExpanded, setAuditTrailExpanded] = useState(false);
+  const [relatedIncidentsOpen, setRelatedIncidentsOpen] = useState(false);
+  const [relatedIncidentsExpanded, setRelatedIncidentsExpanded] = useState(false);
   const [closureForm, setClosureForm] = useState<ClosureForm>({
     root_cause: "",
     evidence_reviewed: "",
@@ -592,6 +664,7 @@ export default function CaseDetailPage() {
         auditResponse,
         actionsResponse,
         closureResponse,
+        timelineResponse,
       ] = await Promise.all([
         fetchCase(caseId),
         fetchCaseIncidents(caseId),
@@ -599,6 +672,7 @@ export default function CaseDetailPage() {
         fetchCaseAudit(caseId),
         fetchCaseActions(caseId),
         fetchCaseClosure(caseId),
+        fetchCaseTimeline(caseId),
       ]);
 
       setCaseData(caseResponse);
@@ -609,6 +683,7 @@ export default function CaseDetailPage() {
       setCaseActions(actionsResponse);
       setCaseClosure(closureResponse);
       setClosureForm(closureFormFromResponse(closureResponse));
+      setCaseTimeline(timelineResponse.items || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
@@ -820,6 +895,57 @@ export default function CaseDetailPage() {
     return prettyJson(caseData?.summary ?? null);
   }, [caseData]);
 
+  const visibleTimeline = useMemo(() => {
+    if (!timelineOpen) {
+      return [];
+    }
+
+    if (timelineExpanded) {
+      return caseTimeline;
+    }
+
+    return caseTimeline.slice(-12);
+  }, [caseTimeline, timelineExpanded, timelineOpen]);
+
+  const hiddenTimelineEvents = Math.max(
+    caseTimeline.length - visibleTimeline.length,
+    0
+  );
+
+  const visibleAuditTrail = useMemo(() => {
+    if (!auditTrailOpen) {
+      return [];
+    }
+
+    if (auditTrailExpanded) {
+      return auditTrail;
+    }
+
+    return auditTrail.slice(-10);
+  }, [auditTrail, auditTrailExpanded, auditTrailOpen]);
+
+  const hiddenAuditEvents = Math.max(
+    auditTrail.length - visibleAuditTrail.length,
+    0
+  );
+
+  const visibleRelatedIncidents = useMemo(() => {
+    if (!relatedIncidentsOpen) {
+      return [];
+    }
+
+    if (relatedIncidentsExpanded) {
+      return incidents;
+    }
+
+    return incidents.slice(-15);
+  }, [incidents, relatedIncidentsExpanded, relatedIncidentsOpen]);
+
+  const hiddenRelatedIncidents = Math.max(
+    incidents.length - visibleRelatedIncidents.length,
+    0
+  );
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto max-w-7xl px-6 py-8">
@@ -905,6 +1031,134 @@ export default function CaseDetailPage() {
               <InfoCard title="Incidents" value={caseData.incident_count} />
               <InfoCard title="Risk score" value={caseData.risk_score ?? 0} />
               <InfoCard title="Updated" value={formatTimestamp(caseData.updated_at)} />
+            </section>
+
+            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
+              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <h2 className="text-lg font-medium">Case timeline</h2>
+                  <p className="mt-1 text-sm text-slate-400">
+                    Chronological view of incidents, AI analysis, actions, workflow updates and closure events.
+                  </p>
+
+                  {!timelineOpen && caseTimeline.length > 12 && (
+                    <p className="mt-2 text-xs text-slate-500">
+                      Timeline is collapsed to avoid long scrolling. Open it to review the latest events.
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="w-fit rounded-full border border-slate-700 bg-slate-950 px-4 py-2 text-sm text-slate-300">
+                    {caseTimeline.length} events
+                  </span>
+
+                  <button
+                    onClick={() => setTimelineOpen((current) => !current)}
+                    className="rounded-xl border border-cyan-700 bg-slate-950 px-4 py-2 text-sm text-cyan-200 hover:bg-slate-800"
+                  >
+                    {timelineOpen ? "Hide timeline" : "Show timeline"}
+                  </button>
+                </div>
+              </div>
+
+              {timelineOpen && caseTimeline.length > 0 && (
+                <div className="mt-5">
+                  <div className="mb-4 flex flex-col gap-3 rounded-xl border border-slate-800 bg-slate-950 p-4 md:flex-row md:items-center md:justify-between">
+                    <div className="text-sm text-slate-300">
+                      {timelineExpanded ? (
+                        <>Showing all {caseTimeline.length} events.</>
+                      ) : (
+                        <>
+                          Showing latest {visibleTimeline.length} of {caseTimeline.length} events.
+                          {hiddenTimelineEvents > 0 && (
+                            <> {hiddenTimelineEvents} older events are hidden.</>
+                          )}
+                        </>
+                      )}
+                    </div>
+
+                    {caseTimeline.length > 12 && (
+                      <button
+                        onClick={() => setTimelineExpanded((current) => !current)}
+                        className="w-fit rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800"
+                      >
+                        {timelineExpanded ? "Show latest only" : "Show all events"}
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="relative space-y-4 border-l border-slate-700 pl-5">
+                    {visibleTimeline.map((item, index) => (
+                      <div
+                        key={`${item.event_type}-${item.reference_id ?? index}-${index}`}
+                        className="relative"
+                      >
+                        <span
+                          className={`absolute -left-[29px] top-1 h-3 w-3 rounded-full border-2 ${timelineEventClass(
+                            item.event_type
+                          )}`}
+                        />
+
+                        <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                          <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                            <div>
+                              <div className="text-sm font-medium text-slate-100">
+                                {item.title}
+                              </div>
+                              <div className="mt-1 text-xs uppercase tracking-wide text-slate-500">
+                                {timelineEventLabel(item.event_type)}
+                              </div>
+                            </div>
+
+                            <div className="text-xs text-slate-500">
+                              {formatTimestamp(item.timestamp)}
+                            </div>
+                          </div>
+
+                          {item.description && (
+                            <p className="mt-3 whitespace-pre-wrap text-sm text-slate-300">
+                              {item.description}
+                            </p>
+                          )}
+
+                          <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                            {item.status && (
+                              <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">
+                                Status: {item.status}
+                              </span>
+                            )}
+
+                            {item.severity && (
+                              <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">
+                                Severity: {item.severity}
+                              </span>
+                            )}
+
+                            {item.actor && (
+                              <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">
+                                Actor: {item.actor}
+                              </span>
+                            )}
+
+                            {item.source && (
+                              <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">
+                                Source: {item.source}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {timelineOpen && caseTimeline.length === 0 && (
+                <div className="mt-5 rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">
+                  No timeline events available.
+                </div>
+              )}
             </section>
 
             <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
@@ -1040,46 +1294,117 @@ export default function CaseDetailPage() {
             </section>
 
             <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
-              <div className="mb-4 flex flex-col gap-2">
-                <h2 className="text-lg font-medium">Case workflow audit</h2>
-                <p className="text-sm text-slate-400">
-                  Persistent history of workflow changes made by the analyst.
-                </p>
+              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <h2 className="text-lg font-medium">Case workflow audit</h2>
+                  <p className="mt-1 text-sm text-slate-400">
+                    Chronological audit events for workflow updates, actions and closure checklist changes.
+                  </p>
+
+                  {!auditTrailOpen && auditTrail.length > 10 && (
+                    <p className="mt-2 text-xs text-slate-500">
+                      Audit trail is collapsed to avoid long scrolling. Open it to review the latest audit events.
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="w-fit rounded-full border border-slate-700 bg-slate-950 px-4 py-2 text-sm text-slate-300">
+                    {auditTrail.length} audit events
+                  </span>
+
+                  <button
+                    onClick={() => setAuditTrailOpen((current) => !current)}
+                    className="rounded-xl border border-cyan-700 bg-slate-950 px-4 py-2 text-sm text-cyan-200 hover:bg-slate-800"
+                  >
+                    {auditTrailOpen ? "Hide audit trail" : "Show audit trail"}
+                  </button>
+                </div>
               </div>
 
-              {auditTrail.length === 0 ? (
-                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">
-                  No workflow audit events available yet.
+              {auditTrailOpen && auditTrail.length === 0 && (
+                <div className="mt-5 rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">
+                  No audit events available for this case.
                 </div>
-              ) : (
-                <div className="space-y-3">
-                  {auditTrail.slice().reverse().map((event) => (
-                    <div
-                      key={event.id}
-                      className="rounded-xl border border-slate-800 bg-slate-950 p-4"
-                    >
-                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                        <div className="text-sm font-medium text-slate-200">
-                          {event.event_type}
-                        </div>
-                        <div className="text-xs text-slate-500">
-                          {formatTimestamp(event.created_at)} ·{" "}
-                          {event.created_by ?? "local_analyst"}
-                        </div>
-                      </div>
+              )}
 
-                      {event.comment && (
-                        <div className="mb-2 text-sm text-slate-300">
-                          {event.comment}
-                        </div>
+              {auditTrailOpen && auditTrail.length > 0 && (
+                <div className="mt-5">
+                  <div className="mb-4 flex flex-col gap-3 rounded-xl border border-slate-800 bg-slate-950 p-4 md:flex-row md:items-center md:justify-between">
+                    <div className="text-sm text-slate-300">
+                      {auditTrailExpanded ? (
+                        <>Showing all {auditTrail.length} audit events.</>
+                      ) : (
+                        <>
+                          Showing latest {visibleAuditTrail.length} of {auditTrail.length} audit events.
+                          {hiddenAuditEvents > 0 && (
+                            <> {hiddenAuditEvents} older audit events are hidden.</>
+                          )}
+                        </>
                       )}
-
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <DetailRow label="Old value" value={event.old_value ?? "-"} />
-                        <DetailRow label="New value" value={event.new_value ?? "-"} />
-                      </div>
                     </div>
-                  ))}
+
+                    {auditTrail.length > 10 && (
+                      <button
+                        onClick={() => setAuditTrailExpanded((current) => !current)}
+                        className="w-fit rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800"
+                      >
+                        {auditTrailExpanded ? "Show latest only" : "Show all audit events"}
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="space-y-3">
+                    {visibleAuditTrail.map((event) => (
+                      <div
+                        key={event.id}
+                        className="rounded-xl border border-slate-800 bg-slate-950 p-4"
+                      >
+                        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                          <div>
+                            <div className="text-sm font-medium text-slate-100">
+                              {event.event_type}
+                            </div>
+                            <div className="mt-1 text-xs text-slate-500">
+                              Created by {event.created_by ?? "-"}
+                            </div>
+                          </div>
+
+                          <div className="text-xs text-slate-500">
+                            {formatTimestamp(event.created_at)}
+                          </div>
+                        </div>
+
+                        {event.comment && (
+                          <p className="mt-3 whitespace-pre-wrap text-sm text-slate-300">
+                            {event.comment}
+                          </p>
+                        )}
+
+                        {(event.old_value || event.new_value) && (
+                          <div className="mt-3 grid gap-3 md:grid-cols-2">
+                            <div className="rounded-lg border border-slate-800 bg-slate-900 p-3">
+                              <div className="mb-1 text-xs uppercase tracking-wide text-slate-500">
+                                Old value
+                              </div>
+                              <pre className="max-h-48 overflow-auto whitespace-pre-wrap text-xs text-slate-400">
+                                {event.old_value ?? "-"}
+                              </pre>
+                            </div>
+
+                            <div className="rounded-lg border border-slate-800 bg-slate-900 p-3">
+                              <div className="mb-1 text-xs uppercase tracking-wide text-slate-500">
+                                New value
+                              </div>
+                              <pre className="max-h-48 overflow-auto whitespace-pre-wrap text-xs text-slate-400">
+                                {event.new_value ?? "-"}
+                              </pre>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </section>
@@ -1703,80 +2028,137 @@ export default function CaseDetailPage() {
             </section>
 
             <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
-              <div className="mb-4 flex items-center gap-2">
-                <ShieldAlert className="h-5 w-5 text-cyan-300" />
-                <h2 className="text-lg font-medium">Related incidents</h2>
+              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <ShieldAlert className="h-5 w-5 text-cyan-300" />
+                    <h2 className="text-lg font-medium">Related incidents</h2>
+                  </div>
+                  <p className="mt-1 text-sm text-slate-400">
+                    Linked alerts and detections associated with this investigation case.
+                  </p>
+
+                  {!relatedIncidentsOpen && incidents.length > 15 && (
+                    <p className="mt-2 text-xs text-slate-500">
+                      Incident list is collapsed to avoid long scrolling. Open it to review the latest linked incidents.
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="w-fit rounded-full border border-slate-700 bg-slate-950 px-4 py-2 text-sm text-slate-300">
+                    {incidents.length} incidents
+                  </span>
+
+                  <button
+                    onClick={() => setRelatedIncidentsOpen((current) => !current)}
+                    className="rounded-xl border border-cyan-700 bg-slate-950 px-4 py-2 text-sm text-cyan-200 hover:bg-slate-800"
+                  >
+                    {relatedIncidentsOpen ? "Hide related incidents" : "Show related incidents"}
+                  </button>
+                </div>
               </div>
 
-              {incidents.length === 0 ? (
-                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">
+              {relatedIncidentsOpen && incidents.length === 0 && (
+                <div className="mt-5 rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">
                   No incidents linked to this case.
                 </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm">
-                    <thead className="border-b border-slate-800 text-xs uppercase text-slate-500">
-                      <tr>
-                        <th className="py-3 pr-4">ID</th>
-                        <th className="py-3 pr-4">Status</th>
-                        <th className="py-3 pr-4">Time</th>
-                        <th className="py-3 pr-4">Rule</th>
-                        <th className="py-3 pr-4">Level</th>
-                        <th className="py-3 pr-4">Risk</th>
-                        <th className="py-3 pr-4">Priority</th>
-                      </tr>
-                    </thead>
+              )}
 
-                    <tbody>
-                      {incidents.map((incident) => (
-                        <tr
-                          key={incident.id}
-                          className="border-b border-slate-800/70"
-                        >
-                          <td className="py-3 pr-4">
-                            <Link
-                              href={`/incidents/${incident.id}`}
-                              className="text-cyan-300 hover:text-cyan-200"
-                            >
-                              #{incident.id}
-                            </Link>
-                          </td>
+              {relatedIncidentsOpen && incidents.length > 0 && (
+                <div className="mt-5">
+                  <div className="mb-4 flex flex-col gap-3 rounded-xl border border-slate-800 bg-slate-950 p-4 md:flex-row md:items-center md:justify-between">
+                    <div className="text-sm text-slate-300">
+                      {relatedIncidentsExpanded ? (
+                        <>Showing all {incidents.length} linked incidents.</>
+                      ) : (
+                        <>
+                          Showing latest {visibleRelatedIncidents.length} of {incidents.length} linked incidents.
+                          {hiddenRelatedIncidents > 0 && (
+                            <> {hiddenRelatedIncidents} older incidents are hidden.</>
+                          )}
+                        </>
+                      )}
+                    </div>
 
-                          <td className="py-3 pr-4">
-                            <span
-                              className={`rounded-full border px-3 py-1 text-xs ${statusClass(
-                                incident.status
-                              )}`}
-                            >
-                              {incident.status ?? "NEW"}
-                            </span>
-                          </td>
+                    {incidents.length > 15 && (
+                      <button
+                        onClick={() =>
+                          setRelatedIncidentsExpanded((current) => !current)
+                        }
+                        className="w-fit rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800"
+                      >
+                        {relatedIncidentsExpanded ? "Show latest only" : "Show all incidents"}
+                      </button>
+                    )}
+                  </div>
 
-                          <td className="py-3 pr-4 text-slate-400">
-                            {incident.timestamp_local ??
-                              formatTimestamp(incident.timestamp)}
-                          </td>
-
-                          <td className="max-w-xl py-3 pr-4 text-slate-300">
-                            {incident.rule ?? "-"}
-                          </td>
-
-                          <td className="py-3 pr-4">{incident.level ?? 0}</td>
-
-                          <td className="py-3 pr-4">
-                            {incident.risk_score ?? 0}
-                          </td>
-
-                          <td className="py-3 pr-4 text-slate-400">
-                            {incident.recommended_priority ?? "-"}
-                          </td>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm">
+                      <thead className="border-b border-slate-800 text-xs uppercase text-slate-500">
+                        <tr>
+                          <th className="py-3 pr-4">ID</th>
+                          <th className="py-3 pr-4">Status</th>
+                          <th className="py-3 pr-4">Time</th>
+                          <th className="py-3 pr-4">Rule</th>
+                          <th className="py-3 pr-4">Level</th>
+                          <th className="py-3 pr-4">Risk</th>
+                          <th className="py-3 pr-4">Priority</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+
+                      <tbody>
+                        {visibleRelatedIncidents.map((incident) => (
+                          <tr
+                            key={incident.id}
+                            className="border-b border-slate-800/70"
+                          >
+                            <td className="py-3 pr-4">
+                              <Link
+                                href={`/incidents/${incident.id}`}
+                                className="text-cyan-300 hover:text-cyan-200"
+                              >
+                                #{incident.id}
+                              </Link>
+                            </td>
+
+                            <td className="py-3 pr-4">
+                              <span
+                                className={`rounded-full border px-3 py-1 text-xs ${statusClass(
+                                  incident.status
+                                )}`}
+                              >
+                                {incident.status ?? "NEW"}
+                              </span>
+                            </td>
+
+                            <td className="py-3 pr-4 text-slate-400">
+                              {incident.timestamp_local ??
+                                formatTimestamp(incident.timestamp)}
+                            </td>
+
+                            <td className="max-w-xl py-3 pr-4 text-slate-300">
+                              {incident.rule ?? "-"}
+                            </td>
+
+                            <td className="py-3 pr-4">{incident.level ?? 0}</td>
+
+                            <td className="py-3 pr-4">
+                              {incident.risk_score ?? 0}
+                            </td>
+
+                            <td className="py-3 pr-4 text-slate-400">
+                              {incident.recommended_priority ?? "-"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
             </section>
+
           </div>
         )}
       </div>
