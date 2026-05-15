@@ -5,7 +5,6 @@ import Link from "next/link";
 import AppNavigation from "../../components/AppNavigation";
 import {
   AlertTriangle,
-  BarChart3,
   Brain,
   CheckCircle2,
   RefreshCw,
@@ -438,7 +437,11 @@ export default function DetectionQualityPage() {
                 value={`${pct(correlatedSynthetic, totalSynthetic)}%`}
                 subtitle={`${correlatedSynthetic}/${totalSynthetic}`}
                 icon={<Brain className="h-4 w-4" />}
-                tone={correlatedSynthetic === totalSynthetic && totalSynthetic > 0 ? "success" : "warning"}
+                tone={
+                  correlatedSynthetic === totalSynthetic && totalSynthetic > 0
+                    ? "success"
+                    : "warning"
+                }
               />
 
               <QualityMetric
@@ -454,7 +457,11 @@ export default function DetectionQualityPage() {
                 value={`${pct(mitreTaggedSynthetic, totalSynthetic)}%`}
                 subtitle={`${mitreTaggedSynthetic}/${totalSynthetic}`}
                 icon={<Target className="h-4 w-4" />}
-                tone={mitreTaggedSynthetic === totalSynthetic && totalSynthetic > 0 ? "success" : "warning"}
+                tone={
+                  mitreTaggedSynthetic === totalSynthetic && totalSynthetic > 0
+                    ? "success"
+                    : "warning"
+                }
               />
 
               <QualityMetric
@@ -478,7 +485,11 @@ export default function DetectionQualityPage() {
                     </p>
                   </div>
 
-                  <span className={`shrink-0 rounded-md border px-2 py-1 text-[11px] ${toneClasses(toneForScore(maxRisk)).badge}`}>
+                  <span
+                    className={`shrink-0 rounded-md border px-2 py-1 text-[11px] ${
+                      toneClasses(toneForScore(maxRisk)).badge
+                    }`}
+                  >
                     Max {maxRisk} · Avg {averageRisk}
                   </span>
                 </div>
@@ -591,7 +602,11 @@ export default function DetectionQualityPage() {
                             {row.avg_risk}
                           </td>
                           <td className="px-2 py-1.5">
-                            <span className={`rounded-md border px-1.5 py-0.5 text-[11px] ${toneClasses(toneForScore(row.max_risk)).badge}`}>
+                            <span
+                              className={`rounded-md border px-1.5 py-0.5 text-[11px] ${
+                                toneClasses(toneForScore(row.max_risk)).badge
+                              }`}
+                            >
                               {row.max_risk}
                             </span>
                           </td>
@@ -673,7 +688,13 @@ export default function DetectionQualityPage() {
                           {incident.recommended_priority ?? "-"}
                         </td>
                         <td className="px-2 py-1.5">
-                          <span className={`rounded-md border px-1.5 py-0.5 text-[11px] ${toneClasses(toneForScore(incident.risk_score ?? 0)).badge}`}>
+                          <span
+                            className={`rounded-md border px-1.5 py-0.5 text-[11px] ${
+                              toneClasses(
+                                toneForScore(incident.risk_score ?? 0)
+                              ).badge
+                            }`}
+                          >
                             {incident.risk_score ?? 0}
                           </span>
                         </td>
