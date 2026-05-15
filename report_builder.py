@@ -6,6 +6,7 @@ from models import (
     CaseAIAnalysis,
     CaseAction,
     CaseAudit,
+    CaseClosureChecklist,
     CaseIncident,
     Incident,
     IncidentAudit,
@@ -76,6 +77,68 @@ def calculate_case_sla_status(case: IncidentCase) -> str:
         return "WITHIN_SLA"
 
     return "BREACHED"
+
+
+def serialize_case_closure_checklist(row: CaseClosureChecklist | None) -> dict | None:
+    if not row:
+        return None
+
+    return {
+        "id": row.id,
+        "case_id": row.case_id,
+        "root_cause": row.root_cause,
+        "evidence_reviewed": row.evidence_reviewed,
+        "actions_summary": row.actions_summary,
+        "closure_reason": row.closure_reason,
+        "closure_decision": row.closure_decision,
+        "final_severity": row.final_severity,
+        "residual_risk": row.residual_risk,
+        "reviewed_by": row.reviewed_by,
+        "reviewed_at": row.reviewed_at.isoformat() if row.reviewed_at else None,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+    }
+
+
+def calculate_case_closure_readiness(
+    checklist: CaseClosureChecklist | None,
+    case_actions: list[CaseAction],
+) -> dict:
+    open_actions = [
+        action for action in case_actions
+        if action.status not in {"DONE", "CANCELLED"}
+    ]
+
+    missing_items = []
+
+    if open_actions:
+        missing_items.append(
+            f"{len(open_actions)} action(s) are still OPEN or IN_PROGRESS"
+        )
+
+    required_fields = {
+        "root_cause": "Root cause / conclusion",
+        "evidence_reviewed": "Evidence reviewed",
+        "actions_summary": "Actions summary",
+        "closure_reason": "Closure reason",
+        "closure_decision": "Closure decision",
+        "final_severity": "Final severity",
+        "residual_risk": "Residual risk",
+    }
+
+    if not checklist:
+        missing_items.extend(required_fields.values())
+    else:
+        for field, label in required_fields.items():
+            value = getattr(checklist, field, None)
+            if not value or not str(value).strip():
+                missing_items.append(label)
+
+    return {
+        "ready_to_close": len(missing_items) == 0,
+        "missing_items": missing_items,
+        "open_action_count": len(open_actions),
+    }
 
 
 def build_incident_payload(db, incident_id: int):
@@ -314,6 +377,18 @@ def build_case_payload(db, case_id: int):
         .all()
     )
 
+
+    case_closure_checklist = (
+        db.query(CaseClosureChecklist)
+        .filter(CaseClosureChecklist.case_id == case_id)
+        .first()
+    )
+
+    case_closure_readiness = calculate_case_closure_readiness(
+        case_closure_checklist,
+        case_actions,
+    )
+
     return {
         "generated_at": now_label(),
         "case": {
@@ -382,6 +457,10 @@ def build_case_payload(db, case_id: int):
             }
             for row in case_actions
         ],
+        "case_closure_readiness": case_closure_readiness,
+        "case_closure_checklist": serialize_case_closure_checklist(
+            case_closure_checklist
+        ),
         "incidents": [
             {
                 "id": incident.id,
@@ -409,6 +488,8 @@ def case_payload_to_markdown(payload: dict) -> str:
     case = payload["case"]
     analysis = payload["case_ai_analysis"]
     actions = payload.get("case_actions", [])
+    closure_readiness = payload.get("case_closure_readiness", {})
+    closure_checklist = payload.get("case_closure_checklist")
 
     open_actions = [
         action for action in actions
@@ -444,6 +525,10 @@ def case_payload_to_markdown(payload: dict) -> str:
         f"- **Open / in progress actions:** {len(open_actions)}",
         f"- **Completed actions:** {len(completed_actions)}",
         f"- **Cancelled actions:** {len(cancelled_actions)}",
+        f"- **Closure readiness:** {'READY' if closure_readiness.get('ready_to_close') else 'BLOCKED'}",
+        f"- **Open action blockers:** {format_value(closure_readiness.get('open_action_count'))}",
+        f"- **Closure decision:** {format_value((closure_checklist or {}).get('closure_decision'))}",
+        f"- **Final severity:** {format_value((closure_checklist or {}).get('final_severity'))}",
         "",
         "## Case Metadata",
         "",
@@ -520,6 +605,83 @@ def case_payload_to_markdown(payload: dict) -> str:
     else:
         lines.append("No case actions available.")
         lines.append("")
+
+    lines.extend(
+        [
+            "## Case Closure Readiness",
+            "",
+            f"- **Ready to close:** {format_value(closure_readiness.get('ready_to_close'))}",
+            f"- **Open action count:** {format_value(closure_readiness.get('open_action_count'))}",
+            "",
+        ]
+    )
+
+    missing_items = closure_readiness.get("missing_items", [])
+
+    if missing_items:
+        lines.extend(
+            [
+                "### Blocking Items",
+                "",
+            ]
+        )
+
+        for item in missing_items:
+            lines.append(f"- {item}")
+
+        lines.append("")
+    else:
+        lines.extend(
+            [
+                "No blocking items. The case is ready for terminal workflow status.",
+                "",
+            ]
+        )
+
+    lines.extend(
+        [
+            "## Case Closure Checklist",
+            "",
+        ]
+    )
+
+    if closure_checklist:
+        lines.extend(
+            [
+                f"- **Closure decision:** {format_value(closure_checklist.get('closure_decision'))}",
+                f"- **Final severity:** {format_value(closure_checklist.get('final_severity'))}",
+                f"- **Reviewed by:** {format_value(closure_checklist.get('reviewed_by'))}",
+                f"- **Reviewed at:** {format_value(closure_checklist.get('reviewed_at'))}",
+                "",
+                "### Root Cause / Conclusion",
+                "",
+                closure_checklist.get("root_cause") or "Not documented.",
+                "",
+                "### Evidence Reviewed",
+                "",
+                closure_checklist.get("evidence_reviewed") or "Not documented.",
+                "",
+                "### Actions Summary",
+                "",
+                closure_checklist.get("actions_summary") or "Not documented.",
+                "",
+                "### Closure Reason",
+                "",
+                closure_checklist.get("closure_reason") or "Not documented.",
+                "",
+                "### Residual Risk",
+                "",
+                closure_checklist.get("residual_risk") or "Not documented.",
+                "",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "No closure checklist available.",
+                "",
+            ]
+        )
 
     lines.extend(
         [
