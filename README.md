@@ -591,35 +591,6 @@ sudo systemctl restart ai-soc-api
 sudo systemctl restart ai-soc-frontend
 ```
 
----
-
-## Recommended Pre-Release Checklist
-
-Before tagging a release candidate:
-
-```text
-1. Backend py_compile passes
-2. Frontend production build passes
-3. Login works
-4. Admin user management works
-5. Password reset works
-6. Case ownership uses the signed-in user
-7. Dashboard loads
-8. Case Queue loads
-9. Kanban loads
-10. Case Detail loads
-11. Incident Detail loads
-12. Executive dashboard loads
-13. Detection Quality loads
-14. Synthetic test runner creates incidents
-15. Health dashboard loads
-16. Evidence pack export works
-17. Executive PDF export works
-18. Git working tree is clean
-```
-
----
-
 ## Security Notes
 
 This project is currently intended for local-first controlled environments.
@@ -655,20 +626,9 @@ Planned next improvements include:
 
 ## License
 
-License information should be defined before public release.
-
-If this project is intended to be open source, add a `LICENSE` file and specify the license here.
-
-Suggested options:
-
-- MIT License for a permissive open-source model
-- Apache License 2.0 for a permissive model with explicit patent grant
-- Private/internal license if the project is not intended for public reuse
-
-Current status:
 
 ```text
-License: TBD
+Apache License 2.0
 ```
 
 ---
