@@ -4,6 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import AppNavigation from "../../components/AppNavigation";
 import {
+  EnterpriseBadge,
+  EnterpriseButton,
+  EnterpriseMetricCard,
+  EnterprisePageHeader,
+  EnterpriseSection,
+} from "../../components/enterprise";
+import {
   AlertTriangle,
   ArrowLeft,
   Bot,
@@ -74,6 +81,57 @@ const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8008";
 
 const TERMINAL_STATUSES = new Set(["CLOSED", "FALSE_POSITIVE"]);
+
+function severityTone(value: string | null | undefined): "neutral" | "primary" | "warning" | "danger" {
+  const severity = value ?? "LOW";
+
+  if (severity === "CRITICAL") return "danger";
+  if (severity === "HIGH") return "warning";
+  if (severity === "MEDIUM") return "primary";
+
+  return "neutral";
+}
+
+function statusTone(value: string | null | undefined): "neutral" | "primary" | "success" | "danger" | "executive" {
+  const status = value ?? "OPEN";
+
+  if (status === "ESCALATED") return "danger";
+  if (status === "INVESTIGATING") return "executive";
+  if (status === "TRIAGED") return "primary";
+  if (status === "CLOSED") return "success";
+  if (status === "FALSE_POSITIVE") return "executive";
+
+  return "neutral";
+}
+
+function slaTone(value: string | null | undefined): "neutral" | "success" | "danger" {
+  const status = value ?? "NOT_SET";
+
+  if (status === "BREACHED") return "danger";
+  if (status === "WITHIN_SLA" || status === "COMPLETED") return "success";
+
+  return "neutral";
+}
+
+function priorityTone(item: IncidentCase): "neutral" | "primary" | "success" | "warning" | "danger" {
+  const severity = item.severity_review ?? item.final_severity ?? item.severity ?? "LOW";
+
+  if (item.sla_status === "BREACHED") return "danger";
+  if (item.status === "ESCALATED") return "danger";
+  if (["CRITICAL", "HIGH"].includes(severity)) return "warning";
+  if ((item.open_action_count ?? 0) > 0) return "warning";
+  if (!item.has_ai_analysis && isOpenCase(item)) return "warning";
+  if (item.ready_to_close && isOpenCase(item)) return "success";
+
+  return "neutral";
+}
+
+function shortText(value: string | null | undefined, maxLength = 96) {
+  if (!value) return "-";
+  if (value.length <= maxLength) return value;
+
+  return `${value.slice(0, maxLength - 1)}…`;
+}
 
 function severityClass(value: string | null | undefined) {
   const severity = value ?? "LOW";
@@ -460,7 +518,7 @@ export default function CasesPage() {
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto max-w-7xl px-6 py-8">
+      <div className="mx-auto max-w-[1600px] px-4 py-4">
         <AppNavigation />
         <header className="mb-8 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
@@ -507,43 +565,30 @@ export default function CasesPage() {
         )}
 
         {loading ? (
-          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6 text-slate-300">
-            Loading cases...
-          </div>
+          <EnterpriseSection>
+            <div className="text-sm text-slate-300">Loading cases...</div>
+          </EnterpriseSection>
         ) : (
-          <div className="space-y-6">
-            <section className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
-              <MetricCard title="Active" value={metrics.active} subtitle={`${metrics.total} total`} />
-              <MetricCard title="SLA breached" value={metrics.breached} subtitle="Immediate review" danger={metrics.breached > 0} />
-              <MetricCard title="High / Critical" value={metrics.criticalHigh} subtitle="Priority queue" warning={metrics.criticalHigh > 0} />
-              <MetricCard title="Ready to close" value={metrics.readyToClose} subtitle="Can be closed" success={metrics.readyToClose > 0} />
-              <MetricCard title="Open actions" value={metrics.blockedByActions} subtitle="Blocked cases" warning={metrics.blockedByActions > 0} />
-              <MetricCard title="Needs AI" value={metrics.needsAi} subtitle="No analysis yet" warning={metrics.needsAi > 0} />
+          <div className="space-y-4">
+            <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+              <EnterpriseMetricCard title="Active" value={metrics.active} subtitle={`${metrics.total} total`} tone="primary" icon={<Briefcase className="h-4 w-4" />} />
+              <EnterpriseMetricCard title="SLA breached" value={metrics.breached} subtitle="Immediate review" tone={metrics.breached > 0 ? "danger" : "success"} icon={<AlertTriangle className="h-4 w-4" />} />
+              <EnterpriseMetricCard title="High / Critical" value={metrics.criticalHigh} subtitle="Priority queue" tone={metrics.criticalHigh > 0 ? "warning" : "success"} icon={<ShieldAlert className="h-4 w-4" />} />
+              <EnterpriseMetricCard title="Ready to close" value={metrics.readyToClose} subtitle="Can be closed" tone={metrics.readyToClose > 0 ? "success" : "neutral"} icon={<CheckCircle2 className="h-4 w-4" />} />
+              <EnterpriseMetricCard title="Open actions" value={metrics.blockedByActions} subtitle="Blocked cases" tone={metrics.blockedByActions > 0 ? "warning" : "success"} icon={<CircleDashed className="h-4 w-4" />} />
+              <EnterpriseMetricCard title="Needs AI" value={metrics.needsAi} subtitle="No analysis yet" tone={metrics.needsAi > 0 ? "warning" : "success"} icon={<Bot className="h-4 w-4" />} />
             </section>
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
-              <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                <div>
-                  <div className="mb-2 flex items-center gap-2 text-cyan-300">
-                    <SlidersHorizontal className="h-4 w-4" />
-                    <h2 className="text-lg font-medium text-slate-100">
-                      Queue controls
-                    </h2>
-                  </div>
-                  <p className="text-sm text-slate-400">
-                    Filter and prioritize cases by operational urgency.
-                  </p>
-                </div>
-
-                <button
-                  onClick={resetFilters}
-                  className="w-fit rounded-xl border border-slate-700 bg-slate-950 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800"
-                >
+            <EnterpriseSection
+              title="Queue Controls"
+              description="Filter and prioritize cases by operational urgency."
+              actions={
+                <EnterpriseButton onClick={resetFilters} tone="ghost" size="xs">
                   Reset filters
-                </button>
-              </div>
-
-              <div className="mb-5 flex flex-wrap gap-2">
+                </EnterpriseButton>
+              }
+            >
+              <div className="mb-4 flex flex-wrap gap-1.5">
                 <QuickViewButton label="Operations" active={quickView === "OPERATIONS"} onClick={() => applyQuickView("OPERATIONS")} />
                 <QuickViewButton label={`SLA breached (${metrics.breached})`} active={quickView === "BREACHED"} onClick={() => applyQuickView("BREACHED")} />
                 <QuickViewButton label={`Unassigned (${metrics.unassigned})`} active={quickView === "UNASSIGNED"} onClick={() => applyQuickView("UNASSIGNED")} />
@@ -556,18 +601,18 @@ export default function CasesPage() {
                 <QuickViewButton label={`Closed (${metrics.closed})`} active={quickView === "CLOSED"} onClick={() => applyQuickView("CLOSED")} />
               </div>
 
-              <div className="grid gap-4 lg:grid-cols-5">
+              <div className="grid gap-3 lg:grid-cols-5">
                 <label className="lg:col-span-2">
-                  <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                  <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-slate-500">
                     Search
                   </span>
-                  <div className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-950 px-3 py-2">
-                    <Search className="h-4 w-4 text-slate-500" />
+                  <div className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-950 px-2">
+                    <Search className="h-3.5 w-3.5 text-slate-500" />
                     <input
                       value={searchText}
                       onChange={(event) => setSearchText(event.target.value)}
                       placeholder="Case, host, owner, correlation type, flags..."
-                      className="w-full bg-transparent text-sm text-slate-100 outline-none placeholder:text-slate-600"
+                      className="w-full bg-transparent text-xs text-slate-100 outline-none placeholder:text-slate-600"
                     />
                   </div>
                 </label>
@@ -615,7 +660,7 @@ export default function CasesPage() {
                 />
               </div>
 
-              <div className="mt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+              <div className="mt-3 grid gap-3 md:grid-cols-2 lg:grid-cols-5">
                 <FilterSelect
                   label="Owner"
                   value={ownerFilter}
@@ -627,35 +672,30 @@ export default function CasesPage() {
                   ]}
                 />
 
-                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 lg:col-span-4">
-                  <div className="flex flex-wrap items-center gap-3 text-sm text-slate-300">
-                    <Filter className="h-4 w-4 text-cyan-300" />
-                    <span>
+                <div className="mt-5 flex h-8 min-w-0 items-center rounded-lg border border-slate-800 bg-slate-950 px-2 lg:col-span-4">
+                  <div className="flex min-w-0 items-center gap-2 overflow-hidden text-xs leading-none text-slate-300">
+                    <Filter className="h-3.5 w-3.5 shrink-0 text-cyan-300" />
+                    <span className="shrink-0">
                       Showing <strong>{filteredCases.length}</strong> of{" "}
                       <strong>{cases.length}</strong> loaded cases.
                     </span>
-                    <span className="text-slate-500">
-                      Sorted by SLA breach, escalation, severity, open actions,
-                      missing AI, closure readiness, ownership and risk score.
+                    <span className="min-w-0 truncate whitespace-nowrap text-slate-500">
+                      Sorted by SLA breach, escalation, severity, open actions, missing AI, closure readiness, ownership and risk score.
                     </span>
                   </div>
                 </div>
               </div>
-            </section>
+            </EnterpriseSection>
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
-              <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <h2 className="text-lg font-medium">Cases</h2>
-                  <p className="mt-1 text-sm text-slate-400">
-                    Operational queue ordered by urgency.
-                  </p>
-                </div>
-
-                <span className="rounded-full border border-slate-700 bg-slate-950 px-4 py-2 text-sm text-slate-300">
+            <EnterpriseSection
+              title="Cases"
+              description="Operational queue ordered by urgency."
+              actions={
+                <EnterpriseBadge tone="muted">
                   {filteredCases.length} visible
-                </span>
-              </div>
+                </EnterpriseBadge>
+              }
+            >
 
               {filteredCases.length === 0 ? (
                 <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">
@@ -663,22 +703,22 @@ export default function CasesPage() {
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm">
-                    <thead className="border-b border-slate-800 text-xs uppercase text-slate-500">
+                  <table className="w-full text-left text-xs">
+                    <thead className="sticky top-0 z-10 border-b border-slate-800 bg-slate-900 text-[11px] uppercase tracking-wide text-slate-500">
                       <tr>
-                        <th className="py-3 pr-4">Priority</th>
-                        <th className="py-3 pr-4">Case</th>
-                        <th className="py-3 pr-4">Status</th>
-                        <th className="min-w-32 whitespace-nowrap py-3 pr-4">Severity</th>
-                        <th className="py-3 pr-4">Owner</th>
-                        <th className="min-w-40 whitespace-nowrap py-3 pr-4">SLA</th>
-                        <th className="min-w-40 whitespace-nowrap py-3 pr-4">Readiness</th>
-                        <th className="min-w-32 whitespace-nowrap py-3 pr-4">Actions</th>
-                        <th className="min-w-32 whitespace-nowrap py-3 pr-4">AI</th>
-                        <th className="py-3 pr-4">Host</th>
-                        <th className="py-3 pr-4">Correlation type</th>
-                        <th className="py-3 pr-4">Incidents</th>
-                        <th className="py-3 pr-4">Updated</th>
+                        <th className="py-2 pr-3">Priority</th>
+                        <th className="py-2 pr-3">Case</th>
+                        <th className="py-2 pr-3">Status</th>
+                        <th className="min-w-28 whitespace-nowrap py-2 pr-3">Severity</th>
+                        <th className="py-2 pr-3">Owner</th>
+                        <th className="min-w-36 whitespace-nowrap py-2 pr-3">SLA</th>
+                        <th className="min-w-36 whitespace-nowrap py-2 pr-3">Readiness</th>
+                        <th className="min-w-28 whitespace-nowrap py-2 pr-3">Actions</th>
+                        <th className="min-w-28 whitespace-nowrap py-2 pr-3">AI</th>
+                        <th className="py-2 pr-3">Host</th>
+                        <th className="py-2 pr-3">Correlation type</th>
+                        <th className="py-2 pr-3">Incidents</th>
+                        <th className="py-2 pr-3">Updated</th>
                       </tr>
                     </thead>
 
@@ -690,18 +730,18 @@ export default function CasesPage() {
                         return (
                           <tr
                             key={item.id}
-                            className="border-b border-slate-800/70"
+                            className="border-b border-slate-800/70 hover:bg-slate-800/35"
                           >
-                            <td className="py-3 pr-4">
+                            <td className="py-2 pr-3">
                               <OperationalPriorityBadge item={item} score={priority} />
                             </td>
 
-                            <td className="max-w-xl py-3 pr-4">
+                            <td className="max-w-[520px] py-2 pr-3">
                               <Link
                                 href={`/cases/${item.id}`}
                                 className="text-cyan-300 hover:text-cyan-200"
                               >
-                                #{item.id} {item.title}
+                                #{item.id} {shortText(item.title, 86)}
                               </Link>
                               {item.status_reason && (
                                 <div className="mt-1 max-w-md truncate text-xs text-slate-500">
@@ -710,7 +750,7 @@ export default function CasesPage() {
                               )}
                             </td>
 
-                            <td className="py-3 pr-4">
+                            <td className="py-2 pr-3">
                               <span
                                 className={`rounded-full border px-3 py-1 text-xs ${statusClass(
                                   item.status
@@ -720,7 +760,7 @@ export default function CasesPage() {
                               </span>
                             </td>
 
-                            <td className="min-w-32 whitespace-nowrap py-3 pr-4">
+                            <td className="min-w-28 whitespace-nowrap py-2 pr-3">
                               <span
                                 className={`inline-flex whitespace-nowrap rounded-full border px-3 py-1 text-xs ${severityClass(
                                   severity
@@ -730,7 +770,7 @@ export default function CasesPage() {
                               </span>
                             </td>
 
-                            <td className="py-3 pr-4 text-slate-300">
+                            <td className="py-2 pr-3 text-slate-300">
                               {item.owner ? (
                                 item.owner
                               ) : (
@@ -741,7 +781,7 @@ export default function CasesPage() {
                               )}
                             </td>
 
-                            <td className="min-w-40 whitespace-nowrap py-3 pr-4">
+                            <td className="min-w-36 whitespace-nowrap py-2 pr-3">
                               <div className="flex min-w-40 flex-col gap-1">
                                 <span
                                   className={`inline-flex w-fit whitespace-nowrap rounded-full border px-3 py-1 text-xs ${slaClass(
@@ -758,34 +798,34 @@ export default function CasesPage() {
                               </div>
                             </td>
 
-                            <td className="min-w-40 whitespace-nowrap py-3 pr-4">
+                            <td className="min-w-36 whitespace-nowrap py-2 pr-3">
                               <ClosureReadinessBadge item={item} />
                             </td>
 
-                            <td className="min-w-32 whitespace-nowrap py-3 pr-4">
+                            <td className="min-w-28 whitespace-nowrap py-2 pr-3">
                               <ActionProgress item={item} />
                             </td>
 
-                            <td className="min-w-32 whitespace-nowrap py-3 pr-4">
+                            <td className="min-w-28 whitespace-nowrap py-2 pr-3">
                               <AIStatusBadge item={item} />
                             </td>
 
-                            <td className="py-3 pr-4 text-slate-300">
+                            <td className="py-2 pr-3 text-slate-300">
                               {item.agent ?? "unknown"}
                             </td>
 
-                            <td className="py-3 pr-4 text-slate-400">
+                            <td className="py-2 pr-3 text-slate-400">
                               {item.correlation_type ?? "-"}
                             </td>
 
-                            <td className="py-3 pr-4">
+                            <td className="py-2 pr-3">
                               <div className="inline-flex items-center gap-2 text-slate-300">
                                 <ShieldAlert className="h-4 w-4 text-cyan-300" />
                                 {item.incident_count}
                               </div>
                             </td>
 
-                            <td className="py-3 pr-4 text-slate-400">
+                            <td className="py-2 pr-3 text-slate-400">
                               {formatTimestamp(item.updated_at)}
                             </td>
                           </tr>
@@ -795,7 +835,7 @@ export default function CasesPage() {
                   </table>
                 </div>
               )}
-            </section>
+            </EnterpriseSection>
           </div>
         )}
       </div>
@@ -847,10 +887,10 @@ function QuickViewButton({
   return (
     <button
       onClick={onClick}
-      className={`rounded-full border px-4 py-2 text-sm ${
+      className={`h-8 rounded-lg border px-2.5 text-xs font-medium transition ${
         active
           ? "border-cyan-500 bg-cyan-500 text-slate-950"
-          : "border-slate-700 bg-slate-950 text-slate-300 hover:bg-slate-800"
+          : "border-slate-700 bg-slate-950 text-slate-300 hover:border-cyan-800 hover:bg-slate-800 hover:text-cyan-200"
       }`}
     >
       {label}
@@ -871,13 +911,13 @@ function FilterSelect({
 }) {
   return (
     <label>
-      <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+      <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-slate-500">
         {label}
       </span>
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+        className="h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500"
       >
         {options.map(([optionValue, optionLabel]) => (
           <option key={optionValue} value={optionValue}>
