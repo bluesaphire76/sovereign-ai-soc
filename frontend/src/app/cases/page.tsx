@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import AppNavigation from "../../components/AppNavigation";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -460,6 +461,7 @@ export default function CasesPage() {
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto max-w-7xl px-6 py-8">
+        <AppNavigation />
         <header className="mb-8 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
             <Link
@@ -486,22 +488,15 @@ export default function CasesPage() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <Link
-              href="/cases/kanban"
-              className="rounded-xl border border-cyan-700 bg-slate-900 px-4 py-2 text-sm text-cyan-200 shadow-sm hover:bg-slate-800"
-            >
-              Kanban view
-            </Link>
-
             <button
-            onClick={loadCases}
-            className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 shadow-sm hover:bg-slate-800"
-          >
-            <RefreshCw
-              className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`}
-            />
-            Refresh
-          </button>
+              onClick={loadCases}
+              className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 shadow-sm hover:bg-slate-800"
+            >
+              <RefreshCw
+                className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`}
+              />
+              Refresh
+            </button>
           </div>
         </header>
 

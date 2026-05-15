@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import AppNavigation from "../components/AppNavigation";
 import {
   Activity,
   AlertTriangle,
@@ -385,6 +386,7 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto max-w-7xl px-6 py-8">
+        <AppNavigation />
         <header className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <div className="mb-2 flex items-center gap-2 text-sm text-cyan-300">
@@ -403,58 +405,6 @@ export default function Home() {
           </div>
 
           <div className="flex flex-wrap gap-3">
-            <Link
-              href="/cases"
-              className="flex items-center gap-2 rounded-xl border border-cyan-700 bg-cyan-500 px-4 py-2 text-sm font-medium text-slate-950 shadow-sm hover:bg-cyan-400"
-            >
-              <Briefcase className="h-4 w-4" />
-              Case Queue
-            </Link>
-
-            <Link
-              href="/cases/kanban"
-              className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 shadow-sm hover:bg-slate-800"
-            >
-              <Briefcase className="h-4 w-4" />
-              Kanban
-            </Link>
-
-            <Link
-              href="/health"
-              className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 shadow-sm hover:bg-slate-800"
-            >
-              <HeartPulse className="h-4 w-4" />
-              Health
-            </Link>
-
-            <Link
-              href="/detection-quality"
-              className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 shadow-sm hover:bg-slate-800"
-            >
-              <Shield className="h-4 w-4" />
-              Detection Quality
-            </Link>
-
-            <Link
-              href="/executive"
-              className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 shadow-sm hover:bg-slate-800"
-            >
-              <BarChart3 className="h-4 w-4" />
-              Executive
-            </Link>
-
-
-            <button
-              onClick={async () => {
-                await fetch("/api/auth/logout", { method: "POST" });
-                window.location.href = "/login";
-              }}
-              className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 shadow-sm hover:bg-slate-800"
-            >
-              <LogOut className="h-4 w-4" />
-              Logout
-            </button>
-
             <button
               onClick={loadDashboard}
               className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 shadow-sm hover:bg-slate-800"

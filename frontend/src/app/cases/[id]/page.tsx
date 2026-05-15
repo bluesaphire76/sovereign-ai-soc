@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import AppNavigation from "../../../components/AppNavigation";
 import { useParams } from "next/navigation";
 import {
   AlertTriangle,
@@ -1096,6 +1097,7 @@ export default function CaseDetailPage() {
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto max-w-7xl px-6 py-8">
+        <AppNavigation />
         <header className="mb-8">
           <Link
             href="/cases"

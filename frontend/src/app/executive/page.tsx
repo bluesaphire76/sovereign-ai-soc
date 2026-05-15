@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import AppNavigation from "../../components/AppNavigation";
 import {
   ArrowLeft,
   AlertTriangle,
@@ -195,6 +196,7 @@ export default function ExecutivePage() {
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto max-w-7xl px-6 py-8">
+        <AppNavigation />
         <header className="mb-8 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
             <Link

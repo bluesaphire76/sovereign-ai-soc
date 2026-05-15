@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import AppNavigation from "../../components/AppNavigation";
 import {
   ArrowLeft,
   BarChart3,
@@ -329,6 +330,7 @@ export default function DetectionQualityPage() {
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto max-w-7xl px-6 py-8">
+        <AppNavigation />
         <header className="mb-8 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
             <Link
@@ -444,12 +446,42 @@ export default function DetectionQualityPage() {
                 <div className="h-80">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={scenarioChartData}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="name" />
-                      <YAxis allowDecimals={false} />
-                      <Tooltip />
-                      <Bar dataKey="incidents" />
-                      <Bar dataKey="correlated" />
+                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                      <XAxis
+                        dataKey="name"
+                        tick={{ fill: "#cbd5e1", fontSize: 12 }}
+                        axisLine={{ stroke: "#475569" }}
+                        tickLine={{ stroke: "#475569" }}
+                      />
+                      <YAxis
+                        allowDecimals={false}
+                        tick={{ fill: "#cbd5e1", fontSize: 12 }}
+                        axisLine={{ stroke: "#475569" }}
+                        tickLine={{ stroke: "#475569" }}
+                      />
+                      <Tooltip
+                        cursor={{ fill: "rgba(15, 23, 42, 0.6)" }}
+                        contentStyle={{
+                          backgroundColor: "#020617",
+                          border: "1px solid #334155",
+                          borderRadius: "12px",
+                          color: "#e2e8f0",
+                        }}
+                        labelStyle={{ color: "#67e8f9" }}
+                        itemStyle={{ color: "#e2e8f0" }}
+                      />
+                      <Bar
+                        dataKey="incidents"
+                        name="Incidents"
+                        fill="#22d3ee"
+                        radius={[8, 8, 0, 0]}
+                      />
+                      <Bar
+                        dataKey="correlated"
+                        name="Correlated"
+                        fill="#34d399"
+                        radius={[8, 8, 0, 0]}
+                      />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
