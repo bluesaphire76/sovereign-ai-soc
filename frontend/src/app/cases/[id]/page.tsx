@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import AppNavigation from "../../../components/AppNavigation";
+import { getStoredUser, type AuthUser } from "../../../lib/auth";
 import { useParams } from "next/navigation";
 import {
   AlertTriangle,
@@ -671,6 +672,8 @@ export default function CaseDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [sectionFocus, setSectionFocus] = useState<CaseSectionFocus>("ALL");
   const [quickActionRunning, setQuickActionRunning] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const currentUsername = currentUser?.username || "local_analyst";
 
   async function loadCase() {
     try {
@@ -746,7 +749,7 @@ export default function CaseDetailPage() {
         category: suggestion.category || "INVESTIGATION",
         priority: suggestion.priority || "MEDIUM",
         due_at: suggestion.suggested_due_at || "",
-        created_by: "local_analyst",
+        created_by: currentUsername,
       });
 
       setAiActionSuggestions((current) =>
@@ -782,7 +785,7 @@ export default function CaseDetailPage() {
         due_at: actionForm.due_at
           ? new Date(actionForm.due_at).toISOString()
           : "",
-        created_by: "local_analyst",
+        created_by: currentUsername,
       });
 
       setActionForm({
@@ -809,7 +812,7 @@ export default function CaseDetailPage() {
 
       const updated = await updateCaseAction(caseId, actionId, {
         status,
-        updated_by: "local_analyst",
+        updated_by: currentUsername,
       });
 
       setCaseActions((current) =>
@@ -831,7 +834,7 @@ export default function CaseDetailPage() {
 
       const updated = await updateCaseAction(caseId, actionId, {
         priority,
-        updated_by: "local_analyst",
+        updated_by: currentUsername,
       });
 
       setCaseActions((current) =>
@@ -853,7 +856,7 @@ export default function CaseDetailPage() {
 
       const response = await updateCaseClosure(caseId, {
         ...closureForm,
-        reviewed_by: "local_analyst",
+        reviewed_by: currentUsername,
       });
 
       setCaseClosure(response);
@@ -879,7 +882,7 @@ export default function CaseDetailPage() {
           ? new Date(workflowForm.sla_due_at).toISOString()
           : "",
         status_reason: workflowForm.status_reason,
-        reviewed_by: "local_analyst",
+        reviewed_by: currentUsername,
       });
 
       setCaseData(updatedCase);
@@ -963,18 +966,18 @@ export default function CaseDetailPage() {
           ? new Date(workflowForm.sla_due_at).toISOString()
           : "",
         status_reason: workflowForm.status_reason,
-        reviewed_by: "local_analyst",
+        reviewed_by: currentUsername,
       };
 
       if (action === "ASSIGN_TO_ME") {
-        nextWorkflow.owner = "local_analyst";
+        nextWorkflow.owner = currentUsername;
         nextWorkflow.status_reason =
           workflowForm.status_reason ||
           "Case assigned through quick action.";
       }
 
       if (action === "START_INVESTIGATION") {
-        nextWorkflow.owner = workflowForm.owner || "local_analyst";
+        nextWorkflow.owner = workflowForm.owner || currentUsername;
         nextWorkflow.status = "INVESTIGATING";
         nextWorkflow.status_reason =
           workflowForm.status_reason ||
@@ -982,7 +985,7 @@ export default function CaseDetailPage() {
       }
 
       if (action === "ESCALATE_CASE") {
-        nextWorkflow.owner = workflowForm.owner || "local_analyst";
+        nextWorkflow.owner = workflowForm.owner || currentUsername;
         nextWorkflow.status = "ESCALATED";
         nextWorkflow.status_reason =
           workflowForm.status_reason ||
@@ -1021,6 +1024,10 @@ export default function CaseDetailPage() {
       setQuickActionRunning(null);
     }
   }
+
+  useEffect(() => {
+    setCurrentUser(getStoredUser());
+  }, []);
 
   useEffect(() => {
     loadCase();
@@ -1712,7 +1719,7 @@ export default function CaseDetailPage() {
                         owner: event.target.value,
                       }))
                     }
-                    placeholder="local_analyst"
+                    placeholder={currentUsername}
                     className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
                   />
                 </label>
@@ -2737,7 +2744,7 @@ function CaseQuickActions({
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <QuickActionButton
           title="Assign to me"
-          description="Take ownership as local_analyst."
+          description="Take ownership as the signed-in user."
           action="ASSIGN_TO_ME"
           running={quickActionRunning}
           disabled={isTerminal}

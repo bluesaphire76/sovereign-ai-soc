@@ -216,6 +216,13 @@ def normalize_username(username: str) -> str:
     return username.strip().lower()
 
 
+def hash_password_or_400(password: str) -> str:
+    try:
+        return hash_password(password)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 def get_current_user(authorization: str | None = Header(None)) -> dict:
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Authentication required.")
@@ -324,7 +331,7 @@ def create_user(payload: UserCreate, current_user: dict = Depends(require_admin)
             username=username,
             display_name=payload.display_name,
             role=role,
-            password_hash=hash_password(payload.password),
+            password_hash=hash_password_or_400(payload.password),
             is_active=payload.is_active,
         )
 
@@ -391,7 +398,7 @@ def update_user_password(
         if not user:
             raise HTTPException(status_code=404, detail="User not found.")
 
-        user.password_hash = hash_password(payload.password)
+        user.password_hash = hash_password_or_400(payload.password)
         user.updated_at = datetime.now(timezone.utc)
         db.commit()
         db.refresh(user)

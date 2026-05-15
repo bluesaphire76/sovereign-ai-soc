@@ -115,6 +115,11 @@ export default function AdminUsersPage() {
 
     if (!newPassword) return;
 
+    if (newPassword.length < 8) {
+      setError("Password must be at least 8 characters long.");
+      return;
+    }
+
     try {
       setError(null);
 
