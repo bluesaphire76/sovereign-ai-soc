@@ -1,17 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import AppNavigation from "../../components/AppNavigation";
 import {
-  ArrowLeft,
+  AlertTriangle,
   BarChart3,
   Brain,
   CheckCircle2,
   RefreshCw,
   ShieldCheck,
   Target,
-  AlertTriangle,
 } from "lucide-react";
 import {
   Bar,
@@ -60,6 +59,8 @@ type ScenarioSummary = {
   avg_risk: number;
 };
 
+type Tone = "success" | "warning" | "danger" | "primary" | "neutral";
+
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8008";
 
@@ -68,6 +69,10 @@ const KNOWN_SCENARIOS = [
   "privilege_escalation",
   "malware_indicator",
 ];
+
+const CHART_GRID = "#334155";
+const CHART_AXIS = "#64748b";
+const CHART_TICK = "#cbd5e1";
 
 async function fetchJson<T>(path: string): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -181,18 +186,58 @@ function priorityIsHighOrCritical(priority: string | null | undefined): boolean 
   return value === "HIGH" || value === "CRITICAL";
 }
 
-function riskClass(score: number | null | undefined) {
-  const value = score ?? 0;
-
-  if (value >= 81) return "bg-red-100 text-red-800 border-red-200";
-  if (value >= 61) return "bg-orange-100 text-orange-800 border-orange-200";
-  if (value >= 31) return "bg-yellow-100 text-yellow-800 border-yellow-200";
-  return "bg-emerald-100 text-emerald-800 border-emerald-200";
-}
-
 function pct(value: number, total: number): number {
   if (!total) return 0;
   return Math.round((value / total) * 100);
+}
+
+function toneForScore(score: number): Tone {
+  if (score >= 81) return "danger";
+  if (score >= 61) return "warning";
+  if (score >= 31) return "primary";
+  return "success";
+}
+
+function toneClasses(tone: Tone) {
+  const classes: Record<Tone, { card: string; badge: string; text: string }> = {
+    success: {
+      card: "border-emerald-900/70 bg-emerald-950/20",
+      badge: "border-emerald-700 bg-emerald-950 text-emerald-200",
+      text: "text-emerald-300",
+    },
+    warning: {
+      card: "border-orange-900/70 bg-orange-950/20",
+      badge: "border-orange-700 bg-orange-950 text-orange-200",
+      text: "text-orange-300",
+    },
+    danger: {
+      card: "border-red-900/70 bg-red-950/25",
+      badge: "border-red-800 bg-red-950 text-red-200",
+      text: "text-red-300",
+    },
+    primary: {
+      card: "border-cyan-900/70 bg-cyan-950/20",
+      badge: "border-cyan-700 bg-cyan-950 text-cyan-200",
+      text: "text-cyan-300",
+    },
+    neutral: {
+      card: "border-slate-800 bg-slate-900",
+      badge: "border-slate-700 bg-slate-950 text-slate-300",
+      text: "text-slate-300",
+    },
+  };
+
+  return classes[tone];
+}
+
+function shortText(value: string | null | undefined, max = 96) {
+  if (!value) return "-";
+  if (value.length <= max) return value;
+  return `${value.slice(0, max - 1)}…`;
+}
+
+function scenarioLabel(value: string) {
+  return value.replaceAll("_", " ");
 }
 
 export default function DetectionQualityPage() {
@@ -321,7 +366,7 @@ export default function DetectionQualityPage() {
 
   const scenarioChartData = useMemo(() => {
     return scenarioRows.map((row) => ({
-      name: row.scenario.replaceAll("_", " "),
+      name: scenarioLabel(row.scenario),
       incidents: row.incidents,
       correlated: row.correlated,
     }));
@@ -329,258 +374,280 @@ export default function DetectionQualityPage() {
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto max-w-7xl px-6 py-8">
+      <div className="mx-auto max-w-[1600px] px-4 py-4">
         <AppNavigation />
-        <header className="mb-8 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+
+        <header className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div>
             <Link
               href="/"
-              className="mb-6 inline-flex items-center gap-2 text-sm text-cyan-300 hover:text-cyan-200"
+              className="mb-2 inline-flex items-center gap-1.5 text-xs text-cyan-300 hover:text-cyan-200"
             >
-              <ArrowLeft className="h-4 w-4" />
-              Back to dashboard
+              ← Dashboard
             </Link>
 
-            <div className="mb-2 flex items-center gap-2 text-sm text-cyan-300">
-              <Target className="h-4 w-4" />
-              Detection engineering
+            <div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-cyan-300">
+              <Target className="h-3.5 w-3.5" />
+              Detection Engineering
             </div>
 
-            <h1 className="text-3xl font-semibold tracking-tight">
+            <h1 className="text-xl font-semibold tracking-tight">
               Detection Quality Dashboard
             </h1>
 
-            <p className="mt-2 max-w-3xl text-sm text-slate-400">
-              Measures how synthetic defensive scenarios are observed by the AI
-              SOC pipeline: visibility, correlation, priority assignment and
-              MITRE signal coverage.
+            <p className="mt-1 max-w-4xl text-xs leading-5 text-slate-500">
+              Compact view of synthetic scenario visibility, AI correlation,
+              priority assignment and MITRE coverage across the AI SOC pipeline.
             </p>
           </div>
 
           <button
             onClick={loadDetectionQuality}
-            className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 shadow-sm hover:bg-slate-800"
+            className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 text-xs text-slate-200 shadow-sm hover:bg-slate-800"
           >
             <RefreshCw
-              className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`}
+              className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`}
             />
             Refresh
           </button>
         </header>
 
         {error && (
-          <div className="mb-6 rounded-2xl border border-red-800 bg-red-950/60 p-4 text-sm text-red-200">
+          <div className="mb-3 rounded-lg border border-red-800 bg-red-950/60 p-3 text-xs text-red-200">
             API error: {error}
           </div>
         )}
 
         {loading ? (
-          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6 text-slate-300">
+          <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 text-xs text-slate-300">
             Loading detection quality data...
-          </div>
+          </section>
         ) : (
-          <div className="space-y-6">
-            <section className="grid gap-4 md:grid-cols-5">
-              <MetricCard
+          <div className="space-y-3">
+            <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+              <QualityMetric
                 title="Synthetic incidents"
                 value={totalSynthetic}
-                icon={<ShieldCheck className="h-5 w-5" />}
+                subtitle={`${incidentsData?.total ?? 0} matching loaded`}
+                icon={<ShieldCheck className="h-4 w-4" />}
+                tone="primary"
               />
 
-              <MetricCard
+              <QualityMetric
                 title="Correlated"
                 value={`${pct(correlatedSynthetic, totalSynthetic)}%`}
                 subtitle={`${correlatedSynthetic}/${totalSynthetic}`}
-                icon={<Brain className="h-5 w-5" />}
+                icon={<Brain className="h-4 w-4" />}
+                tone={correlatedSynthetic === totalSynthetic && totalSynthetic > 0 ? "success" : "warning"}
               />
 
-              <MetricCard
+              <QualityMetric
                 title="High/Critical"
                 value={`${pct(highOrCriticalSynthetic, totalSynthetic)}%`}
                 subtitle={`${highOrCriticalSynthetic}/${totalSynthetic}`}
-                icon={<AlertTriangle className="h-5 w-5" />}
+                icon={<AlertTriangle className="h-4 w-4" />}
+                tone={highOrCriticalSynthetic > 0 ? "warning" : "neutral"}
               />
 
-              <MetricCard
+              <QualityMetric
                 title="MITRE signal"
                 value={`${pct(mitreTaggedSynthetic, totalSynthetic)}%`}
                 subtitle={`${mitreTaggedSynthetic}/${totalSynthetic}`}
-                icon={<Target className="h-5 w-5" />}
+                icon={<Target className="h-4 w-4" />}
+                tone={mitreTaggedSynthetic === totalSynthetic && totalSynthetic > 0 ? "success" : "warning"}
               />
 
-              <MetricCard
+              <QualityMetric
                 title="Quality score"
                 value={`${detectionQualityScore}%`}
                 subtitle="Correlation + priority + MITRE"
-                icon={<CheckCircle2 className="h-5 w-5" />}
+                icon={<CheckCircle2 className="h-4 w-4" />}
+                tone={toneForScore(detectionQualityScore)}
               />
             </section>
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
-              <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <h2 className="text-lg font-medium">
-                    Synthetic scenario coverage
+            <section className="grid gap-3 xl:grid-cols-[420px_1fr]">
+              <div className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-sm font-semibold">
+                      Synthetic scenario coverage
+                    </h2>
+                    <p className="mt-0.5 text-[11px] text-slate-500">
+                      Compact chart of scenario visibility and correlation.
+                    </p>
+                  </div>
+
+                  <span className={`shrink-0 rounded-md border px-2 py-1 text-[11px] ${toneClasses(toneForScore(maxRisk)).badge}`}>
+                    Max {maxRisk} · Avg {averageRisk}
+                  </span>
+                </div>
+
+                {totalSynthetic === 0 ? (
+                  <div className="rounded-md border border-orange-800 bg-orange-950/40 p-3 text-xs text-orange-100">
+                    No synthetic incidents found. Run a synthetic scenario, wait
+                    for ingestion, then refresh.
+                  </div>
+                ) : (
+                  <div className="h-36">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart
+                        data={scenarioChartData}
+                        layout="vertical"
+                        margin={{ top: 4, right: 12, left: 8, bottom: 4 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
+                        <XAxis
+                          type="number"
+                          allowDecimals={false}
+                          tick={{ fill: CHART_TICK, fontSize: 10 }}
+                          axisLine={{ stroke: CHART_AXIS }}
+                          tickLine={{ stroke: CHART_AXIS }}
+                        />
+                        <YAxis
+                          type="category"
+                          dataKey="name"
+                          width={115}
+                          tick={{ fill: CHART_TICK, fontSize: 10 }}
+                          axisLine={{ stroke: CHART_AXIS }}
+                          tickLine={{ stroke: CHART_AXIS }}
+                        />
+                        <Tooltip
+                          cursor={{ fill: "rgba(15, 23, 42, 0.6)" }}
+                          contentStyle={{
+                            backgroundColor: "#020617",
+                            border: "1px solid #334155",
+                            borderRadius: "10px",
+                            color: "#e2e8f0",
+                            fontSize: "12px",
+                          }}
+                          labelStyle={{ color: "#67e8f9" }}
+                          itemStyle={{ color: "#e2e8f0" }}
+                        />
+                        <Bar
+                          dataKey="incidents"
+                          name="Incidents"
+                          fill="#22d3ee"
+                          radius={[0, 6, 6, 0]}
+                          barSize={12}
+                        />
+                        <Bar
+                          dataKey="correlated"
+                          name="Correlated"
+                          fill="#34d399"
+                          radius={[0, 6, 6, 0]}
+                          barSize={12}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
+                <div className="mb-2 flex items-center justify-between">
+                  <h2 className="text-sm font-semibold">
+                    Scenario quality breakdown
                   </h2>
-                  <p className="mt-1 text-sm text-slate-400">
-                    First version based on incidents already ingested into AI
-                    SOC. It does not yet measure raw generated event count.
+
+                  <span className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-400">
+                    {scenarioRows.length} scenario(s)
+                  </span>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-left text-xs">
+                    <thead className="border-b border-slate-800 text-[10px] uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="px-2 py-1.5">Scenario</th>
+                        <th className="px-2 py-1.5">Inc</th>
+                        <th className="px-2 py-1.5">Corr</th>
+                        <th className="px-2 py-1.5">High</th>
+                        <th className="px-2 py-1.5">MITRE</th>
+                        <th className="px-2 py-1.5">Avg</th>
+                        <th className="px-2 py-1.5">Max</th>
+                      </tr>
+                    </thead>
+
+                    <tbody className="divide-y divide-slate-800/80">
+                      {scenarioRows.map((row) => (
+                        <tr key={row.scenario} className="hover:bg-slate-800/40">
+                          <td className="max-w-[220px] truncate px-2 py-1.5 font-medium text-slate-100">
+                            {scenarioLabel(row.scenario)}
+                          </td>
+                          <td className="px-2 py-1.5 text-slate-300">
+                            {row.incidents}
+                          </td>
+                          <td className="px-2 py-1.5 text-slate-300">
+                            {pct(row.correlated, row.incidents)}%
+                          </td>
+                          <td className="px-2 py-1.5 text-slate-300">
+                            {pct(row.high_or_critical, row.incidents)}%
+                          </td>
+                          <td className="px-2 py-1.5 text-slate-300">
+                            {pct(row.mitre_tagged, row.incidents)}%
+                          </td>
+                          <td className="px-2 py-1.5 text-slate-300">
+                            {row.avg_risk}
+                          </td>
+                          <td className="px-2 py-1.5">
+                            <span className={`rounded-md border px-1.5 py-0.5 text-[11px] ${toneClasses(toneForScore(row.max_risk)).badge}`}>
+                              {row.max_risk}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+
+                      {scenarioRows.length === 0 && (
+                        <tr>
+                          <td
+                            colSpan={7}
+                            className="px-2 py-4 text-center text-slate-500"
+                          >
+                            No synthetic scenario data available yet.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+
+            <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-semibold">
+                    Latest synthetic incidents
+                  </h2>
+                  <p className="mt-0.5 text-[11px] text-slate-500">
+                    Most recent synthetic detections loaded from the incident stream.
                   </p>
                 </div>
 
-                <span
-                  className={`rounded-full border px-3 py-1 text-xs ${riskClass(
-                    maxRisk
-                  )}`}
-                >
-                  Max risk {maxRisk} · Avg risk {averageRisk}
+                <span className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-400">
+                  Showing {Math.min(syntheticIncidents.length, 25)}
                 </span>
               </div>
 
-              {totalSynthetic === 0 ? (
-                <div className="rounded-2xl border border-yellow-800 bg-yellow-950/40 p-4 text-sm text-yellow-100">
-                  No synthetic incidents found. Run a synthetic scenario, wait
-                  for Wazuh and AI SOC ingestion, then refresh this page.
-                </div>
-              ) : (
-                <div className="h-80">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={scenarioChartData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                      <XAxis
-                        dataKey="name"
-                        tick={{ fill: "#cbd5e1", fontSize: 12 }}
-                        axisLine={{ stroke: "#475569" }}
-                        tickLine={{ stroke: "#475569" }}
-                      />
-                      <YAxis
-                        allowDecimals={false}
-                        tick={{ fill: "#cbd5e1", fontSize: 12 }}
-                        axisLine={{ stroke: "#475569" }}
-                        tickLine={{ stroke: "#475569" }}
-                      />
-                      <Tooltip
-                        cursor={{ fill: "rgba(15, 23, 42, 0.6)" }}
-                        contentStyle={{
-                          backgroundColor: "#020617",
-                          border: "1px solid #334155",
-                          borderRadius: "12px",
-                          color: "#e2e8f0",
-                        }}
-                        labelStyle={{ color: "#67e8f9" }}
-                        itemStyle={{ color: "#e2e8f0" }}
-                      />
-                      <Bar
-                        dataKey="incidents"
-                        name="Incidents"
-                        fill="#22d3ee"
-                        radius={[8, 8, 0, 0]}
-                      />
-                      <Bar
-                        dataKey="correlated"
-                        name="Correlated"
-                        fill="#34d399"
-                        radius={[8, 8, 0, 0]}
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-            </section>
-
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
-              <h2 className="mb-4 text-lg font-medium">
-                Scenario quality breakdown
-              </h2>
-
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-slate-800 text-sm">
-                  <thead>
-                    <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
-                      <th className="px-3 py-3">Scenario</th>
-                      <th className="px-3 py-3">Incidents</th>
-                      <th className="px-3 py-3">Correlated</th>
-                      <th className="px-3 py-3">High/Critical</th>
-                      <th className="px-3 py-3">MITRE tagged</th>
-                      <th className="px-3 py-3">Avg risk</th>
-                      <th className="px-3 py-3">Max risk</th>
+                <table className="min-w-full text-left text-xs">
+                  <thead className="border-b border-slate-800 text-[10px] uppercase tracking-wide text-slate-500">
+                    <tr>
+                      <th className="px-2 py-1.5">ID</th>
+                      <th className="px-2 py-1.5">Time</th>
+                      <th className="px-2 py-1.5">Host</th>
+                      <th className="px-2 py-1.5">Rule</th>
+                      <th className="px-2 py-1.5">Priority</th>
+                      <th className="px-2 py-1.5">Risk</th>
+                      <th className="px-2 py-1.5">Correlation</th>
                     </tr>
                   </thead>
 
-                  <tbody className="divide-y divide-slate-800">
-                    {scenarioRows.map((row) => (
-                      <tr key={row.scenario} className="hover:bg-slate-800/50">
-                        <td className="px-3 py-3 font-medium text-slate-100">
-                          {row.scenario}
-                        </td>
-                        <td className="px-3 py-3 text-slate-300">
-                          {row.incidents}
-                        </td>
-                        <td className="px-3 py-3 text-slate-300">
-                          {row.correlated} / {row.incidents} (
-                          {pct(row.correlated, row.incidents)}%)
-                        </td>
-                        <td className="px-3 py-3 text-slate-300">
-                          {row.high_or_critical} / {row.incidents} (
-                          {pct(row.high_or_critical, row.incidents)}%)
-                        </td>
-                        <td className="px-3 py-3 text-slate-300">
-                          {row.mitre_tagged} / {row.incidents} (
-                          {pct(row.mitre_tagged, row.incidents)}%)
-                        </td>
-                        <td className="px-3 py-3 text-slate-300">
-                          {row.avg_risk}
-                        </td>
-                        <td className="px-3 py-3">
-                          <span
-                            className={`rounded-full border px-3 py-1 text-xs ${riskClass(
-                              row.max_risk
-                            )}`}
-                          >
-                            {row.max_risk}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-
-                    {scenarioRows.length === 0 && (
-                      <tr>
-                        <td
-                          colSpan={7}
-                          className="px-3 py-6 text-center text-slate-500"
-                        >
-                          No synthetic scenario data available yet.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
-              <h2 className="mb-4 text-lg font-medium">
-                Latest synthetic incidents
-              </h2>
-
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-slate-800 text-sm">
-                  <thead>
-                    <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
-                      <th className="px-3 py-3">ID</th>
-                      <th className="px-3 py-3">Time</th>
-                      <th className="px-3 py-3">Host</th>
-                      <th className="px-3 py-3">Rule</th>
-                      <th className="px-3 py-3">Priority</th>
-                      <th className="px-3 py-3">Risk</th>
-                      <th className="px-3 py-3">Correlation</th>
-                    </tr>
-                  </thead>
-
-                  <tbody className="divide-y divide-slate-800">
+                  <tbody className="divide-y divide-slate-800/80">
                     {syntheticIncidents.slice(0, 25).map((incident) => (
-                      <tr key={incident.id} className="hover:bg-slate-800/50">
-                        <td className="px-3 py-3">
+                      <tr key={incident.id} className="hover:bg-slate-800/40">
+                        <td className="px-2 py-1.5">
                           <Link
                             href={`/incidents/${incident.id}`}
                             className="text-cyan-300 hover:text-cyan-200"
@@ -588,30 +655,29 @@ export default function DetectionQualityPage() {
                             #{incident.id}
                           </Link>
                         </td>
-                        <td className="px-3 py-3 text-slate-300">
+                        <td className="whitespace-nowrap px-2 py-1.5 text-slate-300">
                           {formatTimestamp(
                             incident.timestamp_local ?? incident.timestamp
                           )}
                         </td>
-                        <td className="px-3 py-3 text-slate-300">
+                        <td className="max-w-[140px] truncate px-2 py-1.5 text-slate-300">
                           {incident.agent ?? "-"}
                         </td>
-                        <td className="max-w-md truncate px-3 py-3 text-slate-300">
-                          {incident.rule ?? "-"}
+                        <td
+                          className="max-w-xl truncate px-2 py-1.5 text-slate-300"
+                          title={incident.rule ?? "-"}
+                        >
+                          {shortText(incident.rule, 120)}
                         </td>
-                        <td className="px-3 py-3 text-slate-300">
+                        <td className="px-2 py-1.5 text-slate-300">
                           {incident.recommended_priority ?? "-"}
                         </td>
-                        <td className="px-3 py-3">
-                          <span
-                            className={`rounded-full border px-3 py-1 text-xs ${riskClass(
-                              incident.risk_score
-                            )}`}
-                          >
+                        <td className="px-2 py-1.5">
+                          <span className={`rounded-md border px-1.5 py-0.5 text-[11px] ${toneClasses(toneForScore(incident.risk_score ?? 0)).badge}`}>
                             {incident.risk_score ?? 0}
                           </span>
                         </td>
-                        <td className="px-3 py-3 text-slate-300">
+                        <td className="px-2 py-1.5 text-slate-300">
                           {incident.correlated ? "Yes" : "No"}
                           {incident.correlation_score !== null &&
                           incident.correlation_score !== undefined
@@ -625,7 +691,7 @@ export default function DetectionQualityPage() {
                       <tr>
                         <td
                           colSpan={7}
-                          className="px-3 py-6 text-center text-slate-500"
+                          className="px-2 py-4 text-center text-slate-500"
                         >
                           No synthetic incidents found.
                         </td>
@@ -642,27 +708,38 @@ export default function DetectionQualityPage() {
   );
 }
 
-function MetricCard({
+function QualityMetric({
   title,
   value,
   subtitle,
   icon,
+  tone,
 }: {
   title: string;
   value: string | number;
-  subtitle?: string;
-  icon: React.ReactNode;
+  subtitle: string;
+  icon: ReactNode;
+  tone: Tone;
 }) {
+  const classes = toneClasses(tone);
+
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
-      <div className="mb-3 flex items-center justify-between">
-        <div className="rounded-xl bg-slate-950 p-2 text-cyan-300">{icon}</div>
+    <div className={`rounded-lg border px-3 py-2 shadow-sm ${classes.card}`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
+            {title}
+          </div>
+          <div className="mt-0.5 text-lg font-semibold leading-6 text-slate-100">
+            {value}
+          </div>
+          <div className="truncate text-[11px] text-slate-500">{subtitle}</div>
+        </div>
+
+        <div className={`shrink-0 rounded-md bg-slate-950 p-1.5 ${classes.text}`}>
+          {icon}
+        </div>
       </div>
-
-      <div className="text-sm text-slate-400">{title}</div>
-      <div className="mt-1 text-3xl font-semibold">{value}</div>
-
-      {subtitle && <div className="mt-1 text-xs text-slate-500">{subtitle}</div>}
     </div>
   );
 }
