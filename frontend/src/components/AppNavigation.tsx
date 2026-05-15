@@ -5,55 +5,55 @@ import { usePathname } from "next/navigation";
 import {
   BarChart3,
   Briefcase,
+  Columns3,
   HeartPulse,
   LayoutDashboard,
   LogOut,
   Shield,
-  Columns3,
 } from "lucide-react";
 
 type NavItem = {
   href: string;
   label: string;
   icon: React.ReactNode;
-  match: "exact" | "prefix";
+  match: "exact" | "prefix" | "cases";
 };
 
 const NAV_ITEMS: NavItem[] = [
   {
     href: "/",
     label: "Dashboard",
-    icon: <LayoutDashboard className="h-4 w-4" />,
+    icon: <LayoutDashboard className="h-3.5 w-3.5" />,
     match: "exact",
   },
   {
     href: "/cases",
     label: "Case Queue",
-    icon: <Briefcase className="h-4 w-4" />,
-    match: "exact",
+    icon: <Briefcase className="h-3.5 w-3.5" />,
+    match: "cases",
   },
   {
     href: "/cases/kanban",
     label: "Kanban",
-    icon: <Columns3 className="h-4 w-4" />,
+    icon: <Columns3 className="h-3.5 w-3.5" />,
     match: "prefix",
   },
   {
     href: "/executive",
     label: "Executive",
-    icon: <BarChart3 className="h-4 w-4" />,
+    icon: <BarChart3 className="h-3.5 w-3.5" />,
     match: "prefix",
   },
   {
     href: "/detection-quality",
     label: "Detection Quality",
-    icon: <Shield className="h-4 w-4" />,
+    icon: <Shield className="h-3.5 w-3.5" />,
     match: "prefix",
   },
   {
     href: "/health",
     label: "Health",
-    icon: <HeartPulse className="h-4 w-4" />,
+    icon: <HeartPulse className="h-3.5 w-3.5" />,
     match: "prefix",
   },
 ];
@@ -61,6 +61,13 @@ const NAV_ITEMS: NavItem[] = [
 function isActive(pathname: string, item: NavItem) {
   if (item.match === "exact") {
     return pathname === item.href;
+  }
+
+  if (item.match === "cases") {
+    return (
+      pathname === "/cases" ||
+      (pathname.startsWith("/cases/") && !pathname.startsWith("/cases/kanban"))
+    );
   }
 
   return pathname === item.href || pathname.startsWith(`${item.href}/`);
@@ -75,24 +82,24 @@ export default function AppNavigation() {
   }
 
   return (
-    <nav className="mb-8 rounded-2xl border border-slate-800 bg-slate-900/90 p-3 shadow-lg">
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-        <div className="flex items-center gap-3 px-2">
-          <div className="rounded-xl border border-cyan-800 bg-cyan-950 p-2 text-cyan-300">
-            <Shield className="h-4 w-4" />
+    <nav className="mb-5 rounded-xl border border-slate-800 bg-slate-900/95 px-3 py-2 shadow-lg">
+      <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+        <div className="flex items-center gap-2">
+          <div className="rounded-lg border border-cyan-900 bg-cyan-950 p-1.5 text-cyan-300">
+            <Shield className="h-3.5 w-3.5" />
           </div>
 
           <div>
-            <div className="text-sm font-semibold text-slate-100">
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-100">
               Sovereign AI SOC
             </div>
-            <div className="text-xs text-slate-500">
-              Local-first SOC case management assistant
+            <div className="text-[11px] text-slate-500">
+              Local-first SOC case management
             </div>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
           {NAV_ITEMS.map((item) => {
             const active = isActive(pathname, item);
 
@@ -100,7 +107,7 @@ export default function AppNavigation() {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm transition ${
+                className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition ${
                   active
                     ? "border-cyan-500 bg-cyan-500 text-slate-950"
                     : "border-slate-700 bg-slate-950 text-slate-300 hover:border-cyan-800 hover:bg-slate-800 hover:text-cyan-200"
@@ -114,9 +121,9 @@ export default function AppNavigation() {
 
           <button
             onClick={handleLogout}
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300 transition hover:bg-slate-800 hover:text-slate-100"
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-950 px-2.5 text-xs font-medium text-slate-300 transition hover:bg-slate-800 hover:text-slate-100"
           >
-            <LogOut className="h-4 w-4" />
+            <LogOut className="h-3.5 w-3.5" />
             Logout
           </button>
         </div>
