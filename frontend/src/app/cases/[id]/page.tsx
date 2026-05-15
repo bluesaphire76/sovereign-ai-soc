@@ -873,6 +873,15 @@ export default function CaseDetailPage() {
               <FileDown className="h-4 w-4" />
               Download Evidence Pack
             </a>
+
+            <a
+              href={`/reports/cases/${caseId}/executive-pdf`}
+              download
+              className="inline-flex items-center gap-2 rounded-xl border border-violet-700 bg-violet-500 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-violet-400"
+            >
+              <FileDown className="h-4 w-4" />
+              Download Executive PDF
+            </a>
           </div>
 
         </header>

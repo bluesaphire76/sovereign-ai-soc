@@ -5,6 +5,7 @@ from sqlalchemy import func, or_
 from database import SessionLocal
 from report_builder import build_case_report, build_incident_report
 from evidence_pack_builder import build_case_evidence_pack
+from executive_pdf_builder import build_case_executive_pdf
 from case_ai_analysis import generate_case_ai_analysis
 from case_action_suggestions import generate_case_action_suggestions
 from models import Incident, IncidentAudit, IncidentNote, IncidentCase, CaseIncident, CaseAIAnalysis, CaseAudit, CaseAction, CaseClosureChecklist
@@ -827,6 +828,23 @@ def export_case_report(
             "Content-Disposition": f'attachment; filename="{report["filename"]}"',
         },
     )
+
+@app.get("/reports/cases/{case_id}/executive-pdf")
+def export_case_executive_pdf(case_id: int):
+    try:
+        report = build_case_executive_pdf(case_id)
+
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return Response(
+        content=report["pdf"],
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{report["filename"]}"',
+        },
+    )
+
 
 @app.get("/reports/cases/{case_id}/evidence-pack")
 def export_case_evidence_pack(
