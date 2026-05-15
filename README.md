@@ -1,203 +1,280 @@
 # Sovereign AI SOC
 
-**Sovereign AI SOC** is a local-first AI-assisted Security Operations Center lab that combines Wazuh alert ingestion, PostgreSQL persistence, local LLM analysis, incident correlation, investigation case management, executive dashboards, and secure HTTPS access.
+**Sovereign AI SOC** is a local-first Security Operations Center assistant designed to support incident triage, case management, analyst workflow, evidence review, reporting, detection-quality validation, and executive SOC visibility.
 
-The project is designed as a defensive cybersecurity platform for learning, experimentation, and prototyping AI-assisted SOC workflows while keeping sensitive data under local control.
-
-> Current stable baseline: `v0.1.0-soc-lab-stable`
+The project is built for environments where **data sovereignty**, **local execution**, **transparency**, and **operational control** matter. It is intended as a practical AI-assisted SOC console, not as a black-box managed service.
 
 ---
 
-## Purpose
+## Current Status
 
-Modern SOC teams face three recurring challenges:
+This repository is currently moving toward the **v0.2 Release Candidate**.
 
-1. Too many alerts and too little context.
-2. Limited analyst time for triage, correlation, and documentation.
-3. Pressure to adopt AI without losing control over data, evidence, and decisions.
+The v0.2 scope includes:
 
-Sovereign AI SOC explores a practical answer to those challenges:
-
-- ingest security alerts locally;
-- enrich and analyze them with a local LLM;
-- correlate related incidents;
-- group them into investigation cases;
-- support analysts with notes, audit trails, and AI-generated case analysis;
-- provide executive-level visibility;
-- export investigation reports;
-- expose the dashboard through local authentication and HTTPS.
-
-The system is intentionally defensive. It does not perform offensive activity, exploitation, or automated remediation.
+- Enterprise-style SOC dashboard
+- Incident queue and incident detail views
+- Case queue, case detail, and Kanban board
+- AI case analysis and suggested action plans
+- Case workflow management
+- Case closure checklist and closure readiness validation
+- Analyst evidence pack export
+- Executive PDF report generation
+- Executive summary dashboard
+- Detection quality dashboard
+- Synthetic test runner from the GUI
+- Platform health dashboard
+- Local user management and personal login
+- Admin user management page
+- Local HTTPS access through Nginx
 
 ---
 
-## Key Features
+## Why This Project Exists
 
-### Alert Ingestion
+Traditional SOC tools often create three problems:
 
-- Wazuh alert ingestion from the Wazuh Indexer.
-- Persistent deduplication using Wazuh document IDs.
-- Watermark-based incremental ingestion.
-- Ingestion state tracking for operational visibility.
+1. **Too much raw data**
+2. **Too little operational context**
+3. **Limited analyst workflow support**
 
-### AI-Assisted Incident Analysis
+Sovereign AI SOC aims to reduce that gap by combining:
 
-- Local LLM-based incident analysis through Ollama.
-- Defensive triage output in Italian.
-- RAG-based security context enrichment.
-- MITRE ATT&CK information extraction when available from Wazuh alerts.
+- Structured incident ingestion
+- Risk scoring
+- Correlation context
+- Case grouping
+- AI-assisted analysis
+- Human workflow tracking
+- Evidence export
+- Executive visibility
+- Local-first deployment
 
-### Incident Lifecycle
+The goal is not to replace analysts, but to give analysts and SOC leaders a clearer operational console.
 
-- Incident list with filtering and pagination.
-- Incident detail page.
-- Status management.
-- Analyst notes.
-- Audit trail for lifecycle changes.
-- Advanced filters:
-  - status;
-  - risk;
-  - host;
-  - search;
-  - MITRE technique;
-  - recommended priority;
-  - correlation type;
-  - correlated yes/no;
-  - date range.
+---
 
-### Correlation Engine
+## Key Capabilities
 
-- Local correlation of related incidents.
-- Correlation score.
-- Attack chain detection.
-- Correlation explanation visible in the UI.
-- Structured correlation summary stored in PostgreSQL.
+### Incident Management
 
-### Investigation Cases
+The platform provides incident-level visibility with:
 
-- Automatic grouping of correlated incidents into investigation cases.
-- Case detail page.
-- Linked incident view.
-- Case AI analysis with recommended actions.
-- Case report export.
+- Incident list and filtering
+- Incident detail page
+- Risk score
+- Correlation score
+- Recommended priority
+- MITRE information
+- Raw Wazuh alert evidence
+- Analyst notes
+- Audit trail
+- Markdown and JSON report export
+
+---
+
+### Case Management
+
+Incidents can be grouped into investigation cases.
+
+Case functionality includes:
+
+- Case queue
+- Case detail
+- Case Kanban board
+- Case ownership
+- Status management
+- Severity review
+- SLA state
+- Related incidents
+- Case workflow audit
+- Case timeline
+- Case actions
+- AI-generated action suggestions
+- Closure checklist
+- Closure readiness validation
+
+---
+
+### AI Case Analysis
+
+The system can generate AI-assisted case analysis with:
+
+- Case summary
+- Risk interpretation
+- Suggested investigation direction
+- Recommended status
+- Recommended severity
+- Analyst-oriented explanation
+
+The AI output is presented as decision support. The analyst remains responsible for review and final decisions.
+
+---
+
+### Evidence Packs and Reporting
+
+The platform supports export-oriented workflows, including:
+
+- Analyst evidence pack in Markdown
+- Incident report export
+- Case report export
+- Executive PDF report
+- Structured case metadata
+- Related incidents
+- Case actions
+- Closure readiness
+- AI case analysis
+- Timeline and audit context
+
+This makes the system useful not only for investigation, but also for governance, handover, and management reporting.
+
+---
 
 ### Executive Dashboard
 
-- Management-oriented SOC posture view.
-- Open incidents.
-- High and critical risk backlog.
-- Open cases.
-- Top risky hosts.
-- Correlation type distribution.
-- Operational recommendations.
+The Executive dashboard provides a compact management view of SOC posture, including:
 
-### Platform Health
+- Overall SOC posture
+- Open incidents
+- High and critical incidents
+- Open cases
+- Escalated items
+- Maximum and average risk
+- Recommended operational focus
+- Incident status distribution
+- Case status distribution
+- Priority distribution
+- Top risk hosts
+- Top correlation types
+- Latest cases
+- Latest high-risk incidents
 
-- Health dashboard for:
-  - FastAPI backend;
-  - PostgreSQL;
-  - Ollama;
-  - Wazuh Indexer;
-  - Qdrant;
-  - AI SOC worker heartbeat;
-  - Wazuh ingest watermark.
+---
 
-### Report Export
+### Detection Quality Dashboard
 
-- Incident report export in Markdown and JSON.
-- Case report export in Markdown and JSON.
-- Export includes AI analysis, notes, audit trail, correlation information, MITRE metadata, and raw alert data where applicable.
+The Detection Quality dashboard helps validate detection pipeline effectiveness.
 
-### Local Security
+It includes:
 
-- Local dashboard authentication.
-- HttpOnly session cookie.
-- Secure cookie support for HTTPS.
-- Nginx reverse proxy.
-- HTTPS access for the AI SOC dashboard.
-- Separation between:
-  - Wazuh Dashboard: `https://localhost`
-  - AI SOC Dashboard: `https://localhost:8443`
+- Synthetic incident count
+- Correlation coverage
+- High and critical priority assignment
+- MITRE signal coverage
+- Quality score
+- Scenario coverage chart
+- Scenario quality breakdown
+- Latest synthetic incidents
+
+---
+
+### Synthetic Test Runner
+
+The GUI includes a synthetic test runner to generate controlled test incidents.
+
+Supported scenarios include:
+
+- SSH brute force
+- Privilege escalation
+- Malware indicator
+- All scenarios
+
+The runner allows the analyst to configure:
+
+- Scenario
+- Count per scenario
+- Host
+- Created by
+
+Generated synthetic incidents are inserted into the local incident store and immediately appear in the Detection Quality dashboard.
+
+This is useful for validating:
+
+- Detection visibility
+- Correlation logic
+- Priority assignment
+- MITRE tagging
+- Dashboard updates
+- Report generation
+
+---
+
+### Platform Health Dashboard
+
+The Health dashboard provides an operational view of the local platform components.
+
+It shows:
+
+- Overall health
+- Components checked
+- Average latency
+- Latest incident
+- Component status tiles
+- Backend/API status
+- Database status
+- Wazuh-related status
+- Worker heartbeat
+- Local AI component status where available
+
+---
+
+### User Management and Login
+
+The system includes local user management.
+
+Current functionality includes:
+
+- Personal login
+- Local user table
+- Password hashing with PBKDF2-SHA256
+- Signed local access token
+- Admin user management page
+- Create users
+- Enable or disable users
+- Reset passwords
+- Roles:
+  - `ADMIN`
+  - `ANALYST`
+  - `VIEWER`
+
+The GUI uses the signed-in user for workflow actions such as case ownership and review attribution.
+
+> Note: the current v0.2 implementation protects the GUI and user-management APIs. Full backend API hardening for every existing endpoint should be handled as a dedicated security-hardening step.
 
 ---
 
 ## Architecture
 
-```text
-Wazuh Indexer
-    |
-    | alerts
-    v
-AI SOC Worker
-    |
-    | deduplication + watermark
-    v
-PostgreSQL
-    |
-    | incidents, notes, audit trail, cases, reports
-    v
-FastAPI Backend
-    |
-    | REST API
-    v
-Next.js Dashboard
-    |
-    | HTTPS reverse proxy
-    v
-Browser
-```
-
-Supporting services:
+High-level architecture:
 
 ```text
-Ollama     -> local LLM analysis
-Qdrant     -> local vector/search component
-PostgreSQL -> persistent SOC data
-Nginx      -> HTTPS reverse proxy
-Wazuh      -> alert source
+Browser / Analyst GUI
+        |
+        | HTTPS
+        v
+Nginx reverse proxy
+        |
+        v
+Next.js frontend
+        |
+        | REST API
+        v
+FastAPI backend
+        |
+        v
+Local database
+        |
+        +--> Incidents
+        +--> Cases
+        +--> Case actions
+        +--> Case audits
+        +--> Closure checklists
+        +--> AI analyses
+        +--> Users
+        +--> Worker health
 ```
 
----
-
-## Current Stable Release
-
-The current stable baseline is:
-
-```bash
-v0.1.0-soc-lab-stable
-```
-
-This version includes:
-
-- Wazuh ingestion;
-- AI incident analysis;
-- correlation engine;
-- incident lifecycle;
-- analyst notes;
-- audit trail;
-- case grouping;
-- case AI analysis;
-- executive dashboard;
-- report export;
-- local authentication;
-- HTTPS local hardening.
-
----
-
-## Repository Status
-
-This project is currently a **local SOC lab and prototype**, not a production-ready commercial SOC platform.
-
-It is suitable for:
-
-- defensive cybersecurity experimentation;
-- AI SOC workflow prototyping;
-- local-first security architecture research;
-- SOC analyst workflow demos;
-- learning how LLMs can support triage and investigation;
-- testing sovereign AI patterns for security operations.
-
-It is not intended to be used as-is for regulated production environments without additional hardening, review, testing, and governance.
+The system is designed to run locally and avoid sending sensitive SOC data to external services by default.
 
 ---
 
@@ -208,240 +285,396 @@ It is not intended to be used as-is for regulated production environments withou
 - Python
 - FastAPI
 - SQLAlchemy
-- PostgreSQL
-- Wazuh Indexer API
-- Ollama
-- Qdrant
-- Uvicorn
+- Pydantic
+- Local database through SQLAlchemy
+- Local authentication utilities
+- Report builders
+- Case workflow logic
+- Synthetic test generation
 
 ### Frontend
 
 - Next.js
-- React
 - TypeScript
 - Tailwind CSS
-- lucide-react
+- Recharts
+- Lucide icons
+- Enterprise-style dashboard pages
 
-### Infrastructure
+### Deployment
 
-- WSL2 Ubuntu
-- Docker for supporting services
+- Linux host
+- Systemd services
 - Nginx reverse proxy
-- HTTPS with local certificate
-- systemd services for local runtime
+- Local HTTPS endpoint
 
 ---
 
-## Main URLs
+## Main Pages
 
-In the current local hardened setup:
-
-| Component | URL |
+| Page | Purpose |
 |---|---|
-| Wazuh Dashboard | `https://localhost` |
-| AI SOC Dashboard | `https://localhost:8443` |
-| FastAPI backend | `127.0.0.1:8008` |
-| Next.js frontend | `127.0.0.1:3000` |
-| PostgreSQL | Docker container `postgres-soc` |
+| `/` | Main SOC dashboard |
+| `/incidents/[id]` | Incident detail and evidence |
+| `/cases` | Case queue |
+| `/cases/[id]` | Case detail and workflow |
+| `/cases/kanban` | Case Kanban board |
+| `/executive` | Executive SOC summary |
+| `/detection-quality` | Detection quality and synthetic tests |
+| `/health` | Platform health |
+| `/login` | User login |
+| `/admin/users` | User management for administrators |
 
-The browser should access the AI SOC UI through:
+---
+
+## Repository Structure
+
+Typical key files and folders:
+
+```text
+.
+├── api.py
+├── auth_utils.py
+├── models.py
+├── database.py
+├── report_builder.py
+├── evidence_pack_builder.py
+├── executive_pdf_builder.py
+├── case_ai_analysis.py
+├── case_action_suggestions.py
+├── case_timeline.py
+├── platform_health.py
+├── wazuh_ingest_state.py
+├── scripts/
+│   ├── create_users_table.py
+│   └── create_default_admin_user.py
+└── frontend/
+    ├── src/app/
+    │   ├── page.tsx
+    │   ├── login/page.tsx
+    │   ├── admin/users/page.tsx
+    │   ├── cases/page.tsx
+    │   ├── cases/[id]/page.tsx
+    │   ├── cases/kanban/page.tsx
+    │   ├── incidents/[id]/page.tsx
+    │   ├── executive/page.tsx
+    │   ├── detection-quality/page.tsx
+    │   └── health/page.tsx
+    ├── src/components/AppNavigation.tsx
+    └── src/lib/auth.ts
+```
+
+---
+
+## Local Setup
+
+### 1. Clone the repository
+
+```bash
+git clone <repository-url>
+cd ai-soc-assistant
+```
+
+---
+
+### 2. Create Python environment
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+---
+
+### 3. Install frontend dependencies
+
+```bash
+cd frontend
+npm install
+```
+
+---
+
+### 4. Configure environment
+
+Recommended environment variables:
+
+```bash
+export AI_SOC_AUTH_SECRET="change-this-secret-before-real-use"
+export AI_SOC_AUTH_TOKEN_TTL_SECONDS="28800"
+export AI_SOC_ADMIN_USERNAME="admin"
+export AI_SOC_ADMIN_PASSWORD="ChangeMe123!"
+export AI_SOC_ADMIN_DISPLAY_NAME="SOC Administrator"
+```
+
+Frontend `.env.local` example:
+
+```env
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8008
+```
+
+> Change the default admin password immediately after first login.
+
+---
+
+### 5. Initialize user table
+
+```bash
+cd ~/lab/ai-soc-assistant
+
+.venv/bin/python scripts/create_users_table.py
+```
+
+---
+
+### 6. Create default admin user
+
+```bash
+AI_SOC_ADMIN_PASSWORD='ChangeMe123!' \
+.venv/bin/python scripts/create_default_admin_user.py \
+  --username admin \
+  --display-name "SOC Administrator"
+```
+
+---
+
+### 7. Start backend manually
+
+```bash
+cd ~/lab/ai-soc-assistant
+
+.venv/bin/uvicorn api:app --host 0.0.0.0 --port 8008
+```
+
+---
+
+### 8. Start frontend manually
+
+```bash
+cd ~/lab/ai-soc-assistant/frontend
+
+npm run build
+npm run start -- -H 0.0.0.0 -p 3000
+```
+
+---
+
+## Systemd Deployment
+
+Example services used in local deployment:
+
+```text
+ai-soc-api.service
+ai-soc-frontend.service
+```
+
+Example frontend service properties:
+
+```text
+WorkingDirectory=/home/lele/lab/ai-soc-assistant/frontend
+Environment="NODE_ENV=production"
+Environment="PORT=3000"
+ExecStart=npm run start -- -H 0.0.0.0 -p 3000
+```
+
+The local HTTPS endpoint can be exposed through Nginx, for example:
 
 ```text
 https://localhost:8443
 ```
 
-Direct HTTP access to the frontend should not be used.
-
 ---
 
-## Main UI Areas
+## Useful Smoke Tests
 
-| Area | Purpose |
-|---|---|
-| `/` | Operational incident dashboard |
-| `/incidents/[id]` | Incident investigation detail |
-| `/cases` | Investigation case list |
-| `/cases/[id]` | Case investigation detail and AI case analysis |
-| `/health` | Platform health dashboard |
-| `/executive` | Executive summary dashboard |
-| `/detection-quality` | Detection quality dashboard for synthetic defensive scenarios |
-| `/login` | Local dashboard login |
+### Backend health
 
----
-
-## Environment Variables
-
-The project uses environment variables for local configuration.
-
-Typical backend variables include:
-
-```env
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-POSTGRES_DB=aisoc
-POSTGRES_USER=soc-userX
-POSTGRES_PASSWORD=socpasswordX
-
-WAZUH_INDEXER_URL=https://localhost:9200
-WAZUH_USER=userXYZ
-WAZUH_PASSWORD=SecretPasswordXYZ
-
-OLLAMA_MODEL=qwen3:8b
-POLL_INTERVAL_SECONDS=30
-
-QDRANT_URL=http://localhost:6333
-APP_TIMEZONE=Europe/Zurich
+```bash
+curl -s http://localhost:8008/health | python3 -m json.tool
 ```
 
-Typical frontend local authentication variables include:
+---
 
-```env
-LOCAL_AUTH_ENABLED=true
-LOCAL_AUTH_USERNAME=userXYZ
-LOCAL_AUTH_PASSWORD=change-this-password
-LOCAL_AUTH_SESSION_SECRET=change-this-secret
-LOCAL_AUTH_COOKIE_NAME=ai_soc_session
-LOCAL_AUTH_COOKIE_SECURE=true
+### Platform health
 
-NEXT_PUBLIC_API_BASE_URL=/api-backend
+```bash
+curl -s http://localhost:8008/platform/health | python3 -m json.tool
 ```
-
-Do not commit local secrets such as `.env`, `.env.local`, passwords, API keys, certificates, or private keys.
 
 ---
 
-## Local Runtime Overview
+### Login
 
-A typical local setup uses:
+```bash
+curl -s -X POST "http://localhost:8008/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "admin",
+    "password": "ChangeMe123!"
+  }' | python3 -m json.tool
+```
+
+---
+
+### Authenticated user
+
+```bash
+TOKEN="<PASTE_TOKEN_HERE>"
+
+curl -s "http://localhost:8008/auth/me" \
+  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
+```
+
+---
+
+### Synthetic scenarios
+
+```bash
+curl -s "http://localhost:8008/synthetic-tests/scenarios" | python3 -m json.tool
+```
+
+---
+
+### Run synthetic test
+
+```bash
+curl -s -X POST "http://localhost:8008/synthetic-tests/run" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "scenario": "ssh_bruteforce",
+    "count": 1,
+    "host": "synthetic-sensor-01",
+    "created_by": "local_analyst"
+  }' | python3 -m json.tool
+```
+
+---
+
+### Detection quality search
+
+```bash
+curl -s "http://localhost:8008/incidents?page=1&limit=20&search=SYNTHETIC" \
+  | python3 -m json.tool
+```
+
+---
+
+## Build and Validation
+
+Backend compile:
+
+```bash
+cd ~/lab/ai-soc-assistant
+
+.venv/bin/python -m py_compile \
+  api.py \
+  auth_utils.py \
+  models.py \
+  scripts/create_users_table.py \
+  scripts/create_default_admin_user.py
+```
+
+Frontend build:
+
+```bash
+cd ~/lab/ai-soc-assistant/frontend
+
+rm -rf .next
+npm run build
+```
+
+Restart services:
+
+```bash
+sudo systemctl restart ai-soc-api
+sudo systemctl restart ai-soc-frontend
+```
+
+---
+
+## Recommended Pre-Release Checklist
+
+Before tagging a release candidate:
 
 ```text
-PostgreSQL      -> Docker
-Wazuh           -> Docker stack
-Qdrant          -> Docker
-Ollama          -> local service
-FastAPI         -> systemd service
-AI SOC Worker   -> systemd service
-Next.js         -> systemd service
-Nginx           -> HTTPS reverse proxy
+1. Backend py_compile passes
+2. Frontend production build passes
+3. Login works
+4. Admin user management works
+5. Password reset works
+6. Case ownership uses the signed-in user
+7. Dashboard loads
+8. Case Queue loads
+9. Kanban loads
+10. Case Detail loads
+11. Incident Detail loads
+12. Executive dashboard loads
+13. Detection Quality loads
+14. Synthetic test runner creates incidents
+15. Health dashboard loads
+16. Evidence pack export works
+17. Executive PDF export works
+18. Git working tree is clean
 ```
-
----
-
-## Development Workflow
-
-The recommended development workflow is:
-
-```bash
-git checkout main
-git pull origin main
-git checkout -b feature/<feature-name>
-```
-
-After implementation and testing:
-
-```bash
-git status -sb
-git add <changed-files>
-git commit -m "<clear commit message>"
-git push -u origin feature/<feature-name>
-
-git checkout main
-git pull origin main
-git merge feature/<feature-name>
-git push origin main
-```
-
-Stable releases can be tagged:
-
-```bash
-git tag -a v0.1.0-soc-lab-stable -m "Stable AI SOC lab baseline with HTTPS and local auth"
-git push origin v0.1.0-soc-lab-stable
-```
-
----
-
-## Defensive Use Only
-
-This project is intended for defensive cybersecurity use only.
-
-Do not use this project to:
-
-- attack third-party systems;
-- bypass authorization;
-- perform unauthorized scanning;
-- automate exploitation;
-- conduct offensive activity outside legally authorized environments.
-
-The platform is designed to support SOC triage, alert enrichment, investigation, reporting, and learning.
 
 ---
 
 ## Security Notes
 
-This project includes local authentication and HTTPS hardening, but it should not be considered production-hardened by default.
+This project is currently intended for local-first controlled environments.
 
-Before any production-like use, review at least:
+Important notes:
 
-- authentication model;
-- API authorization;
-- TLS certificate trust;
-- secret management;
-- network exposure;
-- dependency security;
-- logging and retention;
-- backup and restore;
-- role-based access control;
-- auditability;
-- data protection requirements;
-- legal and regulatory obligations.
+- Change `AI_SOC_AUTH_SECRET` before any real use.
+- Change the default admin password immediately.
+- Do not expose the system directly to the public Internet.
+- Use HTTPS through a trusted reverse proxy.
+- Restrict network access where possible.
+- Full API-wide authorization enforcement should be implemented as a dedicated hardening step.
+- Audit logs and case workflow attribution should be reviewed before production use.
 
 ---
 
-## Known Limitations
+## Roadmap
 
-Current limitations include:
+Planned next improvements include:
 
-- local authentication is intentionally simple;
-- FastAPI does not yet enforce full API-level authentication;
-- no role-based access control;
-- no multi-user analyst workflow;
-- no production-grade certificate authority integration;
-- no formal threat model;
-- no CI/CD security gate yet;
-- no automated test suite covering all workflows;
-- no production deployment guide.
-
----
-
-## Suggested v0.2 Roadmap
-
-Possible next phase:
-
-1. Synthetic attack scenarios.
-2. Detection quality dashboard.
-3. Case workflow maturity:
-   - owner;
-   - SLA;
-   - severity review;
-   - case status lifecycle.
-4. PDF report export.
-5. AI SOC playbooks.
-6. Multi-agent triage.
-7. API authentication hardening.
-8. Role-based access control.
-9. CI/CD and automated smoke tests.
-10. Local CA or trusted certificate workflow.
-
----
-
-## Disclaimer
-
-This project is a defensive security lab and research prototype.
-
-It is provided without warranty. Users are responsible for validating the system, securing their environment, and ensuring that any use complies with applicable laws, regulations, internal policies, and authorization boundaries.
+- v0.2 Release Candidate stabilization
+- API-wide authentication and authorization hardening
+- Role-based access control enforcement across all workflows
+- Better audit visibility for user actions
+- Improved report templates
+- Additional synthetic scenarios
+- More detection quality metrics
+- Optional external identity provider integration
+- More granular admin settings
+- Deployment documentation for production-like environments
 
 ---
 
 ## License
 
-License Apache License 2.0
+License information should be defined before public release.
+
+If this project is intended to be open source, add a `LICENSE` file and specify the license here.
+
+Suggested options:
+
+- MIT License for a permissive open-source model
+- Apache License 2.0 for a permissive model with explicit patent grant
+- Private/internal license if the project is not intended for public reuse
+
+Current status:
+
+```text
+License: TBD
+```
+
+---
+
+## Disclaimer
+
+Sovereign AI SOC is an experimental AI-assisted SOC platform.
+
+It is not a certified SIEM, SOAR, MDR platform, or compliance product. All AI-generated content must be reviewed by qualified security personnel before operational or executive decisions are made.
