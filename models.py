@@ -184,6 +184,22 @@ class WorkerHeartbeat(Base):
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
 
+
+
+class AppUser(Base):
+    __tablename__ = "app_users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True, nullable=False)
+    display_name = Column(String)
+    role = Column(String, default="ANALYST", nullable=False)
+    password_hash = Column(Text, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+
+    last_login_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+
 class WazuhIngestWatermark(Base):
     __tablename__ = "wazuh_ingest_watermarks"
 

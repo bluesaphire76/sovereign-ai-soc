@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 import json
 import uuid
-from fastapi import FastAPI, HTTPException, Query, Response
+from fastapi import FastAPI, HTTPException, Query, Response, Depends, Header
 from sqlalchemy import func, or_, case as sql_case
 
 from database import SessionLocal
@@ -11,10 +11,11 @@ from executive_pdf_builder import build_case_executive_pdf
 from case_ai_analysis import generate_case_ai_analysis
 from case_action_suggestions import generate_case_action_suggestions
 from case_timeline import build_case_timeline
-from models import Incident, IncidentAudit, IncidentNote, IncidentCase, CaseIncident, CaseAIAnalysis, CaseAudit, CaseAction, CaseClosureChecklist
+from models import Incident, IncidentAudit, IncidentNote, IncidentCase, CaseIncident, CaseAIAnalysis, CaseAudit, CaseAction, CaseClosureChecklist, AppUser
 from timezone_utils import APP_TIMEZONE, format_timestamp_local, normalize_timestamp_utc
 from platform_health import get_platform_health
 from wazuh_ingest_state import get_watermark_snapshot
+from auth_utils import create_access_token, decode_access_token, hash_password, verify_password
 
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -31,6 +32,8 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "https://localhost:8443",
+        "http://localhost:8443",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -159,11 +162,246 @@ class CaseClosureChecklistUpdate(BaseModel):
     reviewed_by: str | None = None
 
 
+VALID_USER_ROLES = {
+    "ADMIN",
+    "ANALYST",
+    "VIEWER",
+}
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class UserCreate(BaseModel):
+    username: str
+    password: str
+    display_name: str | None = None
+    role: str = "ANALYST"
+    is_active: bool = True
+
+
+class UserUpdate(BaseModel):
+    display_name: str | None = None
+    role: str | None = None
+    is_active: bool | None = None
+
+
+class UserPasswordUpdate(BaseModel):
+    password: str
+
+
 class SyntheticTestRunCreate(BaseModel):
     scenario: str = "all"
     count: int = 1
     host: str | None = None
     created_by: str | None = None
+
+
+def serialize_user(user: AppUser) -> dict:
+    return {
+        "id": user.id,
+        "username": user.username,
+        "display_name": user.display_name,
+        "role": user.role,
+        "is_active": user.is_active,
+        "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+        "updated_at": user.updated_at.isoformat() if user.updated_at else None,
+    }
+
+
+def normalize_username(username: str) -> str:
+    return username.strip().lower()
+
+
+def get_current_user(authorization: str | None = Header(None)) -> dict:
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Authentication required.")
+
+    token = authorization.split(" ", 1)[1].strip()
+
+    try:
+        payload = decode_access_token(token)
+        user_id = int(payload["sub"])
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired token.")
+
+    db = SessionLocal()
+
+    try:
+        user = db.query(AppUser).filter(AppUser.id == user_id).first()
+
+        if not user or not user.is_active:
+            raise HTTPException(status_code=401, detail="User is inactive or no longer exists.")
+
+        return serialize_user(user)
+    finally:
+        db.close()
+
+
+def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
+    if current_user.get("role") != "ADMIN":
+        raise HTTPException(status_code=403, detail="ADMIN role required.")
+
+    return current_user
+
+
+@app.post("/auth/login")
+def login(payload: LoginRequest):
+    username = normalize_username(payload.username)
+
+    db = SessionLocal()
+
+    try:
+        user = db.query(AppUser).filter(AppUser.username == username).first()
+
+        if not user or not verify_password(payload.password, user.password_hash):
+            raise HTTPException(status_code=401, detail="Invalid username or password.")
+
+        if not user.is_active:
+            raise HTTPException(status_code=403, detail="User account is disabled.")
+
+        user.last_login_at = datetime.now(timezone.utc)
+        user.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(user)
+
+        token = create_access_token(
+            user_id=user.id,
+            username=user.username,
+            role=user.role,
+        )
+
+        return {
+            **token,
+            "user": serialize_user(user),
+        }
+    finally:
+        db.close()
+
+
+@app.get("/auth/me")
+def auth_me(current_user: dict = Depends(get_current_user)):
+    return current_user
+
+
+@app.get("/users")
+def list_users(current_user: dict = Depends(require_admin)):
+    db = SessionLocal()
+
+    try:
+        users = db.query(AppUser).order_by(AppUser.username.asc()).all()
+        return {
+            "items": [serialize_user(user) for user in users],
+        }
+    finally:
+        db.close()
+
+
+@app.post("/users")
+def create_user(payload: UserCreate, current_user: dict = Depends(require_admin)):
+    username = normalize_username(payload.username)
+
+    if not username:
+        raise HTTPException(status_code=400, detail="Username is required.")
+
+    role = payload.role.upper().strip()
+
+    if role not in VALID_USER_ROLES:
+        raise HTTPException(status_code=400, detail=f"Invalid role. Allowed: {sorted(VALID_USER_ROLES)}")
+
+    db = SessionLocal()
+
+    try:
+        existing = db.query(AppUser).filter(AppUser.username == username).first()
+
+        if existing:
+            raise HTTPException(status_code=409, detail="Username already exists.")
+
+        user = AppUser(
+            username=username,
+            display_name=payload.display_name,
+            role=role,
+            password_hash=hash_password(payload.password),
+            is_active=payload.is_active,
+        )
+
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+        return serialize_user(user)
+    finally:
+        db.close()
+
+
+@app.patch("/users/{user_id}")
+def update_user(
+    user_id: int,
+    payload: UserUpdate,
+    current_user: dict = Depends(require_admin),
+):
+    db = SessionLocal()
+
+    try:
+        user = db.query(AppUser).filter(AppUser.id == user_id).first()
+
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found.")
+
+        if payload.display_name is not None:
+            user.display_name = payload.display_name
+
+        if payload.role is not None:
+            role = payload.role.upper().strip()
+
+            if role not in VALID_USER_ROLES:
+                raise HTTPException(status_code=400, detail=f"Invalid role. Allowed: {sorted(VALID_USER_ROLES)}")
+
+            user.role = role
+
+        if payload.is_active is not None:
+            if user.id == current_user["id"] and payload.is_active is False:
+                raise HTTPException(status_code=400, detail="You cannot disable your own account.")
+
+            user.is_active = payload.is_active
+
+        user.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(user)
+
+        return serialize_user(user)
+    finally:
+        db.close()
+
+
+@app.post("/users/{user_id}/password")
+def update_user_password(
+    user_id: int,
+    payload: UserPasswordUpdate,
+    current_user: dict = Depends(require_admin),
+):
+    db = SessionLocal()
+
+    try:
+        user = db.query(AppUser).filter(AppUser.id == user_id).first()
+
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found.")
+
+        user.password_hash = hash_password(payload.password)
+        user.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(user)
+
+        return {
+            "status": "password_updated",
+            "user": serialize_user(user),
+        }
+    finally:
+        db.close()
 
 @app.get("/health")
 def health():
