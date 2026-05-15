@@ -85,6 +85,16 @@ type CaseAction = {
   updated_at: string | null;
 };
 
+type CaseActionSuggestion = {
+  title: string;
+  description?: string | null;
+  category?: string | null;
+  priority?: string | null;
+  due_hours?: number | null;
+  suggested_due_at?: string | null;
+};
+
+
 type WorkflowForm = {
   owner: string;
   status: string;
@@ -302,6 +312,25 @@ async function fetchCaseActions(id: string): Promise<CaseAction[]> {
   return response.json();
 }
 
+
+async function generateCaseActionSuggestions(
+  id: string
+): Promise<CaseActionSuggestion[]> {
+  const response = await fetch(`${API_BASE}/cases/${id}/actions/suggestions`, {
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(
+      payload?.detail || `API error ${response.status}`
+    );
+  }
+
+  const payload = await response.json();
+  return payload.actions || [];
+}
+
 async function createCaseAction(
   id: string,
   payload: {
@@ -382,6 +411,14 @@ export default function CaseDetailPage() {
   });
   const [creatingAction, setCreatingAction] = useState(false);
   const [updatingActionId, setUpdatingActionId] = useState<number | null>(null);
+  const [aiActionSuggestions, setAiActionSuggestions] = useState<
+    CaseActionSuggestion[]
+  >([]);
+  const [generatingSuggestions, setGeneratingSuggestions] = useState(false);
+  const [suggestionError, setSuggestionError] = useState<string | null>(null);
+  const [creatingSuggestionIndex, setCreatingSuggestionIndex] = useState<
+    number | null
+  >(null);
   const [workflowForm, setWorkflowForm] = useState<WorkflowForm>({
     owner: "",
     status: "OPEN",
@@ -422,6 +459,58 @@ export default function CaseDetailPage() {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleGenerateActionSuggestions() {
+    try {
+      setGeneratingSuggestions(true);
+      setSuggestionError(null);
+      setError(null);
+
+      const suggestions = await generateCaseActionSuggestions(caseId);
+      setAiActionSuggestions(suggestions);
+    } catch (err) {
+      setSuggestionError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setGeneratingSuggestions(false);
+    }
+  }
+
+  async function handleCreateActionFromSuggestion(
+    suggestion: CaseActionSuggestion,
+    index: number
+  ) {
+    const title = suggestion.title.trim();
+
+    if (!title) {
+      setError("Suggested action title cannot be empty");
+      return;
+    }
+
+    try {
+      setCreatingSuggestionIndex(index);
+      setError(null);
+
+      await createCaseAction(caseId, {
+        title,
+        description: suggestion.description || "",
+        category: suggestion.category || "INVESTIGATION",
+        priority: suggestion.priority || "MEDIUM",
+        due_at: suggestion.suggested_due_at || "",
+        created_by: "local_analyst",
+      });
+
+      setAiActionSuggestions((current) =>
+        current.filter((_, itemIndex) => itemIndex !== index)
+      );
+
+      setCaseActions(await fetchCaseActions(caseId));
+      setAuditTrail(await fetchCaseAudit(caseId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setCreatingSuggestionIndex(null);
     }
   }
 
@@ -829,6 +918,88 @@ export default function CaseDetailPage() {
                     {caseActions.filter((action) => action.status === "DONE").length} done
                   </span>
                 </div>
+              </div>
+
+              <div className="mb-5 rounded-xl border border-cyan-900/60 bg-cyan-950/20 p-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <h3 className="text-sm font-medium text-cyan-200">
+                      AI-suggested action plan
+                    </h3>
+                    <p className="mt-1 text-sm text-slate-400">
+                      Generate recommended analyst tasks from the current case evidence.
+                      Suggestions are not saved until you explicitly create them.
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={handleGenerateActionSuggestions}
+                    disabled={generatingSuggestions}
+                    className="rounded-xl border border-cyan-500 bg-cyan-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {generatingSuggestions ? "Generating..." : "Generate AI action plan"}
+                  </button>
+                </div>
+
+                {suggestionError && (
+                  <div className="mt-4 rounded-xl border border-red-800 bg-red-950/60 p-3 text-sm text-red-200">
+                    {suggestionError}
+                  </div>
+                )}
+
+                {aiActionSuggestions.length > 0 && (
+                  <div className="mt-5 space-y-3">
+                    {aiActionSuggestions.map((suggestion, index) => (
+                      <div
+                        key={`${suggestion.title}-${index}`}
+                        className="rounded-xl border border-slate-800 bg-slate-950 p-4"
+                      >
+                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                          <div>
+                            <div className="mb-2 flex flex-wrap items-center gap-2">
+                              <span
+                                className={`rounded-full border px-3 py-1 text-xs ${actionPriorityClass(
+                                  suggestion.priority
+                                )}`}
+                              >
+                                {suggestion.priority || "MEDIUM"}
+                              </span>
+
+                              <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs text-slate-300">
+                                {suggestion.category || "INVESTIGATION"}
+                              </span>
+                            </div>
+
+                            <h4 className="text-base font-medium text-slate-100">
+                              {suggestion.title}
+                            </h4>
+
+                            <p className="mt-2 text-sm leading-6 text-slate-400">
+                              {suggestion.description || "No description provided."}
+                            </p>
+
+                            <div className="mt-3 text-xs text-slate-500">
+                              Suggested due date:{" "}
+                              {formatTimestamp(suggestion.suggested_due_at)}
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={() =>
+                              handleCreateActionFromSuggestion(suggestion, index)
+                            }
+                            disabled={creatingSuggestionIndex === index}
+                            className="rounded-xl border border-emerald-500 bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            {creatingSuggestionIndex === index
+                              ? "Creating..."
+                              : "Create action"}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="mb-5 rounded-xl border border-slate-800 bg-slate-950 p-4">

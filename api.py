@@ -5,6 +5,7 @@ from sqlalchemy import func, or_
 from database import SessionLocal
 from report_builder import build_case_report, build_incident_report
 from case_ai_analysis import generate_case_ai_analysis
+from case_action_suggestions import generate_case_action_suggestions
 from models import Incident, IncidentAudit, IncidentNote, IncidentCase, CaseIncident, CaseAIAnalysis, CaseAudit, CaseAction
 from timezone_utils import APP_TIMEZONE, format_timestamp_local, normalize_timestamp_utc
 from platform_health import get_platform_health
@@ -1272,6 +1273,22 @@ def get_case_audit(case_id: int):
 
     finally:
         db.close()
+
+
+
+@app.post("/cases/{case_id}/actions/suggestions")
+def suggest_case_action_plan(case_id: int):
+    try:
+        return generate_case_action_suggestions(case_id)
+
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate case action suggestions: {exc}",
+        )
 
 
 @app.get("/cases/{case_id}/actions")
