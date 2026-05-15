@@ -669,6 +669,7 @@ export default function CaseDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sectionFocus, setSectionFocus] = useState<CaseSectionFocus>("ALL");
+  const [quickActionRunning, setQuickActionRunning] = useState<string | null>(null);
 
   async function loadCase() {
     try {
@@ -904,6 +905,122 @@ export default function CaseDetailPage() {
     }
   }
 
+  function scrollToCaseSection(sectionId: string) {
+    window.setTimeout(() => {
+      document.getElementById(sectionId)?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 50);
+  }
+
+  async function handleCaseQuickAction(
+    action:
+      | "ASSIGN_TO_ME"
+      | "START_INVESTIGATION"
+      | "ESCALATE_CASE"
+      | "GENERATE_AI_ANALYSIS"
+      | "GENERATE_AI_ACTION_PLAN"
+      | "PREPARE_CLOSURE"
+      | "CLOSE_CASE"
+  ) {
+    if (!caseData) {
+      return;
+    }
+
+    try {
+      setQuickActionRunning(action);
+      setError(null);
+
+      if (action === "GENERATE_AI_ANALYSIS") {
+        const result = await generateCaseAnalysis(caseId);
+        setCaseAnalysis(result);
+        setSectionFocus("WORKBENCH");
+        scrollToCaseSection("case-ai-analysis");
+        return;
+      }
+
+      if (action === "GENERATE_AI_ACTION_PLAN") {
+        const suggestions = await generateCaseActionSuggestions(caseId);
+        setAiActionSuggestions(suggestions);
+        setSectionFocus("WORKBENCH");
+        scrollToCaseSection("case-action-plan");
+        return;
+      }
+
+      if (action === "PREPARE_CLOSURE") {
+        setSectionFocus("WORKBENCH");
+        scrollToCaseSection("case-closure-checklist");
+        return;
+      }
+
+      const nextWorkflow = {
+        owner: workflowForm.owner,
+        status: workflowForm.status,
+        severity: workflowForm.severity,
+        sla_due_at: workflowForm.sla_due_at
+          ? new Date(workflowForm.sla_due_at).toISOString()
+          : "",
+        status_reason: workflowForm.status_reason,
+        reviewed_by: "local_analyst",
+      };
+
+      if (action === "ASSIGN_TO_ME") {
+        nextWorkflow.owner = "local_analyst";
+        nextWorkflow.status_reason =
+          workflowForm.status_reason ||
+          "Case assigned through quick action.";
+      }
+
+      if (action === "START_INVESTIGATION") {
+        nextWorkflow.owner = workflowForm.owner || "local_analyst";
+        nextWorkflow.status = "INVESTIGATING";
+        nextWorkflow.status_reason =
+          workflowForm.status_reason ||
+          "Investigation started through quick action.";
+      }
+
+      if (action === "ESCALATE_CASE") {
+        nextWorkflow.owner = workflowForm.owner || "local_analyst";
+        nextWorkflow.status = "ESCALATED";
+        nextWorkflow.status_reason =
+          workflowForm.status_reason ||
+          "Case escalated through quick action.";
+      }
+
+      if (action === "CLOSE_CASE") {
+        nextWorkflow.status = "CLOSED";
+        nextWorkflow.status_reason =
+          workflowForm.status_reason ||
+          "Case closed through quick action after closure readiness review.";
+      }
+
+      const updatedCase = await updateCaseWorkflow(caseId, nextWorkflow);
+
+      setCaseData(updatedCase);
+      setWorkflowForm(workflowFormFromCase(updatedCase));
+      setAuditTrail(await fetchCaseAudit(caseId));
+      setCaseTimeline((await fetchCaseTimeline(caseId)).items || []);
+
+      if (
+        action === "ASSIGN_TO_ME" ||
+        action === "START_INVESTIGATION" ||
+        action === "ESCALATE_CASE"
+      ) {
+        setSectionFocus("WORKBENCH");
+        scrollToCaseSection("case-workflow");
+      }
+
+      if (action === "CLOSE_CASE") {
+        setSectionFocus("OVERVIEW");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setQuickActionRunning(null);
+    }
+  }
+
   useEffect(() => {
     loadCase();
   }, [caseId]);
@@ -1073,6 +1190,16 @@ export default function CaseDetailPage() {
             <CaseFocusMode
               value={sectionFocus}
               onChange={setSectionFocus}
+            />
+
+            <CaseQuickActions
+              caseData={caseData}
+              actionCount={caseActions.length}
+              openActionCount={openActionCount}
+              closureReady={closureReady}
+              hasAIAnalysis={hasAIAnalysis}
+              quickActionRunning={quickActionRunning}
+              onAction={handleCaseQuickAction}
             />
 
             <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg" id="reports-center">
@@ -2259,6 +2386,204 @@ export default function CaseDetailPage() {
 
 
 
+
+
+function CaseQuickActions({
+  caseData,
+  actionCount,
+  openActionCount,
+  closureReady,
+  hasAIAnalysis,
+  quickActionRunning,
+  onAction,
+}: {
+  caseData: IncidentCase;
+  actionCount: number;
+  openActionCount: number;
+  closureReady: boolean;
+  hasAIAnalysis: boolean;
+  quickActionRunning: string | null;
+  onAction: (
+    action:
+      | "ASSIGN_TO_ME"
+      | "START_INVESTIGATION"
+      | "ESCALATE_CASE"
+      | "GENERATE_AI_ANALYSIS"
+      | "GENERATE_AI_ACTION_PLAN"
+      | "PREPARE_CLOSURE"
+      | "CLOSE_CASE"
+  ) => void;
+}) {
+  const status = caseData.status ?? "OPEN";
+  const isTerminal = status === "CLOSED" || status === "FALSE_POSITIVE";
+
+  return (
+    <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
+      <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h2 className="text-lg font-medium">Case Quick Actions</h2>
+          <p className="mt-1 text-sm text-slate-400">
+            Execute common analyst actions without scrolling through the full case page.
+          </p>
+        </div>
+
+        <span className="w-fit rounded-full border border-slate-700 bg-slate-950 px-4 py-2 text-sm text-slate-300">
+          Status {status}
+        </span>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <QuickActionButton
+          title="Assign to me"
+          description="Take ownership as local_analyst."
+          action="ASSIGN_TO_ME"
+          running={quickActionRunning}
+          disabled={isTerminal}
+          onAction={onAction}
+        />
+
+        <QuickActionButton
+          title="Start investigation"
+          description="Set status to INVESTIGATING and assign owner if missing."
+          action="START_INVESTIGATION"
+          running={quickActionRunning}
+          disabled={isTerminal}
+          onAction={onAction}
+        />
+
+        <QuickActionButton
+          title="Escalate case"
+          description="Move the case to ESCALATED for senior review."
+          action="ESCALATE_CASE"
+          running={quickActionRunning}
+          disabled={isTerminal}
+          danger
+          onAction={onAction}
+        />
+
+        <QuickActionButton
+          title={hasAIAnalysis ? "Regenerate AI analysis" : "Generate AI analysis"}
+          description={
+            hasAIAnalysis
+              ? "Refresh the AI assessment with current case evidence."
+              : "Create the first AI assessment for this case."
+          }
+          action="GENERATE_AI_ANALYSIS"
+          running={quickActionRunning}
+          disabled={false}
+          onAction={onAction}
+        />
+
+        <QuickActionButton
+          title="Generate AI action plan"
+          description="Suggest analyst tasks from the current case evidence."
+          action="GENERATE_AI_ACTION_PLAN"
+          running={quickActionRunning}
+          disabled={isTerminal}
+          onAction={onAction}
+        />
+
+        <QuickActionButton
+          title="Prepare closure review"
+          description="Jump to the closure checklist and readiness controls."
+          action="PREPARE_CLOSURE"
+          running={quickActionRunning}
+          disabled={false}
+          onAction={onAction}
+        />
+
+        <QuickActionButton
+          title="Close case"
+          description={
+            closureReady
+              ? "Move the case to CLOSED."
+              : "Backend will block closure until requirements are complete."
+          }
+          action="CLOSE_CASE"
+          running={quickActionRunning}
+          disabled={isTerminal}
+          success={closureReady}
+          danger={!closureReady}
+          onAction={onAction}
+        />
+
+        <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+          <div className="text-sm font-medium text-slate-200">Current blockers</div>
+          <div className="mt-2 space-y-1 text-xs leading-5 text-slate-500">
+            <div>Actions: {actionCount} total · {openActionCount} open</div>
+            <div>AI analysis: {hasAIAnalysis ? "available" : "missing"}</div>
+            <div>Closure: {closureReady ? "ready" : "blocked"}</div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function QuickActionButton({
+  title,
+  description,
+  action,
+  running,
+  disabled,
+  danger = false,
+  success = false,
+  onAction,
+}: {
+  title: string;
+  description: string;
+  action:
+    | "ASSIGN_TO_ME"
+    | "START_INVESTIGATION"
+    | "ESCALATE_CASE"
+    | "GENERATE_AI_ANALYSIS"
+    | "GENERATE_AI_ACTION_PLAN"
+    | "PREPARE_CLOSURE"
+    | "CLOSE_CASE";
+  running: string | null;
+  disabled: boolean;
+  danger?: boolean;
+  success?: boolean;
+  onAction: (
+    action:
+      | "ASSIGN_TO_ME"
+      | "START_INVESTIGATION"
+      | "ESCALATE_CASE"
+      | "GENERATE_AI_ANALYSIS"
+      | "GENERATE_AI_ACTION_PLAN"
+      | "PREPARE_CLOSURE"
+      | "CLOSE_CASE"
+  ) => void;
+}) {
+  const isRunning = running === action;
+  const isAnyRunning = running !== null;
+
+  const className = success
+    ? "border-emerald-700 bg-emerald-500 text-slate-950 hover:bg-emerald-400"
+    : danger
+      ? "border-red-800 bg-red-950/50 text-red-200 hover:bg-red-950"
+      : "border-slate-700 bg-slate-950 text-slate-200 hover:border-cyan-700 hover:bg-slate-900";
+
+  return (
+    <button
+      type="button"
+      onClick={() => onAction(action)}
+      disabled={disabled || isAnyRunning}
+      className={`rounded-xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-40 ${className}`}
+    >
+      <div className="text-sm font-medium">
+        {isRunning ? "Working..." : title}
+      </div>
+      <div
+        className={`mt-2 text-xs leading-5 ${
+          success ? "text-slate-800" : danger ? "text-red-300" : "text-slate-500"
+        }`}
+      >
+        {description}
+      </div>
+    </button>
+  );
+}
 
 function CaseFocusMode({
   value,
