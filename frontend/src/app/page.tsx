@@ -49,6 +49,31 @@ type IncidentsResponse = {
   total_pages: number;
 };
 
+type IncidentCase = {
+  id: number;
+  title: string;
+  status: string | null;
+  severity: string | null;
+  owner: string | null;
+  sla_status: string | null;
+  incident_count: number;
+  action_count: number | null;
+  open_action_count: number | null;
+  has_ai_analysis: boolean | null;
+  has_closure_checklist: boolean | null;
+  ready_to_close: boolean | null;
+  queue_flags: string[] | null;
+  updated_at: string | null;
+};
+
+type CasesResponse = {
+  items: IncidentCase[];
+  page: number;
+  limit: number;
+  total: number;
+  total_pages: number;
+};
+
 type Summary = {
   total_incidents: number;
   average_risk_score: number;
@@ -176,11 +201,14 @@ export default function Home() {
   const [incidentsData, setIncidentsData] = useState<IncidentsResponse | null>(
     null
   );
+  const [casesData, setCasesData] = useState<CasesResponse | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
 
   const incidents = incidentsData?.items ?? [];
+  const cases = casesData?.items ?? [];
   const totalPages = incidentsData?.total_pages ?? 1;
   const totalIncidents = incidentsData?.total ?? 0;
+  const totalCases = casesData?.total ?? 0;
   const [topHosts, setTopHosts] = useState<TopHost[]>([]);
   const [riskDistribution, setRiskDistribution] =
     useState<RiskDistribution | null>(null);
@@ -248,16 +276,23 @@ export default function Home() {
         incidentParams.set("search", searchFilter.trim());
       }      
 
-      const [summaryData, incidentsResponse, topHostsData, riskData] =
-        await Promise.all([
-          fetchJson<Summary>("/metrics/summary"),
-          fetchJson<IncidentsResponse>(`/incidents?${incidentParams.toString()}`),
-          fetchJson<TopHost[]>("/metrics/top-hosts?limit=10"),
-          fetchJson<RiskDistribution>("/metrics/risk-distribution"),
-        ]);
+      const [
+        summaryData,
+        incidentsResponse,
+        casesResponse,
+        topHostsData,
+        riskData,
+      ] = await Promise.all([
+        fetchJson<Summary>("/metrics/summary"),
+        fetchJson<IncidentsResponse>(`/incidents?${incidentParams.toString()}`),
+        fetchJson<CasesResponse>("/cases?limit=100"),
+        fetchJson<TopHost[]>("/metrics/top-hosts?limit=10"),
+        fetchJson<RiskDistribution>("/metrics/risk-distribution"),
+      ]);
 
       setSummary(summaryData);
       setIncidentsData(incidentsResponse);
+      setCasesData(casesResponse);
       setTopHosts(topHostsData);
       setRiskDistribution(riskData);
     } catch (err) {
@@ -317,6 +352,36 @@ export default function Home() {
     ];
   }, [riskDistribution]);
 
+  const caseMetrics = useMemo(() => {
+    const openStatuses = new Set(["OPEN", "TRIAGED", "INVESTIGATING", "ESCALATED"]);
+    const terminalStatuses = new Set(["CLOSED", "FALSE_POSITIVE"]);
+
+    const activeCases = cases.filter((item) =>
+      openStatuses.has(item.status ?? "OPEN")
+    );
+
+    return {
+      total: totalCases,
+      active: activeCases.length,
+      slaBreached: cases.filter((item) => item.sla_status === "BREACHED").length,
+      readyToClose: cases.filter(
+        (item) => item.ready_to_close && !terminalStatuses.has(item.status ?? "OPEN")
+      ).length,
+      openActions: cases.filter((item) => (item.open_action_count ?? 0) > 0).length,
+      needsAi: cases.filter(
+        (item) => !item.has_ai_analysis && !terminalStatuses.has(item.status ?? "OPEN")
+      ).length,
+      needsClosure: cases.filter(
+        (item) =>
+          !item.has_closure_checklist &&
+          !terminalStatuses.has(item.status ?? "OPEN")
+      ).length,
+      unassigned: cases.filter(
+        (item) => !item.owner && !terminalStatuses.has(item.status ?? "OPEN")
+      ).length,
+    };
+  }, [cases, totalCases]);
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto max-w-7xl px-6 py-8">
@@ -343,7 +408,15 @@ export default function Home() {
               className="flex items-center gap-2 rounded-xl border border-cyan-700 bg-cyan-500 px-4 py-2 text-sm font-medium text-slate-950 shadow-sm hover:bg-cyan-400"
             >
               <Briefcase className="h-4 w-4" />
-              Cases
+              Case Queue
+            </Link>
+
+            <Link
+              href="/cases/kanban"
+              className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 shadow-sm hover:bg-slate-800"
+            >
+              <Briefcase className="h-4 w-4" />
+              Kanban
             </Link>
 
             <Link
@@ -430,6 +503,91 @@ export default function Home() {
                 value={summary?.correlated_incidents ?? 0}
                 icon={<Brain className="h-5 w-5" />}
               />
+            </section>
+
+            <section className="mt-6 rounded-2xl border border-cyan-900/60 bg-cyan-950/10 p-5 shadow-lg">
+              <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <h2 className="text-lg font-medium">SOC Operations Command Center</h2>
+                  <p className="mt-1 text-sm text-slate-400">
+                    Operational view of the v0.2 case management workflow: queue, kanban, actions, AI analysis and closure readiness.
+                  </p>
+                </div>
+
+                <span className="w-fit rounded-full border border-cyan-700 bg-cyan-950 px-4 py-2 text-sm text-cyan-200">
+                  {caseMetrics.active} active cases
+                </span>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
+                <CaseOpsMetric
+                  title="Total cases"
+                  value={caseMetrics.total}
+                  description="All generated investigation cases."
+                />
+
+                <CaseOpsMetric
+                  title="SLA breached"
+                  value={caseMetrics.slaBreached}
+                  description="Cases requiring immediate attention."
+                  danger={caseMetrics.slaBreached > 0}
+                />
+
+                <CaseOpsMetric
+                  title="Ready to close"
+                  value={caseMetrics.readyToClose}
+                  description="Closure checklist complete and no open actions."
+                  success={caseMetrics.readyToClose > 0}
+                />
+
+                <CaseOpsMetric
+                  title="Open actions"
+                  value={caseMetrics.openActions}
+                  description="Cases with unresolved analyst tasks."
+                  warning={caseMetrics.openActions > 0}
+                />
+
+                <CaseOpsMetric
+                  title="Needs AI"
+                  value={caseMetrics.needsAi}
+                  description="Open cases missing AI assessment."
+                  warning={caseMetrics.needsAi > 0}
+                />
+
+                <CaseOpsMetric
+                  title="Unassigned"
+                  value={caseMetrics.unassigned}
+                  description="Open cases without owner."
+                  warning={caseMetrics.unassigned > 0}
+                />
+              </div>
+
+              <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <OperationalLinkCard
+                  title="Case Queue"
+                  description="Tabular SOC queue with filters, priority and closure readiness."
+                  href="/cases"
+                  primary
+                />
+
+                <OperationalLinkCard
+                  title="Kanban Board"
+                  description="Visual backlog board grouped by investigation state."
+                  href="/cases/kanban"
+                />
+
+                <OperationalLinkCard
+                  title="Executive Dashboard"
+                  description="Management-level view of risk and SOC activity."
+                  href="/executive"
+                />
+
+                <OperationalLinkCard
+                  title="Detection Quality"
+                  description="Synthetic scenario and detection quality monitoring."
+                  href="/detection-quality"
+                />
+              </div>
             </section>
 
             <section className="mt-6 grid gap-6 lg:grid-cols-2">
@@ -845,6 +1003,77 @@ export default function Home() {
         )}
       </div>
     </main>
+  );
+}
+
+
+function CaseOpsMetric({
+  title,
+  value,
+  description,
+  danger = false,
+  warning = false,
+  success = false,
+}: {
+  title: string;
+  value: number;
+  description: string;
+  danger?: boolean;
+  warning?: boolean;
+  success?: boolean;
+}) {
+  const className = danger
+    ? "border-red-800 bg-red-950/50"
+    : warning
+      ? "border-orange-800 bg-orange-950/40"
+      : success
+        ? "border-emerald-800 bg-emerald-950/40"
+        : "border-slate-800 bg-slate-950";
+
+  return (
+    <div className={`rounded-xl border p-4 ${className}`}>
+      <div className="mb-2 text-sm text-slate-400">{title}</div>
+      <div className="text-3xl font-semibold text-slate-100">{value}</div>
+      <div className="mt-2 text-xs leading-5 text-slate-500">
+        {description}
+      </div>
+    </div>
+  );
+}
+
+function OperationalLinkCard({
+  title,
+  description,
+  href,
+  primary = false,
+}: {
+  title: string;
+  description: string;
+  href: string;
+  primary?: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      className={`rounded-xl border p-4 transition ${
+        primary
+          ? "border-cyan-700 bg-cyan-500 text-slate-950 hover:bg-cyan-400"
+          : "border-slate-800 bg-slate-950 text-slate-200 hover:border-cyan-800 hover:bg-slate-900"
+      }`}
+    >
+      <div className="flex items-center gap-2 text-sm font-semibold">
+        <Briefcase className="h-4 w-4" />
+        {title}
+      </div>
+
+      <p
+        className={`mt-2 text-xs leading-5 ${
+          primary ? "text-slate-800" : "text-slate-500"
+        }`}
+      >
+        {description}
+      </p>
+    </Link>
   );
 }
 
