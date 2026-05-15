@@ -1096,28 +1096,28 @@ export default function CaseDetailPage() {
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto max-w-7xl px-6 py-8">
+      <div className="mx-auto max-w-[1600px] px-4 py-4">
         <AppNavigation />
-        <header className="mb-8">
+        <header className="mb-4">
           <Link
             href="/cases"
-            className="mb-6 inline-flex items-center gap-2 text-sm text-cyan-300 hover:text-cyan-200"
+            className="mb-3 inline-flex items-center gap-2 text-xs text-cyan-300 hover:text-cyan-200"
           >
             <ArrowLeft className="h-4 w-4" />
             Back to cases
           </Link>
 
-          <div className="mb-2 flex items-center gap-2 text-sm text-cyan-300">
+          <div className="mb-1 flex items-center gap-2 text-xs text-cyan-300">
             <Briefcase className="h-4 w-4" />
             Investigation case
           </div>
 
-          <h1 className="text-3xl font-semibold tracking-tight">
+          <h1 className="text-xl font-semibold tracking-tight">
             Case #{caseId}
           </h1>
 
           {caseData && (
-            <p className="mt-2 max-w-4xl text-sm text-slate-400">
+            <p className="mt-1 max-w-5xl text-xs text-slate-500">
               {caseData.title}
             </p>
           )}
@@ -1138,8 +1138,174 @@ export default function CaseDetailPage() {
         )}
 
         {caseData && (
-          <div className="space-y-6" data-case-focus={sectionFocus}>
+          <div className="space-y-3" data-case-focus={sectionFocus}>
             <style>{`
+              /*
+                Enterprise density mode for case detail.
+                This keeps the existing layout and logic intact while reducing
+                vertical space, card size, control height and font size.
+              */
+
+              [data-case-focus] section {
+                padding: 0.75rem !important;
+                border-radius: 0.75rem !important;
+              }
+
+              [data-case-focus] section > div:first-child {
+                margin-bottom: 0.75rem !important;
+              }
+
+              [data-case-focus] h2 {
+                font-size: 0.875rem !important;
+                line-height: 1.25rem !important;
+                font-weight: 600 !important;
+              }
+
+              [data-case-focus] h3,
+              [data-case-focus] h4 {
+                font-size: 0.8125rem !important;
+                line-height: 1.15rem !important;
+                font-weight: 600 !important;
+              }
+
+              [data-case-focus] p {
+                font-size: 0.75rem !important;
+                line-height: 1.15rem !important;
+              }
+
+              [data-case-focus] label span,
+              [data-case-focus] .uppercase {
+                font-size: 0.625rem !important;
+                letter-spacing: 0.04em !important;
+              }
+
+              [data-case-focus] input,
+              [data-case-focus] select {
+                min-height: 2rem !important;
+                height: 2rem !important;
+                padding: 0.25rem 0.5rem !important;
+                border-radius: 0.5rem !important;
+                font-size: 0.75rem !important;
+              }
+
+              [data-case-focus] textarea {
+                min-height: 4.5rem !important;
+                padding: 0.375rem 0.5rem !important;
+                border-radius: 0.5rem !important;
+                font-size: 0.75rem !important;
+                line-height: 1.15rem !important;
+              }
+
+              [data-case-focus] button,
+              [data-case-focus] a[download],
+              [data-case-focus] a[href^="#"] {
+                min-height: 2rem !important;
+                padding: 0.375rem 0.625rem !important;
+                border-radius: 0.5rem !important;
+                font-size: 0.75rem !important;
+                line-height: 1rem !important;
+              }
+
+              [data-case-focus] pre {
+                font-size: 0.75rem !important;
+                line-height: 1.15rem !important;
+                padding: 0.75rem !important;
+                border-radius: 0.5rem !important;
+              }
+
+              [data-case-focus] table {
+                font-size: 0.75rem !important;
+              }
+
+              [data-case-focus] th,
+              [data-case-focus] td {
+                padding-top: 0.375rem !important;
+                padding-bottom: 0.375rem !important;
+                padding-right: 0.625rem !important;
+              }
+
+              [data-case-focus] .rounded-2xl {
+                border-radius: 0.75rem !important;
+              }
+
+              [data-case-focus] .rounded-xl {
+                border-radius: 0.625rem !important;
+              }
+
+              [data-case-focus] .p-5,
+              [data-case-focus] .p-4 {
+                padding: 0.75rem !important;
+              }
+
+              [data-case-focus] .px-4 {
+                padding-left: 0.625rem !important;
+                padding-right: 0.625rem !important;
+              }
+
+              [data-case-focus] .py-2 {
+                padding-top: 0.375rem !important;
+                padding-bottom: 0.375rem !important;
+              }
+
+              [data-case-focus] .gap-4 {
+                gap: 0.75rem !important;
+              }
+
+              [data-case-focus] .gap-3 {
+                gap: 0.5rem !important;
+              }
+
+              [data-case-focus] .mt-5,
+              [data-case-focus] .mt-4 {
+                margin-top: 0.75rem !important;
+              }
+
+              [data-case-focus] .mb-5,
+              [data-case-focus] .mb-4 {
+                margin-bottom: 0.75rem !important;
+              }
+
+              [data-case-focus] .space-y-4 > :not([hidden]) ~ :not([hidden]),
+              [data-case-focus] .space-y-3 > :not([hidden]) ~ :not([hidden]) {
+                margin-top: 0.75rem !important;
+              }
+
+              [data-case-focus] .text-lg,
+              [data-case-focus] .text-base {
+                font-size: 0.875rem !important;
+                line-height: 1.25rem !important;
+              }
+
+              [data-case-focus] .text-sm {
+                font-size: 0.75rem !important;
+                line-height: 1.15rem !important;
+              }
+
+              [data-case-focus] .text-xl {
+                font-size: 1rem !important;
+                line-height: 1.35rem !important;
+              }
+
+              [data-case-focus] .text-3xl,
+              [data-case-focus] .text-2xl {
+                font-size: 1.125rem !important;
+                line-height: 1.5rem !important;
+              }
+
+              [data-case-focus] [class*="px-3"][class*="py-1"] {
+                padding: 0.125rem 0.5rem !important;
+                font-size: 0.6875rem !important;
+                border-radius: 0.375rem !important;
+              }
+
+              [data-case-focus] .max-h-96 {
+                max-height: 14rem !important;
+              }
+
+              [data-case-focus] .max-h-48 {
+                max-height: 8rem !important;
+              }
+
               [data-case-focus="OVERVIEW"] #case-workflow,
               [data-case-focus="OVERVIEW"] #case-action-plan,
               [data-case-focus="OVERVIEW"] #case-closure-checklist,
