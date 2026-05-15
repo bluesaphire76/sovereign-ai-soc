@@ -8,6 +8,7 @@ from evidence_pack_builder import build_case_evidence_pack
 from executive_pdf_builder import build_case_executive_pdf
 from case_ai_analysis import generate_case_ai_analysis
 from case_action_suggestions import generate_case_action_suggestions
+from case_timeline import build_case_timeline
 from models import Incident, IncidentAudit, IncidentNote, IncidentCase, CaseIncident, CaseAIAnalysis, CaseAudit, CaseAction, CaseClosureChecklist
 from timezone_utils import APP_TIMEZONE, format_timestamp_local, normalize_timestamp_utc
 from platform_health import get_platform_health
@@ -1600,6 +1601,15 @@ def suggest_case_action_plan(case_id: int):
             status_code=500,
             detail=f"Failed to generate case action suggestions: {exc}",
         )
+
+
+@app.get("/cases/{case_id}/timeline")
+def get_case_timeline(case_id: int):
+    try:
+        return build_case_timeline(case_id)
+
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.get("/cases/{case_id}/actions")
