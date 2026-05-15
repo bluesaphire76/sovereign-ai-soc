@@ -1,4 +1,3 @@
-import { scryptSync } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -27,13 +26,17 @@ function configuredSecret() {
   return process.env.LOCAL_AUTH_SESSION_SECRET || "local-dev-secret";
 }
 
-function scryptHex(value: string) {
-  const salt = `local-auth-session:${configuredSecret()}`;
-  return scryptSync(value, salt, 32).toString("hex");
+async function sha256Hex(value: string) {
+  const data = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
 }
 
-function expectedToken() {
-  return scryptHex(
+async function expectedToken() {
+  return sha256Hex(
     `${configuredUsername()}:${configuredPassword()}:${configuredSecret()}`
   );
 }
@@ -64,7 +67,7 @@ export async function POST(request: NextRequest) {
     ok: true,
   });
 
-  response.cookies.set(cookieName(), expectedToken(), {
+  response.cookies.set(cookieName(), await expectedToken(), {
     httpOnly: true,
     sameSite: "lax",
     secure: cookieSecure(),

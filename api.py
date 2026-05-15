@@ -5,7 +5,7 @@ from sqlalchemy import func, or_
 from database import SessionLocal
 from report_builder import build_case_report, build_incident_report
 from case_ai_analysis import generate_case_ai_analysis
-from models import Incident, IncidentAudit, IncidentNote, IncidentCase, CaseIncident, CaseAIAnalysis, CaseAudit
+from models import Incident, IncidentAudit, IncidentNote, IncidentCase, CaseIncident, CaseAIAnalysis, CaseAudit, CaseAction
 from timezone_utils import APP_TIMEZONE, format_timestamp_local, normalize_timestamp_utc
 from platform_health import get_platform_health
 from wazuh_ingest_state import get_watermark_snapshot
@@ -55,6 +55,29 @@ VALID_CASE_SEVERITIES = {
     "CRITICAL",
 }
 
+VALID_CASE_ACTION_STATUSES = {
+    "OPEN",
+    "IN_PROGRESS",
+    "DONE",
+    "CANCELLED",
+}
+
+VALID_CASE_ACTION_CATEGORIES = {
+    "INVESTIGATION",
+    "CONTAINMENT",
+    "EVIDENCE_REVIEW",
+    "ESCALATION",
+    "CLOSURE",
+    "OTHER",
+}
+
+VALID_CASE_ACTION_PRIORITIES = {
+    "LOW",
+    "MEDIUM",
+    "HIGH",
+    "CRITICAL",
+}
+
 
 class IncidentStatusUpdate(BaseModel):
     status: str
@@ -72,6 +95,26 @@ class CaseWorkflowUpdate(BaseModel):
     sla_due_at: str | None = None
     status_reason: str | None = None
     reviewed_by: str | None = None
+
+
+class CaseActionCreate(BaseModel):
+    title: str
+    description: str | None = None
+    category: str = "INVESTIGATION"
+    priority: str = "MEDIUM"
+    status: str | None = None
+    due_at: str | None = None
+    created_by: str | None = None
+
+
+class CaseActionUpdate(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    category: str | None = None
+    priority: str | None = None
+    status: str | None = None
+    due_at: str | None = None
+    updated_by: str | None = None
 
 @app.get("/health")
 def health():
@@ -932,6 +975,56 @@ def serialize_case(case: IncidentCase, incident_count: int | None = None) -> dic
         else None,
     }
 
+
+def parse_optional_iso_datetime(value: str | None):
+    if value is None:
+        return None
+
+    cleaned = value.strip()
+
+    if not cleaned:
+        return None
+
+    try:
+        return datetime.fromisoformat(cleaned.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="Datetime values must be valid ISO timestamps",
+        ) from exc
+
+
+def serialize_case_action(action: CaseAction) -> dict:
+    return {
+        "id": action.id,
+        "case_id": action.case_id,
+        "title": action.title,
+        "description": action.description,
+        "category": action.category,
+        "priority": action.priority,
+        "status": action.status,
+        "due_at": action.due_at.isoformat() if action.due_at else None,
+        "completed_at": action.completed_at.isoformat()
+        if action.completed_at
+        else None,
+        "created_by": action.created_by,
+        "created_at": action.created_at.isoformat() if action.created_at else None,
+        "updated_at": action.updated_at.isoformat() if action.updated_at else None,
+    }
+
+
+def ensure_case_exists(db, case_id: int) -> IncidentCase:
+    case = (
+        db.query(IncidentCase)
+        .filter(IncidentCase.id == case_id)
+        .first()
+    )
+
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    return case
+
 @app.get("/cases")
 def list_cases(
     page: int = Query(1, ge=1),
@@ -1179,6 +1272,225 @@ def get_case_audit(case_id: int):
 
     finally:
         db.close()
+
+
+@app.get("/cases/{case_id}/actions")
+def list_case_actions(case_id: int):
+    db = SessionLocal()
+
+    try:
+        ensure_case_exists(db, case_id)
+
+        actions = (
+            db.query(CaseAction)
+            .filter(CaseAction.case_id == case_id)
+            .order_by(CaseAction.created_at.asc(), CaseAction.id.asc())
+            .all()
+        )
+
+        return [serialize_case_action(action) for action in actions]
+
+    finally:
+        db.close()
+
+
+@app.post("/cases/{case_id}/actions")
+def create_case_action(
+    case_id: int,
+    payload: CaseActionCreate,
+):
+    title = payload.title.strip()
+
+    if not title:
+        raise HTTPException(status_code=400, detail="Action title cannot be empty")
+
+    category = payload.category.upper()
+    priority = payload.priority.upper()
+    status = (payload.status or "OPEN").upper()
+
+    if category not in VALID_CASE_ACTION_CATEGORIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid action category. Allowed values: {sorted(VALID_CASE_ACTION_CATEGORIES)}",
+        )
+
+    if priority not in VALID_CASE_ACTION_PRIORITIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid action priority. Allowed values: {sorted(VALID_CASE_ACTION_PRIORITIES)}",
+        )
+
+    if status not in VALID_CASE_ACTION_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid action status. Allowed values: {sorted(VALID_CASE_ACTION_STATUSES)}",
+        )
+
+    db = SessionLocal()
+
+    try:
+        case = ensure_case_exists(db, case_id)
+        created_by = payload.created_by or "local_analyst"
+        now = datetime.now(timezone.utc)
+
+        action = CaseAction(
+            case_id=case.id,
+            title=title,
+            description=payload.description.strip()
+            if payload.description
+            else None,
+            category=category,
+            priority=priority,
+            status=status,
+            due_at=parse_optional_iso_datetime(payload.due_at),
+            completed_at=now if status == "DONE" else None,
+            created_by=created_by,
+            updated_at=now,
+        )
+
+        db.add(action)
+        db.flush()
+
+        case.updated_at = now
+
+        audit = CaseAudit(
+            case_id=case.id,
+            event_type="CASE_ACTION_CREATED",
+            old_value=None,
+            new_value=f"action:{action.id}:{action.title}",
+            comment=action.description,
+            created_by=created_by,
+        )
+
+        db.add(audit)
+        db.commit()
+        db.refresh(action)
+
+        return serialize_case_action(action)
+
+    finally:
+        db.close()
+
+
+@app.patch("/cases/{case_id}/actions/{action_id}")
+def update_case_action(
+    case_id: int,
+    action_id: int,
+    payload: CaseActionUpdate,
+):
+    db = SessionLocal()
+
+    try:
+        case = ensure_case_exists(db, case_id)
+
+        action = (
+            db.query(CaseAction)
+            .filter(
+                CaseAction.id == action_id,
+                CaseAction.case_id == case_id,
+            )
+            .first()
+        )
+
+        if not action:
+            raise HTTPException(status_code=404, detail="Case action not found")
+
+        updated_by = payload.updated_by or "local_analyst"
+        now = datetime.now(timezone.utc)
+        changes = {}
+
+        if payload.title is not None:
+            title = payload.title.strip()
+
+            if not title:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Action title cannot be empty",
+                )
+
+            if action.title != title:
+                changes["title"] = [action.title, title]
+                action.title = title
+
+        if payload.description is not None:
+            description = payload.description.strip() or None
+
+            if action.description != description:
+                changes["description"] = [action.description, description]
+                action.description = description
+
+        if payload.category is not None:
+            category = payload.category.upper()
+
+            if category not in VALID_CASE_ACTION_CATEGORIES:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid action category. Allowed values: {sorted(VALID_CASE_ACTION_CATEGORIES)}",
+                )
+
+            if action.category != category:
+                changes["category"] = [action.category, category]
+                action.category = category
+
+        if payload.priority is not None:
+            priority = payload.priority.upper()
+
+            if priority not in VALID_CASE_ACTION_PRIORITIES:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid action priority. Allowed values: {sorted(VALID_CASE_ACTION_PRIORITIES)}",
+                )
+
+            if action.priority != priority:
+                changes["priority"] = [action.priority, priority]
+                action.priority = priority
+
+        if payload.status is not None:
+            status = payload.status.upper()
+
+            if status not in VALID_CASE_ACTION_STATUSES:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid action status. Allowed values: {sorted(VALID_CASE_ACTION_STATUSES)}",
+                )
+
+            if action.status != status:
+                changes["status"] = [action.status, status]
+                action.status = status
+                action.completed_at = now if status == "DONE" else None
+
+        if payload.due_at is not None:
+            due_at = parse_optional_iso_datetime(payload.due_at)
+            old_due_at = action.due_at.isoformat() if action.due_at else None
+            new_due_at = due_at.isoformat() if due_at else None
+
+            if old_due_at != new_due_at:
+                changes["due_at"] = [old_due_at, new_due_at]
+                action.due_at = due_at
+
+        if changes:
+            action.updated_at = now
+            case.updated_at = now
+
+            audit = CaseAudit(
+                case_id=case.id,
+                event_type="CASE_ACTION_UPDATED",
+                old_value=str({key: value[0] for key, value in changes.items()}),
+                new_value=str({key: value[1] for key, value in changes.items()}),
+                comment=payload.description,
+                created_by=updated_by,
+            )
+
+            db.add(audit)
+
+        db.commit()
+        db.refresh(action)
+
+        return serialize_case_action(action)
+
+    finally:
+        db.close()
+
 
 @app.get("/cases/{case_id}/incidents")
 def get_case_incidents(case_id: int):

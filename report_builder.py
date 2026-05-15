@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from database import SessionLocal
 from models import (
     CaseAIAnalysis,
+    CaseAction,
     CaseAudit,
     CaseIncident,
     Incident,
@@ -306,6 +307,13 @@ def build_case_payload(db, case_id: int):
         .all()
     )
 
+    case_actions = (
+        db.query(CaseAction)
+        .filter(CaseAction.case_id == case_id)
+        .order_by(CaseAction.created_at.asc(), CaseAction.id.asc())
+        .all()
+    )
+
     return {
         "generated_at": now_label(),
         "case": {
@@ -356,6 +364,24 @@ def build_case_payload(db, case_id: int):
             }
             for row in case_audit_events
         ],
+        "case_actions": [
+            {
+                "id": row.id,
+                "title": row.title,
+                "description": row.description,
+                "category": row.category,
+                "priority": row.priority,
+                "status": row.status,
+                "due_at": row.due_at.isoformat() if row.due_at else None,
+                "completed_at": row.completed_at.isoformat()
+                if row.completed_at
+                else None,
+                "created_by": row.created_by,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+                "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+            }
+            for row in case_actions
+        ],
         "incidents": [
             {
                 "id": incident.id,
@@ -382,6 +408,20 @@ def build_case_payload(db, case_id: int):
 def case_payload_to_markdown(payload: dict) -> str:
     case = payload["case"]
     analysis = payload["case_ai_analysis"]
+    actions = payload.get("case_actions", [])
+
+    open_actions = [
+        action for action in actions
+        if action.get("status") in {"OPEN", "IN_PROGRESS"}
+    ]
+    completed_actions = [
+        action for action in actions
+        if action.get("status") == "DONE"
+    ]
+    cancelled_actions = [
+        action for action in actions
+        if action.get("status") == "CANCELLED"
+    ]
 
     lines = [
         f"# Investigation Case Report #{case['id']}",
@@ -400,6 +440,10 @@ def case_payload_to_markdown(payload: dict) -> str:
         f"- **Correlation type:** {format_value(case['correlation_type'])}",
         f"- **Risk score:** {format_value(case['risk_score'])}",
         f"- **Linked incidents:** {len(payload['incidents'])}",
+        f"- **Case actions:** {len(actions)}",
+        f"- **Open / in progress actions:** {len(open_actions)}",
+        f"- **Completed actions:** {len(completed_actions)}",
+        f"- **Cancelled actions:** {len(cancelled_actions)}",
         "",
         "## Case Metadata",
         "",
@@ -444,6 +488,38 @@ def case_payload_to_markdown(payload: dict) -> str:
                 "",
             ]
         )
+
+    lines.extend(
+        [
+            "## Case Action Plan",
+            "",
+        ]
+    )
+
+    if actions:
+        for action in actions:
+            lines.extend(
+                [
+                    f"### Action #{action['id']} — {format_value(action['title'])}",
+                    "",
+                    f"- **Status:** {format_value(action['status'])}",
+                    f"- **Priority:** {format_value(action['priority'])}",
+                    f"- **Category:** {format_value(action['category'])}",
+                    f"- **Due at:** {format_value(action['due_at'])}",
+                    f"- **Completed at:** {format_value(action['completed_at'])}",
+                    f"- **Created by:** {format_value(action['created_by'])}",
+                    f"- **Created at:** {format_value(action['created_at'])}",
+                    f"- **Updated at:** {format_value(action['updated_at'])}",
+                    "",
+                    "#### Description",
+                    "",
+                    action["description"] or "No description available.",
+                    "",
+                ]
+            )
+    else:
+        lines.append("No case actions available.")
+        lines.append("")
 
     lines.extend(
         [

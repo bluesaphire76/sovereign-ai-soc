@@ -12,7 +12,7 @@ function LoginForm() {
     return searchParams.get("next") || "/";
   }, [searchParams]);
 
-  const [username, setUsername] = useState("lele");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);

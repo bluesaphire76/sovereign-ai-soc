@@ -114,6 +114,26 @@ class CaseAudit(Base):
     created_by = Column(String, default="local_analyst")
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
 
+
+class CaseAction(Base):
+    __tablename__ = "case_actions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    case_id = Column(Integer, ForeignKey("incident_cases.id"), index=True, nullable=False)
+
+    title = Column(String, nullable=False)
+    description = Column(Text)
+    category = Column(String, default="INVESTIGATION")
+    priority = Column(String, default="MEDIUM")
+    status = Column(String, default="OPEN")
+
+    due_at = Column(DateTime(timezone=True))
+    completed_at = Column(DateTime(timezone=True))
+
+    created_by = Column(String, default="local_analyst")
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+
 class CaseAIAnalysis(Base):
     __tablename__ = "case_ai_analyses"
 

@@ -70,12 +70,35 @@ type CaseAudit = {
   created_at: string | null;
 };
 
+type CaseAction = {
+  id: number;
+  case_id: number;
+  title: string;
+  description: string | null;
+  category: string;
+  priority: string;
+  status: string;
+  due_at: string | null;
+  completed_at: string | null;
+  created_by: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
 type WorkflowForm = {
   owner: string;
   status: string;
   severity: string;
   sla_due_at: string;
   status_reason: string;
+};
+
+type ActionForm = {
+  title: string;
+  description: string;
+  category: string;
+  priority: string;
+  due_at: string;
 };
 
 const API_BASE =
@@ -138,6 +161,26 @@ function workflowFormFromCase(item: IncidentCase): WorkflowForm {
     sla_due_at: toDatetimeLocalValue(item.sla_due_at),
     status_reason: item.status_reason ?? "",
   };
+}
+
+function actionStatusClass(value: string | null | undefined) {
+  const status = value ?? "OPEN";
+
+  if (status === "DONE") return "bg-emerald-100 text-emerald-800 border-emerald-200";
+  if (status === "IN_PROGRESS") return "bg-blue-100 text-blue-800 border-blue-200";
+  if (status === "CANCELLED") return "bg-slate-200 text-slate-800 border-slate-300";
+
+  return "bg-cyan-100 text-cyan-800 border-cyan-200";
+}
+
+function actionPriorityClass(value: string | null | undefined) {
+  const priority = value ?? "MEDIUM";
+
+  if (priority === "CRITICAL") return "bg-red-100 text-red-800 border-red-200";
+  if (priority === "HIGH") return "bg-orange-100 text-orange-800 border-orange-200";
+  if (priority === "LOW") return "bg-slate-100 text-slate-700 border-slate-200";
+
+  return "bg-yellow-100 text-yellow-800 border-yellow-200";
 }
 
 function formatTimestamp(value: string | null | undefined) {
@@ -247,6 +290,68 @@ async function updateCaseWorkflow(
   return response.json();
 }
 
+async function fetchCaseActions(id: string): Promise<CaseAction[]> {
+  const response = await fetch(`${API_BASE}/cases/${id}/actions`, {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`API error ${response.status}`);
+  }
+
+  return response.json();
+}
+
+async function createCaseAction(
+  id: string,
+  payload: {
+    title: string;
+    description: string;
+    category: string;
+    priority: string;
+    due_at: string;
+    created_by: string;
+  }
+): Promise<CaseAction> {
+  const response = await fetch(`${API_BASE}/cases/${id}/actions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(`API error ${response.status}`);
+  }
+
+  return response.json();
+}
+
+async function updateCaseAction(
+  caseId: string,
+  actionId: number,
+  payload: {
+    status?: string;
+    priority?: string;
+    updated_by: string;
+  }
+): Promise<CaseAction> {
+  const response = await fetch(`${API_BASE}/cases/${caseId}/actions/${actionId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(`API error ${response.status}`);
+  }
+
+  return response.json();
+}
+
 async function generateCaseAnalysis(id: string): Promise<CaseAIAnalysis> {
   const response = await fetch(`${API_BASE}/cases/${id}/analysis`, {
     method: "POST",
@@ -267,6 +372,16 @@ export default function CaseDetailPage() {
   const [incidents, setIncidents] = useState<CaseIncident[]>([]);
   const [caseAnalysis, setCaseAnalysis] = useState<CaseAIAnalysis | null>(null);
   const [auditTrail, setAuditTrail] = useState<CaseAudit[]>([]);
+  const [caseActions, setCaseActions] = useState<CaseAction[]>([]);
+  const [actionForm, setActionForm] = useState<ActionForm>({
+    title: "",
+    description: "",
+    category: "INVESTIGATION",
+    priority: "MEDIUM",
+    due_at: "",
+  });
+  const [creatingAction, setCreatingAction] = useState(false);
+  const [updatingActionId, setUpdatingActionId] = useState<number | null>(null);
   const [workflowForm, setWorkflowForm] = useState<WorkflowForm>({
     owner: "",
     status: "OPEN",
@@ -283,23 +398,114 @@ export default function CaseDetailPage() {
     try {
       setError(null);
 
-      const [caseResponse, incidentsResponse, analysisResponse, auditResponse] =
-        await Promise.all([
-          fetchCase(caseId),
-          fetchCaseIncidents(caseId),
-          fetchCaseAnalysis(caseId),
-          fetchCaseAudit(caseId),
-        ]);
+      const [
+        caseResponse,
+        incidentsResponse,
+        analysisResponse,
+        auditResponse,
+        actionsResponse,
+      ] = await Promise.all([
+        fetchCase(caseId),
+        fetchCaseIncidents(caseId),
+        fetchCaseAnalysis(caseId),
+        fetchCaseAudit(caseId),
+        fetchCaseActions(caseId),
+      ]);
 
       setCaseData(caseResponse);
       setWorkflowForm(workflowFormFromCase(caseResponse));
       setIncidents(incidentsResponse);
       setCaseAnalysis(analysisResponse);
       setAuditTrail(auditResponse);
+      setCaseActions(actionsResponse);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleCreateAction() {
+    const title = actionForm.title.trim();
+
+    if (!title) {
+      setError("Action title cannot be empty");
+      return;
+    }
+
+    try {
+      setCreatingAction(true);
+      setError(null);
+
+      await createCaseAction(caseId, {
+        title,
+        description: actionForm.description,
+        category: actionForm.category,
+        priority: actionForm.priority,
+        due_at: actionForm.due_at
+          ? new Date(actionForm.due_at).toISOString()
+          : "",
+        created_by: "local_analyst",
+      });
+
+      setActionForm({
+        title: "",
+        description: "",
+        category: "INVESTIGATION",
+        priority: "MEDIUM",
+        due_at: "",
+      });
+
+      setCaseActions(await fetchCaseActions(caseId));
+      setAuditTrail(await fetchCaseAudit(caseId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setCreatingAction(false);
+    }
+  }
+
+  async function handleUpdateActionStatus(actionId: number, status: string) {
+    try {
+      setUpdatingActionId(actionId);
+      setError(null);
+
+      const updated = await updateCaseAction(caseId, actionId, {
+        status,
+        updated_by: "local_analyst",
+      });
+
+      setCaseActions((current) =>
+        current.map((action) => (action.id === updated.id ? updated : action))
+      );
+
+      setAuditTrail(await fetchCaseAudit(caseId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setUpdatingActionId(null);
+    }
+  }
+
+  async function handleUpdateActionPriority(actionId: number, priority: string) {
+    try {
+      setUpdatingActionId(actionId);
+      setError(null);
+
+      const updated = await updateCaseAction(caseId, actionId, {
+        priority,
+        updated_by: "local_analyst",
+      });
+
+      setCaseActions((current) =>
+        current.map((action) => (action.id === updated.id ? updated : action))
+      );
+
+      setAuditTrail(await fetchCaseAudit(caseId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setUpdatingActionId(null);
     }
   }
 
@@ -590,6 +796,237 @@ export default function CaseDetailPage() {
                       <div className="grid gap-3 md:grid-cols-2">
                         <DetailRow label="Old value" value={event.old_value ?? "-"} />
                         <DetailRow label="New value" value={event.new_value ?? "-"} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
+              <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h2 className="text-lg font-medium">Case action plan</h2>
+                  <p className="mt-1 text-sm text-slate-400">
+                    Track concrete analyst tasks required to investigate, contain, escalate or close the case.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap gap-2 text-xs">
+                  <span className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-slate-300">
+                    {caseActions.length} total
+                  </span>
+                  <span className="rounded-full border border-cyan-700 bg-cyan-950 px-3 py-1 text-cyan-200">
+                    {
+                      caseActions.filter(
+                        (action) =>
+                          action.status !== "DONE" &&
+                          action.status !== "CANCELLED"
+                      ).length
+                    } open
+                  </span>
+                  <span className="rounded-full border border-emerald-700 bg-emerald-950 px-3 py-1 text-emerald-200">
+                    {caseActions.filter((action) => action.status === "DONE").length} done
+                  </span>
+                </div>
+              </div>
+
+              <div className="mb-5 rounded-xl border border-slate-800 bg-slate-950 p-4">
+                <h3 className="mb-3 text-sm font-medium text-slate-200">
+                  Add action
+                </h3>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <label className="block">
+                    <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                      Title
+                    </span>
+                    <input
+                      value={actionForm.title}
+                      onChange={(event) =>
+                        setActionForm((current) => ({
+                          ...current,
+                          title: event.target.value,
+                        }))
+                      }
+                      placeholder="Review correlated incidents"
+                      className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                      Due date
+                    </span>
+                    <input
+                      type="datetime-local"
+                      value={actionForm.due_at}
+                      onChange={(event) =>
+                        setActionForm((current) => ({
+                          ...current,
+                          due_at: event.target.value,
+                        }))
+                      }
+                      className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                      Category
+                    </span>
+                    <select
+                      value={actionForm.category}
+                      onChange={(event) =>
+                        setActionForm((current) => ({
+                          ...current,
+                          category: event.target.value,
+                        }))
+                      }
+                      className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                    >
+                      <option value="INVESTIGATION">INVESTIGATION</option>
+                      <option value="CONTAINMENT">CONTAINMENT</option>
+                      <option value="EVIDENCE_REVIEW">EVIDENCE_REVIEW</option>
+                      <option value="ESCALATION">ESCALATION</option>
+                      <option value="CLOSURE">CLOSURE</option>
+                      <option value="OTHER">OTHER</option>
+                    </select>
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                      Priority
+                    </span>
+                    <select
+                      value={actionForm.priority}
+                      onChange={(event) =>
+                        setActionForm((current) => ({
+                          ...current,
+                          priority: event.target.value,
+                        }))
+                      }
+                      className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                    >
+                      <option value="LOW">LOW</option>
+                      <option value="MEDIUM">MEDIUM</option>
+                      <option value="HIGH">HIGH</option>
+                      <option value="CRITICAL">CRITICAL</option>
+                    </select>
+                  </label>
+                </div>
+
+                <label className="mt-4 block">
+                  <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                    Description
+                  </span>
+                  <textarea
+                    value={actionForm.description}
+                    onChange={(event) =>
+                      setActionForm((current) => ({
+                        ...current,
+                        description: event.target.value,
+                      }))
+                    }
+                    rows={3}
+                    placeholder="Describe what the analyst needs to verify or execute."
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                  />
+                </label>
+
+                <div className="mt-4 flex justify-end">
+                  <button
+                    onClick={handleCreateAction}
+                    disabled={creatingAction}
+                    className="rounded-xl border border-cyan-500 bg-cyan-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {creatingAction ? "Creating..." : "Add action"}
+                  </button>
+                </div>
+              </div>
+
+              {caseActions.length === 0 ? (
+                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">
+                  No actions available yet. Add the first analyst task for this case.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {caseActions.map((action) => (
+                    <div
+                      key={action.id}
+                      className="rounded-xl border border-slate-800 bg-slate-950 p-4"
+                    >
+                      <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div>
+                          <div className="mb-2 flex flex-wrap items-center gap-2">
+                            <span
+                              className={`rounded-full border px-3 py-1 text-xs ${actionStatusClass(
+                                action.status
+                              )}`}
+                            >
+                              {action.status}
+                            </span>
+                            <span
+                              className={`rounded-full border px-3 py-1 text-xs ${actionPriorityClass(
+                                action.priority
+                              )}`}
+                            >
+                              {action.priority}
+                            </span>
+                            <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs text-slate-300">
+                              {action.category}
+                            </span>
+                          </div>
+
+                          <h3 className="text-base font-medium text-slate-100">
+                            {action.title}
+                          </h3>
+
+                          {action.description && (
+                            <p className="mt-2 text-sm leading-6 text-slate-400">
+                              {action.description}
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="flex flex-col gap-2 md:min-w-48">
+                          <select
+                            value={action.status}
+                            disabled={updatingActionId === action.id}
+                            onChange={(event) =>
+                              handleUpdateActionStatus(action.id, event.target.value)
+                            }
+                            className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                          >
+                            <option value="OPEN">OPEN</option>
+                            <option value="IN_PROGRESS">IN_PROGRESS</option>
+                            <option value="DONE">DONE</option>
+                            <option value="CANCELLED">CANCELLED</option>
+                          </select>
+
+                          <select
+                            value={action.priority}
+                            disabled={updatingActionId === action.id}
+                            onChange={(event) =>
+                              handleUpdateActionPriority(action.id, event.target.value)
+                            }
+                            className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                          >
+                            <option value="LOW">LOW</option>
+                            <option value="MEDIUM">MEDIUM</option>
+                            <option value="HIGH">HIGH</option>
+                            <option value="CRITICAL">CRITICAL</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3 text-xs text-slate-500 md:grid-cols-4">
+                        <div>Created by {action.created_by ?? "-"}</div>
+                        <div>Created {formatTimestamp(action.created_at)}</div>
+                        <div>Due {formatTimestamp(action.due_at)}</div>
+                        <div>
+                          Completed {formatTimestamp(action.completed_at)}
+                        </div>
                       </div>
                     </div>
                   ))}
