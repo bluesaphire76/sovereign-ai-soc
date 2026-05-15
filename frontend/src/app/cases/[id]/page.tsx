@@ -972,43 +972,7 @@ export default function CaseDetailPage() {
               {caseData.title}
             </p>
           )}
-          <div className="mt-5 flex flex-wrap gap-3">
-            <a
-              href={`${API_BASE}/reports/cases/${caseId}?format=markdown`}
-              download
-              className="inline-flex items-center gap-2 rounded-xl border border-cyan-700 bg-cyan-500 px-4 py-2 text-sm font-medium text-slate-950 shadow-sm hover:bg-cyan-400"
-            >
-              <FileDown className="h-4 w-4" />
-              Download Markdown report
-            </a>
 
-            <a
-              href={`${API_BASE}/reports/cases/${caseId}?format=json`}
-              download
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 shadow-sm hover:bg-slate-800"
-            >
-              <FileDown className="h-4 w-4" />
-              Download JSON
-            </a>
-
-            <a
-              href={`/reports/cases/${caseId}/evidence-pack?format=markdown`}
-              download
-              className="inline-flex items-center gap-2 rounded-xl border border-emerald-700 bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 shadow-sm hover:bg-emerald-400"
-            >
-              <FileDown className="h-4 w-4" />
-              Download Evidence Pack
-            </a>
-
-            <a
-              href={`/reports/cases/${caseId}/executive-pdf`}
-              download
-              className="inline-flex items-center gap-2 rounded-xl border border-violet-700 bg-violet-500 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-violet-400"
-            >
-              <FileDown className="h-4 w-4" />
-              Download Executive PDF
-            </a>
-          </div>
 
         </header>
 
@@ -1031,6 +995,55 @@ export default function CaseDetailPage() {
               <InfoCard title="Incidents" value={caseData.incident_count} />
               <InfoCard title="Risk score" value={caseData.risk_score ?? 0} />
               <InfoCard title="Updated" value={formatTimestamp(caseData.updated_at)} />
+            </section>
+
+            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
+              <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <h2 className="text-lg font-medium">Reports Center</h2>
+                  <p className="mt-1 text-sm text-slate-400">
+                    Export executive, analyst and machine-readable reports for this case.
+                  </p>
+                </div>
+
+                <span className="w-fit rounded-full border border-slate-700 bg-slate-950 px-4 py-2 text-sm text-slate-300">
+                  4 exports
+                </span>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <ReportDownloadCard
+                  title="Executive PDF"
+                  description="Board-ready PDF with executive summary, risk, actions and closure readiness."
+                  href={`/reports/cases/${caseId}/executive-pdf`}
+                  format="PDF"
+                  tone="executive"
+                />
+
+                <ReportDownloadCard
+                  title="Analyst Evidence Pack"
+                  description="Detailed evidence package with raw alerts, action plan, audit trail and closure evidence."
+                  href={`/reports/cases/${caseId}/evidence-pack?format=markdown`}
+                  format="MD"
+                  tone="evidence"
+                />
+
+                <ReportDownloadCard
+                  title="Markdown Case Report"
+                  description="Readable case report suitable for review, notes, ticketing systems and documentation."
+                  href={`/reports/cases/${caseId}?format=markdown`}
+                  format="MD"
+                  tone="standard"
+                />
+
+                <ReportDownloadCard
+                  title="JSON Case Payload"
+                  description="Structured export for automation, integrations, testing or downstream processing."
+                  href={`/reports/cases/${caseId}?format=json`}
+                  format="JSON"
+                  tone="json"
+                />
+              </div>
             </section>
 
             <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
@@ -2163,6 +2176,67 @@ export default function CaseDetailPage() {
         )}
       </div>
     </main>
+  );
+}
+
+
+function ReportDownloadCard({
+  title,
+  description,
+  href,
+  format,
+  tone,
+}: {
+  title: string;
+  description: string;
+  href: string;
+  format: string;
+  tone: "executive" | "evidence" | "standard" | "json";
+}) {
+  const toneClass =
+    tone === "executive"
+      ? "border-violet-800 bg-violet-950/30 text-violet-200"
+      : tone === "evidence"
+        ? "border-emerald-800 bg-emerald-950/30 text-emerald-200"
+        : tone === "json"
+          ? "border-slate-700 bg-slate-950 text-slate-300"
+          : "border-cyan-800 bg-cyan-950/30 text-cyan-200";
+
+  const buttonClass =
+    tone === "executive"
+      ? "border-violet-700 bg-violet-500 text-white hover:bg-violet-400"
+      : tone === "evidence"
+        ? "border-emerald-700 bg-emerald-500 text-slate-950 hover:bg-emerald-400"
+        : tone === "json"
+          ? "border-slate-700 bg-slate-800 text-slate-100 hover:bg-slate-700"
+          : "border-cyan-700 bg-cyan-500 text-slate-950 hover:bg-cyan-400";
+
+  return (
+    <div className={`flex h-full flex-col rounded-xl border p-4 ${toneClass}`}>
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-100">{title}</h3>
+          <p className="mt-2 text-sm leading-6 text-slate-400">
+            {description}
+          </p>
+        </div>
+
+        <span className="shrink-0 rounded-full border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-300">
+          {format}
+        </span>
+      </div>
+
+      <div className="mt-auto pt-3">
+        <a
+          href={href}
+          download
+          className={`inline-flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-2 text-sm font-medium shadow-sm ${buttonClass}`}
+        >
+          <FileDown className="h-4 w-4" />
+          Download
+        </a>
+      </div>
+    </div>
   );
 }
 
