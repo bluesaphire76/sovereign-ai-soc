@@ -70,6 +70,41 @@ type CaseAudit = {
   created_at: string | null;
 };
 
+type CaseClosureChecklist = {
+  id: number;
+  case_id: number;
+  root_cause: string | null;
+  evidence_reviewed: string | null;
+  actions_summary: string | null;
+  closure_reason: string | null;
+  closure_decision: string | null;
+  final_severity: string | null;
+  residual_risk: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+type CaseClosureResponse = {
+  case_id: number;
+  case_status: string | null;
+  ready_to_close: boolean;
+  missing_items: string[];
+  open_action_count: number;
+  checklist: CaseClosureChecklist | null;
+};
+
+type ClosureForm = {
+  root_cause: string;
+  evidence_reviewed: string;
+  actions_summary: string;
+  closure_reason: string;
+  closure_decision: string;
+  final_severity: string;
+  residual_risk: string;
+};
+
 type CaseAction = {
   id: number;
   case_id: number;
@@ -173,6 +208,22 @@ function workflowFormFromCase(item: IncidentCase): WorkflowForm {
   };
 }
 
+function closureFormFromResponse(
+  response: CaseClosureResponse | null
+): ClosureForm {
+  const checklist = response?.checklist;
+
+  return {
+    root_cause: checklist?.root_cause ?? "",
+    evidence_reviewed: checklist?.evidence_reviewed ?? "",
+    actions_summary: checklist?.actions_summary ?? "",
+    closure_reason: checklist?.closure_reason ?? "",
+    closure_decision: checklist?.closure_decision ?? "RESOLVED",
+    final_severity: checklist?.final_severity ?? "LOW",
+    residual_risk: checklist?.residual_risk ?? "",
+  };
+}
+
 function actionStatusClass(value: string | null | undefined) {
   const status = value ?? "OPEN";
 
@@ -223,6 +274,55 @@ function prettyJson(value: string | null) {
   } catch {
     return value;
   }
+}
+
+
+async function extractApiErrorMessage(
+  response: Response,
+  fallback: string
+): Promise<string> {
+  const payload = await response.json().catch(() => null);
+  const detail = payload?.detail;
+
+  if (typeof detail === "string") {
+    return detail;
+  }
+
+  if (detail && typeof detail === "object") {
+    const message =
+      typeof detail.message === "string"
+        ? detail.message
+        : fallback;
+
+    const missingItems = Array.isArray(detail.missing_items)
+      ? detail.missing_items
+      : [];
+
+    const lines = [message];
+
+    if (missingItems.length > 0) {
+      lines.push("");
+      lines.push("What still needs to be fixed:");
+
+      for (const item of missingItems) {
+        lines.push(`- ${item}`);
+      }
+    }
+
+    if (
+      typeof detail.open_action_count === "number" &&
+      detail.open_action_count > 0
+    ) {
+      lines.push("");
+      lines.push(
+        "Resolve open or in-progress actions by marking them as DONE or CANCELLED before closing the case."
+      );
+    }
+
+    return lines.join("\n");
+  }
+
+  return fallback;
 }
 
 async function fetchCase(id: string): Promise<IncidentCase> {
@@ -294,7 +394,46 @@ async function updateCaseWorkflow(
   });
 
   if (!response.ok) {
-    throw new Error(`API error ${response.status}`);
+    throw new Error(
+      await extractApiErrorMessage(response, `API error ${response.status}`)
+    );
+  }
+
+  return response.json();
+}
+
+async function fetchCaseClosure(id: string): Promise<CaseClosureResponse> {
+  const response = await fetch(`${API_BASE}/cases/${id}/closure`, {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      await extractApiErrorMessage(response, `API error ${response.status}`)
+    );
+  }
+
+  return response.json();
+}
+
+async function updateCaseClosure(
+  id: string,
+  payload: ClosureForm & {
+    reviewed_by: string;
+  }
+): Promise<CaseClosureResponse> {
+  const response = await fetch(`${API_BASE}/cases/${id}/closure`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      await extractApiErrorMessage(response, `API error ${response.status}`)
+    );
   }
 
   return response.json();
@@ -402,6 +541,17 @@ export default function CaseDetailPage() {
   const [caseAnalysis, setCaseAnalysis] = useState<CaseAIAnalysis | null>(null);
   const [auditTrail, setAuditTrail] = useState<CaseAudit[]>([]);
   const [caseActions, setCaseActions] = useState<CaseAction[]>([]);
+  const [caseClosure, setCaseClosure] = useState<CaseClosureResponse | null>(null);
+  const [closureForm, setClosureForm] = useState<ClosureForm>({
+    root_cause: "",
+    evidence_reviewed: "",
+    actions_summary: "",
+    closure_reason: "",
+    closure_decision: "RESOLVED",
+    final_severity: "LOW",
+    residual_risk: "",
+  });
+  const [savingClosureChecklist, setSavingClosureChecklist] = useState(false);
   const [actionForm, setActionForm] = useState<ActionForm>({
     title: "",
     description: "",
@@ -441,12 +591,14 @@ export default function CaseDetailPage() {
         analysisResponse,
         auditResponse,
         actionsResponse,
+        closureResponse,
       ] = await Promise.all([
         fetchCase(caseId),
         fetchCaseIncidents(caseId),
         fetchCaseAnalysis(caseId),
         fetchCaseAudit(caseId),
         fetchCaseActions(caseId),
+        fetchCaseClosure(caseId),
       ]);
 
       setCaseData(caseResponse);
@@ -455,6 +607,8 @@ export default function CaseDetailPage() {
       setCaseAnalysis(analysisResponse);
       setAuditTrail(auditResponse);
       setCaseActions(actionsResponse);
+      setCaseClosure(closureResponse);
+      setClosureForm(closureFormFromResponse(closureResponse));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
@@ -598,6 +752,26 @@ export default function CaseDetailPage() {
     }
   }
 
+  async function handleSaveClosureChecklist() {
+    try {
+      setSavingClosureChecklist(true);
+      setError(null);
+
+      const response = await updateCaseClosure(caseId, {
+        ...closureForm,
+        reviewed_by: "local_analyst",
+      });
+
+      setCaseClosure(response);
+      setClosureForm(closureFormFromResponse(response));
+      setAuditTrail(await fetchCaseAudit(caseId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setSavingClosureChecklist(false);
+    }
+  }
+
   async function handleSaveWorkflow() {
     try {
       setSavingWorkflow(true);
@@ -701,7 +875,7 @@ export default function CaseDetailPage() {
         )}
 
         {error && (
-          <div className="rounded-2xl border border-red-800 bg-red-950/60 p-4 text-sm text-red-200">
+          <div className="whitespace-pre-wrap rounded-2xl border border-red-800 bg-red-950/60 p-4 text-sm text-red-200">
             API error: {error}
           </div>
         )}
@@ -1203,6 +1377,210 @@ export default function CaseDetailPage() {
                   ))}
                 </div>
               )}
+            </section>
+
+            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
+              <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <h2 className="text-lg font-medium">Case closure checklist</h2>
+                  <p className="mt-1 text-sm text-slate-400">
+                    Document the minimum evidence required before closing or marking the case as false positive.
+                  </p>
+                </div>
+
+                <span
+                  className={`w-fit rounded-full border px-4 py-2 text-sm ${
+                    caseClosure?.ready_to_close
+                      ? "border-emerald-700 bg-emerald-950 text-emerald-200"
+                      : "border-orange-700 bg-orange-950 text-orange-200"
+                  }`}
+                >
+                  {caseClosure?.ready_to_close ? "Ready to close" : "Closure blocked"}
+                </span>
+              </div>
+
+              {caseClosure && !caseClosure.ready_to_close && (
+                <div className="mb-5 rounded-xl border border-orange-800 bg-orange-950/50 p-4">
+                  <div className="text-sm font-medium text-orange-200">
+                    This case cannot be closed yet.
+                  </div>
+
+                  <div className="mt-2 text-sm text-slate-300">
+                    Open actions: {caseClosure.open_action_count}
+                  </div>
+
+                  {caseClosure.missing_items.length > 0 && (
+                    <div className="mt-3">
+                      <div className="mb-2 text-xs uppercase tracking-wide text-orange-300">
+                        What still needs to be fixed
+                      </div>
+                      <ul className="list-inside list-disc space-y-1 text-sm text-slate-300">
+                        {caseClosure.missing_items.map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {caseClosure?.ready_to_close && (
+                <div className="mb-5 rounded-xl border border-emerald-800 bg-emerald-950/40 p-4 text-sm text-emerald-200">
+                  Closure checklist is complete and all actions are resolved. The case can now be moved to CLOSED or FALSE_POSITIVE.
+                </div>
+              )}
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="block">
+                  <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                    Closure decision
+                  </span>
+                  <select
+                    value={closureForm.closure_decision}
+                    onChange={(event) =>
+                      setClosureForm((current) => ({
+                        ...current,
+                        closure_decision: event.target.value,
+                      }))
+                    }
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                  >
+                    <option value="RESOLVED">RESOLVED</option>
+                    <option value="FALSE_POSITIVE">FALSE_POSITIVE</option>
+                    <option value="ACCEPTED_RISK">ACCEPTED_RISK</option>
+                    <option value="DUPLICATE">DUPLICATE</option>
+                    <option value="OTHER">OTHER</option>
+                  </select>
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                    Final severity
+                  </span>
+                  <select
+                    value={closureForm.final_severity}
+                    onChange={(event) =>
+                      setClosureForm((current) => ({
+                        ...current,
+                        final_severity: event.target.value,
+                      }))
+                    }
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                  >
+                    <option value="LOW">LOW</option>
+                    <option value="MEDIUM">MEDIUM</option>
+                    <option value="HIGH">HIGH</option>
+                    <option value="CRITICAL">CRITICAL</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <label className="block">
+                  <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                    Root cause / conclusion
+                  </span>
+                  <textarea
+                    value={closureForm.root_cause}
+                    onChange={(event) =>
+                      setClosureForm((current) => ({
+                        ...current,
+                        root_cause: event.target.value,
+                      }))
+                    }
+                    rows={4}
+                    placeholder="What caused the case or what conclusion was reached?"
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                    Evidence reviewed
+                  </span>
+                  <textarea
+                    value={closureForm.evidence_reviewed}
+                    onChange={(event) =>
+                      setClosureForm((current) => ({
+                        ...current,
+                        evidence_reviewed: event.target.value,
+                      }))
+                    }
+                    rows={4}
+                    placeholder="Which alerts, logs, correlations, AI analysis or artifacts were reviewed?"
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                    Actions summary
+                  </span>
+                  <textarea
+                    value={closureForm.actions_summary}
+                    onChange={(event) =>
+                      setClosureForm((current) => ({
+                        ...current,
+                        actions_summary: event.target.value,
+                      }))
+                    }
+                    rows={4}
+                    placeholder="Summarize completed, cancelled or waived actions."
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                    Residual risk
+                  </span>
+                  <textarea
+                    value={closureForm.residual_risk}
+                    onChange={(event) =>
+                      setClosureForm((current) => ({
+                        ...current,
+                        residual_risk: event.target.value,
+                      }))
+                    }
+                    rows={4}
+                    placeholder="What risk remains after closure?"
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                  />
+                </label>
+              </div>
+
+              <label className="mt-4 block">
+                <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                  Closure reason
+                </span>
+                <textarea
+                  value={closureForm.closure_reason}
+                  onChange={(event) =>
+                    setClosureForm((current) => ({
+                      ...current,
+                      closure_reason: event.target.value,
+                    }))
+                  }
+                  rows={3}
+                  placeholder="Why is this case ready to be closed?"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                />
+              </label>
+
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                <div className="text-xs text-slate-500">
+                  Last reviewed by {caseClosure?.checklist?.reviewed_by ?? "-"} ·{" "}
+                  {formatTimestamp(caseClosure?.checklist?.reviewed_at)}
+                </div>
+
+                <button
+                  onClick={handleSaveClosureChecklist}
+                  disabled={savingClosureChecklist}
+                  className="rounded-xl border border-cyan-500 bg-cyan-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {savingClosureChecklist ? "Saving..." : "Save closure checklist"}
+                </button>
+              </div>
             </section>
 
             <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">

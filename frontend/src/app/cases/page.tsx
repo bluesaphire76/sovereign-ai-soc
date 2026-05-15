@@ -218,7 +218,7 @@ export default function CasesPage() {
                       <tr>
                         <th className="py-3 pr-4">Case</th>
                         <th className="py-3 pr-4">Status</th>
-                        <th className="py-3 pr-4">Severity</th>
+                        <th className="min-w-32 whitespace-nowrap py-3 pr-4">Severity</th>
                         <th className="py-3 pr-4">Owner</th>
                         <th className="py-3 pr-4">SLA</th>
                         <th className="py-3 pr-4">Host</th>
@@ -253,9 +253,9 @@ export default function CasesPage() {
                             </span>
                           </td>
 
-                          <td className="py-3 pr-4">
+                          <td className="min-w-32 whitespace-nowrap py-3 pr-4">
                             <span
-                              className={`rounded-full border px-3 py-1 text-xs ${severityClass(
+                              className={`inline-flex whitespace-nowrap rounded-full border px-3 py-1 text-xs ${severityClass(
                                 item.severity
                               )}`}
                             >

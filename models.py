@@ -134,6 +134,27 @@ class CaseAction(Base):
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
 
+class CaseClosureChecklist(Base):
+    __tablename__ = "case_closure_checklists"
+
+    id = Column(Integer, primary_key=True, index=True)
+    case_id = Column(Integer, ForeignKey("incident_cases.id"), unique=True, index=True, nullable=False)
+
+    root_cause = Column(Text)
+    evidence_reviewed = Column(Text)
+    actions_summary = Column(Text)
+    closure_reason = Column(Text)
+    closure_decision = Column(String)
+    final_severity = Column(String)
+    residual_risk = Column(Text)
+
+    reviewed_by = Column(String, default="local_analyst")
+    reviewed_at = Column(DateTime(timezone=True))
+
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
 class CaseAIAnalysis(Base):
     __tablename__ = "case_ai_analyses"
 

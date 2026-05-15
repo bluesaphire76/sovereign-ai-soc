@@ -6,7 +6,7 @@ from database import SessionLocal
 from report_builder import build_case_report, build_incident_report
 from case_ai_analysis import generate_case_ai_analysis
 from case_action_suggestions import generate_case_action_suggestions
-from models import Incident, IncidentAudit, IncidentNote, IncidentCase, CaseIncident, CaseAIAnalysis, CaseAudit, CaseAction
+from models import Incident, IncidentAudit, IncidentNote, IncidentCase, CaseIncident, CaseAIAnalysis, CaseAudit, CaseAction, CaseClosureChecklist
 from timezone_utils import APP_TIMEZONE, format_timestamp_local, normalize_timestamp_utc
 from platform_health import get_platform_health
 from wazuh_ingest_state import get_watermark_snapshot
@@ -80,6 +80,20 @@ VALID_CASE_ACTION_PRIORITIES = {
 }
 
 
+TERMINAL_CASE_STATUSES = {
+    "CLOSED",
+    "FALSE_POSITIVE",
+}
+
+VALID_CLOSURE_DECISIONS = {
+    "RESOLVED",
+    "FALSE_POSITIVE",
+    "ACCEPTED_RISK",
+    "DUPLICATE",
+    "OTHER",
+}
+
+
 class IncidentStatusUpdate(BaseModel):
     status: str
     comment: str | None = None
@@ -116,6 +130,17 @@ class CaseActionUpdate(BaseModel):
     status: str | None = None
     due_at: str | None = None
     updated_by: str | None = None
+
+
+class CaseClosureChecklistUpdate(BaseModel):
+    root_cause: str | None = None
+    evidence_reviewed: str | None = None
+    actions_summary: str | None = None
+    closure_reason: str | None = None
+    closure_decision: str | None = None
+    final_severity: str | None = None
+    residual_risk: str | None = None
+    reviewed_by: str | None = None
 
 @app.get("/health")
 def health():
@@ -1026,6 +1051,105 @@ def ensure_case_exists(db, case_id: int) -> IncidentCase:
 
     return case
 
+
+
+def serialize_case_closure_checklist(row: CaseClosureChecklist | None) -> dict | None:
+    if not row:
+        return None
+
+    return {
+        "id": row.id,
+        "case_id": row.case_id,
+        "root_cause": row.root_cause,
+        "evidence_reviewed": row.evidence_reviewed,
+        "actions_summary": row.actions_summary,
+        "closure_reason": row.closure_reason,
+        "closure_decision": row.closure_decision,
+        "final_severity": row.final_severity,
+        "residual_risk": row.residual_risk,
+        "reviewed_by": row.reviewed_by,
+        "reviewed_at": row.reviewed_at.isoformat() if row.reviewed_at else None,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+    }
+
+
+def get_case_closure_checklist(db, case_id: int) -> CaseClosureChecklist | None:
+    return (
+        db.query(CaseClosureChecklist)
+        .filter(CaseClosureChecklist.case_id == case_id)
+        .first()
+    )
+
+
+def validate_case_closure_readiness(
+    db,
+    case: IncidentCase,
+    requested_status: str | None = None,
+) -> dict:
+    checklist = get_case_closure_checklist(db, case.id)
+
+    open_action_count = (
+        db.query(CaseAction)
+        .filter(
+            CaseAction.case_id == case.id,
+            ~CaseAction.status.in_(["DONE", "CANCELLED"]),
+        )
+        .count()
+    )
+
+    missing_items = []
+
+    if open_action_count > 0:
+        missing_items.append(
+            f"{open_action_count} action(s) are still OPEN or IN_PROGRESS"
+        )
+
+    required_fields = {
+        "root_cause": "Root cause / conclusion",
+        "evidence_reviewed": "Evidence reviewed",
+        "actions_summary": "Actions summary",
+        "closure_reason": "Closure reason",
+        "closure_decision": "Closure decision",
+        "final_severity": "Final severity",
+        "residual_risk": "Residual risk",
+    }
+
+    if not checklist:
+        missing_items.extend(required_fields.values())
+    else:
+        for field, label in required_fields.items():
+            value = getattr(checklist, field, None)
+            if not value or not str(value).strip():
+                missing_items.append(label)
+
+        if checklist.final_severity and checklist.final_severity not in VALID_CASE_SEVERITIES:
+            missing_items.append(
+                f"Final severity must be one of {sorted(VALID_CASE_SEVERITIES)}"
+            )
+
+        if checklist.closure_decision and checklist.closure_decision not in VALID_CLOSURE_DECISIONS:
+            missing_items.append(
+                f"Closure decision must be one of {sorted(VALID_CLOSURE_DECISIONS)}"
+            )
+
+        if requested_status == "FALSE_POSITIVE" and checklist.closure_decision != "FALSE_POSITIVE":
+            missing_items.append(
+                "FALSE_POSITIVE status requires closure_decision FALSE_POSITIVE"
+            )
+
+        if requested_status == "CLOSED" and checklist.closure_decision == "FALSE_POSITIVE":
+            missing_items.append(
+                "CLOSED status cannot use closure_decision FALSE_POSITIVE"
+            )
+
+    return {
+        "ready": len(missing_items) == 0,
+        "missing_items": missing_items,
+        "open_action_count": open_action_count,
+        "checklist": serialize_case_closure_checklist(checklist),
+    }
+
 @app.get("/cases")
 def list_cases(
     page: int = Query(1, ge=1),
@@ -1156,6 +1280,23 @@ def update_case_workflow(
                     detail=f"Invalid case status. Allowed values: {sorted(VALID_CASE_STATUSES)}",
                 )
 
+            if requested_status in TERMINAL_CASE_STATUSES:
+                validation = validate_case_closure_readiness(
+                    db,
+                    case,
+                    requested_status=requested_status,
+                )
+
+                if not validation["ready"]:
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "message": "Case cannot be closed until closure checklist is complete and all actions are resolved.",
+                            "missing_items": validation["missing_items"],
+                            "open_action_count": validation["open_action_count"],
+                        },
+                    )
+
             if case.status != requested_status:
                 changes["status"] = [case.status, requested_status]
                 case.status = requested_status
@@ -1274,6 +1415,124 @@ def get_case_audit(case_id: int):
     finally:
         db.close()
 
+
+
+@app.get("/cases/{case_id}/closure")
+def get_case_closure(case_id: int):
+    db = SessionLocal()
+
+    try:
+        case = ensure_case_exists(db, case_id)
+        validation = validate_case_closure_readiness(db, case)
+
+        return {
+            "case_id": case.id,
+            "case_status": case.status,
+            "ready_to_close": validation["ready"],
+            "missing_items": validation["missing_items"],
+            "open_action_count": validation["open_action_count"],
+            "checklist": validation["checklist"],
+        }
+
+    finally:
+        db.close()
+
+
+@app.patch("/cases/{case_id}/closure")
+def update_case_closure(
+    case_id: int,
+    payload: CaseClosureChecklistUpdate,
+):
+    db = SessionLocal()
+
+    try:
+        case = ensure_case_exists(db, case_id)
+        checklist = get_case_closure_checklist(db, case.id)
+        now = datetime.now(timezone.utc)
+        reviewed_by = payload.reviewed_by or "local_analyst"
+
+        old_value = serialize_case_closure_checklist(checklist)
+
+        if not checklist:
+            checklist = CaseClosureChecklist(
+                case_id=case.id,
+                reviewed_by=reviewed_by,
+                reviewed_at=now,
+                updated_at=now,
+            )
+            db.add(checklist)
+            db.flush()
+
+        text_fields = [
+            "root_cause",
+            "evidence_reviewed",
+            "actions_summary",
+            "closure_reason",
+            "residual_risk",
+        ]
+
+        for field in text_fields:
+            value = getattr(payload, field)
+            if value is not None:
+                setattr(checklist, field, value.strip() or None)
+
+        if payload.final_severity is not None:
+            final_severity = payload.final_severity.upper().strip()
+
+            if final_severity and final_severity not in VALID_CASE_SEVERITIES:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid final severity. Allowed values: {sorted(VALID_CASE_SEVERITIES)}",
+                )
+
+            checklist.final_severity = final_severity or None
+
+        if payload.closure_decision is not None:
+            closure_decision = payload.closure_decision.upper().strip()
+
+            if closure_decision and closure_decision not in VALID_CLOSURE_DECISIONS:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid closure decision. Allowed values: {sorted(VALID_CLOSURE_DECISIONS)}",
+                )
+
+            checklist.closure_decision = closure_decision or None
+
+        checklist.reviewed_by = reviewed_by
+        checklist.reviewed_at = now
+        checklist.updated_at = now
+        case.updated_at = now
+
+        db.flush()
+
+        new_value = serialize_case_closure_checklist(checklist)
+
+        audit = CaseAudit(
+            case_id=case.id,
+            event_type="CASE_CLOSURE_CHECKLIST_UPDATED",
+            old_value=str(old_value),
+            new_value=str(new_value),
+            comment=checklist.closure_reason,
+            created_by=reviewed_by,
+        )
+
+        db.add(audit)
+        db.commit()
+        db.refresh(checklist)
+
+        validation = validate_case_closure_readiness(db, case)
+
+        return {
+            "case_id": case.id,
+            "case_status": case.status,
+            "ready_to_close": validation["ready"],
+            "missing_items": validation["missing_items"],
+            "open_action_count": validation["open_action_count"],
+            "checklist": serialize_case_closure_checklist(checklist),
+        }
+
+    finally:
+        db.close()
 
 
 @app.post("/cases/{case_id}/actions/suggestions")
