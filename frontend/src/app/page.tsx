@@ -1,20 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import AppNavigation from "../components/AppNavigation";
 import {
   Activity,
   AlertTriangle,
-  BarChart3,
   Brain,
   Briefcase,
+  CheckCircle2,
+  Clock,
   Database,
-  HeartPulse,
-  LogOut,
   RefreshCw,
   Server,
   Shield,
+  Target,
+  Zap,
 } from "lucide-react";
 import {
   Bar,
@@ -25,6 +25,16 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+
+import AppNavigation from "../components/AppNavigation";
+import {
+  EnterpriseBadge,
+  EnterpriseButton,
+  EnterpriseChartCard,
+  EnterpriseMetricCard,
+  EnterprisePageHeader,
+  EnterpriseSection,
+} from "../components/enterprise";
 
 type Incident = {
   id: number;
@@ -55,9 +65,12 @@ type IncidentCase = {
   title: string;
   status: string | null;
   severity: string | null;
+  severity_review?: string | null;
   owner: string | null;
   sla_status: string | null;
+  agent?: string | null;
   incident_count: number;
+  risk_score?: number | null;
   action_count: number | null;
   open_action_count: number | null;
   has_ai_analysis: boolean | null;
@@ -95,6 +108,12 @@ type RiskDistribution = {
   critical_81_100: number;
 };
 
+type ChartRow = {
+  name: string;
+  value: number;
+  color: string;
+};
+
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8008";
 
@@ -108,7 +127,6 @@ const STATUS_OPTIONS = [
 ];
 
 const RISK_OPTIONS = ["ALL", "low", "medium", "high", "critical"];
-
 const PRIORITY_OPTIONS = ["ALL", "LOW", "MEDIUM", "HIGH", "CRITICAL"];
 
 const CORRELATED_OPTIONS = [
@@ -116,6 +134,19 @@ const CORRELATED_OPTIONS = [
   { label: "YES", value: "true" },
   { label: "NO", value: "false" },
 ];
+
+const ACTIVE_CASE_STATUSES = new Set([
+  "OPEN",
+  "TRIAGED",
+  "INVESTIGATING",
+  "ESCALATED",
+]);
+
+const TERMINAL_CASE_STATUSES = new Set(["CLOSED", "FALSE_POSITIVE"]);
+
+const CHART_GRID = "#334155";
+const CHART_AXIS = "#64748b";
+const CHART_TICK = "#cbd5e1";
 
 function riskLabel(score: number | null | undefined) {
   const value = score ?? 0;
@@ -126,25 +157,44 @@ function riskLabel(score: number | null | undefined) {
   return "Low";
 }
 
-function riskClass(score: number | null | undefined) {
+function riskTone(score: number | null | undefined) {
   const value = score ?? 0;
 
-  if (value >= 81) return "bg-red-100 text-red-800 border-red-200";
-  if (value >= 61) return "bg-orange-100 text-orange-800 border-orange-200";
-  if (value >= 31) return "bg-yellow-100 text-yellow-800 border-yellow-200";
-  return "bg-emerald-100 text-emerald-800 border-emerald-200";
+  if (value >= 81) return "danger";
+  if (value >= 61) return "warning";
+  if (value >= 31) return "warning";
+  return "success";
 }
 
-function statusClass(status: string | null | undefined) {
+function statusTone(status: string | null | undefined) {
   const value = status ?? "NEW";
 
-  if (value === "ESCALATED") return "bg-red-100 text-red-800 border-red-200";
-  if (value === "TRIAGED") return "bg-blue-100 text-blue-800 border-blue-200";
-  if (value === "CLOSED") return "bg-slate-200 text-slate-800 border-slate-300";
-  if (value === "FALSE_POSITIVE")
-    return "bg-purple-100 text-purple-800 border-purple-200";
+  if (value === "ESCALATED") return "danger";
+  if (value === "TRIAGED" || value === "INVESTIGATING") return "primary";
+  if (value === "CLOSED") return "success";
+  if (value === "FALSE_POSITIVE") return "executive";
 
-  return "bg-cyan-100 text-cyan-800 border-cyan-200";
+  return "neutral";
+}
+
+function severityTone(severity: string | null | undefined) {
+  const value = (severity ?? "LOW").toUpperCase();
+
+  if (value === "CRITICAL") return "danger";
+  if (value === "HIGH") return "warning";
+  if (value === "MEDIUM") return "primary";
+
+  return "neutral";
+}
+
+function slaTone(slaStatus: string | null | undefined) {
+  const value = (slaStatus ?? "UNKNOWN").toUpperCase();
+
+  if (value === "BREACHED") return "danger";
+  if (value === "AT_RISK") return "warning";
+  if (value === "OK") return "success";
+
+  return "neutral";
 }
 
 function formatTimestamp(value: string | null | undefined) {
@@ -163,13 +213,18 @@ function formatTimestamp(value: string | null | undefined) {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-    second: "2-digit",
     hour12: false,
-    timeZoneName: "short",
   });
 }
 
-function RiskBarShape(props: any) {
+function shortTitle(value: string | null | undefined, maxLength = 88) {
+  if (!value) return "-";
+  if (value.length <= maxLength) return value;
+
+  return `${value.slice(0, maxLength - 1)}…`;
+}
+
+function ChartBarShape(props: any) {
   const { x, y, width, height, payload } = props;
 
   return (
@@ -178,8 +233,8 @@ function RiskBarShape(props: any) {
       y={y}
       width={width}
       height={height}
-      rx={8}
-      ry={8}
+      rx={6}
+      ry={6}
       fill={payload.color}
     />
   );
@@ -204,18 +259,13 @@ export default function Home() {
   );
   const [casesData, setCasesData] = useState<CasesResponse | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-
-  const incidents = incidentsData?.items ?? [];
-  const cases = casesData?.items ?? [];
-  const totalPages = incidentsData?.total_pages ?? 1;
-  const totalIncidents = incidentsData?.total ?? 0;
-  const totalCases = casesData?.total ?? 0;
   const [topHosts, setTopHosts] = useState<TopHost[]>([]);
   const [riskDistribution, setRiskDistribution] =
     useState<RiskDistribution | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [riskFilter, setRiskFilter] = useState("ALL");
   const [priorityFilter, setPriorityFilter] = useState("ALL");
@@ -227,6 +277,12 @@ export default function Home() {
   const [hostFilter, setHostFilter] = useState("");
   const [searchFilter, setSearchFilter] = useState("");
 
+  const incidents = incidentsData?.items ?? [];
+  const cases = casesData?.items ?? [];
+  const totalPages = incidentsData?.total_pages ?? 1;
+  const totalIncidents = incidentsData?.total ?? 0;
+  const totalCases = casesData?.total ?? 0;
+
   const loadDashboard = useCallback(async () => {
     try {
       setRefreshing(true);
@@ -234,7 +290,7 @@ export default function Home() {
 
       const incidentParams = new URLSearchParams({
         page: String(currentPage),
-        limit: "20",
+        limit: "15",
       });
 
       if (statusFilter !== "ALL") {
@@ -275,7 +331,7 @@ export default function Home() {
 
       if (searchFilter.trim()) {
         incidentParams.set("search", searchFilter.trim());
-      }      
+      }
 
       const [
         summaryData,
@@ -287,7 +343,7 @@ export default function Home() {
         fetchJson<Summary>("/metrics/summary"),
         fetchJson<IncidentsResponse>(`/incidents?${incidentParams.toString()}`),
         fetchJson<CasesResponse>("/cases?limit=100"),
-        fetchJson<TopHost[]>("/metrics/top-hosts?limit=10"),
+        fetchJson<TopHost[]>("/metrics/top-hosts?limit=8"),
         fetchJson<RiskDistribution>("/metrics/risk-distribution"),
       ]);
 
@@ -326,7 +382,7 @@ export default function Home() {
     return () => window.clearInterval(interval);
   }, [loadDashboard]);
 
-  const riskChartData = useMemo(() => {
+  const riskChartData = useMemo<ChartRow[]>(() => {
     if (!riskDistribution) return [];
 
     return [
@@ -354,11 +410,8 @@ export default function Home() {
   }, [riskDistribution]);
 
   const caseMetrics = useMemo(() => {
-    const openStatuses = new Set(["OPEN", "TRIAGED", "INVESTIGATING", "ESCALATED"]);
-    const terminalStatuses = new Set(["CLOSED", "FALSE_POSITIVE"]);
-
     const activeCases = cases.filter((item) =>
-      openStatuses.has(item.status ?? "OPEN")
+      ACTIVE_CASE_STATUSES.has(item.status ?? "OPEN")
     );
 
     return {
@@ -366,525 +419,672 @@ export default function Home() {
       active: activeCases.length,
       slaBreached: cases.filter((item) => item.sla_status === "BREACHED").length,
       readyToClose: cases.filter(
-        (item) => item.ready_to_close && !terminalStatuses.has(item.status ?? "OPEN")
+        (item) =>
+          item.ready_to_close &&
+          !TERMINAL_CASE_STATUSES.has(item.status ?? "OPEN")
       ).length,
-      openActions: cases.filter((item) => (item.open_action_count ?? 0) > 0).length,
+      openActions: cases.filter((item) => (item.open_action_count ?? 0) > 0)
+        .length,
       needsAi: cases.filter(
-        (item) => !item.has_ai_analysis && !terminalStatuses.has(item.status ?? "OPEN")
+        (item) =>
+          !item.has_ai_analysis &&
+          !TERMINAL_CASE_STATUSES.has(item.status ?? "OPEN")
       ).length,
       needsClosure: cases.filter(
         (item) =>
           !item.has_closure_checklist &&
-          !terminalStatuses.has(item.status ?? "OPEN")
+          !TERMINAL_CASE_STATUSES.has(item.status ?? "OPEN")
       ).length,
       unassigned: cases.filter(
-        (item) => !item.owner && !terminalStatuses.has(item.status ?? "OPEN")
+        (item) =>
+          !item.owner && !TERMINAL_CASE_STATUSES.has(item.status ?? "OPEN")
       ).length,
     };
   }, [cases, totalCases]);
 
+  const caseStatusChartData = useMemo<ChartRow[]>(() => {
+    const counts = new Map<string, number>();
+
+    for (const item of cases) {
+      const status = item.status ?? "OPEN";
+      counts.set(status, (counts.get(status) ?? 0) + 1);
+    }
+
+    const colors: Record<string, string> = {
+      OPEN: "#22d3ee",
+      TRIAGED: "#60a5fa",
+      INVESTIGATING: "#a78bfa",
+      ESCALATED: "#ef4444",
+      CLOSED: "#34d399",
+      FALSE_POSITIVE: "#c084fc",
+    };
+
+    return Array.from(counts.entries())
+      .map(([name, value]) => ({
+        name,
+        value,
+        color: colors[name] ?? "#94a3b8",
+      }))
+      .sort((a, b) => b.value - a.value);
+  }, [cases]);
+
+  const operationsChartData = useMemo<ChartRow[]>(() => {
+    return [
+      {
+        name: "SLA breached",
+        value: caseMetrics.slaBreached,
+        color: "#ef4444",
+      },
+      {
+        name: "Open actions",
+        value: caseMetrics.openActions,
+        color: "#f97316",
+      },
+      {
+        name: "Needs AI",
+        value: caseMetrics.needsAi,
+        color: "#22d3ee",
+      },
+      {
+        name: "Ready",
+        value: caseMetrics.readyToClose,
+        color: "#34d399",
+      },
+    ];
+  }, [caseMetrics]);
+
+  const highPriorityCases = useMemo(() => {
+    return [...cases]
+      .filter((item) => !TERMINAL_CASE_STATUSES.has(item.status ?? "OPEN"))
+      .sort((a, b) => {
+        const scoreA =
+          (a.sla_status === "BREACHED" ? 1000 : 0) +
+          ((a.open_action_count ?? 0) > 0 ? 100 : 0) +
+          (a.risk_score ?? 0);
+
+        const scoreB =
+          (b.sla_status === "BREACHED" ? 1000 : 0) +
+          ((b.open_action_count ?? 0) > 0 ? 100 : 0) +
+          (b.risk_score ?? 0);
+
+        return scoreB - scoreA;
+      })
+      .slice(0, 8);
+  }, [cases]);
+
+  function resetFilters() {
+    setStatusFilter("ALL");
+    setRiskFilter("ALL");
+    setPriorityFilter("ALL");
+    setCorrelatedFilter("ALL");
+    setCorrelationTypeFilter("");
+    setMitreFilter("");
+    setDateFromFilter("");
+    setDateToFilter("");
+    setHostFilter("");
+    setSearchFilter("");
+    setCurrentPage(1);
+  }
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto max-w-7xl px-6 py-8">
+      <div className="mx-auto max-w-[1600px] px-4 py-4">
         <AppNavigation />
-        <header className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <div className="mb-2 flex items-center gap-2 text-sm text-cyan-300">
-              <Shield className="h-4 w-4" />
-              Sovereign AI SOC
-            </div>
 
-            <h1 className="text-3xl font-semibold tracking-tight">
-              AI SOC Dashboard
-            </h1>
-
-            <p className="mt-2 max-w-2xl text-sm text-slate-400">
-              Local-first SOC assistant with Wazuh, PostgreSQL, Qdrant RAG and
-              Ollama-based triage.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap gap-3">
-            <button
+        <EnterprisePageHeader
+          eyebrow="SOC Operations Console"
+          title="AI SOC Dashboard"
+          description="Compact operational view of incidents, case workflow, AI analysis coverage, SLA exposure and investigation backlog."
+          icon={<Shield className="h-3.5 w-3.5" />}
+          actions={
+            <EnterpriseButton
               onClick={loadDashboard}
-              className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 shadow-sm hover:bg-slate-800"
+              tone="secondary"
+              size="sm"
+              icon={
+                <RefreshCw
+                  className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`}
+                />
+              }
             >
-              <RefreshCw
-                className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`}
-              />
               Refresh
-            </button>
-          </div>
-        </header>
+            </EnterpriseButton>
+          }
+        />
 
         {error && (
-          <div className="mb-6 rounded-2xl border border-red-800 bg-red-950/60 p-4 text-sm text-red-200">
+          <div className="mb-4 rounded-xl border border-red-800 bg-red-950/60 p-3 text-xs text-red-200">
             API error: {error}
           </div>
         )}
 
         {loading ? (
-          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6 text-slate-300">
-            Loading dashboard...
-          </div>
+          <EnterpriseSection>
+            <div className="text-sm text-slate-300">Loading dashboard...</div>
+          </EnterpriseSection>
         ) : (
-          <>
-            <section className="grid gap-4 md:grid-cols-4">
-              <MetricCard
-                title="Total incidents"
+          <div className="space-y-4">
+            <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+              <EnterpriseMetricCard
+                title="Incidents"
                 value={summary?.total_incidents ?? 0}
-                icon={<Database className="h-5 w-5" />}
+                subtitle="Total observed"
+                tone="primary"
+                icon={<Database className="h-4 w-4" />}
               />
 
-              <MetricCard
-                title="Average risk"
+              <EnterpriseMetricCard
+                title="Avg risk"
                 value={summary?.average_risk_score ?? 0}
-                icon={<Activity className="h-5 w-5" />}
+                subtitle="Current dataset"
+                icon={<Activity className="h-4 w-4" />}
               />
 
-              <MetricCard
+              <EnterpriseMetricCard
                 title="Max risk"
                 value={summary?.max_risk_score ?? 0}
-                icon={<AlertTriangle className="h-5 w-5" />}
+                subtitle={riskLabel(summary?.max_risk_score)}
+                tone={riskTone(summary?.max_risk_score)}
+                icon={<AlertTriangle className="h-4 w-4" />}
               />
 
-              <MetricCard
+              <EnterpriseMetricCard
                 title="Correlated"
                 value={summary?.correlated_incidents ?? 0}
-                icon={<Brain className="h-5 w-5" />}
+                subtitle="AI correlation"
+                tone="executive"
+                icon={<Brain className="h-4 w-4" />}
+              />
+
+              <EnterpriseMetricCard
+                title="Cases"
+                value={caseMetrics.total}
+                subtitle={`${caseMetrics.active} active`}
+                tone="primary"
+                icon={<Briefcase className="h-4 w-4" />}
+              />
+
+              <EnterpriseMetricCard
+                title="SLA breach"
+                value={caseMetrics.slaBreached}
+                subtitle="Immediate attention"
+                tone={caseMetrics.slaBreached > 0 ? "danger" : "success"}
+                icon={<Clock className="h-4 w-4" />}
+              />
+
+              <EnterpriseMetricCard
+                title="Open actions"
+                value={caseMetrics.openActions}
+                subtitle="Cases with tasks"
+                tone={caseMetrics.openActions > 0 ? "warning" : "success"}
+                icon={<Zap className="h-4 w-4" />}
+              />
+
+              <EnterpriseMetricCard
+                title="Needs AI"
+                value={caseMetrics.needsAi}
+                subtitle="Open cases"
+                tone={caseMetrics.needsAi > 0 ? "warning" : "success"}
+                icon={<Target className="h-4 w-4" />}
               />
             </section>
 
-            <section className="mt-6 rounded-2xl border border-cyan-900/60 bg-cyan-950/10 p-5 shadow-lg">
-              <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                <div>
-                  <h2 className="text-lg font-medium">SOC Operations Command Center</h2>
-                  <p className="mt-1 text-sm text-slate-400">
-                    Operational view of the v0.2 case management workflow: queue, kanban, actions, AI analysis and closure readiness.
-                  </p>
-                </div>
+            <section className="grid gap-4 xl:grid-cols-3">
+              <EnterpriseChartCard
+                title="Incident Risk Distribution"
+                description="Current incident distribution by calculated risk band."
+                height="h-56"
+              >
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={riskChartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
+                    <XAxis
+                      dataKey="name"
+                      tick={{ fill: CHART_TICK, fontSize: 11 }}
+                      axisLine={{ stroke: CHART_AXIS }}
+                      tickLine={{ stroke: CHART_AXIS }}
+                    />
+                    <YAxis
+                      allowDecimals={false}
+                      tick={{ fill: CHART_TICK, fontSize: 11 }}
+                      axisLine={{ stroke: CHART_AXIS }}
+                      tickLine={{ stroke: CHART_AXIS }}
+                    />
+                    <Tooltip
+                      cursor={{ fill: "rgba(15, 23, 42, 0.6)" }}
+                      contentStyle={{
+                        backgroundColor: "#020617",
+                        border: "1px solid #334155",
+                        borderRadius: "10px",
+                        color: "#e2e8f0",
+                      }}
+                      labelStyle={{ color: "#67e8f9" }}
+                    />
+                    <Bar
+                      dataKey="value"
+                      name="Incidents"
+                      shape={(props) => <ChartBarShape {...props} />}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </EnterpriseChartCard>
 
-                <span className="w-fit rounded-full border border-cyan-700 bg-cyan-950 px-4 py-2 text-sm text-cyan-200">
-                  {caseMetrics.active} active cases
-                </span>
-              </div>
+              <EnterpriseChartCard
+                title="Case Status Distribution"
+                description="Investigation cases grouped by operational status."
+                height="h-56"
+              >
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={caseStatusChartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
+                    <XAxis
+                      dataKey="name"
+                      tick={{ fill: CHART_TICK, fontSize: 10 }}
+                      axisLine={{ stroke: CHART_AXIS }}
+                      tickLine={{ stroke: CHART_AXIS }}
+                    />
+                    <YAxis
+                      allowDecimals={false}
+                      tick={{ fill: CHART_TICK, fontSize: 11 }}
+                      axisLine={{ stroke: CHART_AXIS }}
+                      tickLine={{ stroke: CHART_AXIS }}
+                    />
+                    <Tooltip
+                      cursor={{ fill: "rgba(15, 23, 42, 0.6)" }}
+                      contentStyle={{
+                        backgroundColor: "#020617",
+                        border: "1px solid #334155",
+                        borderRadius: "10px",
+                        color: "#e2e8f0",
+                      }}
+                      labelStyle={{ color: "#67e8f9" }}
+                    />
+                    <Bar
+                      dataKey="value"
+                      name="Cases"
+                      shape={(props) => <ChartBarShape {...props} />}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </EnterpriseChartCard>
 
-              <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
-                <CaseOpsMetric
-                  title="Total cases"
-                  value={caseMetrics.total}
-                  description="All generated investigation cases."
-                />
-
-                <CaseOpsMetric
-                  title="SLA breached"
-                  value={caseMetrics.slaBreached}
-                  description="Cases requiring immediate attention."
-                  danger={caseMetrics.slaBreached > 0}
-                />
-
-                <CaseOpsMetric
-                  title="Ready to close"
-                  value={caseMetrics.readyToClose}
-                  description="Closure checklist complete and no open actions."
-                  success={caseMetrics.readyToClose > 0}
-                />
-
-                <CaseOpsMetric
-                  title="Open actions"
-                  value={caseMetrics.openActions}
-                  description="Cases with unresolved analyst tasks."
-                  warning={caseMetrics.openActions > 0}
-                />
-
-                <CaseOpsMetric
-                  title="Needs AI"
-                  value={caseMetrics.needsAi}
-                  description="Open cases missing AI assessment."
-                  warning={caseMetrics.needsAi > 0}
-                />
-
-                <CaseOpsMetric
-                  title="Unassigned"
-                  value={caseMetrics.unassigned}
-                  description="Open cases without owner."
-                  warning={caseMetrics.unassigned > 0}
-                />
-              </div>
-
-              <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <OperationalLinkCard
-                  title="Case Queue"
-                  description="Tabular SOC queue with filters, priority and closure readiness."
-                  href="/cases"
-                  primary
-                />
-
-                <OperationalLinkCard
-                  title="Kanban Board"
-                  description="Visual backlog board grouped by investigation state."
-                  href="/cases/kanban"
-                />
-
-                <OperationalLinkCard
-                  title="Executive Dashboard"
-                  description="Management-level view of risk and SOC activity."
-                  href="/executive"
-                />
-
-                <OperationalLinkCard
-                  title="Detection Quality"
-                  description="Synthetic scenario and detection quality monitoring."
-                  href="/detection-quality"
-                />
-              </div>
+              <EnterpriseChartCard
+                title="Operational Backlog"
+                description="SLA, actions, AI coverage and closure readiness."
+                height="h-56"
+              >
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={operationsChartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
+                    <XAxis
+                      dataKey="name"
+                      tick={{ fill: CHART_TICK, fontSize: 10 }}
+                      axisLine={{ stroke: CHART_AXIS }}
+                      tickLine={{ stroke: CHART_AXIS }}
+                    />
+                    <YAxis
+                      allowDecimals={false}
+                      tick={{ fill: CHART_TICK, fontSize: 11 }}
+                      axisLine={{ stroke: CHART_AXIS }}
+                      tickLine={{ stroke: CHART_AXIS }}
+                    />
+                    <Tooltip
+                      cursor={{ fill: "rgba(15, 23, 42, 0.6)" }}
+                      contentStyle={{
+                        backgroundColor: "#020617",
+                        border: "1px solid #334155",
+                        borderRadius: "10px",
+                        color: "#e2e8f0",
+                      }}
+                      labelStyle={{ color: "#67e8f9" }}
+                    />
+                    <Bar
+                      dataKey="value"
+                      name="Cases"
+                      shape={(props) => <ChartBarShape {...props} />}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </EnterpriseChartCard>
             </section>
 
-            <section className="mt-6 grid gap-6 lg:grid-cols-2">
-              <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
-                <h2 className="mb-4 text-lg font-medium">
-                  Risk distribution
-                </h2>
+            <section className="grid gap-4 xl:grid-cols-[1.25fr_0.75fr]">
+              <EnterpriseSection
+                title="Priority Case Queue"
+                description="Highest operational attention based on SLA breach, open actions and risk."
+                actions={
+                  <>
+                    <EnterpriseButton href="/cases" tone="primary" size="xs">
+                      Open Queue
+                    </EnterpriseButton>
+                    <EnterpriseButton href="/cases/kanban" tone="secondary" size="xs">
+                      Kanban
+                    </EnterpriseButton>
+                  </>
+                }
+              >
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="border-b border-slate-800 uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="py-2 pr-3">Case</th>
+                        <th className="py-2 pr-3">Status</th>
+                        <th className="py-2 pr-3">Severity</th>
+                        <th className="py-2 pr-3">SLA</th>
+                        <th className="py-2 pr-3">Owner</th>
+                        <th className="py-2 pr-3">Actions</th>
+                        <th className="py-2 pr-3">AI</th>
+                      </tr>
+                    </thead>
 
-                <div className="h-72">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={riskChartData}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="name" />
-                      <YAxis allowDecimals={false} />
-                      <Tooltip />
-                      <Bar
-                        dataKey="value"
-                        shape={(props) => <RiskBarShape {...props} />}
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
+                    <tbody className="divide-y divide-slate-800/80">
+                      {highPriorityCases.map((item) => {
+                        const effectiveSeverity =
+                          item.severity_review ?? item.severity ?? "LOW";
+
+                        return (
+                          <tr key={item.id} className="hover:bg-slate-800/40">
+                            <td className="max-w-md py-2 pr-3">
+                              <Link
+                                href={`/cases/${item.id}`}
+                                className="font-medium text-cyan-300 hover:text-cyan-200"
+                              >
+                                #{item.id} {shortTitle(item.title, 72)}
+                              </Link>
+                              <div className="mt-0.5 text-[11px] text-slate-500">
+                                {item.incident_count} incident(s) · updated{" "}
+                                {formatTimestamp(item.updated_at)}
+                              </div>
+                            </td>
+
+                            <td className="py-2 pr-3">
+                              <EnterpriseBadge tone={statusTone(item.status) as any}>
+                                {item.status ?? "OPEN"}
+                              </EnterpriseBadge>
+                            </td>
+
+                            <td className="py-2 pr-3">
+                              <EnterpriseBadge tone={severityTone(effectiveSeverity) as any}>
+                                {effectiveSeverity}
+                              </EnterpriseBadge>
+                            </td>
+
+                            <td className="py-2 pr-3">
+                              <EnterpriseBadge tone={slaTone(item.sla_status) as any}>
+                                {item.sla_status ?? "UNKNOWN"}
+                              </EnterpriseBadge>
+                            </td>
+
+                            <td className="py-2 pr-3 text-slate-300">
+                              {item.owner ?? "unassigned"}
+                            </td>
+
+                            <td className="py-2 pr-3 text-slate-300">
+                              {item.open_action_count ?? 0}/{item.action_count ?? 0} open
+                            </td>
+
+                            <td className="py-2 pr-3">
+                              <EnterpriseBadge
+                                tone={item.has_ai_analysis ? "success" : "warning"}
+                              >
+                                {item.has_ai_analysis ? "ready" : "missing"}
+                              </EnterpriseBadge>
+                            </td>
+                          </tr>
+                        );
+                      })}
+
+                      {highPriorityCases.length === 0 && (
+                        <tr>
+                          <td colSpan={7} className="py-6 text-center text-slate-500">
+                            No active priority cases found.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
                 </div>
-              </div>
+              </EnterpriseSection>
 
-              <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
-                <h2 className="mb-4 text-lg font-medium">Top noisy hosts</h2>
-
-                <div className="space-y-3">
+              <EnterpriseSection
+                title="Top Noisy Hosts"
+                description="Hosts generating the highest alert volume."
+              >
+                <div className="space-y-2">
                   {topHosts.map((host) => (
                     <div
                       key={host.agent ?? "unknown"}
-                      className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-950 px-4 py-3"
+                      className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-950 px-3 py-2"
                     >
-                      <div className="flex items-center gap-3">
-                        <Server className="h-4 w-4 text-cyan-300" />
+                      <div className="flex min-w-0 items-center gap-2">
+                        <Server className="h-3.5 w-3.5 shrink-0 text-cyan-300" />
 
-                        <div>
-                          <div className="font-medium">
+                        <div className="min-w-0">
+                          <div className="truncate text-xs font-medium text-slate-200">
                             {host.agent ?? "unknown"}
                           </div>
-                          <div className="text-xs text-slate-500">
-                            {host.count} incidenti
+                          <div className="text-[11px] text-slate-500">
+                            {host.count} incident(s)
                           </div>
                         </div>
                       </div>
 
-                      <span
-                        className={`rounded-full border px-3 py-1 text-xs ${riskClass(
-                          host.max_risk
-                        )}`}
-                      >
+                      <EnterpriseBadge tone={riskTone(host.max_risk) as any}>
                         max {host.max_risk ?? 0}
-                      </span>
+                      </EnterpriseBadge>
                     </div>
                   ))}
+
+                  {topHosts.length === 0 && (
+                    <div className="rounded-lg border border-slate-800 bg-slate-950 p-3 text-xs text-slate-500">
+                      No host data available.
+                    </div>
+                  )}
                 </div>
-              </div>
+              </EnterpriseSection>
             </section>
 
-            <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-lg font-medium">Recent incidents</h2>
-                <span className="text-xs text-slate-500">
-                  Auto refresh every 30s
-                </span>
-              </div>
+            <EnterpriseSection
+              title="Incident Stream"
+              description="Recent Wazuh incidents with AI risk, priority and correlation metadata."
+              actions={
+                <EnterpriseBadge tone="muted">
+                  Auto refresh 30s · page {currentPage}/{totalPages}
+                </EnterpriseBadge>
+              }
+            >
+              <div className="mb-4 grid gap-2 rounded-xl border border-slate-800 bg-slate-950 p-3 md:grid-cols-4 xl:grid-cols-6">
+                <FilterSelect
+                  label="Status"
+                  value={statusFilter}
+                  onChange={(value) => {
+                    setStatusFilter(value);
+                    setCurrentPage(1);
+                  }}
+                  options={STATUS_OPTIONS}
+                />
 
-              <div className="mb-5 grid gap-3 rounded-2xl border border-slate-800 bg-slate-950 p-4 md:grid-cols-4 xl:grid-cols-5">
-                <div>
-                  <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
-                    Status
-                  </label>
-                  <select
-                    value={statusFilter}
-                    onChange={(event) => {
-                      setStatusFilter(event.target.value);
-                      setCurrentPage(1);
-                    }}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200"
-                  >
-                    {STATUS_OPTIONS.map((status) => (
-                      <option key={status} value={status}>
-                        {status}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <FilterSelect
+                  label="Risk"
+                  value={riskFilter}
+                  onChange={(value) => {
+                    setRiskFilter(value);
+                    setCurrentPage(1);
+                  }}
+                  options={RISK_OPTIONS.map((risk) => risk.toUpperCase())}
+                  rawOptions={RISK_OPTIONS}
+                />
 
-                <div>
-                  <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
-                    Risk
-                  </label>
-                  <select
-                    value={riskFilter}
-                    onChange={(event) => {
-                      setRiskFilter(event.target.value);
-                      setCurrentPage(1);
-                    }}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200"
-                  >
-                    {RISK_OPTIONS.map((risk) => (
-                      <option key={risk} value={risk}>
-                        {risk.toUpperCase()}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <FilterSelect
+                  label="Priority"
+                  value={priorityFilter}
+                  onChange={(value) => {
+                    setPriorityFilter(value);
+                    setCurrentPage(1);
+                  }}
+                  options={PRIORITY_OPTIONS}
+                />
 
-                <div>
-                  <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
-                    Host
-                  </label>
-                  <input
-                    value={hostFilter}
-                    onChange={(event) => {
-                      setHostFilter(event.target.value);
-                      setCurrentPage(1);
-                    }}
-                    placeholder="e.g. wazuh.manager"
-                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600"
-                  />
-                </div>
+                <FilterSelect
+                  label="Correlated"
+                  value={correlatedFilter}
+                  onChange={(value) => {
+                    setCorrelatedFilter(value);
+                    setCurrentPage(1);
+                  }}
+                  options={CORRELATED_OPTIONS.map((item) => item.label)}
+                  rawOptions={CORRELATED_OPTIONS.map((item) => item.value)}
+                />
 
-                <div>
-                  <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
-                    Search rule
-                  </label>
-                  <input
-                    value={searchFilter}
-                    onChange={(event) => {
-                      setSearchFilter(event.target.value);
-                      setCurrentPage(1);
-                    }}
-                    placeholder="e.g. CIS, sudo, ssh"
-                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600"
-                  />
-                </div>
+                <FilterInput
+                  label="Host"
+                  value={hostFilter}
+                  onChange={(value) => {
+                    setHostFilter(value);
+                    setCurrentPage(1);
+                  }}
+                  placeholder="wazuh.manager"
+                />
 
-                <div>
-                  <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
-                    Priority
-                  </label>
-                  <select
-                    value={priorityFilter}
-                    onChange={(event) => {
-                      setPriorityFilter(event.target.value);
-                      setCurrentPage(1);
-                    }}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200"
-                  >
-                    {PRIORITY_OPTIONS.map((priority) => (
-                      <option key={priority} value={priority}>
-                        {priority}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <FilterInput
+                  label="Rule"
+                  value={searchFilter}
+                  onChange={(value) => {
+                    setSearchFilter(value);
+                    setCurrentPage(1);
+                  }}
+                  placeholder="ssh, sudo, CIS"
+                />
 
-                <div>
-                  <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
-                    Correlated
-                  </label>
-                  <select
-                    value={correlatedFilter}
-                    onChange={(event) => {
-                      setCorrelatedFilter(event.target.value);
-                      setCurrentPage(1);
-                    }}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200"
-                  >
-                    {CORRELATED_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <FilterInput
+                  label="Correlation"
+                  value={correlationTypeFilter}
+                  onChange={(value) => {
+                    setCorrelationTypeFilter(value);
+                    setCurrentPage(1);
+                  }}
+                  placeholder="COMPROMISE"
+                />
 
-                <div>
-                  <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
-                    Correlation type
-                  </label>
-                  <input
-                    value={correlationTypeFilter}
-                    onChange={(event) => {
-                      setCorrelationTypeFilter(event.target.value);
-                      setCurrentPage(1);
-                    }}
-                    placeholder="e.g. COMPROMISE"
-                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600"
-                  />
-                </div>
+                <FilterInput
+                  label="MITRE"
+                  value={mitreFilter}
+                  onChange={(value) => {
+                    setMitreFilter(value);
+                    setCurrentPage(1);
+                  }}
+                  placeholder="T1078"
+                />
 
-                <div>
-                  <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
-                    MITRE
-                  </label>
-                  <input
-                    value={mitreFilter}
-                    onChange={(event) => {
-                      setMitreFilter(event.target.value);
-                      setCurrentPage(1);
-                    }}
-                    placeholder="e.g. T1078"
-                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600"
-                  />
-                </div>
+                <FilterInput
+                  label="From"
+                  value={dateFromFilter}
+                  onChange={(value) => {
+                    setDateFromFilter(value);
+                    setCurrentPage(1);
+                  }}
+                  type="date"
+                />
 
-                <div>
-                  <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
-                    Date from
-                  </label>
-                  <input
-                    type="date"
-                    value={dateFromFilter}
-                    onChange={(event) => {
-                      setDateFromFilter(event.target.value);
-                      setCurrentPage(1);
-                    }}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200"
-                  />
-                </div>
+                <FilterInput
+                  label="To"
+                  value={dateToFilter}
+                  onChange={(value) => {
+                    setDateToFilter(value);
+                    setCurrentPage(1);
+                  }}
+                  type="date"
+                />
 
-                <div>
-                  <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
-                    Date to
-                  </label>
-                  <input
-                    type="date"
-                    value={dateToFilter}
-                    onChange={(event) => {
-                      setDateToFilter(event.target.value);
-                      setCurrentPage(1);
-                    }}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200"
-                  />
-                </div>
-
-                <div className="flex items-end">
-                  <button
-                    onClick={() => {
-                      setStatusFilter("ALL");
-                      setRiskFilter("ALL");
-                      setPriorityFilter("ALL");
-                      setCorrelatedFilter("ALL");
-                      setCorrelationTypeFilter("");
-                      setMitreFilter("");
-                      setDateFromFilter("");
-                      setDateToFilter("");
-                      setHostFilter("");
-                      setSearchFilter("");
-                      setCurrentPage(1);
-                    }}
-                    className="w-full rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800"
+                <div className="flex items-end xl:col-span-2">
+                  <EnterpriseButton
+                    onClick={resetFilters}
+                    tone="ghost"
+                    size="sm"
+                    className="w-full"
                   >
                     Reset filters
-                  </button>
+                  </EnterpriseButton>
                 </div>
               </div>
 
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="border-b border-slate-800 text-xs uppercase text-slate-500">
+                <table className="w-full text-left text-xs">
+                  <thead className="border-b border-slate-800 uppercase tracking-wide text-slate-500">
                     <tr>
-                      <th className="py-3 pr-4">ID</th>
-                      <th className="py-3 pr-4">Status</th>
-                      <th className="py-3 pr-4">Time</th>
-                      <th className="py-3 pr-4">Host</th>
-                      <th className="py-3 pr-4">Rule</th>
-                      <th className="py-3 pr-4">Level</th>
-                      <th className="min-w-[150px] py-3 pr-4">Risk</th>
-                      <th className="py-3 pr-4">Priority</th>
-                      <th className="py-3 pr-4">Correlation</th>
+                      <th className="py-2 pr-3">ID</th>
+                      <th className="py-2 pr-3">Status</th>
+                      <th className="py-2 pr-3">Time</th>
+                      <th className="py-2 pr-3">Host</th>
+                      <th className="py-2 pr-3">Rule</th>
+                      <th className="py-2 pr-3">Level</th>
+                      <th className="py-2 pr-3">Risk</th>
+                      <th className="py-2 pr-3">Priority</th>
+                      <th className="py-2 pr-3">Correlation</th>
                     </tr>
                   </thead>
 
-                  <tbody>
+                  <tbody className="divide-y divide-slate-800/80">
                     {incidents.map((incident) => (
-                      <tr
-                        key={incident.id}
-                        className="border-b border-slate-800/70"
-                      >
-                        <td className="py-3 pr-4 text-slate-400">
+                      <tr key={incident.id} className="hover:bg-slate-800/40">
+                        <td className="py-2 pr-3">
                           <Link
                             href={`/incidents/${incident.id}`}
-                            className="text-cyan-300 hover:text-cyan-200"
+                            className="font-medium text-cyan-300 hover:text-cyan-200"
                           >
                             #{incident.id}
                           </Link>
                         </td>
 
-                        <td className="py-3 pr-4">
-                          <span
-                            className={`rounded-full border px-3 py-1 text-xs ${statusClass(
-                              incident.status
-                            )}`}
-                          >
+                        <td className="py-2 pr-3">
+                          <EnterpriseBadge tone={statusTone(incident.status) as any}>
                             {incident.status ?? "NEW"}
-                          </span>
+                          </EnterpriseBadge>
                         </td>
 
-                        <td className="py-3 pr-4 text-slate-400">
-                          {incident.timestamp_local ?? formatTimestamp(incident.timestamp)}
+                        <td className="whitespace-nowrap py-2 pr-3 text-slate-400">
+                          {incident.timestamp_local ??
+                            formatTimestamp(incident.timestamp)}
                         </td>
 
-                        <td className="py-3 pr-4">
+                        <td className="max-w-[160px] truncate py-2 pr-3 text-slate-300">
                           {incident.agent ?? "unknown"}
                         </td>
 
-                        <td className="max-w-xl py-3 pr-4 text-slate-300">
+                        <td className="max-w-xl py-2 pr-3 text-slate-300">
                           <Link
                             href={`/incidents/${incident.id}`}
-                            className="hover:text-cyan-200"
+                            className="line-clamp-1 hover:text-cyan-200"
                           >
                             {incident.rule ?? "-"}
                           </Link>
                         </td>
 
-                        <td className="py-3 pr-4">{incident.level ?? 0}</td>
-
-                          <td className="min-w-[150px] py-3 pr-4">
-                            <span
-                              className={`inline-flex min-w-[120px] items-center justify-center whitespace-nowrap rounded-full border px-4 py-1.5 text-xs font-medium ${riskClass(
-                                incident.risk_score
-                              )}`}
-                            >
-                              {riskLabel(incident.risk_score)} · {incident.risk_score ?? 0}
-                            </span>
-                          </td>
-
-                        <td className="py-3 pr-4">
-                          <span
-                            className={`rounded-full border px-3 py-1 text-xs ${riskClass(
-                              incident.risk_score
-                            )}`}
-                          >
-                            {incident.recommended_priority ?? riskLabel(incident.risk_score)}
-                          </span>
+                        <td className="py-2 pr-3 text-slate-300">
+                          {incident.level ?? 0}
                         </td>
 
-                        <td className="py-3 pr-4">
+                        <td className="py-2 pr-3">
+                          <EnterpriseBadge tone={riskTone(incident.risk_score) as any}>
+                            {riskLabel(incident.risk_score)} ·{" "}
+                            {incident.risk_score ?? 0}
+                          </EnterpriseBadge>
+                        </td>
+
+                        <td className="py-2 pr-3">
+                          <EnterpriseBadge tone={riskTone(incident.risk_score) as any}>
+                            {incident.recommended_priority ??
+                              riskLabel(incident.risk_score)}
+                          </EnterpriseBadge>
+                        </td>
+
+                        <td className="py-2 pr-3">
                           {incident.correlated ? (
                             <div>
                               <div className="text-cyan-300">
                                 {incident.correlation_score ?? 0}
                               </div>
-                              <div className="max-w-xs truncate text-xs text-slate-500">
+                              <div className="max-w-[180px] truncate text-[11px] text-slate-500">
                                 {incident.correlation_type ?? "correlated"}
                               </div>
                             </div>
@@ -892,160 +1092,125 @@ export default function Home() {
                             <span className="text-slate-500">No</span>
                           )}
                         </td>
-
                       </tr>
                     ))}
+
+                    {incidents.length === 0 && (
+                      <tr>
+                        <td colSpan={9} className="py-6 text-center text-slate-500">
+                          No incidents found with current filters.
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
 
-                <div className="mt-5 flex flex-col gap-3 border-t border-slate-800 pt-4 text-sm text-slate-400 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    Showing page{" "}
-                    <span className="font-medium text-slate-200">{currentPage}</span> of{" "}
-                    <span className="font-medium text-slate-200">{totalPages}</span> —{" "}
-                    <span className="font-medium text-slate-200">{totalIncidents}</span>{" "}
-                    incidents
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setCurrentPage((page) => Math.max(page - 1, 1))}
-                      disabled={currentPage <= 1}
-                      className="rounded-lg border border-slate-700 px-3 py-1.5 text-slate-300 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      Previous
-                    </button>
-
-                    {Array.from({ length: Math.min(totalPages, 5) }, (_, index) => {
-                      const pageNumber = index + 1;
-
-                      return (
-                        <button
-                          key={pageNumber}
-                          onClick={() => setCurrentPage(pageNumber)}
-                          className={`rounded-lg border px-3 py-1.5 ${
-                            currentPage === pageNumber
-                              ? "border-cyan-400 bg-cyan-500 text-slate-950"
-                              : "border-slate-700 text-slate-300 hover:bg-slate-800"
-                          }`}
-                        >
-                          {pageNumber}
-                        </button>
-                      );
-                    })}
-
-                    {totalPages > 5 && <span className="px-2 text-slate-500">...</span>}
-
-                    <button
-                      onClick={() =>
-                        setCurrentPage((page) => Math.min(page + 1, totalPages))
-                      }
-                      disabled={currentPage >= totalPages}
-                      className="rounded-lg border border-slate-700 px-3 py-1.5 text-slate-300 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      Next
-                    </button>
-                  </div>
+              <div className="mt-4 flex flex-col gap-3 border-t border-slate-800 pt-3 text-xs text-slate-400 md:flex-row md:items-center md:justify-between">
+                <div>
+                  Showing page{" "}
+                  <span className="font-medium text-slate-200">{currentPage}</span>{" "}
+                  of{" "}
+                  <span className="font-medium text-slate-200">{totalPages}</span>{" "}
+                  —{" "}
+                  <span className="font-medium text-slate-200">
+                    {totalIncidents}
+                  </span>{" "}
+                  incidents
                 </div>
-            </section>
-          </>
+
+                <div className="flex items-center gap-2">
+                  <EnterpriseButton
+                    onClick={() => setCurrentPage((page) => Math.max(page - 1, 1))}
+                    disabled={currentPage <= 1}
+                    tone="secondary"
+                    size="xs"
+                  >
+                    Previous
+                  </EnterpriseButton>
+
+                  <EnterpriseBadge tone="primary">{currentPage}</EnterpriseBadge>
+
+                  <EnterpriseButton
+                    onClick={() =>
+                      setCurrentPage((page) => Math.min(page + 1, totalPages))
+                    }
+                    disabled={currentPage >= totalPages}
+                    tone="secondary"
+                    size="xs"
+                  >
+                    Next
+                  </EnterpriseButton>
+                </div>
+              </div>
+            </EnterpriseSection>
+          </div>
         )}
       </div>
     </main>
   );
 }
 
-
-function CaseOpsMetric({
-  title,
+function FilterSelect({
+  label,
   value,
-  description,
-  danger = false,
-  warning = false,
-  success = false,
+  onChange,
+  options,
+  rawOptions,
 }: {
-  title: string;
-  value: number;
-  description: string;
-  danger?: boolean;
-  warning?: boolean;
-  success?: boolean;
-}) {
-  const className = danger
-    ? "border-red-800 bg-red-950/50"
-    : warning
-      ? "border-orange-800 bg-orange-950/40"
-      : success
-        ? "border-emerald-800 bg-emerald-950/40"
-        : "border-slate-800 bg-slate-950";
-
-  return (
-    <div className={`rounded-xl border p-4 ${className}`}>
-      <div className="mb-2 text-sm text-slate-400">{title}</div>
-      <div className="text-3xl font-semibold text-slate-100">{value}</div>
-      <div className="mt-2 text-xs leading-5 text-slate-500">
-        {description}
-      </div>
-    </div>
-  );
-}
-
-function OperationalLinkCard({
-  title,
-  description,
-  href,
-  primary = false,
-}: {
-  title: string;
-  description: string;
-  href: string;
-  primary?: boolean;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: string[];
+  rawOptions?: string[];
 }) {
   return (
-    <Link
-      href={href}
-      className={`rounded-xl border p-4 transition ${
-        primary
-          ? "border-cyan-700 bg-cyan-500 text-slate-950 hover:bg-cyan-400"
-          : "border-slate-800 bg-slate-950 text-slate-200 hover:border-cyan-800 hover:bg-slate-900"
-      }`}
-    >
-      <div className="flex items-center gap-2 text-sm font-semibold">
-        <Briefcase className="h-4 w-4" />
-        {title}
-      </div>
+    <label className="block">
+      <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-slate-500">
+        {label}
+      </span>
 
-      <p
-        className={`mt-2 text-xs leading-5 ${
-          primary ? "text-slate-800" : "text-slate-500"
-        }`}
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-8 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 text-xs text-slate-200 outline-none focus:border-cyan-700"
       >
-        {description}
-      </p>
-    </Link>
+        {options.map((option, index) => (
+          <option key={`${option}-${index}`} value={rawOptions?.[index] ?? option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 
-function MetricCard({
-  title,
+function FilterInput({
+  label,
   value,
-  icon,
+  onChange,
+  placeholder,
+  type = "text",
 }: {
-  title: string;
-  value: number;
-  icon: React.ReactNode;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  type?: string;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
-      <div className="mb-4 flex items-center justify-between">
-        <div className="text-sm text-slate-400">{title}</div>
-        <div className="rounded-xl bg-slate-800 p-2 text-cyan-300">
-          {icon}
-        </div>
-      </div>
+    <label className="block">
+      <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-slate-500">
+        {label}
+      </span>
 
-      <div className="text-3xl font-semibold">{value}</div>
-    </div>
+      <input
+        type={type}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        className="h-8 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 text-xs text-slate-200 outline-none placeholder:text-slate-600 focus:border-cyan-700"
+      />
+    </label>
   );
 }
