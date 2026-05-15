@@ -3,7 +3,16 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, Briefcase, FileDown, ShieldAlert } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Bot,
+  Briefcase,
+  CheckCircle2,
+  CircleDashed,
+  FileDown,
+  ShieldAlert,
+} from "lucide-react";
 
 type IncidentCase = {
   id: number;
@@ -946,6 +955,19 @@ export default function CaseDetailPage() {
     0
   );
 
+  const openActionCount = useMemo(() => {
+    return caseActions.filter(
+      (action) => action.status !== "DONE" && action.status !== "CANCELLED"
+    ).length;
+  }, [caseActions]);
+
+  const completedActionCount = useMemo(() => {
+    return caseActions.filter((action) => action.status === "DONE").length;
+  }, [caseActions]);
+
+  const closureReady = Boolean(caseClosure?.ready_to_close);
+  const hasAIAnalysis = Boolean(caseAnalysis);
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto max-w-7xl px-6 py-8">
@@ -997,7 +1019,16 @@ export default function CaseDetailPage() {
               <InfoCard title="Updated" value={formatTimestamp(caseData.updated_at)} />
             </section>
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
+            <CaseCommandCenter
+              caseData={caseData}
+              actionCount={caseActions.length}
+              openActionCount={openActionCount}
+              completedActionCount={completedActionCount}
+              closureReady={closureReady}
+              hasAIAnalysis={hasAIAnalysis}
+            />
+
+            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg" id="reports-center">
               <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                 <div>
                   <h2 className="text-lg font-medium">Reports Center</h2>
@@ -1046,7 +1077,7 @@ export default function CaseDetailPage() {
               </div>
             </section>
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
+            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg" id="case-timeline">
               <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div>
                   <h2 className="text-lg font-medium">Case timeline</h2>
@@ -1174,7 +1205,7 @@ export default function CaseDetailPage() {
               )}
             </section>
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
+            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg" id="case-workflow">
               <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
                   <h2 className="text-lg font-medium">Case workflow</h2>
@@ -1306,7 +1337,7 @@ export default function CaseDetailPage() {
               </div>
             </section>
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
+            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg" id="case-audit">
               <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div>
                   <h2 className="text-lg font-medium">Case workflow audit</h2>
@@ -1422,7 +1453,7 @@ export default function CaseDetailPage() {
               )}
             </section>
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
+            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg" id="case-action-plan">
               <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
                   <h2 className="text-lg font-medium">Case action plan</h2>
@@ -1735,7 +1766,7 @@ export default function CaseDetailPage() {
               )}
             </section>
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
+            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg" id="case-closure-checklist">
               <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                 <div>
                   <h2 className="text-lg font-medium">Case closure checklist</h2>
@@ -2040,7 +2071,7 @@ export default function CaseDetailPage() {
               </pre>
             </section>
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
+            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg" id="related-incidents">
               <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div>
                   <div className="flex items-center gap-2">
@@ -2179,6 +2210,162 @@ export default function CaseDetailPage() {
   );
 }
 
+
+
+function CaseCommandCenter({
+  caseData,
+  actionCount,
+  openActionCount,
+  completedActionCount,
+  closureReady,
+  hasAIAnalysis,
+}: {
+  caseData: IncidentCase;
+  actionCount: number;
+  openActionCount: number;
+  completedActionCount: number;
+  closureReady: boolean;
+  hasAIAnalysis: boolean;
+}) {
+  const effectiveSeverity = caseData.severity_review ?? caseData.severity ?? "LOW";
+
+  return (
+    <section className="rounded-2xl border border-cyan-900/60 bg-cyan-950/10 p-5 shadow-lg">
+      <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h2 className="text-lg font-medium">Case Command Center</h2>
+          <p className="mt-1 text-sm text-slate-400">
+            Operational summary and shortcuts for the current investigation.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <span className={`rounded-full border px-3 py-1 text-xs ${statusClass(caseData.status)}`}>
+            {caseData.status ?? "OPEN"}
+          </span>
+          <span className={`rounded-full border px-3 py-1 text-xs ${severityClass(effectiveSeverity)}`}>
+            {effectiveSeverity}
+          </span>
+          <span className={`rounded-full border px-3 py-1 text-xs ${slaClass(caseData.sla_status)}`}>
+            SLA {slaLabel(caseData.sla_status)}
+          </span>
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <CommandMetric
+          title="Owner"
+          value={caseData.owner ?? "unassigned"}
+          description={caseData.owner ? "Case ownership assigned." : "Ownership missing."}
+          tone={caseData.owner ? "neutral" : "warning"}
+        />
+
+        <CommandMetric
+          title="AI analysis"
+          value={hasAIAnalysis ? "Available" : "Missing"}
+          description={hasAIAnalysis ? "AI case assessment is available." : "Generate AI analysis before closure review."}
+          tone={hasAIAnalysis ? "success" : "warning"}
+          icon={hasAIAnalysis ? "bot" : "warning"}
+        />
+
+        <CommandMetric
+          title="Action progress"
+          value={`${completedActionCount}/${actionCount} done`}
+          description={
+            openActionCount > 0
+              ? `${openActionCount} open or in-progress action(s).`
+              : "No open actions blocking the case."
+          }
+          tone={openActionCount > 0 ? "warning" : "success"}
+          icon={openActionCount > 0 ? "progress" : "check"}
+        />
+
+        <CommandMetric
+          title="Closure readiness"
+          value={closureReady ? "Ready" : "Blocked"}
+          description={
+            closureReady
+              ? "Checklist complete and actions resolved."
+              : "Closure requirements are not fully met."
+          }
+          tone={closureReady ? "success" : "warning"}
+          icon={closureReady ? "check" : "progress"}
+        />
+      </div>
+
+      <div className="mt-5 rounded-xl border border-slate-800 bg-slate-950 p-4">
+        <div className="mb-3 text-xs uppercase tracking-wide text-slate-500">
+          Quick navigation
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <QuickAnchor href="#reports-center" label="Reports" />
+          <QuickAnchor href="#case-workflow" label="Workflow" />
+          <QuickAnchor href="#case-action-plan" label="Actions" />
+          <QuickAnchor href="#case-closure-checklist" label="Closure" />
+          <QuickAnchor href="#case-ai-analysis" label="AI analysis" />
+          <QuickAnchor href="#case-timeline" label="Timeline" />
+          <QuickAnchor href="#case-audit" label="Audit" />
+          <QuickAnchor href="#related-incidents" label="Incidents" />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function CommandMetric({
+  title,
+  value,
+  description,
+  tone,
+  icon = "none",
+}: {
+  title: string;
+  value: string;
+  description: string;
+  tone: "success" | "warning" | "neutral";
+  icon?: "check" | "warning" | "progress" | "bot" | "none";
+}) {
+  const toneClass =
+    tone === "success"
+      ? "border-emerald-800 bg-emerald-950/30"
+      : tone === "warning"
+        ? "border-orange-800 bg-orange-950/30"
+        : "border-slate-800 bg-slate-950";
+
+  const iconClass =
+    tone === "success"
+      ? "text-emerald-300"
+      : tone === "warning"
+        ? "text-orange-300"
+        : "text-slate-400";
+
+  return (
+    <div className={`rounded-xl border p-4 ${toneClass}`}>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="text-sm text-slate-400">{title}</div>
+        {icon === "check" && <CheckCircle2 className={`h-4 w-4 ${iconClass}`} />}
+        {icon === "warning" && <AlertTriangle className={`h-4 w-4 ${iconClass}`} />}
+        {icon === "progress" && <CircleDashed className={`h-4 w-4 ${iconClass}`} />}
+        {icon === "bot" && <Bot className={`h-4 w-4 ${iconClass}`} />}
+      </div>
+
+      <div className="text-xl font-semibold text-slate-100">{value}</div>
+      <div className="mt-2 text-xs leading-5 text-slate-500">{description}</div>
+    </div>
+  );
+}
+
+function QuickAnchor({ href, label }: { href: string; label: string }) {
+  return (
+    <a
+      href={href}
+      className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-300 hover:border-cyan-700 hover:text-cyan-200"
+    >
+      {label}
+    </a>
+  );
+}
 
 function ReportDownloadCard({
   title,
