@@ -1098,7 +1098,7 @@ export default function CaseDetailPage() {
     <main className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto max-w-[1600px] px-4 py-4">
         <AppNavigation />
-        <header className="mb-4">
+        <header className="mb-2">
           <Link
             href="/cases"
             className="mb-3 inline-flex items-center gap-2 text-xs text-cyan-300 hover:text-cyan-200"
@@ -1126,13 +1126,13 @@ export default function CaseDetailPage() {
         </header>
 
         {loading && (
-          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6 text-slate-300">
+          <div className="rounded-lg border border-slate-800 bg-slate-900 p-3 text-slate-300">
             Loading case...
           </div>
         )}
 
         {error && (
-          <div className="whitespace-pre-wrap rounded-2xl border border-red-800 bg-red-950/60 p-4 text-sm text-red-200">
+          <div className="whitespace-pre-wrap rounded-lg border border-red-800 bg-red-950/60 p-3 text-sm text-red-200">
             API error: {error}
           </div>
         )}
@@ -1140,6 +1140,140 @@ export default function CaseDetailPage() {
         {caseData && (
           <div className="space-y-3" data-case-focus={sectionFocus}>
             <style>{`
+              /*
+                AI SOC case detail enterprise alignment.
+                Conservative scoped density layer: keeps all workflows intact,
+                but aligns visual density with Dashboard / Kanban / Executive.
+              */
+
+              [data-case-focus] section {
+                padding: 0.75rem !important;
+                border-radius: 0.75rem !important;
+              }
+
+              [data-case-focus] section > div:first-child {
+                margin-bottom: 0.5rem !important;
+              }
+
+              [data-case-focus] h2 {
+                font-size: 0.875rem !important;
+                line-height: 1.25rem !important;
+                font-weight: 600 !important;
+              }
+
+              [data-case-focus] h3,
+              [data-case-focus] h4 {
+                font-size: 0.8125rem !important;
+                line-height: 1.15rem !important;
+                font-weight: 600 !important;
+              }
+
+              [data-case-focus] p {
+                font-size: 0.75rem !important;
+                line-height: 1.15rem !important;
+              }
+
+              [data-case-focus] input,
+              [data-case-focus] select {
+                height: 2rem !important;
+                min-height: 2rem !important;
+                padding: 0.25rem 0.5rem !important;
+                border-radius: 0.5rem !important;
+                font-size: 0.75rem !important;
+              }
+
+              [data-case-focus] textarea {
+                min-height: 4rem !important;
+                padding: 0.375rem 0.5rem !important;
+                border-radius: 0.5rem !important;
+                font-size: 0.75rem !important;
+                line-height: 1.15rem !important;
+              }
+
+              [data-case-focus] button,
+              [data-case-focus] a[download],
+              [data-case-focus] a[href^="#"] {
+                min-height: 2rem !important;
+                padding: 0.375rem 0.625rem !important;
+                border-radius: 0.5rem !important;
+                font-size: 0.75rem !important;
+                line-height: 1rem !important;
+              }
+
+              [data-case-focus] pre {
+                font-size: 0.75rem !important;
+                line-height: 1.15rem !important;
+                padding: 0.75rem !important;
+                border-radius: 0.5rem !important;
+              }
+
+              [data-case-focus] table {
+                font-size: 0.75rem !important;
+              }
+
+              [data-case-focus] th,
+              [data-case-focus] td {
+                padding-top: 0.375rem !important;
+                padding-bottom: 0.375rem !important;
+                padding-right: 0.625rem !important;
+              }
+
+              [data-case-focus] .rounded-lg {
+                border-radius: 0.75rem !important;
+              }
+
+              [data-case-focus] .rounded-md {
+                border-radius: 0.625rem !important;
+              }
+
+              [data-case-focus] .p-6,
+              [data-case-focus] .p-5,
+              [data-case-focus] .p-4 {
+                padding: 0.75rem !important;
+              }
+
+              [data-case-focus] .gap-6,
+              [data-case-focus] .gap-5,
+              [data-case-focus] .gap-4 {
+                gap: 0.75rem !important;
+              }
+
+              [data-case-focus] .space-y-3 > :not([hidden]) ~ :not([hidden]),
+              [data-case-focus] .space-y-3 > :not([hidden]) ~ :not([hidden]),
+              [data-case-focus] .space-y-3 > :not([hidden]) ~ :not([hidden]) {
+                margin-top: 0.75rem !important;
+              }
+
+              [data-case-focus] .text-xl,
+              [data-case-focus] .text-lg {
+                font-size: 1.125rem !important;
+                line-height: 1.5rem !important;
+              }
+
+              [data-case-focus] .text-xl,
+              [data-case-focus] .text-lg,
+              [data-case-focus] .text-base {
+                font-size: 0.875rem !important;
+                line-height: 1.25rem !important;
+              }
+
+              [data-case-focus] .text-sm {
+                font-size: 0.75rem !important;
+                line-height: 1.15rem !important;
+              }
+
+              [data-case-focus] .max-h-96 {
+                max-height: 14rem !important;
+              }
+
+              [data-case-focus] .max-h-72 {
+                max-height: 12rem !important;
+              }
+
+              [data-case-focus] .max-h-48 {
+                max-height: 8rem !important;
+              }
+
               /*
                 Enterprise density mode for case detail.
                 This keeps the existing layout and logic intact while reducing
@@ -1224,11 +1358,11 @@ export default function CaseDetailPage() {
                 padding-right: 0.625rem !important;
               }
 
-              [data-case-focus] .rounded-2xl {
+              [data-case-focus] .rounded-lg {
                 border-radius: 0.75rem !important;
               }
 
-              [data-case-focus] .rounded-xl {
+              [data-case-focus] .rounded-md {
                 border-radius: 0.625rem !important;
               }
 
@@ -1255,17 +1389,17 @@ export default function CaseDetailPage() {
                 gap: 0.5rem !important;
               }
 
-              [data-case-focus] .mt-5,
-              [data-case-focus] .mt-4 {
+              [data-case-focus] .mt-3,
+              [data-case-focus] .mt-2 {
                 margin-top: 0.75rem !important;
               }
 
-              [data-case-focus] .mb-5,
-              [data-case-focus] .mb-4 {
+              [data-case-focus] .mb-3,
+              [data-case-focus] .mb-2 {
                 margin-bottom: 0.75rem !important;
               }
 
-              [data-case-focus] .space-y-4 > :not([hidden]) ~ :not([hidden]),
+              [data-case-focus] .space-y-3 > :not([hidden]) ~ :not([hidden]),
               [data-case-focus] .space-y-3 > :not([hidden]) ~ :not([hidden]) {
                 margin-top: 0.75rem !important;
               }
@@ -1286,8 +1420,8 @@ export default function CaseDetailPage() {
                 line-height: 1.35rem !important;
               }
 
-              [data-case-focus] .text-3xl,
-              [data-case-focus] .text-2xl {
+              [data-case-focus] .text-xl,
+              [data-case-focus] .text-lg {
                 font-size: 1.125rem !important;
                 line-height: 1.5rem !important;
               }
@@ -1339,7 +1473,7 @@ export default function CaseDetailPage() {
                 display: none;
               }
             `}</style>
-            <section className="grid gap-4 md:grid-cols-4">
+            <section className="grid gap-3 md:grid-cols-4">
               <InfoCard title="Host" value={caseData.agent ?? "unknown"} />
               <InfoCard title="Incidents" value={caseData.incident_count} />
               <InfoCard title="Risk score" value={caseData.risk_score ?? 0} />
@@ -1370,21 +1504,21 @@ export default function CaseDetailPage() {
               onAction={handleCaseQuickAction}
             />
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg" id="reports-center">
-              <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-lg" id="reports-center">
+              <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                 <div>
-                  <h2 className="text-lg font-medium">Reports Center</h2>
-                  <p className="mt-1 text-sm text-slate-400">
+                  <h2 className="text-sm font-semibold">Reports Center</h2>
+                  <p className="mt-1 text-xs text-slate-500">
                     Export executive, analyst and machine-readable reports for this case.
                   </p>
                 </div>
 
-                <span className="w-fit rounded-full border border-slate-700 bg-slate-950 px-4 py-2 text-sm text-slate-300">
+                <span className="w-fit rounded-full border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-300">
                   4 exports
                 </span>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <ReportDownloadCard
                   title="Executive PDF"
                   description="Board-ready PDF with executive summary, risk, actions and closure readiness."
@@ -1419,11 +1553,11 @@ export default function CaseDetailPage() {
               </div>
             </section>
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg" id="case-timeline">
+            <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-lg" id="case-timeline">
               <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div>
-                  <h2 className="text-lg font-medium">Case timeline</h2>
-                  <p className="mt-1 text-sm text-slate-400">
+                  <h2 className="text-sm font-semibold">Case timeline</h2>
+                  <p className="mt-1 text-xs text-slate-500">
                     Chronological view of incidents, AI analysis, actions, workflow updates and closure events.
                   </p>
 
@@ -1435,13 +1569,13 @@ export default function CaseDetailPage() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="w-fit rounded-full border border-slate-700 bg-slate-950 px-4 py-2 text-sm text-slate-300">
+                  <span className="w-fit rounded-full border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-300">
                     {caseTimeline.length} events
                   </span>
 
                   <button
                     onClick={() => setTimelineOpen((current) => !current)}
-                    className="rounded-xl border border-cyan-700 bg-slate-950 px-4 py-2 text-sm text-cyan-200 hover:bg-slate-800"
+                    className="rounded-md border border-cyan-700 bg-slate-950 px-3 py-1.5 text-xs text-cyan-200 hover:bg-slate-800"
                   >
                     {timelineOpen ? "Hide timeline" : "Show timeline"}
                   </button>
@@ -1449,9 +1583,9 @@ export default function CaseDetailPage() {
               </div>
 
               {timelineOpen && caseTimeline.length > 0 && (
-                <div className="mt-5">
-                  <div className="mb-4 flex flex-col gap-3 rounded-xl border border-slate-800 bg-slate-950 p-4 md:flex-row md:items-center md:justify-between">
-                    <div className="text-sm text-slate-300">
+                <div className="mt-3">
+                  <div className="mb-2 flex flex-col gap-3 rounded-md border border-slate-800 bg-slate-950 p-3 md:flex-row md:items-center md:justify-between">
+                    <div className="text-xs text-slate-300">
                       {timelineExpanded ? (
                         <>Showing all {caseTimeline.length} events.</>
                       ) : (
@@ -1467,14 +1601,14 @@ export default function CaseDetailPage() {
                     {caseTimeline.length > 12 && (
                       <button
                         onClick={() => setTimelineExpanded((current) => !current)}
-                        className="w-fit rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800"
+                        className="w-fit rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800"
                       >
                         {timelineExpanded ? "Show latest only" : "Show all events"}
                       </button>
                     )}
                   </div>
 
-                  <div className="relative space-y-4 border-l border-slate-700 pl-5">
+                  <div className="relative space-y-3 border-l border-slate-700 pl-5">
                     {visibleTimeline.map((item, index) => (
                       <div
                         key={`${item.event_type}-${item.reference_id ?? index}-${index}`}
@@ -1486,7 +1620,7 @@ export default function CaseDetailPage() {
                           )}`}
                         />
 
-                        <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                        <div className="rounded-md border border-slate-800 bg-slate-950 p-4">
                           <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                             <div>
                               <div className="text-sm font-medium text-slate-100">
@@ -1503,7 +1637,7 @@ export default function CaseDetailPage() {
                           </div>
 
                           {item.description && (
-                            <p className="mt-3 whitespace-pre-wrap text-sm text-slate-300">
+                            <p className="mt-3 whitespace-pre-wrap text-xs text-slate-300">
                               {item.description}
                             </p>
                           )}
@@ -1541,23 +1675,23 @@ export default function CaseDetailPage() {
               )}
 
               {timelineOpen && caseTimeline.length === 0 && (
-                <div className="mt-5 rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">
+                <div className="mt-3 rounded-md border border-slate-800 bg-slate-950 p-3 text-xs text-slate-500">
                   No timeline events available.
                 </div>
               )}
             </section>
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg" id="case-workflow">
-              <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-lg" id="case-workflow">
+              <div className="mb-2 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <h2 className="text-lg font-medium">Case workflow</h2>
-                  <p className="mt-1 text-sm text-slate-400">
+                  <h2 className="text-sm font-semibold">Case workflow</h2>
+                  <p className="mt-1 text-xs text-slate-500">
                     Assign ownership, review severity and track SLA for the investigation.
                   </p>
                 </div>
 
                 <span
-                  className={`w-fit rounded-full border px-4 py-2 text-sm ${slaClass(
+                  className={`w-fit rounded-full border px-3 py-1.5 text-xs ${slaClass(
                     caseData.sla_status
                   )}`}
                 >
@@ -1565,7 +1699,7 @@ export default function CaseDetailPage() {
                 </span>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-3 md:grid-cols-2">
                 <label className="block">
                   <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
                     Owner
@@ -1579,7 +1713,7 @@ export default function CaseDetailPage() {
                       }))
                     }
                     placeholder="local_analyst"
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                    className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
                   />
                 </label>
 
@@ -1596,7 +1730,7 @@ export default function CaseDetailPage() {
                         sla_due_at: event.target.value,
                       }))
                     }
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                    className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
                   />
                 </label>
 
@@ -1612,7 +1746,7 @@ export default function CaseDetailPage() {
                         status: event.target.value,
                       }))
                     }
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                    className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
                   >
                     <option value="OPEN">OPEN</option>
                     <option value="TRIAGED">TRIAGED</option>
@@ -1635,7 +1769,7 @@ export default function CaseDetailPage() {
                         severity: event.target.value,
                       }))
                     }
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                    className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
                   >
                     <option value="LOW">LOW</option>
                     <option value="MEDIUM">MEDIUM</option>
@@ -1645,7 +1779,7 @@ export default function CaseDetailPage() {
                 </label>
               </div>
 
-              <label className="mt-4 block">
+              <label className="mt-2 block">
                 <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
                   Status reason / analyst comment
                 </span>
@@ -1659,11 +1793,11 @@ export default function CaseDetailPage() {
                   }
                   rows={3}
                   placeholder="Why is this case in the selected state?"
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                  className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
                 />
               </label>
 
-              <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
                 <div className="text-xs text-slate-500">
                   Last reviewed by {caseData.last_reviewed_by ?? "-"} ·{" "}
                   {formatTimestamp(caseData.last_reviewed_at)}
@@ -1672,18 +1806,18 @@ export default function CaseDetailPage() {
                 <button
                   onClick={handleSaveWorkflow}
                   disabled={savingWorkflow}
-                  className="rounded-xl border border-cyan-500 bg-cyan-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded-md border border-cyan-500 bg-cyan-500 px-3 py-1.5 text-xs font-medium text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {savingWorkflow ? "Saving..." : "Save workflow"}
                 </button>
               </div>
             </section>
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg" id="case-audit">
+            <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-lg" id="case-audit">
               <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div>
-                  <h2 className="text-lg font-medium">Case workflow audit</h2>
-                  <p className="mt-1 text-sm text-slate-400">
+                  <h2 className="text-sm font-semibold">Case workflow audit</h2>
+                  <p className="mt-1 text-xs text-slate-500">
                     Chronological audit events for workflow updates, actions and closure checklist changes.
                   </p>
 
@@ -1695,13 +1829,13 @@ export default function CaseDetailPage() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="w-fit rounded-full border border-slate-700 bg-slate-950 px-4 py-2 text-sm text-slate-300">
+                  <span className="w-fit rounded-full border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-300">
                     {auditTrail.length} audit events
                   </span>
 
                   <button
                     onClick={() => setAuditTrailOpen((current) => !current)}
-                    className="rounded-xl border border-cyan-700 bg-slate-950 px-4 py-2 text-sm text-cyan-200 hover:bg-slate-800"
+                    className="rounded-md border border-cyan-700 bg-slate-950 px-3 py-1.5 text-xs text-cyan-200 hover:bg-slate-800"
                   >
                     {auditTrailOpen ? "Hide audit trail" : "Show audit trail"}
                   </button>
@@ -1709,15 +1843,15 @@ export default function CaseDetailPage() {
               </div>
 
               {auditTrailOpen && auditTrail.length === 0 && (
-                <div className="mt-5 rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">
+                <div className="mt-3 rounded-md border border-slate-800 bg-slate-950 p-3 text-xs text-slate-500">
                   No audit events available for this case.
                 </div>
               )}
 
               {auditTrailOpen && auditTrail.length > 0 && (
-                <div className="mt-5">
-                  <div className="mb-4 flex flex-col gap-3 rounded-xl border border-slate-800 bg-slate-950 p-4 md:flex-row md:items-center md:justify-between">
-                    <div className="text-sm text-slate-300">
+                <div className="mt-3">
+                  <div className="mb-2 flex flex-col gap-3 rounded-md border border-slate-800 bg-slate-950 p-3 md:flex-row md:items-center md:justify-between">
+                    <div className="text-xs text-slate-300">
                       {auditTrailExpanded ? (
                         <>Showing all {auditTrail.length} audit events.</>
                       ) : (
@@ -1733,7 +1867,7 @@ export default function CaseDetailPage() {
                     {auditTrail.length > 10 && (
                       <button
                         onClick={() => setAuditTrailExpanded((current) => !current)}
-                        className="w-fit rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800"
+                        className="w-fit rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800"
                       >
                         {auditTrailExpanded ? "Show latest only" : "Show all audit events"}
                       </button>
@@ -1744,7 +1878,7 @@ export default function CaseDetailPage() {
                     {visibleAuditTrail.map((event) => (
                       <div
                         key={event.id}
-                        className="rounded-xl border border-slate-800 bg-slate-950 p-4"
+                        className="rounded-md border border-slate-800 bg-slate-950 p-4"
                       >
                         <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                           <div>
@@ -1762,7 +1896,7 @@ export default function CaseDetailPage() {
                         </div>
 
                         {event.comment && (
-                          <p className="mt-3 whitespace-pre-wrap text-sm text-slate-300">
+                          <p className="mt-3 whitespace-pre-wrap text-xs text-slate-300">
                             {event.comment}
                           </p>
                         )}
@@ -1795,11 +1929,11 @@ export default function CaseDetailPage() {
               )}
             </section>
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg" id="case-action-plan">
-              <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-lg" id="case-action-plan">
+              <div className="mb-2 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <h2 className="text-lg font-medium">Case action plan</h2>
-                  <p className="mt-1 text-sm text-slate-400">
+                  <h2 className="text-sm font-semibold">Case action plan</h2>
+                  <p className="mt-1 text-xs text-slate-500">
                     Track concrete analyst tasks required to investigate, contain, escalate or close the case.
                   </p>
                 </div>
@@ -1823,13 +1957,13 @@ export default function CaseDetailPage() {
                 </div>
               </div>
 
-              <div className="mb-5 rounded-xl border border-cyan-900/60 bg-cyan-950/20 p-4">
+              <div className="mb-3 rounded-md border border-cyan-900/60 bg-cyan-950/20 p-4">
                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   <div>
                     <h3 className="text-sm font-medium text-cyan-200">
                       AI-suggested action plan
                     </h3>
-                    <p className="mt-1 text-sm text-slate-400">
+                    <p className="mt-1 text-xs text-slate-500">
                       Generate recommended analyst tasks from the current case evidence.
                       Suggestions are not saved until you explicitly create them.
                     </p>
@@ -1838,42 +1972,42 @@ export default function CaseDetailPage() {
                   <button
                     onClick={handleGenerateActionSuggestions}
                     disabled={generatingSuggestions}
-                    className="rounded-xl border border-cyan-500 bg-cyan-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
+                    className="rounded-md border border-cyan-500 bg-cyan-500 px-3 py-1.5 text-xs font-medium text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     {generatingSuggestions ? "Generating..." : "Generate AI action plan"}
                   </button>
                 </div>
 
                 {suggestionError && (
-                  <div className="mt-4 rounded-xl border border-red-800 bg-red-950/60 p-3 text-sm text-red-200">
+                  <div className="mt-2 rounded-md border border-red-800 bg-red-950/60 p-3 text-sm text-red-200">
                     {suggestionError}
                   </div>
                 )}
 
                 {aiActionSuggestions.length > 0 && (
-                  <div className="mt-5 space-y-3">
+                  <div className="mt-3 space-y-3">
                     {aiActionSuggestions.map((suggestion, index) => (
                       <div
                         key={`${suggestion.title}-${index}`}
-                        className="rounded-xl border border-slate-800 bg-slate-950 p-4"
+                        className="rounded-md border border-slate-800 bg-slate-950 p-4"
                       >
                         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                           <div>
                             <div className="mb-2 flex flex-wrap items-center gap-2">
                               <span
-                                className={`rounded-full border px-3 py-1 text-xs ${actionPriorityClass(
+                                className={`rounded-full border px-2 py-0.5 text-[11px] ${actionPriorityClass(
                                   suggestion.priority
                                 )}`}
                               >
                                 {suggestion.priority || "MEDIUM"}
                               </span>
 
-                              <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs text-slate-300">
+                              <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-0.5 text-[11px] text-slate-300">
                                 {suggestion.category || "INVESTIGATION"}
                               </span>
                             </div>
 
-                            <h4 className="text-base font-medium text-slate-100">
+                            <h4 className="text-sm font-semibold text-slate-100">
                               {suggestion.title}
                             </h4>
 
@@ -1892,7 +2026,7 @@ export default function CaseDetailPage() {
                               handleCreateActionFromSuggestion(suggestion, index)
                             }
                             disabled={creatingSuggestionIndex === index}
-                            className="rounded-xl border border-emerald-500 bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
+                            className="rounded-md border border-emerald-500 bg-emerald-500 px-3 py-1.5 text-xs font-medium text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
                           >
                             {creatingSuggestionIndex === index
                               ? "Creating..."
@@ -1905,12 +2039,12 @@ export default function CaseDetailPage() {
                 )}
               </div>
 
-              <div className="mb-5 rounded-xl border border-slate-800 bg-slate-950 p-4">
+              <div className="mb-3 rounded-md border border-slate-800 bg-slate-950 p-4">
                 <h3 className="mb-3 text-sm font-medium text-slate-200">
                   Add action
                 </h3>
 
-                <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid gap-3 md:grid-cols-2">
                   <label className="block">
                     <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
                       Title
@@ -1924,7 +2058,7 @@ export default function CaseDetailPage() {
                         }))
                       }
                       placeholder="Review correlated incidents"
-                      className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                      className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
                     />
                   </label>
 
@@ -1941,7 +2075,7 @@ export default function CaseDetailPage() {
                           due_at: event.target.value,
                         }))
                       }
-                      className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                      className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
                     />
                   </label>
 
@@ -1957,7 +2091,7 @@ export default function CaseDetailPage() {
                           category: event.target.value,
                         }))
                       }
-                      className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                      className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
                     >
                       <option value="INVESTIGATION">INVESTIGATION</option>
                       <option value="CONTAINMENT">CONTAINMENT</option>
@@ -1980,7 +2114,7 @@ export default function CaseDetailPage() {
                           priority: event.target.value,
                         }))
                       }
-                      className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                      className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
                     >
                       <option value="LOW">LOW</option>
                       <option value="MEDIUM">MEDIUM</option>
@@ -1990,7 +2124,7 @@ export default function CaseDetailPage() {
                   </label>
                 </div>
 
-                <label className="mt-4 block">
+                <label className="mt-2 block">
                   <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
                     Description
                   </span>
@@ -2004,15 +2138,15 @@ export default function CaseDetailPage() {
                     }
                     rows={3}
                     placeholder="Describe what the analyst needs to verify or execute."
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                    className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
                   />
                 </label>
 
-                <div className="mt-4 flex justify-end">
+                <div className="mt-2 flex justify-end">
                   <button
                     onClick={handleCreateAction}
                     disabled={creatingAction}
-                    className="rounded-xl border border-cyan-500 bg-cyan-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
+                    className="rounded-md border border-cyan-500 bg-cyan-500 px-3 py-1.5 text-xs font-medium text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     {creatingAction ? "Creating..." : "Add action"}
                   </button>
@@ -2020,7 +2154,7 @@ export default function CaseDetailPage() {
               </div>
 
               {caseActions.length === 0 ? (
-                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">
+                <div className="rounded-md border border-slate-800 bg-slate-950 p-3 text-xs text-slate-500">
                   No actions available yet. Add the first analyst task for this case.
                 </div>
               ) : (
@@ -2028,31 +2162,31 @@ export default function CaseDetailPage() {
                   {caseActions.map((action) => (
                     <div
                       key={action.id}
-                      className="rounded-xl border border-slate-800 bg-slate-950 p-4"
+                      className="rounded-md border border-slate-800 bg-slate-950 p-4"
                     >
                       <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                         <div>
                           <div className="mb-2 flex flex-wrap items-center gap-2">
                             <span
-                              className={`rounded-full border px-3 py-1 text-xs ${actionStatusClass(
+                              className={`rounded-full border px-2 py-0.5 text-[11px] ${actionStatusClass(
                                 action.status
                               )}`}
                             >
                               {action.status}
                             </span>
                             <span
-                              className={`rounded-full border px-3 py-1 text-xs ${actionPriorityClass(
+                              className={`rounded-full border px-2 py-0.5 text-[11px] ${actionPriorityClass(
                                 action.priority
                               )}`}
                             >
                               {action.priority}
                             </span>
-                            <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs text-slate-300">
+                            <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-0.5 text-[11px] text-slate-300">
                               {action.category}
                             </span>
                           </div>
 
-                          <h3 className="text-base font-medium text-slate-100">
+                          <h3 className="text-sm font-semibold text-slate-100">
                             {action.title}
                           </h3>
 
@@ -2070,7 +2204,7 @@ export default function CaseDetailPage() {
                             onChange={(event) =>
                               handleUpdateActionStatus(action.id, event.target.value)
                             }
-                            className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                            className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
                           >
                             <option value="OPEN">OPEN</option>
                             <option value="IN_PROGRESS">IN_PROGRESS</option>
@@ -2084,7 +2218,7 @@ export default function CaseDetailPage() {
                             onChange={(event) =>
                               handleUpdateActionPriority(action.id, event.target.value)
                             }
-                            className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                            className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
                           >
                             <option value="LOW">LOW</option>
                             <option value="MEDIUM">MEDIUM</option>
@@ -2108,17 +2242,17 @@ export default function CaseDetailPage() {
               )}
             </section>
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg" id="case-closure-checklist">
-              <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-lg" id="case-closure-checklist">
+              <div className="mb-2 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                 <div>
-                  <h2 className="text-lg font-medium">Case closure checklist</h2>
-                  <p className="mt-1 text-sm text-slate-400">
+                  <h2 className="text-sm font-semibold">Case closure checklist</h2>
+                  <p className="mt-1 text-xs text-slate-500">
                     Document the minimum evidence required before closing or marking the case as false positive.
                   </p>
                 </div>
 
                 <span
-                  className={`w-fit rounded-full border px-4 py-2 text-sm ${
+                  className={`w-fit rounded-full border px-3 py-1.5 text-xs ${
                     caseClosure?.ready_to_close
                       ? "border-emerald-700 bg-emerald-950 text-emerald-200"
                       : "border-orange-700 bg-orange-950 text-orange-200"
@@ -2129,12 +2263,12 @@ export default function CaseDetailPage() {
               </div>
 
               {caseClosure && !caseClosure.ready_to_close && (
-                <div className="mb-5 rounded-xl border border-orange-800 bg-orange-950/50 p-4">
+                <div className="mb-3 rounded-md border border-orange-800 bg-orange-950/50 p-4">
                   <div className="text-sm font-medium text-orange-200">
                     This case cannot be closed yet.
                   </div>
 
-                  <div className="mt-2 text-sm text-slate-300">
+                  <div className="mt-2 text-xs text-slate-300">
                     Open actions: {caseClosure.open_action_count}
                   </div>
 
@@ -2143,7 +2277,7 @@ export default function CaseDetailPage() {
                       <div className="mb-2 text-xs uppercase tracking-wide text-orange-300">
                         What still needs to be fixed
                       </div>
-                      <ul className="list-inside list-disc space-y-1 text-sm text-slate-300">
+                      <ul className="list-inside list-disc space-y-1 text-xs text-slate-300">
                         {caseClosure.missing_items.map((item) => (
                           <li key={item}>{item}</li>
                         ))}
@@ -2154,12 +2288,12 @@ export default function CaseDetailPage() {
               )}
 
               {caseClosure?.ready_to_close && (
-                <div className="mb-5 rounded-xl border border-emerald-800 bg-emerald-950/40 p-4 text-sm text-emerald-200">
+                <div className="mb-3 rounded-md border border-emerald-800 bg-emerald-950/40 p-3 text-sm text-emerald-200">
                   Closure checklist is complete and all actions are resolved. The case can now be moved to CLOSED or FALSE_POSITIVE.
                 </div>
               )}
 
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-3 md:grid-cols-2">
                 <label className="block">
                   <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
                     Closure decision
@@ -2172,7 +2306,7 @@ export default function CaseDetailPage() {
                         closure_decision: event.target.value,
                       }))
                     }
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                    className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
                   >
                     <option value="RESOLVED">RESOLVED</option>
                     <option value="FALSE_POSITIVE">FALSE_POSITIVE</option>
@@ -2194,7 +2328,7 @@ export default function CaseDetailPage() {
                         final_severity: event.target.value,
                       }))
                     }
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                    className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
                   >
                     <option value="LOW">LOW</option>
                     <option value="MEDIUM">MEDIUM</option>
@@ -2204,7 +2338,7 @@ export default function CaseDetailPage() {
                 </label>
               </div>
 
-              <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <div className="mt-2 grid gap-3 md:grid-cols-2">
                 <label className="block">
                   <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
                     Root cause / conclusion
@@ -2219,7 +2353,7 @@ export default function CaseDetailPage() {
                     }
                     rows={4}
                     placeholder="What caused the case or what conclusion was reached?"
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                    className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
                   />
                 </label>
 
@@ -2237,7 +2371,7 @@ export default function CaseDetailPage() {
                     }
                     rows={4}
                     placeholder="Which alerts, logs, correlations, AI analysis or artifacts were reviewed?"
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                    className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
                   />
                 </label>
 
@@ -2255,7 +2389,7 @@ export default function CaseDetailPage() {
                     }
                     rows={4}
                     placeholder="Summarize completed, cancelled or waived actions."
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                    className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
                   />
                 </label>
 
@@ -2273,12 +2407,12 @@ export default function CaseDetailPage() {
                     }
                     rows={4}
                     placeholder="What risk remains after closure?"
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                    className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
                   />
                 </label>
               </div>
 
-              <label className="mt-4 block">
+              <label className="mt-2 block">
                 <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
                   Closure reason
                 </span>
@@ -2292,11 +2426,11 @@ export default function CaseDetailPage() {
                   }
                   rows={3}
                   placeholder="Why is this case ready to be closed?"
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                  className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
                 />
               </label>
 
-              <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
                 <div className="text-xs text-slate-500">
                   Last reviewed by {caseClosure?.checklist?.reviewed_by ?? "-"} ·{" "}
                   {formatTimestamp(caseClosure?.checklist?.reviewed_at)}
@@ -2305,25 +2439,25 @@ export default function CaseDetailPage() {
                 <button
                   onClick={handleSaveClosureChecklist}
                   disabled={savingClosureChecklist}
-                  className="rounded-xl border border-cyan-500 bg-cyan-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded-md border border-cyan-500 bg-cyan-500 px-3 py-1.5 text-xs font-medium text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {savingClosureChecklist ? "Saving..." : "Save closure checklist"}
                 </button>
               </div>
             </section>
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
-              <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-lg">
+              <div className="mb-2 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <h2 className="text-lg font-medium">Case status</h2>
-                  <p className="mt-1 text-sm text-slate-400">
+                  <h2 className="text-sm font-semibold">Case status</h2>
+                  <p className="mt-1 text-xs text-slate-500">
                     Current grouped investigation status and severity.
                   </p>
                 </div>
 
                 <div className="flex flex-wrap gap-2">
                   <span
-                    className={`rounded-full border px-4 py-2 text-sm ${statusClass(
+                    className={`rounded-full border px-3 py-1.5 text-xs ${statusClass(
                       caseData.status
                     )}`}
                   >
@@ -2331,7 +2465,7 @@ export default function CaseDetailPage() {
                   </span>
 
                   <span
-                    className={`rounded-full border px-4 py-2 text-sm ${severityClass(
+                    className={`rounded-full border px-3 py-1.5 text-xs ${severityClass(
                       caseData.severity
                     )}`}
                   >
@@ -2340,7 +2474,7 @@ export default function CaseDetailPage() {
                 </div>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-3 md:grid-cols-2">
                 <DetailRow
                   label="Correlation type"
                   value={caseData.correlation_type ?? "-"}
@@ -2357,11 +2491,11 @@ export default function CaseDetailPage() {
               </div>
             </section>
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
-              <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-lg">
+              <div className="mb-2 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <h2 className="text-lg font-medium">Case AI analysis</h2>
-                  <p className="mt-1 text-sm text-slate-400">
+                  <h2 className="text-sm font-semibold">Case AI analysis</h2>
+                  <p className="mt-1 text-xs text-slate-500">
                     LLM-generated investigation summary, risk interpretation and recommended next actions.
                   </p>
                 </div>
@@ -2369,19 +2503,19 @@ export default function CaseDetailPage() {
                 <button
                   onClick={handleGenerateAnalysis}
                   disabled={generatingAnalysis}
-                  className="rounded-xl border border-cyan-500 bg-cyan-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded-md border border-cyan-500 bg-cyan-500 px-3 py-1.5 text-xs font-medium text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {generatingAnalysis ? "Generating..." : caseAnalysis ? "Regenerate AI analysis" : "Generate AI analysis"}
                 </button>
               </div>
 
               {!caseAnalysis ? (
-                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">
+                <div className="rounded-md border border-slate-800 bg-slate-950 p-3 text-xs text-slate-500">
                   No AI analysis available yet for this case.
                 </div>
               ) : (
-                <div className="space-y-4">
-                  <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-3">
+                  <div className="grid gap-3 md:grid-cols-3">
                     <DetailRow label="Model" value={caseAnalysis.model ?? "-"} />
                     <DetailRow
                       label="Recommended status"
@@ -2398,29 +2532,29 @@ export default function CaseDetailPage() {
                     {caseAnalysis.created_by ?? "llm"}
                   </div>
 
-                  <pre className="whitespace-pre-wrap rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm leading-6 text-slate-200">
+                  <pre className="whitespace-pre-wrap rounded-md border border-slate-800 bg-slate-950 p-3 text-sm leading-6 text-slate-200">
                     {caseAnalysis.analysis}
                   </pre>
                 </div>
               )}
             </section>
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
-              <h2 className="mb-4 text-lg font-medium">Case summary</h2>
+            <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-lg">
+              <h2 className="mb-2 text-sm font-semibold">Case summary</h2>
 
-              <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-300">
+              <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-md border border-slate-800 bg-slate-950 p-3 text-xs text-slate-300">
                 {summary || "No case summary available."}
               </pre>
             </section>
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg" id="related-incidents">
+            <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-lg" id="related-incidents">
               <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div>
                   <div className="flex items-center gap-2">
                     <ShieldAlert className="h-5 w-5 text-cyan-300" />
-                    <h2 className="text-lg font-medium">Related incidents</h2>
+                    <h2 className="text-sm font-semibold">Related incidents</h2>
                   </div>
-                  <p className="mt-1 text-sm text-slate-400">
+                  <p className="mt-1 text-xs text-slate-500">
                     Linked alerts and detections associated with this investigation case.
                   </p>
 
@@ -2432,13 +2566,13 @@ export default function CaseDetailPage() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="w-fit rounded-full border border-slate-700 bg-slate-950 px-4 py-2 text-sm text-slate-300">
+                  <span className="w-fit rounded-full border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-300">
                     {incidents.length} incidents
                   </span>
 
                   <button
                     onClick={() => setRelatedIncidentsOpen((current) => !current)}
-                    className="rounded-xl border border-cyan-700 bg-slate-950 px-4 py-2 text-sm text-cyan-200 hover:bg-slate-800"
+                    className="rounded-md border border-cyan-700 bg-slate-950 px-3 py-1.5 text-xs text-cyan-200 hover:bg-slate-800"
                   >
                     {relatedIncidentsOpen ? "Hide related incidents" : "Show related incidents"}
                   </button>
@@ -2446,15 +2580,15 @@ export default function CaseDetailPage() {
               </div>
 
               {relatedIncidentsOpen && incidents.length === 0 && (
-                <div className="mt-5 rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">
+                <div className="mt-3 rounded-md border border-slate-800 bg-slate-950 p-3 text-xs text-slate-500">
                   No incidents linked to this case.
                 </div>
               )}
 
               {relatedIncidentsOpen && incidents.length > 0 && (
-                <div className="mt-5">
-                  <div className="mb-4 flex flex-col gap-3 rounded-xl border border-slate-800 bg-slate-950 p-4 md:flex-row md:items-center md:justify-between">
-                    <div className="text-sm text-slate-300">
+                <div className="mt-3">
+                  <div className="mb-2 flex flex-col gap-3 rounded-md border border-slate-800 bg-slate-950 p-3 md:flex-row md:items-center md:justify-between">
+                    <div className="text-xs text-slate-300">
                       {relatedIncidentsExpanded ? (
                         <>Showing all {incidents.length} linked incidents.</>
                       ) : (
@@ -2472,7 +2606,7 @@ export default function CaseDetailPage() {
                         onClick={() =>
                           setRelatedIncidentsExpanded((current) => !current)
                         }
-                        className="w-fit rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800"
+                        className="w-fit rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800"
                       >
                         {relatedIncidentsExpanded ? "Show latest only" : "Show all incidents"}
                       </button>
@@ -2510,7 +2644,7 @@ export default function CaseDetailPage() {
 
                             <td className="py-3 pr-4">
                               <span
-                                className={`rounded-full border px-3 py-1 text-xs ${statusClass(
+                                className={`rounded-full border px-2 py-0.5 text-[11px] ${statusClass(
                                   incident.status
                                 )}`}
                               >
@@ -2586,16 +2720,16 @@ function CaseQuickActions({
   const isTerminal = status === "CLOSED" || status === "FALSE_POSITIVE";
 
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
-      <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+    <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-lg">
+      <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
-          <h2 className="text-lg font-medium">Case Quick Actions</h2>
-          <p className="mt-1 text-sm text-slate-400">
+          <h2 className="text-sm font-semibold">Case Quick Actions</h2>
+          <p className="mt-1 text-xs text-slate-500">
             Execute common analyst actions without scrolling through the full case page.
           </p>
         </div>
 
-        <span className="w-fit rounded-full border border-slate-700 bg-slate-950 px-4 py-2 text-sm text-slate-300">
+        <span className="w-fit rounded-full border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-300">
           Status {status}
         </span>
       </div>
@@ -2675,7 +2809,7 @@ function CaseQuickActions({
           onAction={onAction}
         />
 
-        <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+        <div className="rounded-md border border-slate-800 bg-slate-950 p-4">
           <div className="text-sm font-medium text-slate-200">Current blockers</div>
           <div className="mt-2 space-y-1 text-xs leading-5 text-slate-500">
             <div>Actions: {actionCount} total · {openActionCount} open</div>
@@ -2737,7 +2871,7 @@ function QuickActionButton({
       type="button"
       onClick={() => onAction(action)}
       disabled={disabled || isAnyRunning}
-      className={`rounded-xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-40 ${className}`}
+      className={`rounded-md border p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-40 ${className}`}
     >
       <div className="text-sm font-medium">
         {isRunning ? "Working..." : title}
@@ -2795,16 +2929,16 @@ function CaseFocusMode({
   const activeMode = modes.find((mode) => mode.value === value) ?? modes[0];
 
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
-      <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+    <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-lg">
+      <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
-          <h2 className="text-lg font-medium">Focus Mode</h2>
-          <p className="mt-1 text-sm text-slate-400">
+          <h2 className="text-sm font-semibold">Focus Mode</h2>
+          <p className="mt-1 text-xs text-slate-500">
             Collapse non-relevant sections and focus on the current analyst workflow.
           </p>
         </div>
 
-        <span className="w-fit rounded-full border border-cyan-700 bg-cyan-950 px-4 py-2 text-sm text-cyan-200">
+        <span className="w-fit rounded-full border border-cyan-700 bg-cyan-950 px-3 py-1.5 text-xs text-cyan-200">
           {activeMode.label}
         </span>
       </div>
@@ -2814,7 +2948,7 @@ function CaseFocusMode({
           <button
             key={mode.value}
             onClick={() => onChange(mode.value)}
-            className={`rounded-xl border p-4 text-left transition ${
+            className={`rounded-md border p-3 text-left transition ${
               value === mode.value
                 ? "border-cyan-500 bg-cyan-500 text-slate-950"
                 : "border-slate-800 bg-slate-950 text-slate-300 hover:border-cyan-800 hover:bg-slate-900"
@@ -2853,29 +2987,29 @@ function CaseCommandCenter({
   const effectiveSeverity = caseData.severity_review ?? caseData.severity ?? "LOW";
 
   return (
-    <section className="rounded-2xl border border-cyan-900/60 bg-cyan-950/10 p-5 shadow-lg">
-      <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+    <section className="rounded-lg border border-cyan-900/60 bg-cyan-950/10 p-3 shadow-lg">
+      <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
-          <h2 className="text-lg font-medium">Case Command Center</h2>
-          <p className="mt-1 text-sm text-slate-400">
+          <h2 className="text-sm font-semibold">Case Command Center</h2>
+          <p className="mt-1 text-xs text-slate-500">
             Operational summary and shortcuts for the current investigation.
           </p>
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <span className={`rounded-full border px-3 py-1 text-xs ${statusClass(caseData.status)}`}>
+          <span className={`rounded-full border px-2 py-0.5 text-[11px] ${statusClass(caseData.status)}`}>
             {caseData.status ?? "OPEN"}
           </span>
-          <span className={`rounded-full border px-3 py-1 text-xs ${severityClass(effectiveSeverity)}`}>
+          <span className={`rounded-full border px-2 py-0.5 text-[11px] ${severityClass(effectiveSeverity)}`}>
             {effectiveSeverity}
           </span>
-          <span className={`rounded-full border px-3 py-1 text-xs ${slaClass(caseData.sla_status)}`}>
+          <span className={`rounded-full border px-2 py-0.5 text-[11px] ${slaClass(caseData.sla_status)}`}>
             SLA {slaLabel(caseData.sla_status)}
           </span>
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <CommandMetric
           title="Owner"
           value={caseData.owner ?? "unassigned"}
@@ -2916,7 +3050,7 @@ function CaseCommandCenter({
         />
       </div>
 
-      <div className="mt-5 rounded-xl border border-slate-800 bg-slate-950 p-4">
+      <div className="mt-3 rounded-md border border-slate-800 bg-slate-950 p-4">
         <div className="mb-3 text-xs uppercase tracking-wide text-slate-500">
           Quick navigation
         </div>
@@ -2964,9 +3098,9 @@ function CommandMetric({
         : "text-slate-400";
 
   return (
-    <div className={`rounded-xl border p-4 ${toneClass}`}>
+    <div className={`rounded-md border p-3 ${toneClass}`}>
       <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="text-sm text-slate-400">{title}</div>
+        <div className="text-xs text-slate-500">{title}</div>
         {icon === "check" && <CheckCircle2 className={`h-4 w-4 ${iconClass}`} />}
         {icon === "warning" && <AlertTriangle className={`h-4 w-4 ${iconClass}`} />}
         {icon === "progress" && <CircleDashed className={`h-4 w-4 ${iconClass}`} />}
@@ -3022,7 +3156,7 @@ function ReportDownloadCard({
           : "border-cyan-700 bg-cyan-500 text-slate-950 hover:bg-cyan-400";
 
   return (
-    <div className={`flex h-full flex-col rounded-xl border p-4 ${toneClass}`}>
+    <div className={`flex h-full flex-col rounded-md border p-3 ${toneClass}`}>
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold text-slate-100">{title}</h3>
@@ -3040,7 +3174,7 @@ function ReportDownloadCard({
         <a
           href={href}
           download
-          className={`inline-flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-2 text-sm font-medium shadow-sm ${buttonClass}`}
+          className={`inline-flex w-full items-center justify-center gap-2 rounded-md border px-3 py-1.5 text-xs font-medium shadow-sm ${buttonClass}`}
         >
           <FileDown className="h-4 w-4" />
           Download
@@ -3058,8 +3192,8 @@ function InfoCard({
   value: string | number;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
-      <div className="mb-3 text-sm text-slate-400">{title}</div>
+    <div className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-lg">
+      <div className="mb-3 text-xs text-slate-500">{title}</div>
       <div className="break-words text-xl font-semibold">{value}</div>
     </div>
   );
@@ -3067,7 +3201,7 @@ function InfoCard({
 
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+    <div className="rounded-md border border-slate-800 bg-slate-950 p-4">
       <div className="mb-1 text-xs uppercase tracking-wide text-slate-500">
         {label}
       </div>

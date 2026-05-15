@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import AppNavigation from "../../../components/AppNavigation";
 import {
-  ArrowLeft,
-  FileDown,
+  AlertTriangle,
   Brain,
   Database,
+  FileDown,
   FileText,
+  RefreshCw,
   ShieldAlert,
   Target,
 } from "lucide-react";
@@ -92,6 +94,8 @@ type CorrelationSummary = {
   }>;
 };
 
+type Tone = "success" | "warning" | "danger" | "primary" | "neutral" | "executive";
+
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8008";
 
@@ -112,13 +116,61 @@ function riskLabel(score: number | null | undefined) {
   return "Low";
 }
 
-function riskClass(score: number | null | undefined) {
+function toneForRisk(score: number | null | undefined): Tone {
   const value = score ?? 0;
 
-  if (value >= 81) return "bg-red-100 text-red-800 border-red-200";
-  if (value >= 61) return "bg-orange-100 text-orange-800 border-orange-200";
-  if (value >= 31) return "bg-yellow-100 text-yellow-800 border-yellow-200";
-  return "bg-emerald-100 text-emerald-800 border-emerald-200";
+  if (value >= 81) return "danger";
+  if (value >= 61) return "warning";
+  if (value >= 31) return "primary";
+  return "success";
+}
+
+function toneForStatus(status: string | null | undefined): Tone {
+  const value = status ?? "NEW";
+
+  if (value === "ESCALATED") return "danger";
+  if (value === "TRIAGED") return "primary";
+  if (value === "CLOSED") return "success";
+  if (value === "FALSE_POSITIVE") return "executive";
+
+  return "neutral";
+}
+
+function toneClasses(tone: Tone) {
+  const classes: Record<Tone, { card: string; badge: string; text: string }> = {
+    success: {
+      card: "border-emerald-900/70 bg-emerald-950/20",
+      badge: "border-emerald-700 bg-emerald-950 text-emerald-200",
+      text: "text-emerald-300",
+    },
+    warning: {
+      card: "border-orange-900/70 bg-orange-950/20",
+      badge: "border-orange-700 bg-orange-950 text-orange-200",
+      text: "text-orange-300",
+    },
+    danger: {
+      card: "border-red-900/70 bg-red-950/25",
+      badge: "border-red-800 bg-red-950 text-red-200",
+      text: "text-red-300",
+    },
+    primary: {
+      card: "border-cyan-900/70 bg-cyan-950/20",
+      badge: "border-cyan-700 bg-cyan-950 text-cyan-200",
+      text: "text-cyan-300",
+    },
+    neutral: {
+      card: "border-slate-800 bg-slate-900",
+      badge: "border-slate-700 bg-slate-950 text-slate-300",
+      text: "text-slate-300",
+    },
+    executive: {
+      card: "border-violet-900/70 bg-violet-950/20",
+      badge: "border-violet-700 bg-violet-950 text-violet-200",
+      text: "text-violet-300",
+    },
+  };
+
+  return classes[tone];
 }
 
 function prettyJson(value: string | null) {
@@ -171,6 +223,16 @@ function formatTimestamp(value: string | null | undefined) {
   });
 }
 
+function shortTimestamp(value: string | null | undefined) {
+  return formatTimestamp(value).replace(", ", " · ");
+}
+
+function shortText(value: string | null | undefined, max = 120) {
+  if (!value) return "-";
+  if (value.length <= max) return value;
+  return `${value.slice(0, max - 1)}…`;
+}
+
 async function fetchIncident(id: string): Promise<IncidentDetail> {
   const response = await fetch(`${API_BASE}/incidents/${id}`, {
     cache: "no-store",
@@ -207,7 +269,6 @@ async function fetchIncidentNotes(id: string): Promise<IncidentNote[]> {
   return response.json();
 }
 
-
 export default function IncidentDetailPage() {
   const params = useParams();
   const incidentId = String(params.id);
@@ -218,10 +279,12 @@ export default function IncidentDetailPage() {
   const [noteDraft, setNoteDraft] = useState("");
   const [savingNote, setSavingNote] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function loadIncident() {
     try {
+      setRefreshing(true);
       setError(null);
       const [data, auditData, notesData] = await Promise.all([
         fetchIncident(incidentId),
@@ -236,6 +299,7 @@ export default function IncidentDetailPage() {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }
 
@@ -264,9 +328,7 @@ export default function IncidentDetailPage() {
   async function addNote() {
     const note = noteDraft.trim();
 
-    if (!note) {
-      return;
-    }
+    if (!note) return;
 
     try {
       setSavingNote(true);
@@ -296,7 +358,6 @@ export default function IncidentDetailPage() {
     }
   }
 
-
   useEffect(() => {
     loadIncident();
   }, [incidentId]);
@@ -323,481 +384,357 @@ export default function IncidentDetailPage() {
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto max-w-7xl px-6 py-8">
-        <header className="mb-8">
-          <Link
-            href="/"
-            className="mb-6 inline-flex items-center gap-2 text-sm text-cyan-300 hover:text-cyan-200"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back to dashboard
-          </Link>
+      <div className="mx-auto max-w-[1600px] px-4 py-4">
+        <AppNavigation />
 
-          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-            <div>
-              <div className="mb-2 flex items-center gap-2 text-sm text-cyan-300">
-                <ShieldAlert className="h-4 w-4" />
-                Incident detail
-              </div>
+        <header className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <Link
+              href="/"
+              className="mb-2 inline-flex items-center gap-1.5 text-xs text-cyan-300 hover:text-cyan-200"
+            >
+              ← Dashboard
+            </Link>
 
-              <h1 className="text-3xl font-semibold tracking-tight">
-                Incident #{incidentId}
-              </h1>
-
-              <p className="mt-2 max-w-3xl text-sm text-slate-400">
-                Complete AI triage, correlation data and raw Wazuh alert.
-              </p>
+            <div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-cyan-300">
+              <ShieldAlert className="h-3.5 w-3.5" />
+              Incident Detail
             </div>
 
-            {incident && (
-              <span
-                className={`rounded-full border px-4 py-2 text-sm ${riskClass(
-                  incident.risk_score
-                )}`}
-              >
-                {riskLabel(incident.risk_score)} risk {incident.risk_score ?? 0}
-              </span>
-            )}
+            <h1 className="text-xl font-semibold tracking-tight">
+              Incident #{incidentId}
+            </h1>
+
+            <p className="mt-1 max-w-4xl text-xs leading-5 text-slate-500">
+              Compact AI triage view with lifecycle, correlation explanation,
+              analyst notes and raw Wazuh evidence.
+            </p>
           </div>
-          <div className="mt-5 flex flex-wrap gap-3">
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={loadIncident}
+              className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 text-xs text-slate-200 shadow-sm hover:bg-slate-800"
+            >
+              <RefreshCw
+                className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`}
+              />
+              Refresh
+            </button>
+
             <a
               href={`${API_BASE}/reports/incidents/${incidentId}?format=markdown`}
               download
-              className="inline-flex items-center gap-2 rounded-xl border border-cyan-700 bg-cyan-500 px-4 py-2 text-sm font-medium text-slate-950 shadow-sm hover:bg-cyan-400"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-cyan-700 bg-cyan-500 px-3 text-xs font-medium text-slate-950 shadow-sm hover:bg-cyan-400"
             >
-              <FileDown className="h-4 w-4" />
-              Download Markdown report
+              <FileDown className="h-3.5 w-3.5" />
+              Markdown
             </a>
 
             <a
               href={`${API_BASE}/reports/incidents/${incidentId}?format=json`}
               download
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 shadow-sm hover:bg-slate-800"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 text-xs text-slate-200 shadow-sm hover:bg-slate-800"
             >
-              <FileDown className="h-4 w-4" />
-              Download JSON
+              <FileDown className="h-3.5 w-3.5" />
+              JSON
             </a>
           </div>
-
         </header>
 
         {loading && (
-          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6 text-slate-300">
+          <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 text-xs text-slate-300">
             Loading incident...
-          </div>
+          </section>
         )}
 
         {error && (
-          <div className="rounded-2xl border border-red-800 bg-red-950/60 p-4 text-sm text-red-200">
+          <div className="mb-3 rounded-lg border border-red-800 bg-red-950/60 p-3 text-xs text-red-200">
             API error: {error}
           </div>
         )}
 
         {incident && (
-          <div className="space-y-6">
-            <section className="grid gap-4 md:grid-cols-4">
-              <InfoCard title="Host" value={incident.agent ?? "unknown"} />
-              <InfoCard title="Wazuh level" value={incident.level ?? 0} />
-              <InfoCard
+          <div className="space-y-3">
+            <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
+              <MetricTile
+                title="Risk"
+                value={`${riskLabel(incident.risk_score)} · ${incident.risk_score ?? 0}`}
+                tone={toneForRisk(incident.risk_score)}
+                icon={<AlertTriangle className="h-4 w-4" />}
+              />
+              <MetricTile
+                title="Status"
+                value={incident.status ?? "NEW"}
+                tone={toneForStatus(incident.status)}
+                icon={<ShieldAlert className="h-4 w-4" />}
+              />
+              <MetricTile
+                title="Host"
+                value={incident.agent ?? "unknown"}
+                tone="primary"
+                icon={<Database className="h-4 w-4" />}
+              />
+              <MetricTile
+                title="Wazuh level"
+                value={incident.level ?? 0}
+                tone={toneForRisk((incident.level ?? 0) * 10)}
+                icon={<Target className="h-4 w-4" />}
+              />
+              <MetricTile
                 title="Correlation"
                 value={incident.correlation_score ?? 0}
+                tone={incident.correlated ? "executive" : "neutral"}
+                icon={<Brain className="h-4 w-4" />}
               />
-              <InfoCard
-                title="Status"
-                value={incident.correlated ? "Correlated" : "Not correlated"}
+              <MetricTile
+                title="Priority"
+                value={incident.recommended_priority ?? "-"}
+                tone={toneForStatus(incident.recommended_priority)}
+                icon={<ShieldAlert className="h-4 w-4" />}
               />
             </section>
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
-              <div className="mb-4 flex items-center justify-between gap-4">
-                <div>
-                  <h2 className="text-lg font-medium">Incident lifecycle</h2>
-                  <p className="mt-1 text-sm text-slate-400">
-                    Update the operational SOC status for this incident.
-                  </p>
+            <section className="grid gap-3 xl:grid-cols-[420px_1fr]">
+              <Panel title="Incident lifecycle" description="Update operational SOC status.">
+                <div className="mb-2 flex items-center justify-between">
+                  <Badge tone={toneForStatus(incident.status)}>
+                    {incident.status ?? "NEW"}
+                  </Badge>
+                  <span className="text-[11px] text-slate-500">
+                    {shortTimestamp(incident.timestamp_local ?? incident.timestamp)}
+                  </span>
                 </div>
 
-                <span className="rounded-full border border-cyan-200 bg-cyan-100 px-4 py-2 text-sm text-cyan-800">
-                  {incident.status ?? "NEW"}
-                </span>
-              </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {INCIDENT_STATUSES.map((status) => (
+                    <button
+                      key={status}
+                      onClick={() => updateStatus(status)}
+                      className={`h-7 rounded-md border px-2 text-[11px] ${
+                        incident.status === status
+                          ? "border-cyan-400 bg-cyan-500 text-slate-950"
+                          : "border-slate-700 bg-slate-950 text-slate-300 hover:bg-slate-800"
+                      }`}
+                    >
+                      {status}
+                    </button>
+                  ))}
+                </div>
+              </Panel>
 
-              <div className="flex flex-wrap gap-2">
-                {INCIDENT_STATUSES.map((status) => (
-                  <button
-                    key={status}
-                    onClick={() => updateStatus(status)}
-                    className={`rounded-xl border px-4 py-2 text-sm ${
-                      incident.status === status
-                        ? "border-cyan-400 bg-cyan-500 text-slate-950"
-                        : "border-slate-700 bg-slate-950 text-slate-300 hover:bg-slate-800"
-                    }`}
-                  >
-                    {status}
-                  </button>
-                ))}
-              </div>
+              <Panel title="Detection rule" description="Primary Wazuh detection metadata.">
+                <div className="grid gap-2 lg:grid-cols-4">
+                  <CompactField
+                    label="Timestamp"
+                    value={incident.timestamp_local ?? formatTimestamp(incident.timestamp)}
+                  />
+                  <CompactField label="Agent" value={incident.agent ?? "-"} />
+                  <CompactField label="Rule" value={shortText(incident.rule, 120)} />
+                  <CompactField label="Wazuh doc ID" value={incident.wazuh_doc_id ?? "-"} />
+                </div>
+              </Panel>
             </section>
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
-              <div className="mb-4">
-                <h2 className="text-lg font-medium">Audit trail</h2>
-                <p className="mt-1 text-sm text-slate-400">
-                  Operational history for this incident.
-                </p>
-              </div>
+            <section className="grid gap-3 xl:grid-cols-[1fr_420px]">
+              <Panel title="AI analysis" description="Generated triage explanation.">
+                <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-slate-800 bg-slate-950 p-3 text-xs leading-5 text-slate-200">
+                  {incident.ai_analysis ?? "No AI analysis available."}
+                </pre>
+              </Panel>
 
-              {auditEvents.length === 0 ? (
-                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">
-                  No audit events available.
+              <Panel title="Analyst notes" description="Investigation notes and rationale.">
+                <div className="space-y-2">
+                  <textarea
+                    value={noteDraft}
+                    onChange={(event) => setNoteDraft(event.target.value)}
+                    placeholder="Write an analyst note..."
+                    className="min-h-20 w-full rounded-md border border-slate-800 bg-slate-950 p-2 text-xs text-slate-200 outline-none placeholder:text-slate-600 focus:border-cyan-500"
+                  />
+
+                  <div className="flex justify-end">
+                    <button
+                      onClick={addNote}
+                      disabled={savingNote || !noteDraft.trim()}
+                      className="h-8 rounded-md border border-cyan-500 bg-cyan-500 px-3 text-xs font-medium text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {savingNote ? "Saving..." : "Add note"}
+                    </button>
+                  </div>
+
+                  {notes.length === 0 ? (
+                    <EmptyState label="No analyst notes available." />
+                  ) : (
+                    <div className="max-h-44 space-y-2 overflow-auto pr-1">
+                      {notes.map((note) => (
+                        <div
+                          key={note.id}
+                          className="rounded-md border border-slate-800 bg-slate-950 p-2"
+                        >
+                          <div className="mb-1 text-[10px] text-slate-500">
+                            {formatTimestamp(note.created_at)} ·{" "}
+                            {note.created_by ?? "local_analyst"}
+                          </div>
+                          <div className="whitespace-pre-wrap text-xs leading-5 text-slate-200">
+                            {note.note}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
+              </Panel>
+            </section>
+
+            <Panel
+              title="Correlation explanation"
+              description="Explainable correlation details derived from recent events, matched patterns and score components."
+              icon={<Brain className="h-3.5 w-3.5" />}
+            >
+              {!parsedCorrelationSummary ? (
+                <EmptyState label="No structured correlation explanation available yet." />
               ) : (
                 <div className="space-y-3">
-                  {auditEvents.map((event) => (
-                    <div
-                      key={event.id}
-                      className="rounded-xl border border-slate-800 bg-slate-950 p-4"
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                    <MetricTile title="Base score" value={parsedCorrelationSummary.base_score ?? 0} tone="neutral" />
+                    <MetricTile title="Pattern score" value={parsedCorrelationSummary.pattern_score ?? 0} tone="primary" />
+                    <MetricTile title="Volume score" value={parsedCorrelationSummary.volume_score ?? 0} tone="warning" />
+                    <MetricTile title="Chain bonus" value={parsedCorrelationSummary.chain_bonus ?? 0} tone="executive" />
+                  </div>
+
+                  <div className="grid gap-3 xl:grid-cols-3">
+                    <CompactList
+                      title="Matched patterns"
+                      emptyLabel="No security patterns matched."
                     >
-                      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                        <div>
-                          <div className="text-sm font-medium text-slate-200">
+                      {matchedPatterns.map(([name, pattern]) => (
+                        <div key={name} className="rounded-md border border-slate-800 bg-slate-950 p-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="truncate text-xs font-medium text-cyan-300">
+                              {name}
+                            </div>
+                            <span className="text-[11px] text-slate-500">
+                              w {pattern.weight ?? 0}
+                            </span>
+                          </div>
+                          <div className="mt-1 line-clamp-2 text-[11px] text-slate-400">
+                            {(pattern.keywords ?? []).join(", ")}
+                          </div>
+                        </div>
+                      ))}
+                    </CompactList>
+
+                    <CompactList
+                      title="Matched attack chains"
+                      emptyLabel="No multi-step attack chain matched."
+                    >
+                      {matchedAttackChains.map((chain, index) => (
+                        <div key={`${chain.name ?? "chain"}-${index}`} className="rounded-md border border-slate-800 bg-slate-950 p-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="truncate text-xs font-medium text-cyan-300">
+                              {chain.name ?? "Unnamed chain"}
+                            </div>
+                            <span className="text-[11px] text-slate-500">
+                              +{chain.score_bonus ?? 0}
+                            </span>
+                          </div>
+                          <div className="mt-1 line-clamp-2 text-[11px] text-slate-400">
+                            {chain.reason ?? "No explanation available."}
+                          </div>
+                        </div>
+                      ))}
+                    </CompactList>
+
+                    <CompactList
+                      title="Related events"
+                      emptyLabel="No related events available."
+                    >
+                      {relatedCorrelationEvents.slice(0, 8).map((event) => (
+                        <div key={event.id} className="rounded-md border border-slate-800 bg-slate-950 px-2 py-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <Link
+                              href={`/incidents/${event.id}`}
+                              className="text-xs text-cyan-300 hover:text-cyan-200"
+                            >
+                              #{event.id}
+                            </Link>
+                            <span className="text-[11px] text-slate-500">
+                              risk {event.risk_score ?? 0}
+                            </span>
+                          </div>
+                          <div className="mt-0.5 truncate text-[11px] text-slate-400">
+                            {event.rule ?? "-"}
+                          </div>
+                        </div>
+                      ))}
+                    </CompactList>
+                  </div>
+                </div>
+              )}
+            </Panel>
+
+            <section className="grid gap-3 xl:grid-cols-2">
+              <Panel title="Structured correlation" icon={<Brain className="h-3.5 w-3.5" />}>
+                <div className="grid gap-2 lg:grid-cols-2">
+                  <CompactField label="Correlation type" value={incident.correlation_type ?? "-"} />
+                  <CompactField label="Recommended priority" value={incident.recommended_priority ?? "-"} />
+                  <CompactField label="Attack chain" value={incident.attack_chain ?? "-"} />
+                  <CompactField label="Escalation reason" value={incident.escalation_reason ?? "-"} />
+                </div>
+              </Panel>
+
+              <Panel title="Audit trail" icon={<FileText className="h-3.5 w-3.5" />}>
+                {auditEvents.length === 0 ? (
+                  <EmptyState label="No audit events available." />
+                ) : (
+                  <div className="max-h-56 space-y-2 overflow-auto pr-1">
+                    {auditEvents.map((event) => (
+                      <div
+                        key={event.id}
+                        className="rounded-md border border-slate-800 bg-slate-950 p-2"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-xs font-medium text-slate-200">
                             {event.event_type}
                           </div>
-
-                          <div className="mt-1 text-sm text-slate-400">
-                            {event.old_value ?? "-"} → {event.new_value ?? "-"}
+                          <div className="text-[10px] text-slate-500">
+                            {formatTimestamp(event.created_at)}
                           </div>
                         </div>
-
-                        <div className="text-xs text-slate-500">
-                          {formatTimestamp(event.created_at)} · {event.created_by ?? "system"}
+                        <div className="mt-1 text-[11px] text-slate-400">
+                          {event.old_value ?? "-"} → {event.new_value ?? "-"}
                         </div>
-                      </div>
-
-                      {event.comment && (
-                        <div className="mt-3 rounded-lg border border-slate-800 bg-slate-900 p-3 text-sm text-slate-300">
-                          {event.comment}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
-              <div className="mb-4">
-                <h2 className="text-lg font-medium">Analyst notes</h2>
-                <p className="mt-1 text-sm text-slate-400">
-                  Add investigation notes, assumptions, validation steps or closure rationale.
-                </p>
-              </div>
-
-              <div className="mb-5 space-y-3">
-                <textarea
-                  value={noteDraft}
-                  onChange={(event) => setNoteDraft(event.target.value)}
-                  placeholder="Write an analyst note for this incident..."
-                  className="min-h-28 w-full rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-200 outline-none placeholder:text-slate-600 focus:border-cyan-500"
-                />
-
-                <div className="flex justify-end">
-                  <button
-                    onClick={addNote}
-                    disabled={savingNote || !noteDraft.trim()}
-                    className="rounded-xl border border-cyan-500 bg-cyan-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    {savingNote ? "Saving..." : "Add note"}
-                  </button>
-                </div>
-              </div>
-
-              {notes.length === 0 ? (
-                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">
-                  No analyst notes available.
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {notes.map((note) => (
-                    <div
-                      key={note.id}
-                      className="rounded-xl border border-slate-800 bg-slate-950 p-4"
-                    >
-                      <div className="mb-2 text-xs text-slate-500">
-                        {formatTimestamp(note.created_at)} · {note.created_by ?? "local_analyst"}
-                      </div>
-
-                      <div className="whitespace-pre-wrap text-sm leading-6 text-slate-200">
-                        {note.note}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
-              <div className="mb-4 flex items-center gap-2">
-                <Target className="h-5 w-5 text-cyan-300" />
-                <h2 className="text-lg font-medium">Detection rule</h2>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <DetailRow label="Timestamp" value={incident.timestamp_local ?? formatTimestamp(incident.timestamp)} />
-                <DetailRow label="Agent" value={incident.agent ?? "-"} />
-                <DetailRow label="Rule" value={incident.rule ?? "-"} />
-                <DetailRow
-                  label="Wazuh doc ID"
-                  value={incident.wazuh_doc_id ?? "-"}
-                />
-              </div>
-            </section>
-
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
-              <div className="mb-4 flex items-center gap-2">
-                <Brain className="h-5 w-5 text-cyan-300" />
-                <h2 className="text-lg font-medium">AI analysis</h2>
-              </div>
-
-              <pre className="whitespace-pre-wrap rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm leading-6 text-slate-200">
-                {incident.ai_analysis ?? "No AI analysis available."}
-              </pre>
-            </section>
-
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
-              <div className="mb-4 flex items-center gap-2">
-                <Brain className="h-5 w-5 text-cyan-300" />
-                <div>
-                  <h2 className="text-lg font-medium">Correlation explanation</h2>
-                  <p className="mt-1 text-sm text-slate-400">
-                    Explainable correlation details derived from recent events, matched patterns and score components.
-                  </p>
-                </div>
-              </div>
-
-              {!parsedCorrelationSummary ? (
-                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">
-                  No structured correlation explanation available yet. Recompute correlation summaries for this incident.
-                </div>
-              ) : (
-                <div className="space-y-5">
-                  <div className="grid gap-4 md:grid-cols-4">
-                    <InfoCard
-                      title="Base score"
-                      value={parsedCorrelationSummary.base_score ?? 0}
-                    />
-                    <InfoCard
-                      title="Pattern score"
-                      value={parsedCorrelationSummary.pattern_score ?? 0}
-                    />
-                    <InfoCard
-                      title="Volume score"
-                      value={parsedCorrelationSummary.volume_score ?? 0}
-                    />
-                    <InfoCard
-                      title="Chain bonus"
-                      value={parsedCorrelationSummary.chain_bonus ?? 0}
-                    />
-                  </div>
-
-                  <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
-                    <div className="mb-3 text-sm font-medium text-slate-200">
-                      Matched patterns
-                    </div>
-
-                    {matchedPatterns.length === 0 ? (
-                      <div className="text-sm text-slate-400">
-                        No security patterns matched in the correlation window.
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {matchedPatterns.map(([name, pattern]) => (
-                          <div
-                            key={name}
-                            className="rounded-lg border border-slate-800 bg-slate-900 p-3"
-                          >
-                            <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
-                              <div className="text-sm font-medium text-cyan-300">
-                                {name}
-                              </div>
-                              <div className="text-xs text-slate-500">
-                                weight {pattern.weight ?? 0}
-                              </div>
-                            </div>
-
-                            <div className="mt-2 text-sm text-slate-300">
-                              {(pattern.keywords ?? []).join(", ")}
-                            </div>
+                        {event.comment && (
+                          <div className="mt-1 line-clamp-2 rounded-md border border-slate-800 bg-slate-900 px-2 py-1 text-[11px] text-slate-300">
+                            {event.comment}
                           </div>
-                        ))}
+                        )}
                       </div>
-                    )}
+                    ))}
                   </div>
-
-                  <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
-                    <div className="mb-3 text-sm font-medium text-slate-200">
-                      Matched attack chains
-                    </div>
-
-                    {matchedAttackChains.length === 0 ? (
-                      <div className="text-sm text-slate-400">
-                        No multi-step attack chain matched. The incident may still be correlated by single-host patterns and volume.
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {matchedAttackChains.map((chain, index) => (
-                          <div
-                            key={`${chain.name ?? "chain"}-${index}`}
-                            className="rounded-lg border border-slate-800 bg-slate-900 p-3"
-                          >
-                            <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
-                              <div className="text-sm font-medium text-cyan-300">
-                                {chain.name ?? "Unnamed chain"}
-                              </div>
-                              <div className="text-xs text-slate-500">
-                                {chain.priority ?? "UNKNOWN"} · bonus {chain.score_bonus ?? 0}
-                              </div>
-                            </div>
-
-                            <div className="mt-2 text-sm text-slate-300">
-                              {chain.reason ?? "No explanation available."}
-                            </div>
-
-                            <div className="mt-2 text-xs text-slate-500">
-                              {chain.correlation_type ?? "-"}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
-                    <div className="mb-3 text-sm font-medium text-slate-200">
-                      Related events in correlation window
-                    </div>
-
-                    {relatedCorrelationEvents.length === 0 ? (
-                      <div className="text-sm text-slate-400">
-                        No related events available in the summary.
-                      </div>
-                    ) : (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm">
-                          <thead className="text-xs uppercase text-slate-500">
-                            <tr>
-                              <th className="px-3 py-2">ID</th>
-                              <th className="px-3 py-2">Time</th>
-                              <th className="px-3 py-2">Rule</th>
-                              <th className="px-3 py-2">Level</th>
-                              <th className="px-3 py-2">Risk</th>
-                              <th className="px-3 py-2">Status</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {relatedCorrelationEvents.map((event) => (
-                              <tr
-                                key={event.id}
-                                className="border-t border-slate-800 text-slate-300"
-                              >
-                                <td className="px-3 py-2">
-                                  {event.id ? (
-                                    <Link
-                                      href={`/incidents/${event.id}`}
-                                      className="text-cyan-300 hover:text-cyan-200"
-                                    >
-                                      #{event.id}
-                                    </Link>
-                                  ) : (
-                                    "-"
-                                  )}
-                                </td>
-                                <td className="px-3 py-2">
-                                  {formatTimestamp(event.timestamp)}
-                                </td>
-                                <td className="px-3 py-2">
-                                  {event.rule ?? "-"}
-                                </td>
-                                <td className="px-3 py-2">
-                                  {event.level ?? 0}
-                                </td>
-                                <td className="px-3 py-2">
-                                  {event.risk_score ?? 0}
-                                </td>
-                                <td className="px-3 py-2">
-                                  {event.status ?? "NEW"}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
+                )}
+              </Panel>
             </section>
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
-              <div className="mb-4 flex items-center gap-2">
-                <Brain className="h-5 w-5 text-cyan-300" />
-                <h2 className="text-lg font-medium">Structured correlation</h2>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <DetailRow
-                  label="Correlation type"
-                  value={incident.correlation_type ?? "-"}
-                />
-                <DetailRow
-                  label="Recommended priority"
-                  value={incident.recommended_priority ?? "-"}
-                />
-                <DetailRow
-                  label="Attack chain"
-                  value={incident.attack_chain ?? "-"}
-                />
-                <DetailRow
-                  label="Escalation reason"
-                  value={incident.escalation_reason ?? "-"}
-                />
-              </div>
-            </section>
-
-            <section className="grid gap-6 lg:grid-cols-2">
-              <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
-                <div className="mb-4 flex items-center gap-2">
-                  <Database className="h-5 w-5 text-cyan-300" />
-                  <h2 className="text-lg font-medium">MITRE / Metadata</h2>
-                </div>
-
-                <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-300">
+            <section className="grid gap-3 xl:grid-cols-2">
+              <Panel title="MITRE / Metadata" icon={<Database className="h-3.5 w-3.5" />}>
+                <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-md border border-slate-800 bg-slate-950 p-3 text-xs leading-5 text-slate-300">
                   {incident.mitre ?? "No MITRE data available."}
                 </pre>
-              </div>
+              </Panel>
 
-              <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
-                <div className="mb-4 flex items-center gap-2">
-                  <FileText className="h-5 w-5 text-cyan-300" />
-                  <h2 className="text-lg font-medium">Correlation summary</h2>
-                </div>
-
-                <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-300">
+              <Panel title="Correlation summary" icon={<FileText className="h-3.5 w-3.5" />}>
+                <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-md border border-slate-800 bg-slate-950 p-3 text-xs leading-5 text-slate-300">
                   {correlationSummary || "No correlation summary available."}
                 </pre>
-              </div>
+              </Panel>
             </section>
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
-              <div className="mb-4 flex items-center gap-2">
-                <FileText className="h-5 w-5 text-cyan-300" />
-                <h2 className="text-lg font-medium">Raw Wazuh alert</h2>
-              </div>
-
-              <pre className="max-h-[600px] overflow-auto rounded-xl border border-slate-800 bg-slate-950 p-4 text-xs leading-5 text-slate-300">
+            <Panel title="Raw Wazuh alert" icon={<FileText className="h-3.5 w-3.5" />}>
+              <pre className="max-h-[420px] overflow-auto rounded-md border border-slate-800 bg-slate-950 p-3 text-xs leading-5 text-slate-300">
                 {rawAlert || "No raw alert available."}
               </pre>
-            </section>
+            </Panel>
           </div>
         )}
       </div>
@@ -805,29 +742,121 @@ export default function IncidentDetailPage() {
   );
 }
 
-function InfoCard({
+function MetricTile({
   title,
   value,
+  tone,
+  icon,
 }: {
   title: string;
   value: string | number;
+  tone: Tone;
+  icon?: ReactNode;
+}) {
+  const classes = toneClasses(tone);
+
+  return (
+    <div className={`rounded-lg border px-3 py-2 shadow-sm ${classes.card}`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
+            {title}
+          </div>
+          <div className="mt-0.5 truncate text-lg font-semibold leading-6 text-slate-100">
+            {value}
+          </div>
+        </div>
+        {icon && (
+          <div className={`shrink-0 rounded-md bg-slate-950 p-1.5 ${classes.text}`}>
+            {icon}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Panel({
+  title,
+  description,
+  icon,
+  children,
+}: {
+  title: string;
+  description?: string;
+  icon?: ReactNode;
+  children: ReactNode;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
-      <div className="mb-3 text-sm text-slate-400">{title}</div>
-      <div className="break-words text-xl font-semibold">{value}</div>
-    </div>
+    <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
+      <div className="mb-2 flex items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            {icon && <div className="text-cyan-300">{icon}</div>}
+            <h2 className="text-sm font-semibold">{title}</h2>
+          </div>
+          {description && (
+            <p className="mt-0.5 text-[11px] leading-4 text-slate-500">
+              {description}
+            </p>
+          )}
+        </div>
+      </div>
+      {children}
+    </section>
   );
 }
 
-function DetailRow({ label, value }: { label: string; value: string }) {
+function Badge({ tone, children }: { tone: Tone; children: ReactNode }) {
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
-      <div className="mb-1 text-xs uppercase tracking-wide text-slate-500">
+    <span className={`rounded-md border px-2 py-0.5 text-[11px] ${toneClasses(tone).badge}`}>
+      {children}
+    </span>
+  );
+}
+
+function CompactField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 rounded-md border border-slate-800 bg-slate-950 px-2 py-1.5">
+      <div className="text-[10px] uppercase tracking-wide text-slate-500">
         {label}
       </div>
-      <div className="break-words text-sm text-slate-200">{value}</div>
+      <div className="truncate text-xs text-slate-200" title={value}>
+        {value}
+      </div>
     </div>
   );
 }
 
+function CompactList({
+  title,
+  emptyLabel,
+  children,
+}: {
+  title: string;
+  emptyLabel: string;
+  children: ReactNode;
+}) {
+  const hasChildren = Array.isArray(children)
+    ? children.length > 0
+    : Boolean(children);
+
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-2">
+      <div className="mb-2 text-xs font-semibold text-slate-200">{title}</div>
+      {!hasChildren ? (
+        <EmptyState label={emptyLabel} />
+      ) : (
+        <div className="max-h-56 space-y-2 overflow-auto pr-1">{children}</div>
+      )}
+    </div>
+  );
+}
+
+function EmptyState({ label }: { label: string }) {
+  return (
+    <div className="rounded-md border border-slate-800 bg-slate-950 p-2 text-xs text-slate-500">
+      {label}
+    </div>
+  );
+}
