@@ -93,18 +93,17 @@ export default function AppNavigation() {
     window.location.href = "/login";
   }
 
-  const navItems =
-    user?.role === "ADMIN"
-      ? [
-          ...NAV_ITEMS,
-          {
-            href: "/admin/users",
-            label: "Users",
-            icon: <Users className="h-3.5 w-3.5" />,
-            match: "prefix" as const,
-          },
-        ]
-      : NAV_ITEMS;
+  const navItems: NavItem[] = user
+    ? [
+        ...NAV_ITEMS,
+        {
+          href: "/admin/users",
+          label: "Users",
+          icon: <Users className="h-3.5 w-3.5" />,
+          match: "prefix",
+        },
+      ]
+    : NAV_ITEMS;
 
   return (
     <nav className="mb-5 rounded-xl border border-slate-800 bg-slate-900/95 px-3 py-2 shadow-lg">

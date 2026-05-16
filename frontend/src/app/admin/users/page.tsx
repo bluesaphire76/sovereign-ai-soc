@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import AppNavigation from "../../../components/AppNavigation";
 import { RefreshCw, UserPlus, Users } from "lucide-react";
-import { authFetch, type AuthUser } from "../../../lib/auth";
+import { authFetch, fetchCurrentUser, type AuthUser } from "../../../lib/auth";
 
 type UsersResponse = {
   items: AuthUser[];
@@ -18,6 +18,7 @@ export default function AdminUsersPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
 
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -28,6 +29,9 @@ export default function AdminUsersPage() {
     try {
       setRefreshing(true);
       setError(null);
+
+      const current = await fetchCurrentUser();
+      setCurrentUser(current);
 
       const response = await authFetch("/users");
 
@@ -48,6 +52,8 @@ export default function AdminUsersPage() {
   useEffect(() => {
     loadUsers();
   }, [loadUsers]);
+
+  const isAdmin = currentUser?.role === "ADMIN";
 
   async function createUser() {
     try {
@@ -95,6 +101,42 @@ export default function AdminUsersPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(patch),
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(String(body?.detail ?? `API error ${response.status}`));
+      }
+
+      await loadUsers();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    }
+  }
+
+  async function updateDisplayName(user: AuthUser) {
+    const newDisplayName = window.prompt(
+      `Display name for ${user.username}`,
+      user.display_name ?? ""
+    );
+
+    if (newDisplayName === null) return;
+
+    await updateUser(user.id, {
+      display_name: newDisplayName.trim() || null,
+    });
+  }
+
+  async function deleteUser(user: AuthUser) {
+    if (!window.confirm(`Delete user ${user.username}? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      setError(null);
+
+      const response = await authFetch(`/users/${user.id}`, {
+        method: "DELETE",
       });
 
       if (!response.ok) {
@@ -160,17 +202,18 @@ export default function AdminUsersPage() {
 
             <div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-cyan-300">
               <Users className="h-3.5 w-3.5" />
-              Administration
+              {isAdmin ? "Administration" : "Self-service"}
             </div>
 
             <h1 className="text-xl font-semibold tracking-tight">
-              User Management
-            </h1>
+                {isAdmin ? "User Management" : "User Profile"}
+              </h1>
 
             <p className="mt-1 max-w-4xl text-xs leading-5 text-slate-500">
-              Create and manage personal accounts for the Sovereign AI SOC
-              console.
-            </p>
+                {isAdmin
+                  ? "Create and manage personal accounts for the Sovereign AI SOC console."
+                  : "View your account profile and reset your own password."}
+              </p>
           </div>
 
           <button
@@ -191,6 +234,7 @@ export default function AdminUsersPage() {
         )}
 
         <div className="space-y-3">
+          {isAdmin && (
           <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
             <div className="mb-3 flex items-center gap-2">
               <UserPlus className="h-3.5 w-3.5 text-cyan-300" />
@@ -237,7 +281,7 @@ export default function AdminUsersPage() {
             </div>
           </section>
 
-          <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
+          )}          <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
               <h2 className="text-sm font-semibold">Users</h2>
               <span className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-400">
@@ -273,45 +317,83 @@ export default function AdminUsersPage() {
                           {user.display_name ?? "-"}
                         </td>
                         <td className="px-2 py-1.5">
-                          <select
-                            value={user.role}
-                            onChange={(event) =>
-                              updateUser(user.id, { role: event.target.value })
-                            }
-                            className="h-7 rounded-md border border-slate-700 bg-slate-950 px-2 text-[11px] text-slate-100"
-                          >
-                            {ROLES.map((item) => (
-                              <option key={item} value={item}>
-                                {item}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
+                            {isAdmin ? (
+                              <select
+                                value={user.role}
+                                onChange={(event) =>
+                                  updateUser(user.id, { role: event.target.value })
+                                }
+                                className="h-7 rounded-md border border-slate-700 bg-slate-950 px-2 text-[11px] text-slate-100"
+                              >
+                                {ROLES.map((item) => (
+                                  <option key={item} value={item}>
+                                    {item}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <span className="rounded-md border border-slate-700 bg-slate-950 px-2 py-0.5 text-[11px] text-slate-300">
+                                {user.role}
+                              </span>
+                            )}
+                          </td>
                         <td className="px-2 py-1.5">
-                          <button
-                            onClick={() =>
-                              updateUser(user.id, { is_active: !user.is_active })
-                            }
-                            className={`rounded-md border px-2 py-0.5 text-[11px] ${
-                              user.is_active
-                                ? "border-emerald-700 bg-emerald-950 text-emerald-200"
-                                : "border-red-800 bg-red-950 text-red-200"
-                            }`}
-                          >
-                            {user.is_active ? "ACTIVE" : "DISABLED"}
-                          </button>
-                        </td>
+                            {isAdmin ? (
+                              <button
+                                onClick={() =>
+                                  updateUser(user.id, { is_active: !user.is_active })
+                                }
+                                className={`rounded-md border px-2 py-0.5 text-[11px] ${
+                                  user.is_active
+                                    ? "border-emerald-700 bg-emerald-950 text-emerald-200"
+                                    : "border-red-800 bg-red-950 text-red-200"
+                                }`}
+                              >
+                                {user.is_active ? "ACTIVE" : "DISABLED"}
+                              </button>
+                            ) : (
+                              <span
+                                className={`rounded-md border px-2 py-0.5 text-[11px] ${
+                                  user.is_active
+                                    ? "border-emerald-700 bg-emerald-950 text-emerald-200"
+                                    : "border-red-800 bg-red-950 text-red-200"
+                                }`}
+                              >
+                                {user.is_active ? "ACTIVE" : "DISABLED"}
+                              </span>
+                            )}
+                          </td>
                         <td className="whitespace-nowrap px-2 py-1.5 text-slate-400">
                           {user.last_login_at ?? "-"}
                         </td>
                         <td className="px-2 py-1.5">
-                          <button
-                            onClick={() => resetPassword(user)}
-                            className="rounded-md border border-slate-700 bg-slate-950 px-2 py-0.5 text-[11px] text-slate-300 hover:bg-slate-800"
-                          >
-                            Reset password
-                          </button>
-                        </td>
+                            <div className="flex flex-wrap gap-1.5">
+                              <button
+                                onClick={() => resetPassword(user)}
+                                className="rounded-md border border-slate-700 bg-slate-950 px-2 py-0.5 text-[11px] text-slate-300 hover:bg-slate-800"
+                              >
+                                Reset password
+                              </button>
+
+                              {isAdmin && (
+                                <>
+                                  <button
+                                    onClick={() => updateDisplayName(user)}
+                                    className="rounded-md border border-slate-700 bg-slate-950 px-2 py-0.5 text-[11px] text-slate-300 hover:bg-slate-800"
+                                  >
+                                    Edit
+                                  </button>
+
+                                  <button
+                                    onClick={() => deleteUser(user)}
+                                    className="rounded-md border border-red-800 bg-red-950 px-2 py-0.5 text-[11px] text-red-200 hover:bg-red-900"
+                                  >
+                                    Delete
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </td>
                       </tr>
                     ))}
 
