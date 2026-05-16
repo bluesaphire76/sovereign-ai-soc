@@ -7,26 +7,68 @@ import json
 import os
 import secrets
 import time
+from pathlib import Path
 from typing import Any
 
 
 DEFAULT_TOKEN_TTL_SECONDS = int(os.environ.get("AI_SOC_AUTH_TOKEN_TTL_SECONDS", "28800"))
+MIN_AUTH_SECRET_LENGTH = 32
+DEFAULT_AUTH_SECRET_FILE = ".runtime/auth_secret"
+
+
+def _read_secret_file(path: Path) -> str | None:
+    if not path.exists():
+        return None
+
+    value = path.read_text(encoding="utf-8").strip()
+
+    if not value:
+        return None
+
+    return value
+
+
+def _write_secret_file(path: Path, secret: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    fd = os.open(path, flags, 0o600)
+
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(secret)
+        handle.write("\n")
 
 
 def get_auth_secret() -> str:
-    secret = os.environ.get("AI_SOC_AUTH_SECRET")
+    configured_secret = os.environ.get("AI_SOC_AUTH_SECRET")
 
-    if not secret:
-        raise RuntimeError(
-            "AI_SOC_AUTH_SECRET is required. Set it to a long random value before starting the API."
-        )
+    if configured_secret:
+        if len(configured_secret) < MIN_AUTH_SECRET_LENGTH:
+            raise RuntimeError(
+                "AI_SOC_AUTH_SECRET is too short. Use at least 32 characters."
+            )
 
-    if len(secret) < 32:
-        raise RuntimeError(
-            "AI_SOC_AUTH_SECRET is too short. Use at least 32 characters."
-        )
+        return configured_secret
 
-    return secret
+    secret_file = Path(
+        os.environ.get("AI_SOC_AUTH_SECRET_FILE", DEFAULT_AUTH_SECRET_FILE)
+    )
+
+    file_secret = _read_secret_file(secret_file)
+
+    if file_secret:
+        if len(file_secret) < MIN_AUTH_SECRET_LENGTH:
+            raise RuntimeError(
+                f"Auth secret file {secret_file} contains a value shorter than "
+                f"{MIN_AUTH_SECRET_LENGTH} characters."
+            )
+
+        return file_secret
+
+    generated_secret = secrets.token_urlsafe(48)
+    _write_secret_file(secret_file, generated_secret)
+
+    return generated_secret
 
 
 def _b64url_encode(data: bytes) -> str:
