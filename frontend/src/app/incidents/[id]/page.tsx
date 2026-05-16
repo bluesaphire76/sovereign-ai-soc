@@ -269,6 +269,532 @@ async function fetchIncidentNotes(id: string): Promise<IncidentNote[]> {
   return response.json();
 }
 
+
+
+type IncidentAiAssessmentInput = {
+  ai_analysis: string | null;
+  risk_score?: number | null;
+  recommended_priority?: string | null;
+  status?: string | null;
+  correlation_score?: number | null;
+  correlation_type?: string | null;
+  attack_chain?: string | null;
+  escalation_reason?: string | null;
+  agent?: string | null;
+  rule?: string | null;
+};
+
+type ParsedAiSection = {
+  title: string;
+  lines: string[];
+};
+
+function riskBand(score?: number | null): string {
+  const value = score ?? 0;
+  if (value >= 81) return "Critical";
+  if (value >= 61) return "High";
+  if (value >= 31) return "Medium";
+  return "Low";
+}
+
+function riskTone(score?: number | null): string {
+  const value = score ?? 0;
+  if (value >= 81) return "border-red-800 bg-red-950/40 text-red-200";
+  if (value >= 61) return "border-orange-800 bg-orange-950/40 text-orange-200";
+  if (value >= 31) return "border-yellow-800 bg-yellow-950/30 text-yellow-200";
+  return "border-emerald-800 bg-emerald-950/30 text-emerald-200";
+}
+
+function normalizeAiLine(line: string): string {
+  return line
+    .replace(/^[-*•]\s+/, "")
+    .replace(/^\d+[.)]\s+/, "")
+    .replace(/^#{1,4}\s*/, "")
+    .replace(/^\*\*(.*)\*\*$/, "$1")
+    .trim();
+}
+
+function splitAiSentences(value: string): string[] {
+  const normalized = value.replace(/\r\n/g, "\n").trim();
+
+  if (!normalized) return [];
+
+  const withExplicitSections = normalized.replace(
+    /\s*(?:\d+[.)]\s*)?(Short executive summary|Executive summary|Recommended checks|Recommended check|Suggested remediation|Suggested remediations|Recommended actions|Next actions):\s*/gi,
+    "\n$1:\n",
+  );
+
+  const cleanLines = withExplicitSections
+    .split("\n")
+    .map((line) => normalizeAiLine(line))
+    .map((line) => line.replace(/^\d+[.)]?$/, "").trim())
+    .filter(Boolean);
+
+  if (cleanLines.length > 1) return cleanLines;
+
+  return normalized
+    .split(/(?<=[.!?])\s+(?=[A-Z0-9])/)
+    .map((line) => normalizeAiLine(line))
+    .map((line) => line.replace(/^\d+[.)]?$/, "").trim())
+    .filter(Boolean);
+}
+
+function parseAiAnalysis(value: string): ParsedAiSection[] {
+  const text = value.replace(/\r\n/g, "\n").trim();
+  if (!text) return [];
+
+  const blocks = text
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean);
+
+  if (blocks.length <= 1) {
+    return [{ title: "Investigation narrative", lines: splitAiSentences(text) }];
+  }
+
+  return blocks.map((block, index) => {
+    const lines = block
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    const first = lines[0] ?? "";
+    const looksLikeHeading =
+      /^#{1,4}\s+/.test(first) ||
+      /^\*\*.*\*\*:?$/.test(first) ||
+      /^[A-Z][A-Za-z0-9 /_-]{2,80}:$/.test(first);
+
+    if (looksLikeHeading && lines.length > 1) {
+      return {
+        title: normalizeAiLine(first).replace(/:$/, ""),
+        lines: lines.slice(1).map(normalizeAiLine).filter(Boolean),
+      };
+    }
+
+    return {
+      title: index === 0 ? "Executive assessment" : `Investigation detail ${index}`,
+      lines: splitAiSentences(block),
+    };
+  });
+}
+
+function assessmentDecision(incident: IncidentAiAssessmentInput): string {
+  const risk = incident.risk_score ?? 0;
+  const priority = (incident.recommended_priority ?? "").toUpperCase();
+
+  if (risk >= 81 || priority === "CRITICAL") return "Immediate escalation review";
+  if (risk >= 61 || priority === "HIGH") return "Priority analyst investigation";
+  if (risk >= 31 || priority === "MEDIUM") return "Standard triage review";
+  return "Monitor and validate";
+}
+
+function CompactMetric({
+  label,
+  value,
+  tone = "neutral",
+}: {
+  label: string;
+  value: string | number;
+  tone?: "neutral" | "risk";
+}) {
+  const toneClass =
+    tone === "risk"
+      ? riskTone(typeof value === "number" ? value : undefined)
+      : "border-slate-800 bg-slate-950 text-slate-200";
+
+  return (
+    <div className={`rounded-lg border px-3 py-2 ${toneClass}`}>
+      <div className="text-[10px] font-medium uppercase tracking-wide opacity-70">
+        {label}
+      </div>
+      <div className="mt-1 truncate text-sm font-semibold" title={String(value)}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function DecisionField({ label, value }: { label: string; value?: string | number | null }) {
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+      <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
+        {label}
+      </div>
+      <div className="mt-1 break-words text-sm leading-5 text-slate-200">
+        {value || "-"}
+      </div>
+    </div>
+  );
+}
+
+type HierarchicalAiItem = {
+  title: string;
+  children: string[];
+};
+
+const AI_SUBSECTION_HEADINGS = [
+  "short executive summary",
+  "executive summary",
+  "recommended checks",
+  "recommended check",
+  "suggested remediation",
+  "suggested remediations",
+  "recommended actions",
+  "next actions",
+];
+
+function canonicalAiHeading(line: string): string {
+  return normalizeAiLine(line)
+    .replace(/:$/, "")
+    .trim()
+    .toLowerCase();
+}
+
+function isAiSubsectionHeading(line: string): boolean {
+  return AI_SUBSECTION_HEADINGS.includes(canonicalAiHeading(line));
+}
+
+function stripAiListMarker(line: string): string {
+  return normalizeAiLine(line)
+    .replace(/^\d+[.)]\s*/, "")
+    .replace(/^[a-zA-Z][.)]\s*/, "")
+    .replace(/^[-*•]\s*/, "")
+    .trim();
+}
+
+function splitInlineAiHeading(line: string): { heading: string; rest: string } | null {
+  const cleaned = stripAiListMarker(line);
+
+  for (const heading of AI_SUBSECTION_HEADINGS) {
+    const pattern = new RegExp(`^(${heading.replace(/ /g, "\\s+")}):\\s*(.*)$`, "i");
+    const match = cleaned.match(pattern);
+
+    if (match) {
+      return {
+        heading: match[1].replace(/\b\w/g, (char) => char.toUpperCase()),
+        rest: stripAiListMarker(match[2] ?? ""),
+      };
+    }
+  }
+
+  return null;
+}
+
+function pushAiItem(items: HierarchicalAiItem[], item: HierarchicalAiItem | null) {
+  if (!item) return;
+
+  const title = stripAiListMarker(item.title);
+  const children = item.children.map(stripAiListMarker).filter(Boolean);
+
+  if (!title && children.length === 0) return;
+
+  if (children.length === 0 && isAiSubsectionHeading(title)) {
+    return;
+  }
+
+  items.push({ title, children });
+}
+
+function buildHierarchicalAiItems(lines: string[]): HierarchicalAiItem[] {
+  const items: HierarchicalAiItem[] = [];
+  let activeSection: HierarchicalAiItem | null = null;
+
+  for (const rawLine of lines) {
+    const line = stripAiListMarker(rawLine);
+
+    if (!line) continue;
+
+    const inlineHeading = splitInlineAiHeading(line);
+
+    if (inlineHeading) {
+      pushAiItem(items, activeSection);
+
+      activeSection = {
+        title: inlineHeading.heading,
+        children: [],
+      };
+
+      if (inlineHeading.rest) {
+        activeSection.children.push(inlineHeading.rest);
+      }
+
+      continue;
+    }
+
+    if (isAiSubsectionHeading(line)) {
+      pushAiItem(items, activeSection);
+
+      activeSection = {
+        title: line.replace(/:$/, ""),
+        children: [],
+      };
+
+      continue;
+    }
+
+    if (activeSection) {
+      activeSection.children.push(line);
+      continue;
+    }
+
+    pushAiItem(items, {
+      title: line,
+      children: [],
+    });
+  }
+
+  pushAiItem(items, activeSection);
+
+  return items.filter((item) => item.title || item.children.length > 0);
+}
+
+function StructuredAiNarrative({
+  lines,
+  variant = "primary",
+}: {
+  lines: string[];
+  variant?: "primary" | "compact";
+}) {
+  const items = buildHierarchicalAiItems(lines);
+
+  if (items.length === 0) {
+    return (
+      <div className="rounded-lg border border-slate-800 bg-slate-950 p-3 text-xs text-slate-500">
+        No structured AI narrative available.
+      </div>
+    );
+  }
+
+  if (variant === "compact") {
+    return (
+      <div className="space-y-3">
+        {items.map((item, index) => (
+          <div key={`${item.title}-${index}`} className="space-y-2">
+            <div className="flex gap-2 text-sm leading-6 text-slate-300">
+              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-400" />
+              <span className={item.children.length > 0 ? "font-semibold text-slate-100" : ""}>
+                {item.title}
+              </span>
+            </div>
+
+            {item.children.length > 0 && (
+              <div className="ml-5 space-y-2 border-l border-cyan-900/70 pl-4">
+                {item.children.map((child, childIndex) => (
+                  <div
+                    key={`${item.title}-${childIndex}`}
+                    className="flex gap-2 rounded-md border border-slate-800 bg-slate-900/70 px-3 py-2"
+                  >
+                    <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-500" />
+                    <span className="text-sm leading-6 text-slate-300">{child}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {items.map((item, index) => (
+        <div
+          key={`${item.title}-${index}`}
+          className="rounded-lg border border-slate-800 bg-slate-950 p-3"
+        >
+          <div className="flex gap-3">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-cyan-800 bg-cyan-950 text-xs font-semibold text-cyan-200">
+              {index + 1}
+            </div>
+
+            <div className="min-w-0 flex-1">
+              <p
+                className={`text-sm leading-6 ${
+                  item.children.length > 0
+                    ? "font-semibold text-slate-100"
+                    : "text-slate-300"
+                }`}
+              >
+                {item.title}
+              </p>
+
+              {item.children.length > 0 && (
+                <div className="mt-3 space-y-2 border-l border-cyan-900/70 pl-4">
+                  {item.children.map((child, childIndex) => (
+                    <div
+                      key={`${item.title}-${childIndex}`}
+                      className="flex gap-3 rounded-md border border-slate-800 bg-slate-900/80 p-3"
+                    >
+                      <div className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-400" />
+                      <p className="text-sm leading-6 text-slate-300">{child}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+
+function AiSectionCard({ title, lines }: ParsedAiSection) {
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 shadow-sm">
+      <div className="mb-3 flex items-center justify-between gap-3 border-b border-slate-800 pb-2">
+        <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-300">
+          {title}
+        </h4>
+        <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-0.5 text-[10px] text-slate-400">
+          AI insight
+        </span>
+      </div>
+
+      <StructuredAiNarrative lines={lines} variant="compact" />
+    </div>
+  );
+}
+
+function AnalystReviewChecklist() {
+  const items = [
+    "Validate the AI interpretation against raw Wazuh evidence.",
+    "Confirm whether correlation context supports escalation.",
+    "Check affected host, rule metadata and related events.",
+    "Document analyst conclusion before closing or escalating.",
+  ];
+
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+      <div className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-slate-300">
+        Analyst review checklist
+      </div>
+
+      <div className="space-y-2">
+        {items.map((item, index) => (
+          <div key={item} className="flex gap-3 rounded-lg border border-slate-800 bg-slate-900/70 p-3">
+            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-slate-700 bg-slate-950 text-[11px] font-semibold text-cyan-300">
+              {index + 1}
+            </div>
+            <div className="text-sm leading-5 text-slate-300">{item}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function EnterpriseIncidentAiAnalysis({ incident }: { incident: IncidentAiAssessmentInput }) {
+  const analysis = (incident.ai_analysis ?? "").trim();
+
+  if (!analysis) {
+    return (
+      <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 text-xs text-slate-500">
+        No AI analysis available.
+      </div>
+    );
+  }
+
+  const sections = parseAiAnalysis(analysis);
+  const primary = sections[0];
+  const secondary = sections.slice(1);
+  const decision = assessmentDecision(incident);
+
+  return (
+    <div className="space-y-3">
+      <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-xl">
+        <div className="border-b border-slate-800 bg-gradient-to-r from-slate-900 via-violet-950/40 to-slate-900 p-4">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div>
+              <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-violet-300">
+                Sovereign AI SOC Assessment
+              </div>
+              <h3 className="mt-2 text-lg font-semibold tracking-tight text-slate-100">
+                {decision}
+              </h3>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
+                AI-assisted triage summary structured for analyst review, escalation decisioning and audit-ready investigation handling.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <span className="rounded-full border border-violet-700 bg-violet-950 px-3 py-1 text-xs font-medium text-violet-200">
+                AI-assisted
+              </span>
+              <span className="rounded-full border border-orange-700 bg-orange-950 px-3 py-1 text-xs font-medium text-orange-200">
+                Human approval required
+              </span>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            <CompactMetric label="Risk" value={`${riskBand(incident.risk_score)} · ${incident.risk_score ?? 0}`} />
+            <CompactMetric label="Priority" value={incident.recommended_priority ?? "-"} />
+            <CompactMetric label="Status" value={incident.status ?? "-"} />
+            <CompactMetric label="Correlation" value={incident.correlation_score ?? 0} />
+          </div>
+        </div>
+
+        <div className="grid gap-3 p-4 xl:grid-cols-[1.2fr_0.8fr]">
+          <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+            <div className="mb-3 border-b border-slate-800 pb-2">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-300">
+                Executive assessment
+              </div>
+              <div className="mt-1 text-sm text-slate-500">
+                Concise AI interpretation of the current incident.
+              </div>
+            </div>
+
+            <StructuredAiNarrative
+              lines={primary?.lines ?? splitAiSentences(analysis)}
+              variant="primary"
+            />
+          </div>
+
+          <div className="space-y-3">
+            <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+              <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-300">
+                Analyst decision support
+              </div>
+
+              <div className="grid gap-2">
+                <DecisionField label="Correlation type" value={incident.correlation_type} />
+                <DecisionField label="Attack chain" value={incident.attack_chain} />
+                <DecisionField label="Escalation reason" value={incident.escalation_reason} />
+                <DecisionField label="Affected host" value={incident.agent} />
+                <DecisionField label="Detection rule" value={incident.rule} />
+              </div>
+            </div>
+
+            <AnalystReviewChecklist />
+          </div>
+        </div>
+      </div>
+
+      {secondary.length > 0 && (
+        <div className="grid gap-3 xl:grid-cols-2">
+          {secondary.map((section, index) => (
+            <AiSectionCard key={`${section.title}-${index}`} {...section} />
+          ))}
+        </div>
+      )}
+
+      <details className="rounded-xl border border-slate-800 bg-slate-950">
+        <summary className="cursor-pointer px-4 py-3 text-xs font-medium text-slate-300 hover:text-cyan-200">
+          Show original AI output
+        </summary>
+        <pre className="max-h-72 overflow-auto whitespace-pre-wrap border-t border-slate-800 p-4 text-xs leading-5 text-slate-400">
+          {analysis}
+        </pre>
+      </details>
+    </div>
+  );
+}
+
+
 export default function IncidentDetailPage() {
   const params = useParams();
   const incidentId = String(params.id);
@@ -538,9 +1064,7 @@ export default function IncidentDetailPage() {
 
             <section className="grid gap-3 xl:grid-cols-[1fr_420px]">
               <Panel title="AI analysis" description="Generated triage explanation.">
-                <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-slate-800 bg-slate-950 p-3 text-xs leading-5 text-slate-200">
-                  {incident.ai_analysis ?? "No AI analysis available."}
-                </pre>
+                <EnterpriseIncidentAiAnalysis incident={incident} />
               </Panel>
 
               <Panel title="Analyst notes" description="Investigation notes and rationale.">

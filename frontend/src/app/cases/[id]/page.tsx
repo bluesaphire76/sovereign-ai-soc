@@ -615,6 +615,357 @@ async function generateCaseAnalysis(id: string): Promise<CaseAIAnalysis> {
   return response.json();
 }
 
+
+
+
+type CaseAiAnalysisInput = {
+  analysis: string | null;
+  model?: string | null;
+  recommended_status?: string | null;
+  recommended_severity?: string | null;
+  created_at?: string | null;
+  created_by?: string | null;
+};
+
+type CaseJsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | CaseJsonValue[]
+  | { [key: string]: CaseJsonValue };
+
+function cleanCaseAiRawAnalysis(value: string): string {
+  return value
+    .trim()
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/```$/i, "")
+    .trim();
+}
+
+function parseCaseAiJson(value: string): CaseJsonValue | null {
+  const cleaned = cleanCaseAiRawAnalysis(value);
+
+  try {
+    return JSON.parse(cleaned) as CaseJsonValue;
+  } catch {
+    return null;
+  }
+}
+
+function isCaseJsonObject(value: CaseJsonValue): value is { [key: string]: CaseJsonValue } {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isCaseEmptyJsonValue(value: CaseJsonValue): boolean {
+  if (value === null || value === undefined) return true;
+  if (typeof value === "string") return value.trim().length === 0;
+  if (Array.isArray(value)) return value.length === 0 || value.every(isCaseEmptyJsonValue);
+  if (isCaseJsonObject(value)) return Object.values(value).every(isCaseEmptyJsonValue);
+  return false;
+}
+
+function humanizeCaseAiKey(key: string): string {
+  return key
+    .replace(/^["']|["']$/g, "")
+    .replace(/_/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function caseAiSectionTone(key: string): string {
+  const normalized = key.toLowerCase();
+
+  if (normalized.includes("risk") || normalized.includes("severity")) {
+    return "border-orange-800 bg-orange-950/20";
+  }
+
+  if (normalized.includes("remediation") || normalized.includes("action")) {
+    return "border-emerald-800 bg-emerald-950/20";
+  }
+
+  if (normalized.includes("evidence") || normalized.includes("hypothesis")) {
+    return "border-cyan-800 bg-cyan-950/20";
+  }
+
+  if (normalized.includes("summary") || normalized.includes("executive")) {
+    return "border-violet-800 bg-violet-950/20";
+  }
+
+  return "border-slate-800 bg-slate-950";
+}
+
+function renderCaseScalar(value: string | number | boolean | null) {
+  if (value === null) {
+    return <span className="text-slate-500">-</span>;
+  }
+
+  if (typeof value === "boolean") {
+    return (
+      <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-0.5 text-xs text-slate-300">
+        {value ? "Yes" : "No"}
+      </span>
+    );
+  }
+
+  return <span>{String(value)}</span>;
+}
+
+function CaseJsonValueRenderer({
+  value,
+  depth = 0,
+}: {
+  value: CaseJsonValue;
+  depth?: number;
+}) {
+  if (isCaseEmptyJsonValue(value)) {
+    return null;
+  }
+
+  if (typeof value !== "object" || value === null) {
+    return (
+      <p className="text-sm leading-6 text-slate-300">
+        {renderCaseScalar(value)}
+      </p>
+    );
+  }
+
+  if (Array.isArray(value)) {
+    const items = value.filter((item) => !isCaseEmptyJsonValue(item));
+
+    if (items.length === 0) return null;
+
+    return (
+      <div className="space-y-2">
+        {items.map((item, index) => {
+          if (isCaseJsonObject(item)) {
+            return (
+              <div
+                key={`array-object-${index}`}
+                className="rounded-lg border border-slate-800 bg-slate-900/70 p-3"
+              >
+                <CaseJsonValueRenderer value={item} depth={depth + 1} />
+              </div>
+            );
+          }
+
+          return (
+            <div
+              key={`array-item-${index}`}
+              className="flex items-start gap-3 rounded-lg border border-slate-800 bg-slate-900/70 p-3"
+            >
+              <span className="mt-[0.55rem] h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-400" />
+              <div className="text-sm leading-6 text-slate-300">
+                <CaseJsonValueRenderer value={item} depth={depth + 1} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  const entries = Object.entries(value).filter(([, entryValue]) => !isCaseEmptyJsonValue(entryValue));
+
+  if (entries.length === 0) return null;
+
+  return (
+    <div className={depth === 0 ? "grid gap-3 xl:grid-cols-2" : "space-y-3"}>
+      {entries.map(([key, entryValue]) => {
+        const title = humanizeCaseAiKey(key);
+        const isNestedObject = isCaseJsonObject(entryValue) || Array.isArray(entryValue);
+
+        return (
+          <div
+            key={key}
+            className={`rounded-xl border p-4 shadow-sm ${caseAiSectionTone(key)}`}
+          >
+            <div className="mb-3 flex items-center justify-between gap-3 border-b border-slate-800 pb-2">
+              <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-300">
+                {title}
+              </h4>
+
+              {isNestedObject && (
+                <span className="rounded-full border border-slate-700 bg-slate-950 px-2 py-0.5 text-[10px] text-slate-400">
+                  Structured
+                </span>
+              )}
+            </div>
+
+            <div className="text-sm leading-6 text-slate-300">
+              <CaseJsonValueRenderer value={entryValue} depth={depth + 1} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function splitCasePlainTextAnalysis(value: string): string[] {
+  const normalized = value.replace(/\r\n/g, "\n").trim();
+
+  if (!normalized) return [];
+
+  const lines = normalized
+    .split("\n")
+    .map((line) =>
+      line
+        .replace(/^[-*•]\s+/, "")
+        .replace(/^\d+[.)]\s+/, "")
+        .replace(/^#{1,4}\s*/, "")
+        .replace(/^\*\*(.*)\*\*$/, "$1")
+        .trim(),
+    )
+    .filter(Boolean)
+    .filter((line) => !["{", "}", "[", "]", ",", ":"].includes(line));
+
+  if (lines.length > 1) return lines;
+
+  return normalized
+    .split(/(?<=[.!?])\s+(?=[A-Z0-9])/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function CasePlainTextAnalysis({ value }: { value: string }) {
+  const lines = splitCasePlainTextAnalysis(value);
+
+  if (lines.length === 0) {
+    return (
+      <div className="rounded-lg border border-slate-800 bg-slate-950 p-3 text-xs text-slate-500">
+        No readable AI analysis available.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {lines.map((line, index) => (
+        <div
+          key={`${line}-${index}`}
+          className="flex gap-3 rounded-lg border border-slate-800 bg-slate-950 p-3"
+        >
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-cyan-800 bg-cyan-950 text-xs font-semibold text-cyan-200">
+            {index + 1}
+          </div>
+          <p className="text-sm leading-6 text-slate-300">{line}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function displayCaseGeneratedBy(value?: string | null): string {
+  const normalized = (value ?? "").trim();
+
+  if (!normalized || normalized.toLowerCase() === "llm") {
+    return "SOC AI Agent";
+  }
+
+  return normalized;
+}
+
+function CaseDecisionField({
+  label,
+  value,
+}: {
+  label: string;
+  value?: string | number | null;
+}) {
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+      <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
+        {label}
+      </div>
+      <div className="mt-1 break-words text-sm leading-5 text-slate-200">
+        {value || "-"}
+      </div>
+    </div>
+  );
+}
+
+function EnterpriseCaseAiAnalysis({
+  caseAnalysis,
+}: {
+  caseAnalysis: CaseAiAnalysisInput;
+}) {
+  const analysis = (caseAnalysis.analysis ?? "").trim();
+
+  if (!analysis) {
+    return (
+      <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 text-xs text-slate-500">
+        No AI analysis available.
+      </div>
+    );
+  }
+
+  const parsedJson = parseCaseAiJson(analysis);
+
+  return (
+    <div className="space-y-3">
+      <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-xl">
+        <div className="border-b border-slate-800 bg-gradient-to-r from-slate-900 via-violet-950/40 to-slate-900 p-4">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div>
+              <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-violet-300">
+                Sovereign AI Case Assessment
+              </div>
+              <h3 className="mt-2 text-lg font-semibold tracking-tight text-slate-100">
+                Investigation decision support
+              </h3>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
+                AI-assisted case analysis structured for triage, escalation, remediation planning and closure readiness review.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <span className="rounded-full border border-violet-700 bg-violet-950 px-3 py-1 text-xs font-medium text-violet-200">
+                AI-assisted
+              </span>
+              <span className="rounded-full border border-orange-700 bg-orange-950 px-3 py-1 text-xs font-medium text-orange-200">
+                Human approval required
+              </span>
+              {parsedJson && (
+                <span className="rounded-full border border-cyan-700 bg-cyan-950 px-3 py-1 text-xs font-medium text-cyan-200">
+                  Structured JSON
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            <CaseDecisionField label="Model" value={caseAnalysis.model} />
+            <CaseDecisionField label="Recommended status" value={caseAnalysis.recommended_status} />
+            <CaseDecisionField label="Recommended severity" value={caseAnalysis.recommended_severity} />
+            <CaseDecisionField label="Generated by" value={displayCaseGeneratedBy(caseAnalysis.created_by)} />
+          </div>
+        </div>
+
+        <div className="p-4">
+          {parsedJson ? (
+            <CaseJsonValueRenderer value={parsedJson} />
+          ) : (
+            <CasePlainTextAnalysis value={analysis} />
+          )}
+        </div>
+      </div>
+
+      <details className="rounded-xl border border-slate-800 bg-slate-950">
+        <summary className="cursor-pointer px-4 py-3 text-xs font-medium text-slate-300 hover:text-cyan-200">
+          Show original AI output
+        </summary>
+        <pre className="max-h-72 overflow-auto whitespace-pre-wrap border-t border-slate-800 p-4 text-xs leading-5 text-slate-400">
+          {analysis}
+        </pre>
+      </details>
+    </div>
+  );
+}
+
 export default function CaseDetailPage() {
   const params = useParams();
   const caseId = String(params.id);
@@ -2539,9 +2890,7 @@ export default function CaseDetailPage() {
                     {caseAnalysis.created_by ?? "llm"}
                   </div>
 
-                  <pre className="whitespace-pre-wrap rounded-md border border-slate-800 bg-slate-950 p-3 text-sm leading-6 text-slate-200">
-                    {caseAnalysis.analysis}
-                  </pre>
+                  <EnterpriseCaseAiAnalysis caseAnalysis={caseAnalysis} />
                 </div>
               )}
             </section>
