@@ -12,39 +12,13 @@ type LoginResponse = {
 };
 
 
-function sanitizeNextPath(value: string | null): string {
-  if (!value) {
-    return "/";
-  }
-
-  if (!value.startsWith("/") || value.startsWith("//")) {
-    return "/";
-  }
-
-  if (value.includes("\\") || value.includes("\n") || value.includes("\r")) {
-    return "/";
-  }
-
-  return value;
-}
 
 export default function LoginPage() {
-  const [nextPath, setNextPath] = useState("/");
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loggingIn, setLoggingIn] = useState(false);
 
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    setNextPath(sanitizeNextPath(params.get("next")));
-
-    const reason = params.get("reason");
-
-    if (reason === "session_validation_failed") {
-      setError("Session validation failed. Please sign in again.");
-    }
-  }, []);
 
   async function handleLogin(event: FormEvent) {
     event.preventDefault();
@@ -80,7 +54,7 @@ export default function LoginPage() {
       const data = (await response.json()) as LoginResponse;
       await setAuthSession(data.access_token, data.user);
 
-      window.location.assign(sanitizeNextPath(nextPath));
+      window.location.assign("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown login error");
     } finally {

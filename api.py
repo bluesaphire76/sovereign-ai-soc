@@ -1005,7 +1005,16 @@ def create_incident_note(
 
 @app.get("/platform/health")
 def platform_health():
-    return get_platform_health()
+    try:
+        return get_platform_health()
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).exception("Platform health check failed.")
+        raise HTTPException(
+            status_code=503,
+            detail="Platform health check failed.",
+        )
 
 
 
