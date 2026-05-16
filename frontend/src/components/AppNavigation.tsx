@@ -11,6 +11,7 @@ import {
   LayoutDashboard,
   LogOut,
   Shield,
+  ShieldCheck,
   Users,
 } from "lucide-react";
 import {
@@ -96,6 +97,16 @@ export default function AppNavigation() {
   const navItems: NavItem[] = user
     ? [
         ...NAV_ITEMS,
+        ...(user.role === "ADMIN"
+          ? [
+              {
+                href: "/admin/security-audit",
+                label: "Security Audit",
+                icon: <ShieldCheck className="h-3.5 w-3.5" />,
+                match: "prefix" as const,
+              },
+            ]
+          : []),
         {
           href: "/admin/users",
           label: "Users",
