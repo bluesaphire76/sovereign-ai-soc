@@ -1,6 +1,6 @@
 "use client";
 
-import { authFetch } from "@/lib/auth";
+import { authFetch, getStoredUser, type AuthUser } from "@/lib/auth";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
@@ -119,6 +119,12 @@ async function fetchJson<T>(path: string): Promise<T> {
 
 
 async function fetchSyntheticScenarios(): Promise<SyntheticScenariosResponse> {
+  const currentUser = getStoredUser();
+
+  if (currentUser?.role === "VIEWER") {
+    return Promise.resolve({ items: [], scenarios: [] });
+  }
+
   return fetchJson<SyntheticScenariosResponse>("/synthetic-tests/scenarios");
 }
 
@@ -321,6 +327,15 @@ export default function DetectionQualityPage() {
   const [runningSynthetic, setRunningSynthetic] = useState(false);
   const [syntheticResult, setSyntheticResult] = useState<SyntheticRunResponse | null>(null);
   const [syntheticError, setSyntheticError] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+
+  const canOperate =
+    currentUser?.role === "ADMIN" || currentUser?.role === "ANALYST";
+  const isViewer = currentUser?.role === "VIEWER";
+
+  useEffect(() => {
+    setCurrentUser(getStoredUser());
+  }, []);
 
   const loadDetectionQuality = useCallback(async () => {
     try {
@@ -368,6 +383,10 @@ export default function DetectionQualityPage() {
   }, []);
 
   async function handleRunSyntheticTest() {
+    if (!canOperate) {
+      setSyntheticError("Read-only access: synthetic test execution is available only to ADMIN and ANALYST roles.");
+      return;
+    }
     try {
       setRunningSynthetic(true);
       setSyntheticError(null);
@@ -531,6 +550,7 @@ export default function DetectionQualityPage() {
           </section>
         ) : (
           <div className="space-y-3">
+            {canOperate ? (
             <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
               <div className="mb-3 flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
                 <div>
@@ -624,6 +644,14 @@ export default function DetectionQualityPage() {
                 </div>
               )}
             </section>
+            ) : isViewer ? (
+            <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-lg">
+              <h2 className="text-sm font-semibold">Synthetic test runner</h2>
+              <p className="mt-2 text-xs text-slate-500">
+                Read-only access: synthetic test execution is available only to ADMIN and ANALYST roles.
+              </p>
+            </section>
+            ) : null}
 
             <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
               <QualityMetric
