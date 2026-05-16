@@ -1027,6 +1027,17 @@ export default function CaseDetailPage() {
   const [sectionFocus, setSectionFocus] = useState<CaseSectionFocus>("ALL");
   const [quickActionRunning, setQuickActionRunning] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const canOperate =
+    currentUser?.role === "ADMIN" || currentUser?.role === "ANALYST";
+  const isViewer = currentUser?.role === "VIEWER";
+
+  function assertCanOperate() {
+    if (canOperate) return true;
+
+    setError("Read-only access: your role can review this case but cannot modify it.");
+    return false;
+  }
+
   const currentUsername = currentUser?.username || "local_analyst";
 
   async function loadCase() {
@@ -1068,6 +1079,8 @@ export default function CaseDetailPage() {
   }
 
   async function handleGenerateActionSuggestions() {
+    if (!assertCanOperate()) return;
+
     try {
       setGeneratingSuggestions(true);
       setSuggestionError(null);
@@ -1120,6 +1133,8 @@ export default function CaseDetailPage() {
   }
 
   async function handleCreateAction() {
+    if (!assertCanOperate()) return;
+
     const title = actionForm.title.trim();
 
     if (!title) {
@@ -1160,6 +1175,8 @@ export default function CaseDetailPage() {
   }
 
   async function handleUpdateActionStatus(actionId: number, status: string) {
+    if (!assertCanOperate()) return;
+
     try {
       setUpdatingActionId(actionId);
       setError(null);
@@ -1182,6 +1199,8 @@ export default function CaseDetailPage() {
   }
 
   async function handleUpdateActionPriority(actionId: number, priority: string) {
+    if (!assertCanOperate()) return;
+
     try {
       setUpdatingActionId(actionId);
       setError(null);
@@ -1204,6 +1223,8 @@ export default function CaseDetailPage() {
   }
 
   async function handleSaveClosureChecklist() {
+    if (!assertCanOperate()) return;
+
     try {
       setSavingClosureChecklist(true);
       setError(null);
@@ -1224,6 +1245,8 @@ export default function CaseDetailPage() {
   }
 
   async function handleSaveWorkflow() {
+    if (!assertCanOperate()) return;
+
     try {
       setSavingWorkflow(true);
       setError(null);
@@ -1250,6 +1273,8 @@ export default function CaseDetailPage() {
   }
 
   async function handleGenerateAnalysis() {
+    if (!assertCanOperate()) return;
+
     try {
       setGeneratingAnalysis(true);
       setError(null);
@@ -1382,6 +1407,53 @@ export default function CaseDetailPage() {
   useEffect(() => {
     setCurrentUser(getStoredUser());
   }, []);
+
+  useEffect(() => {
+    if (!isViewer) return;
+
+    const styleId = "ai-soc-case-viewer-readonly-style";
+    document.getElementById(styleId)?.remove();
+
+    const style = document.createElement("style");
+    style.id = styleId;
+    style.textContent = `
+      #case-workflow input,
+      #case-workflow select,
+      #case-workflow textarea,
+      #case-workflow button,
+      #case-action-plan input,
+      #case-action-plan select,
+      #case-action-plan textarea,
+      #case-action-plan button,
+      #case-closure-checklist input,
+      #case-closure-checklist select,
+      #case-closure-checklist textarea,
+      #case-closure-checklist button {
+        display: none !important;
+      }
+
+      #case-workflow::before,
+      #case-action-plan::before,
+      #case-closure-checklist::before {
+        content: "Read-only access: your role can review this section but cannot modify it.";
+        display: block;
+        margin-bottom: 0.75rem;
+        border: 1px solid rgb(30 41 59);
+        border-radius: 0.5rem;
+        background: rgb(2 6 23);
+        padding: 0.5rem 0.75rem;
+        color: rgb(100 116 139);
+        font-size: 0.75rem;
+        line-height: 1rem;
+      }
+    `;
+
+    document.head.appendChild(style);
+
+    return () => {
+      style.remove();
+    };
+  }, [isViewer]);
 
   useEffect(() => {
     loadCase();
@@ -2861,6 +2933,7 @@ export default function CaseDetailPage() {
                   </p>
                 </div>
 
+                {canOperate && (
                 <button
                   onClick={handleGenerateAnalysis}
                   disabled={generatingAnalysis}
@@ -2868,6 +2941,7 @@ export default function CaseDetailPage() {
                 >
                   {generatingAnalysis ? "Generating..." : caseAnalysis ? "Regenerate AI analysis" : "Generate AI analysis"}
                 </button>
+                )}
               </div>
 
               {!caseAnalysis ? (

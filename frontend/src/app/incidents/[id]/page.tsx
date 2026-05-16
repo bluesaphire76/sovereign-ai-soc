@@ -1,7 +1,7 @@
 "use client";
 
 import { downloadBackendFile } from "@/lib/download";
-import { authFetch } from "@/lib/auth";
+import { authFetch, getStoredUser, type AuthUser } from "@/lib/auth";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
@@ -810,6 +810,15 @@ export default function IncidentDetailPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+
+  const canOperate =
+    currentUser?.role === "ADMIN" || currentUser?.role === "ANALYST";
+  const isViewer = currentUser?.role === "VIEWER";
+
+  useEffect(() => {
+    setCurrentUser(getStoredUser());
+  }, []);
 
   async function loadIncident() {
     try {
@@ -833,6 +842,7 @@ export default function IncidentDetailPage() {
   }
 
   async function updateStatus(status: string) {
+    if (!canOperate) return;
     try {
       setError(null);
 
@@ -855,6 +865,8 @@ export default function IncidentDetailPage() {
   }
 
   async function addNote() {
+    if (!canOperate) return;
+
     const note = noteDraft.trim();
 
     if (!note) return;
@@ -1033,6 +1045,7 @@ export default function IncidentDetailPage() {
             </section>
 
             <section className="grid gap-3 xl:grid-cols-[420px_1fr]">
+              {canOperate ? (
               <Panel title="Incident lifecycle" description="Update operational SOC status.">
                 <div className="mb-2 flex items-center justify-between">
                   <Badge tone={toneForStatus(incident.status)}>
@@ -1059,6 +1072,13 @@ export default function IncidentDetailPage() {
                   ))}
                 </div>
               </Panel>
+              ) : isViewer ? (
+              <Panel title="Incident lifecycle" description="Read-only operational status.">
+                <p className="text-xs text-slate-500">
+                  Read-only access: your role can review the incident status but cannot modify it.
+                </p>
+              </Panel>
+              ) : null}
 
               <Panel title="Detection rule" description="Primary Wazuh detection metadata.">
                 <div className="grid gap-2 lg:grid-cols-4">
@@ -1079,40 +1099,47 @@ export default function IncidentDetailPage() {
               </Panel>
 
               <Panel title="Analyst notes" description="Investigation notes and rationale.">
-                <div className="space-y-2">
-                  <textarea
-                    value={noteDraft}
-                    onChange={(event) => setNoteDraft(event.target.value)}
-                    placeholder="Write an analyst note..."
-                    className="min-h-20 w-full rounded-md border border-slate-800 bg-slate-950 p-2 text-xs text-slate-200 outline-none placeholder:text-slate-600 focus:border-cyan-500"
-                  />
+                <div className="space-y-3">
+                  {isViewer && (
+                    <p className="rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-500">
+                      Read-only access: your role can review existing analyst notes but cannot add new notes.
+                    </p>
+                  )}
 
-                  <div className="flex justify-end">
-                    <button
-                      onClick={addNote}
-                      disabled={savingNote || !noteDraft.trim()}
-                      className="h-8 rounded-md border border-cyan-500 bg-cyan-500 px-3 text-xs font-medium text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      {savingNote ? "Saving..." : "Add note"}
-                    </button>
-                  </div>
+                  {canOperate && (
+                    <>
+                      <textarea
+                        value={noteDraft}
+                        onChange={(event) => setNoteDraft(event.target.value)}
+                        placeholder="Write an analyst note..."
+                        className="min-h-24 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-400"
+                      />
+
+                      <div className="flex justify-end">
+                        <button
+                          onClick={addNote}
+                          disabled={savingNote || !noteDraft.trim()}
+                          className="rounded-md bg-cyan-500 px-3 py-1.5 text-xs font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {savingNote ? "Saving..." : "Add note"}
+                        </button>
+                      </div>
+                    </>
+                  )}
 
                   {notes.length === 0 ? (
                     <EmptyState label="No analyst notes available." />
                   ) : (
-                    <div className="max-h-44 space-y-2 overflow-auto pr-1">
+                    <div className="space-y-2">
                       {notes.map((note) => (
                         <div
                           key={note.id}
-                          className="rounded-md border border-slate-800 bg-slate-950 p-2"
+                          className="rounded-md border border-slate-800 bg-slate-950 p-3"
                         >
-                          <div className="mb-1 text-[10px] text-slate-500">
-                            {formatTimestamp(note.created_at)} ·{" "}
-                            {note.created_by ?? "local_analyst"}
+                          <div className="mb-1 text-[11px] uppercase tracking-wide text-slate-500">
+                            {formatTimestamp(note.created_at)} · {note.created_by ?? "local_analyst"}
                           </div>
-                          <div className="whitespace-pre-wrap text-xs leading-5 text-slate-200">
-                            {note.note}
-                          </div>
+                          <p className="whitespace-pre-wrap text-sm text-slate-200">{note.note}</p>
                         </div>
                       ))}
                     </div>
