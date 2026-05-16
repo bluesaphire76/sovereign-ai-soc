@@ -6,7 +6,7 @@ import { authFetch } from "@/lib/auth";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import AppNavigation from "../../../components/AppNavigation";
-import { getStoredUser, type AuthUser } from "../../../lib/auth";
+import { fetchCurrentUser, getStoredUser, type AuthUser } from "../../../lib/auth";
 import { useParams } from "next/navigation";
 import {
   AlertTriangle,
@@ -1406,6 +1406,12 @@ export default function CaseDetailPage() {
 
   useEffect(() => {
     setCurrentUser(getStoredUser());
+
+    fetchCurrentUser()
+      .then((current) => setCurrentUser(current))
+      .catch(() => {
+        // authFetch handles expired/invalid sessions globally
+      });
   }, []);
 
   useEffect(() => {

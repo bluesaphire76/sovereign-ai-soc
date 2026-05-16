@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import {
   clearAuthSession,
+  fetchCurrentUser,
   getStoredUser,
   type AuthUser,
 } from "../lib/auth";
@@ -87,6 +88,12 @@ export default function AppNavigation() {
 
   useEffect(() => {
     setUser(getStoredUser());
+
+    fetchCurrentUser()
+      .then((current) => setUser(current))
+      .catch(() => {
+        // authFetch handles expired/invalid sessions globally
+      });
   }, []);
 
   async function handleLogout() {
