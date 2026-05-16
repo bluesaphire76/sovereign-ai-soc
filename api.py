@@ -308,6 +308,12 @@ def write_security_audit(
         audit_db.close()
 
 
+
+def security_audit_actor(request: Request) -> dict | None:
+    return getattr(request.state, "current_user", None)
+
+
+
 def get_current_user(authorization: str | None = Header(None)) -> dict:
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Authentication required.")
@@ -932,7 +938,7 @@ def list_synthetic_test_scenarios():
 
 
 @app.post("/synthetic-tests/run")
-def run_synthetic_tests(payload: SyntheticTestRunCreate):
+def run_synthetic_tests(payload: SyntheticTestRunCreate, request: Request):
     requested_scenario = payload.scenario.lower().strip()
     count = max(1, min(payload.count, 10))
     host = (payload.host or "synthetic-sensor-01").strip() or "synthetic-sensor-01"
@@ -985,6 +991,24 @@ def run_synthetic_tests(payload: SyntheticTestRunCreate):
                 created_incidents.append(incident)
 
         db.commit()
+
+        write_security_audit(
+            event_type="SYNTHETIC_TEST_RUN",
+            outcome="SUCCESS",
+            current_user=security_audit_actor(request),
+            target_type="SYNTHETIC_TEST",
+            target_id=requested_scenario,
+            request=request,
+            details={
+                "requested_scenario": requested_scenario,
+                "scenarios": scenarios,
+                "host": host,
+                "count_per_scenario": count,
+                "created": len(created_incidents),
+                "created_by": created_by,
+                "incident_ids": [incident.id for incident in created_incidents],
+            },
+        )
 
         return {
             "status": "created",
@@ -1172,6 +1196,7 @@ def get_incident(incident_id: int):
 def update_incident_status(
     incident_id: int,
     payload: IncidentStatusUpdate,
+    request: Request,
 ):
     requested_status = payload.status.upper()
 
@@ -1210,6 +1235,21 @@ def update_incident_status(
 
         db.commit()
         db.refresh(incident)
+
+        if old_status != requested_status:
+            write_security_audit(
+                event_type="INCIDENT_STATUS_UPDATED",
+                outcome="SUCCESS",
+                current_user=security_audit_actor(request),
+                target_type="INCIDENT",
+                target_id=incident.id,
+                request=request,
+                details={
+                    "old_status": old_status,
+                    "new_status": requested_status,
+                    "comment_present": bool(payload.comment),
+                },
+            )
 
         return {
             "id": incident.id,
@@ -1302,6 +1342,7 @@ def get_incident_notes(incident_id: int):
 def create_incident_note(
     incident_id: int,
     payload: IncidentNoteCreate,
+    request: Request,
 ):
     note_text = payload.note.strip()
 
@@ -1343,6 +1384,20 @@ def create_incident_note(
         db.add(audit)
         db.commit()
         db.refresh(note)
+
+        write_security_audit(
+            event_type="INCIDENT_NOTE_CREATED",
+            outcome="SUCCESS",
+            current_user=security_audit_actor(request),
+            target_type="INCIDENT",
+            target_id=incident.id,
+            request=request,
+            details={
+                "note_id": note.id,
+                "created_by": created_by,
+                "note_length": len(note.note or ""),
+            },
+        )
 
         return {
             "id": note.id,
@@ -2408,6 +2463,7 @@ def get_case(case_id: int):
 def update_case_workflow(
     case_id: int,
     payload: CaseWorkflowUpdate,
+    request: Request,
 ):
     db = SessionLocal()
 
@@ -2522,6 +2578,21 @@ def update_case_workflow(
         db.commit()
         db.refresh(case)
 
+        if changes:
+            write_security_audit(
+                event_type="CASE_WORKFLOW_UPDATED",
+                outcome="SUCCESS",
+                current_user=security_audit_actor(request),
+                target_type="CASE",
+                target_id=case.id,
+                request=request,
+                details={
+                    "reviewed_by": reviewed_by,
+                    "changed_fields": sorted(changes.keys()),
+                    "changes": changes,
+                },
+            )
+
         incident_count = (
             db.query(CaseIncident)
             .filter(CaseIncident.case_id == case.id)
@@ -2601,6 +2672,7 @@ def get_case_closure(case_id: int):
 def update_case_closure(
     case_id: int,
     payload: CaseClosureChecklistUpdate,
+    request: Request,
 ):
     db = SessionLocal()
 
@@ -2679,6 +2751,21 @@ def update_case_closure(
         db.commit()
         db.refresh(checklist)
 
+        write_security_audit(
+            event_type="CASE_CLOSURE_UPDATED",
+            outcome="SUCCESS",
+            current_user=security_audit_actor(request),
+            target_type="CASE",
+            target_id=case.id,
+            request=request,
+            details={
+                "checklist_id": checklist.id,
+                "reviewed_by": reviewed_by,
+                "closure_decision": checklist.closure_decision,
+                "final_severity": checklist.final_severity,
+            },
+        )
+
         validation = validate_case_closure_readiness(db, case)
 
         return {
@@ -2695,9 +2782,23 @@ def update_case_closure(
 
 
 @app.post("/cases/{case_id}/actions/suggestions")
-def suggest_case_action_plan(case_id: int):
+def suggest_case_action_plan(case_id: int, request: Request):
     try:
-        return generate_case_action_suggestions(case_id)
+        result = generate_case_action_suggestions(case_id)
+
+        write_security_audit(
+            event_type="CASE_ACTION_SUGGESTIONS_GENERATED",
+            outcome="SUCCESS",
+            current_user=security_audit_actor(request),
+            target_type="CASE",
+            target_id=case_id,
+            request=request,
+            details={
+                "result_type": type(result).__name__,
+            },
+        )
+
+        return result
 
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Resource not found.")
@@ -2742,6 +2843,7 @@ def list_case_actions(case_id: int):
 def create_case_action(
     case_id: int,
     payload: CaseActionCreate,
+    request: Request,
 ):
     title = payload.title.strip()
 
@@ -2810,6 +2912,22 @@ def create_case_action(
         db.commit()
         db.refresh(action)
 
+        write_security_audit(
+            event_type="CASE_ACTION_CREATED",
+            outcome="SUCCESS",
+            current_user=security_audit_actor(request),
+            target_type="CASE_ACTION",
+            target_id=action.id,
+            request=request,
+            details={
+                "case_id": case.id,
+                "category": action.category,
+                "priority": action.priority,
+                "status": action.status,
+                "created_by": created_by,
+            },
+        )
+
         return serialize_case_action(action)
 
     finally:
@@ -2821,6 +2939,7 @@ def update_case_action(
     case_id: int,
     action_id: int,
     payload: CaseActionUpdate,
+    request: Request,
 ):
     db = SessionLocal()
 
@@ -2930,6 +3049,22 @@ def update_case_action(
         db.commit()
         db.refresh(action)
 
+        if changes:
+            write_security_audit(
+                event_type="CASE_ACTION_UPDATED",
+                outcome="SUCCESS",
+                current_user=security_audit_actor(request),
+                target_type="CASE_ACTION",
+                target_id=action.id,
+                request=request,
+                details={
+                    "case_id": case.id,
+                    "updated_by": updated_by,
+                    "changed_fields": sorted(changes.keys()),
+                    "changes": changes,
+                },
+            )
+
         return serialize_case_action(action)
 
     finally:
@@ -3022,9 +3157,24 @@ def get_case_analysis(case_id: int):
 
 
 @app.post("/cases/{case_id}/analysis")
-def create_case_analysis(case_id: int):
+def create_case_analysis(case_id: int, request: Request):
     try:
         row = generate_case_ai_analysis(case_id)
+
+        write_security_audit(
+            event_type="CASE_AI_ANALYSIS_GENERATED",
+            outcome="SUCCESS",
+            current_user=security_audit_actor(request),
+            target_type="CASE",
+            target_id=case_id,
+            request=request,
+            details={
+                "analysis_id": row.id,
+                "model": row.model,
+                "recommended_status": row.recommended_status,
+                "recommended_severity": row.recommended_severity,
+            },
+        )
 
         return {
             "id": row.id,
