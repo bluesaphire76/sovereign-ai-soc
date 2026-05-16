@@ -52,7 +52,7 @@ export default function LoginPage() {
       }
 
       const data = (await response.json()) as LoginResponse;
-      await setAuthSession(data.access_token, data.user);
+      await setAuthSession(data.access_token, data.user, data.expires_at);
 
       window.location.assign("/");
     } catch (err) {
