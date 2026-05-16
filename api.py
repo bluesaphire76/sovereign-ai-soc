@@ -220,7 +220,7 @@ def hash_password_or_400(password: str) -> str:
     try:
         return hash_password(password)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail="Invalid request.")
 
 
 def get_current_user(authorization: str | None = Header(None)) -> dict:
@@ -1010,7 +1010,7 @@ def platform_health():
     except Exception:
         import logging
 
-        logging.getLogger(__name__).exception("Platform health check failed.")
+        logging.getLogger(__name__).error("Platform health check failed.")
         raise HTTPException(
             status_code=503,
             detail="Platform health check failed.",
@@ -1291,7 +1291,7 @@ def export_incident_report(
         report = build_incident_report(incident_id)
 
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail="Resource not found.")
 
     if format == "json":
         filename = report["filename"].replace(".md", ".json")
@@ -1324,7 +1324,7 @@ def export_case_report(
         report = build_case_report(case_id)
 
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail="Resource not found.")
 
     if format == "json":
         filename = report["filename"].replace(".md", ".json")
@@ -1350,7 +1350,7 @@ def export_case_executive_pdf(case_id: int):
         report = build_case_executive_pdf(case_id)
 
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail="Resource not found.")
 
     return Response(
         content=report["pdf"],
@@ -1373,7 +1373,7 @@ def export_case_evidence_pack(
         report = build_case_evidence_pack(case_id)
 
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail="Resource not found.")
 
     if format == "json":
         filename = report["filename"].replace(".md", ".json")
@@ -2346,7 +2346,7 @@ def suggest_case_action_plan(case_id: int):
         return generate_case_action_suggestions(case_id)
 
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail="Resource not found.")
 
     except Exception as exc:
         raise HTTPException(
@@ -2361,7 +2361,7 @@ def get_case_timeline(case_id: int):
         return build_case_timeline(case_id)
 
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail="Resource not found.")
 
 
 @app.get("/cases/{case_id}/actions")
@@ -2684,5 +2684,5 @@ def create_case_analysis(case_id: int):
         }
 
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail="Resource not found.")
 

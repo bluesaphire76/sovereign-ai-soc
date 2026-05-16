@@ -72,7 +72,7 @@ def check_postgres():
         return component_result(
             component="postgres",
             status="ERROR",
-            message=str(exc),
+            message="Component health check failed.",
             started_at=started_at,
         )
 
@@ -107,7 +107,7 @@ def check_ollama():
         return component_result(
             component="ollama",
             status="ERROR",
-            message=str(exc),
+            message="Component health check failed.",
             started_at=started_at,
             details={"configured_model": OLLAMA_MODEL},
         )
@@ -160,7 +160,7 @@ def check_wazuh_indexer():
         return component_result(
             component="wazuh_indexer",
             status="ERROR",
-            message=str(exc),
+            message="Component health check failed.",
             started_at=started_at,
             details={"url": WAZUH_INDEXER_URL},
         )
@@ -195,7 +195,7 @@ def check_qdrant():
         return component_result(
             component="qdrant",
             status="ERROR",
-            message=str(exc),
+            message="Component health check failed.",
             started_at=started_at,
             details={"url": QDRANT_URL},
         )
@@ -235,7 +235,7 @@ def check_wazuh_ingest():
         return component_result(
             component="wazuh_ingest",
             status="ERROR",
-            message=str(exc),
+            message="Component health check failed.",
             started_at=started_at,
         )
 
@@ -312,7 +312,7 @@ def check_worker():
         return component_result(
             component="ai_soc_worker",
             status="ERROR",
-            message=str(exc),
+            message="Component health check failed.",
             started_at=started_at,
         )
 
