@@ -1,5 +1,7 @@
 "use client";
 
+import { authFetch } from "@/lib/auth";
+
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -234,7 +236,7 @@ function shortText(value: string | null | undefined, max = 120) {
 }
 
 async function fetchIncident(id: string): Promise<IncidentDetail> {
-  const response = await fetch(`${API_BASE}/incidents/${id}`, {
+  const response = await authFetch(`/incidents/${id}`, {
     cache: "no-store",
   });
 
@@ -246,7 +248,7 @@ async function fetchIncident(id: string): Promise<IncidentDetail> {
 }
 
 async function fetchIncidentAudit(id: string): Promise<AuditEvent[]> {
-  const response = await fetch(`${API_BASE}/incidents/${id}/audit`, {
+  const response = await authFetch(`/incidents/${id}/audit`, {
     cache: "no-store",
   });
 
@@ -258,7 +260,7 @@ async function fetchIncidentAudit(id: string): Promise<AuditEvent[]> {
 }
 
 async function fetchIncidentNotes(id: string): Promise<IncidentNote[]> {
-  const response = await fetch(`${API_BASE}/incidents/${id}/notes`, {
+  const response = await authFetch(`/incidents/${id}/notes`, {
     cache: "no-store",
   });
 
@@ -833,7 +835,7 @@ export default function IncidentDetailPage() {
     try {
       setError(null);
 
-      const response = await fetch(`${API_BASE}/incidents/${incidentId}/status`, {
+      const response = await authFetch(`/incidents/${incidentId}/status`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -860,7 +862,7 @@ export default function IncidentDetailPage() {
       setSavingNote(true);
       setError(null);
 
-      const response = await fetch(`${API_BASE}/incidents/${incidentId}/notes`, {
+      const response = await authFetch(`/incidents/${incidentId}/notes`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

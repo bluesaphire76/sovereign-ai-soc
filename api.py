@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 import json
 import uuid
-from fastapi import FastAPI, HTTPException, Query, Response, Depends, Header
+from fastapi import FastAPI, HTTPException, Query, Response, Depends, Header, Request
 from sqlalchemy import func, or_, case as sql_case
 
 from database import SessionLocal
@@ -253,6 +253,44 @@ def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
         raise HTTPException(status_code=403, detail="ADMIN role required.")
 
     return current_user
+
+
+
+PUBLIC_AUTH_PATHS = {
+    "/auth/login",
+    "/health",
+    "/docs",
+    "/docs/oauth2-redirect",
+    "/openapi.json",
+    "/redoc",
+}
+
+PUBLIC_AUTH_PREFIXES = (
+    "/docs/",
+    "/redoc/",
+)
+
+
+@app.middleware("http")
+async def enforce_api_authentication(request: Request, call_next):
+    path = request.url.path
+
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
+    if path in PUBLIC_AUTH_PATHS or any(path.startswith(prefix) for prefix in PUBLIC_AUTH_PREFIXES):
+        return await call_next(request)
+
+    try:
+        get_current_user(request.headers.get("authorization"))
+    except HTTPException as exc:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+            headers=getattr(exc, "headers", None),
+        )
+
+    return await call_next(request)
 
 
 @app.post("/auth/login")

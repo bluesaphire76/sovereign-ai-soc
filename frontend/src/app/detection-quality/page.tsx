@@ -1,5 +1,7 @@
 "use client";
 
+import { authFetch } from "@/lib/auth";
+
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import AppNavigation from "../../components/AppNavigation";
@@ -104,7 +106,7 @@ const CHART_AXIS = "#64748b";
 const CHART_TICK = "#cbd5e1";
 
 async function fetchJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await authFetch(path, {
     cache: "no-store",
   });
 
@@ -126,7 +128,7 @@ async function runSyntheticTest(payload: {
   host: string;
   created_by: string;
 }): Promise<SyntheticRunResponse> {
-  const response = await fetch(`${API_BASE}/synthetic-tests/run`, {
+  const response = await authFetch(`/synthetic-tests/run`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

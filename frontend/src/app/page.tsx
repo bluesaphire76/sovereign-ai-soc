@@ -1,5 +1,7 @@
 "use client";
 
+import { authFetch } from "@/lib/auth";
+
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
@@ -241,7 +243,7 @@ function ChartBarShape(props: any) {
 }
 
 async function fetchJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await authFetch(path, {
     cache: "no-store",
   });
 

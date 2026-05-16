@@ -1,5 +1,7 @@
 "use client";
 
+import { authFetch } from "@/lib/auth";
+
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import AppNavigation from "../../../components/AppNavigation";
@@ -275,7 +277,7 @@ function operationalPriority(item: IncidentCase) {
 }
 
 async function fetchCases(): Promise<CasesResponse> {
-  const response = await fetch(`${API_BASE}/cases?limit=100`, {
+  const response = await authFetch(`/cases?limit=100`, {
     cache: "no-store",
   });
 
