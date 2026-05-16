@@ -1,5 +1,6 @@
 "use client";
 
+import { downloadBackendFile } from "@/lib/download";
 import { authFetch } from "@/lib/auth";
 
 import { useEffect, useMemo, useState } from "react";
@@ -3529,14 +3530,15 @@ function ReportDownloadCard({
       </div>
 
       <div className="mt-auto pt-3">
-        <a
-          href={href}
-          download
+        <button
+          type="button"
+          onClick={() =>
+            downloadBackendFile(href).catch((error) => alert(error.message))
+          }
           className={`inline-flex w-full items-center justify-center gap-2 rounded-md border px-3 py-1.5 text-xs font-medium shadow-sm ${buttonClass}`}
         >
-          <FileDown className="h-4 w-4" />
           Download
-        </a>
+        </button>
       </div>
     </div>
   );

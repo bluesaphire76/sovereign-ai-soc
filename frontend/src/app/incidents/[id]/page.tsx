@@ -1,5 +1,6 @@
 "use client";
 
+import { downloadBackendFile } from "@/lib/download";
 import { authFetch } from "@/lib/auth";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
@@ -951,7 +952,11 @@ export default function IncidentDetailPage() {
             </button>
 
             <a
-              href={`${API_BASE}/reports/incidents/${incidentId}?format=markdown`}
+              href="#"
+              onClick={(event) => {
+                event.preventDefault();
+                downloadBackendFile(`/reports/incidents/${incidentId}?format=markdown`, `incident-${incidentId}-report.md`).catch((error) => alert(error.message));
+              }}
               download
               className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-cyan-700 bg-cyan-500 px-3 text-xs font-medium text-slate-950 shadow-sm hover:bg-cyan-400"
             >
@@ -960,7 +965,11 @@ export default function IncidentDetailPage() {
             </a>
 
             <a
-              href={`${API_BASE}/reports/incidents/${incidentId}?format=json`}
+              href="#"
+              onClick={(event) => {
+                event.preventDefault();
+                downloadBackendFile(`/reports/incidents/${incidentId}?format=json`, `incident-${incidentId}-report.json`).catch((error) => alert(error.message));
+              }}
               download
               className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 text-xs text-slate-200 shadow-sm hover:bg-slate-800"
             >
