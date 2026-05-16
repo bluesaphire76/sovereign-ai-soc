@@ -1,5 +1,7 @@
 "use client";
 
+import { authFetch } from "@/lib/auth";
+
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import AppNavigation from "../../../components/AppNavigation";
@@ -395,7 +397,7 @@ async function extractApiErrorMessage(
 }
 
 async function fetchCase(id: string): Promise<IncidentCase> {
-  const response = await fetch(`${API_BASE}/cases/${id}`, {
+  const response = await authFetch(`/cases/${id}`, {
     cache: "no-store",
   });
 
@@ -407,7 +409,7 @@ async function fetchCase(id: string): Promise<IncidentCase> {
 }
 
 async function fetchCaseIncidents(id: string): Promise<CaseIncident[]> {
-  const response = await fetch(`${API_BASE}/cases/${id}/incidents`, {
+  const response = await authFetch(`/cases/${id}/incidents`, {
     cache: "no-store",
   });
 
@@ -419,7 +421,7 @@ async function fetchCaseIncidents(id: string): Promise<CaseIncident[]> {
 }
 
 async function fetchCaseAnalysis(id: string): Promise<CaseAIAnalysis | null> {
-  const response = await fetch(`${API_BASE}/cases/${id}/analysis`, {
+  const response = await authFetch(`/cases/${id}/analysis`, {
     cache: "no-store",
   });
 
@@ -432,7 +434,7 @@ async function fetchCaseAnalysis(id: string): Promise<CaseAIAnalysis | null> {
 }
 
 async function fetchCaseAudit(id: string): Promise<CaseAudit[]> {
-  const response = await fetch(`${API_BASE}/cases/${id}/audit`, {
+  const response = await authFetch(`/cases/${id}/audit`, {
     cache: "no-store",
   });
 
@@ -454,7 +456,7 @@ async function updateCaseWorkflow(
     reviewed_by: string;
   }
 ): Promise<IncidentCase> {
-  const response = await fetch(`${API_BASE}/cases/${id}/workflow`, {
+  const response = await authFetch(`/cases/${id}/workflow`, {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
@@ -472,7 +474,7 @@ async function updateCaseWorkflow(
 }
 
 async function fetchCaseTimeline(id: string): Promise<CaseTimelineResponse> {
-  const response = await fetch(`${API_BASE}/cases/${id}/timeline`, {
+  const response = await authFetch(`/cases/${id}/timeline`, {
     cache: "no-store",
   });
 
@@ -486,7 +488,7 @@ async function fetchCaseTimeline(id: string): Promise<CaseTimelineResponse> {
 }
 
 async function fetchCaseClosure(id: string): Promise<CaseClosureResponse> {
-  const response = await fetch(`${API_BASE}/cases/${id}/closure`, {
+  const response = await authFetch(`/cases/${id}/closure`, {
     cache: "no-store",
   });
 
@@ -505,7 +507,7 @@ async function updateCaseClosure(
     reviewed_by: string;
   }
 ): Promise<CaseClosureResponse> {
-  const response = await fetch(`${API_BASE}/cases/${id}/closure`, {
+  const response = await authFetch(`/cases/${id}/closure`, {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
@@ -523,7 +525,7 @@ async function updateCaseClosure(
 }
 
 async function fetchCaseActions(id: string): Promise<CaseAction[]> {
-  const response = await fetch(`${API_BASE}/cases/${id}/actions`, {
+  const response = await authFetch(`/cases/${id}/actions`, {
     cache: "no-store",
   });
 
@@ -538,7 +540,7 @@ async function fetchCaseActions(id: string): Promise<CaseAction[]> {
 async function generateCaseActionSuggestions(
   id: string
 ): Promise<CaseActionSuggestion[]> {
-  const response = await fetch(`${API_BASE}/cases/${id}/actions/suggestions`, {
+  const response = await authFetch(`/cases/${id}/actions/suggestions`, {
     method: "POST",
   });
 
@@ -564,7 +566,7 @@ async function createCaseAction(
     created_by: string;
   }
 ): Promise<CaseAction> {
-  const response = await fetch(`${API_BASE}/cases/${id}/actions`, {
+  const response = await authFetch(`/cases/${id}/actions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -588,7 +590,7 @@ async function updateCaseAction(
     updated_by: string;
   }
 ): Promise<CaseAction> {
-  const response = await fetch(`${API_BASE}/cases/${caseId}/actions/${actionId}`, {
+  const response = await authFetch(`/cases/${caseId}/actions/${actionId}`, {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
@@ -604,7 +606,7 @@ async function updateCaseAction(
 }
 
 async function generateCaseAnalysis(id: string): Promise<CaseAIAnalysis> {
-  const response = await fetch(`${API_BASE}/cases/${id}/analysis`, {
+  const response = await authFetch(`/cases/${id}/analysis`, {
     method: "POST",
   });
 

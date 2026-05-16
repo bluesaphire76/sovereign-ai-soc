@@ -1,5 +1,7 @@
 "use client";
 
+import { authFetch } from "@/lib/auth";
+
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import AppNavigation from "../../components/AppNavigation";
@@ -150,7 +152,7 @@ function shortText(value: string | null | undefined, max = 96) {
 }
 
 async function fetchHealth(): Promise<PlatformHealth> {
-  const response = await fetch(`${API_BASE}/platform/health`, {
+  const response = await authFetch(`/platform/health`, {
     cache: "no-store",
   });
 

@@ -1,5 +1,7 @@
 "use client";
 
+import { authFetch } from "@/lib/auth";
+
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import AppNavigation from "../../components/AppNavigation";
@@ -192,7 +194,7 @@ function toneClasses(tone: Tone) {
 }
 
 async function fetchExecutiveSummary(): Promise<ExecutiveSummary> {
-  const response = await fetch(`${API_BASE}/executive/summary`, {
+  const response = await authFetch(`/executive/summary`, {
     cache: "no-store",
   });
 
