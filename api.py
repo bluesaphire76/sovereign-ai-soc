@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 import json
 import uuid
+import re
 from fastapi import FastAPI, HTTPException, Query, Response, Depends, Header, Request
 from sqlalchemy import func, or_, case as sql_case
 
@@ -270,6 +271,83 @@ PUBLIC_AUTH_PREFIXES = (
     "/redoc/",
 )
 
+ROLE_ADMIN = "ADMIN"
+ROLE_ANALYST = "ANALYST"
+ROLE_VIEWER = "VIEWER"
+
+ALL_ROLES = {ROLE_ADMIN, ROLE_ANALYST, ROLE_VIEWER}
+OPERATOR_ROLES = {ROLE_ADMIN, ROLE_ANALYST}
+
+
+RBAC_RULES: list[tuple[str, str, set[str]]] = [
+    ("GET", r"^/auth/me$", ALL_ROLES),
+
+    # Users / self-service
+    ("GET", r"^/users$", ALL_ROLES),
+    ("POST", r"^/users$", {ROLE_ADMIN}),
+    ("PATCH", r"^/users/\d+$", {ROLE_ADMIN}),
+    ("DELETE", r"^/users/\d+$", {ROLE_ADMIN}),
+    ("POST", r"^/users/\d+/password$", ALL_ROLES),
+
+    # Synthetic tests
+    ("GET", r"^/synthetic-tests/scenarios$", OPERATOR_ROLES),
+    ("POST", r"^/synthetic-tests/run$", OPERATOR_ROLES),
+
+    # Incidents
+    ("GET", r"^/incidents$", ALL_ROLES),
+    ("GET", r"^/incidents/\d+$", ALL_ROLES),
+    ("PATCH", r"^/incidents/\d+/status$", OPERATOR_ROLES),
+    ("GET", r"^/incidents/\d+/audit$", ALL_ROLES),
+    ("GET", r"^/incidents/\d+/notes$", ALL_ROLES),
+    ("POST", r"^/incidents/\d+/notes$", OPERATOR_ROLES),
+
+    # Platform / operations
+    ("GET", r"^/platform/health$", ALL_ROLES),
+    ("GET", r"^/platform/ingest/wazuh$", ALL_ROLES),
+
+    # Executive / reports / metrics
+    ("GET", r"^/executive/summary$", ALL_ROLES),
+    ("GET", r"^/reports/incidents/\d+$", ALL_ROLES),
+    ("GET", r"^/reports/cases/\d+$", ALL_ROLES),
+    ("GET", r"^/reports/cases/\d+/executive-pdf$", ALL_ROLES),
+    ("GET", r"^/reports/cases/\d+/evidence-pack$", ALL_ROLES),
+    ("GET", r"^/metrics/status-distribution$", ALL_ROLES),
+    ("GET", r"^/metrics/summary$", ALL_ROLES),
+    ("GET", r"^/metrics/top-hosts$", ALL_ROLES),
+    ("GET", r"^/metrics/risk-distribution$", ALL_ROLES),
+
+    # Cases
+    ("GET", r"^/cases$", ALL_ROLES),
+    ("GET", r"^/cases/\d+$", ALL_ROLES),
+    ("PATCH", r"^/cases/\d+/workflow$", OPERATOR_ROLES),
+    ("GET", r"^/cases/\d+/audit$", ALL_ROLES),
+    ("GET", r"^/cases/\d+/closure$", ALL_ROLES),
+    ("PATCH", r"^/cases/\d+/closure$", OPERATOR_ROLES),
+    ("POST", r"^/cases/\d+/actions/suggestions$", OPERATOR_ROLES),
+    ("GET", r"^/cases/\d+/timeline$", ALL_ROLES),
+    ("GET", r"^/cases/\d+/actions$", ALL_ROLES),
+    ("POST", r"^/cases/\d+/actions$", OPERATOR_ROLES),
+    ("PATCH", r"^/cases/\d+/actions/\d+$", OPERATOR_ROLES),
+    ("GET", r"^/cases/\d+/incidents$", ALL_ROLES),
+    ("GET", r"^/cases/\d+/analysis$", ALL_ROLES),
+    ("POST", r"^/cases/\d+/analysis$", OPERATOR_ROLES),
+]
+
+
+def current_user_role(current_user: dict) -> str:
+    return str(current_user.get("role") or "").upper().strip()
+
+
+def is_request_authorized(method: str, path: str, current_user: dict) -> bool:
+    role = current_user_role(current_user)
+
+    for rule_method, pattern, allowed_roles in RBAC_RULES:
+        if method == rule_method and re.match(pattern, path):
+            return role in allowed_roles
+
+    # Secure default for authenticated but unclassified operational routes.
+    return False
+
 
 @app.middleware("http")
 async def enforce_api_authentication(request: Request, call_next):
@@ -282,7 +360,7 @@ async def enforce_api_authentication(request: Request, call_next):
         return await call_next(request)
 
     try:
-        get_current_user(request.headers.get("authorization"))
+        current_user = get_current_user(request.headers.get("authorization"))
     except HTTPException as exc:
         return JSONResponse(
             status_code=exc.status_code,
@@ -290,6 +368,18 @@ async def enforce_api_authentication(request: Request, call_next):
             headers=getattr(exc, "headers", None),
         )
 
+    if not is_request_authorized(request.method, path, current_user):
+        return JSONResponse(
+            status_code=403,
+            content={
+                "detail": "Forbidden: insufficient role permissions.",
+                "path": path,
+                "method": request.method,
+                "role": current_user_role(current_user),
+            },
+        )
+
+    request.state.current_user = current_user
     return await call_next(request)
 
 
@@ -333,11 +423,20 @@ def auth_me(current_user: dict = Depends(get_current_user)):
 
 
 @app.get("/users")
-def list_users(current_user: dict = Depends(require_admin)):
+def list_users(current_user: dict = Depends(get_current_user)):
     db = SessionLocal()
 
     try:
-        users = db.query(AppUser).order_by(AppUser.username.asc()).all()
+        if current_user_role(current_user) == ROLE_ADMIN:
+            users = db.query(AppUser).order_by(AppUser.username.asc()).all()
+        else:
+            users = (
+                db.query(AppUser)
+                .filter(AppUser.id == current_user["id"])
+                .order_by(AppUser.username.asc())
+                .all()
+            )
+
         return {
             "items": [serialize_user(user) for user in users],
         }
@@ -426,7 +525,7 @@ def update_user(
 def update_user_password(
     user_id: int,
     payload: UserPasswordUpdate,
-    current_user: dict = Depends(require_admin),
+    current_user: dict = Depends(get_current_user),
 ):
     db = SessionLocal()
 
@@ -436,6 +535,9 @@ def update_user_password(
         if not user:
             raise HTTPException(status_code=404, detail="User not found.")
 
+        if current_user_role(current_user) != ROLE_ADMIN and user.id != current_user["id"]:
+            raise HTTPException(status_code=403, detail="You can reset only your own password.")
+
         user.password_hash = hash_password_or_400(payload.password)
         user.updated_at = datetime.now(timezone.utc)
         db.commit()
@@ -444,6 +546,30 @@ def update_user_password(
         return {
             "status": "password_updated",
             "user": serialize_user(user),
+        }
+    finally:
+        db.close()
+
+
+@app.delete("/users/{user_id}")
+def delete_user(user_id: int, current_user: dict = Depends(require_admin)):
+    if user_id == current_user["id"]:
+        raise HTTPException(status_code=400, detail="You cannot delete your own account.")
+
+    db = SessionLocal()
+
+    try:
+        user = db.query(AppUser).filter(AppUser.id == user_id).first()
+
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found.")
+
+        db.delete(user)
+        db.commit()
+
+        return {
+            "status": "deleted",
+            "user_id": user_id,
         }
     finally:
         db.close()

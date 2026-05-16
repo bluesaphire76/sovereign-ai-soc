@@ -155,8 +155,8 @@ For ANALYST and VIEWER, the Users page must behave as a self-service profile/pas
 | Incidents | GET /incidents/{incident_id}/audit | Yes | Yes | Yes | Audit visibility |
 | Incidents | GET /incidents/{incident_id}/notes | Yes | Yes | Yes | Read notes |
 | Incidents | POST /incidents/{incident_id}/notes | Yes | Yes | No | Operational update |
-| Platform | GET /platform/health | Yes | Yes | No | Operational health |
-| Platform | GET /platform/ingest/wazuh | Yes | Yes | No | Operational ingestion status |
+| Platform | GET /platform/health | Yes | Yes | Yes | Read-only platform health |
+| Platform | GET /platform/ingest/wazuh | Yes | Yes | Yes | Read-only ingestion status |
 | Executive | GET /executive/summary | Yes | Yes | Yes | Executive/read-only dashboard |
 | Reports | GET /reports/incidents/{incident_id} | Yes | Yes | Yes | Read/export |
 | Reports | GET /reports/cases/{case_id} | Yes | Yes | Yes | Read/export |
