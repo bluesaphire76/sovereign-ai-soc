@@ -200,6 +200,31 @@ class AppUser(Base):
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
 
+
+class SecurityAuditEvent(Base):
+    __tablename__ = "security_audit_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    event_type = Column(String, index=True, nullable=False)
+    outcome = Column(String, index=True, nullable=False)
+
+    actor_user_id = Column(Integer, index=True)
+    actor_username = Column(String, index=True)
+    actor_role = Column(String, index=True)
+
+    target_type = Column(String, index=True)
+    target_id = Column(String, index=True)
+    target_username = Column(String, index=True)
+
+    method = Column(String)
+    path = Column(String)
+    client_ip = Column(String)
+    user_agent = Column(Text)
+
+    details_json = Column(Text)
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+
 class WazuhIngestWatermark(Base):
     __tablename__ = "wazuh_ingest_watermarks"
 

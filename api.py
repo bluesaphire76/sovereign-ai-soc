@@ -12,7 +12,7 @@ from executive_pdf_builder import build_case_executive_pdf
 from case_ai_analysis import generate_case_ai_analysis
 from case_action_suggestions import generate_case_action_suggestions
 from case_timeline import build_case_timeline
-from models import Incident, IncidentAudit, IncidentNote, IncidentCase, CaseIncident, CaseAIAnalysis, CaseAudit, CaseAction, CaseClosureChecklist, AppUser
+from models import Incident, IncidentAudit, IncidentNote, IncidentCase, CaseIncident, CaseAIAnalysis, CaseAudit, CaseAction, CaseClosureChecklist, AppUser, SecurityAuditEvent
 from timezone_utils import APP_TIMEZONE, format_timestamp_local, normalize_timestamp_utc
 from platform_health import get_platform_health
 from wazuh_ingest_state import get_watermark_snapshot
@@ -224,6 +224,90 @@ def hash_password_or_400(password: str) -> str:
         raise HTTPException(status_code=400, detail="Invalid request.")
 
 
+SENSITIVE_AUDIT_KEYS = {
+    "password",
+    "password_hash",
+    "token",
+    "access_token",
+    "authorization",
+}
+
+
+def sanitize_audit_details(value):
+    if isinstance(value, dict):
+        sanitized = {}
+
+        for key, item in value.items():
+            if str(key).lower() in SENSITIVE_AUDIT_KEYS:
+                sanitized[key] = "[REDACTED]"
+            else:
+                sanitized[key] = sanitize_audit_details(item)
+
+        return sanitized
+
+    if isinstance(value, list):
+        return [sanitize_audit_details(item) for item in value]
+
+    return value
+
+
+def request_client_ip(request: Request | None) -> str | None:
+    if request is None:
+        return None
+
+    forwarded_for = request.headers.get("x-forwarded-for")
+
+    if forwarded_for:
+        return forwarded_for.split(",", 1)[0].strip()
+
+    if request.client:
+        return request.client.host
+
+    return None
+
+
+def write_security_audit(
+    *,
+    event_type: str,
+    outcome: str,
+    current_user: dict | None = None,
+    target_type: str | None = None,
+    target_id: str | int | None = None,
+    target_username: str | None = None,
+    request: Request | None = None,
+    details: dict | None = None,
+):
+    audit_db = SessionLocal()
+
+    try:
+        audit_db.add(
+            SecurityAuditEvent(
+                event_type=event_type,
+                outcome=outcome,
+                actor_user_id=current_user.get("id") if current_user else None,
+                actor_username=current_user.get("username") if current_user else None,
+                actor_role=current_user.get("role") if current_user else None,
+                target_type=target_type,
+                target_id=str(target_id) if target_id is not None else None,
+                target_username=target_username,
+                method=request.method if request else None,
+                path=request.url.path if request else None,
+                client_ip=request_client_ip(request),
+                user_agent=request.headers.get("user-agent") if request else None,
+                details_json=json.dumps(
+                    sanitize_audit_details(details or {}),
+                    default=str,
+                    sort_keys=True,
+                ),
+            )
+        )
+        audit_db.commit()
+    except Exception:
+        audit_db.rollback()
+    finally:
+        audit_db.close()
+
+
 def get_current_user(authorization: str | None = Header(None)) -> dict:
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Authentication required.")
@@ -369,6 +453,18 @@ async def enforce_api_authentication(request: Request, call_next):
         )
 
     if not is_request_authorized(request.method, path, current_user):
+        write_security_audit(
+            event_type="RBAC_DENIED",
+            outcome="DENIED",
+            current_user=current_user,
+            request=request,
+            details={
+                "method": request.method,
+                "path": path,
+                "role": current_user_role(current_user),
+            },
+        )
+
         return JSONResponse(
             status_code=403,
             content={
@@ -384,7 +480,7 @@ async def enforce_api_authentication(request: Request, call_next):
 
 
 @app.post("/auth/login")
-def login(payload: LoginRequest):
+def login(payload: LoginRequest, request: Request):
     username = normalize_username(payload.username)
 
     db = SessionLocal()
@@ -393,9 +489,26 @@ def login(payload: LoginRequest):
         user = db.query(AppUser).filter(AppUser.username == username).first()
 
         if not user or not verify_password(payload.password, user.password_hash):
+            write_security_audit(
+                event_type="AUTH_LOGIN_FAILURE",
+                outcome="FAILURE",
+                target_type="USER",
+                target_username=username,
+                request=request,
+                details={"reason": "invalid_credentials"},
+            )
             raise HTTPException(status_code=401, detail="Invalid username or password.")
 
         if not user.is_active:
+            write_security_audit(
+                event_type="AUTH_LOGIN_FAILURE",
+                outcome="FAILURE",
+                target_type="USER",
+                target_id=user.id,
+                target_username=user.username,
+                request=request,
+                details={"reason": "disabled_account"},
+            )
             raise HTTPException(status_code=403, detail="User account is disabled.")
 
         user.last_login_at = datetime.now(timezone.utc)
@@ -407,6 +520,16 @@ def login(payload: LoginRequest):
             user_id=user.id,
             username=user.username,
             role=user.role,
+        )
+
+        write_security_audit(
+            event_type="AUTH_LOGIN_SUCCESS",
+            outcome="SUCCESS",
+            current_user=serialize_user(user),
+            target_type="USER",
+            target_id=user.id,
+            target_username=user.username,
+            request=request,
         )
 
         return {
@@ -445,7 +568,7 @@ def list_users(current_user: dict = Depends(get_current_user)):
 
 
 @app.post("/users")
-def create_user(payload: UserCreate, current_user: dict = Depends(require_admin)):
+def create_user(payload: UserCreate, request: Request, current_user: dict = Depends(require_admin)):
     username = normalize_username(payload.username)
 
     if not username:
@@ -476,6 +599,20 @@ def create_user(payload: UserCreate, current_user: dict = Depends(require_admin)
         db.commit()
         db.refresh(user)
 
+        write_security_audit(
+            event_type="USER_CREATED",
+            outcome="SUCCESS",
+            current_user=current_user,
+            target_type="USER",
+            target_id=user.id,
+            target_username=user.username,
+            request=request,
+            details={
+                "role": user.role,
+                "is_active": user.is_active,
+            },
+        )
+
         return serialize_user(user)
     finally:
         db.close()
@@ -485,6 +622,7 @@ def create_user(payload: UserCreate, current_user: dict = Depends(require_admin)
 def update_user(
     user_id: int,
     payload: UserUpdate,
+    request: Request,
     current_user: dict = Depends(require_admin),
 ):
     db = SessionLocal()
@@ -495,7 +633,10 @@ def update_user(
         if not user:
             raise HTTPException(status_code=404, detail="User not found.")
 
-        if payload.display_name is not None:
+        changes = {}
+
+        if payload.display_name is not None and user.display_name != payload.display_name:
+            changes["display_name"] = [user.display_name, payload.display_name]
             user.display_name = payload.display_name
 
         if payload.role is not None:
@@ -504,17 +645,33 @@ def update_user(
             if role not in VALID_USER_ROLES:
                 raise HTTPException(status_code=400, detail=f"Invalid role. Allowed: {sorted(VALID_USER_ROLES)}")
 
-            user.role = role
+            if user.role != role:
+                changes["role"] = [user.role, role]
+                user.role = role
 
         if payload.is_active is not None:
             if user.id == current_user["id"] and payload.is_active is False:
                 raise HTTPException(status_code=400, detail="You cannot disable your own account.")
 
-            user.is_active = payload.is_active
+            if user.is_active != payload.is_active:
+                changes["is_active"] = [user.is_active, payload.is_active]
+                user.is_active = payload.is_active
 
         user.updated_at = datetime.now(timezone.utc)
         db.commit()
         db.refresh(user)
+
+        if changes:
+            write_security_audit(
+                event_type="USER_UPDATED",
+                outcome="SUCCESS",
+                current_user=current_user,
+                target_type="USER",
+                target_id=user.id,
+                target_username=user.username,
+                request=request,
+                details={"changes": changes},
+            )
 
         return serialize_user(user)
     finally:
@@ -525,6 +682,7 @@ def update_user(
 def update_user_password(
     user_id: int,
     payload: UserPasswordUpdate,
+    request: Request,
     current_user: dict = Depends(get_current_user),
 ):
     db = SessionLocal()
@@ -543,6 +701,20 @@ def update_user_password(
         db.commit()
         db.refresh(user)
 
+        write_security_audit(
+            event_type="USER_PASSWORD_RESET",
+            outcome="SUCCESS",
+            current_user=current_user,
+            target_type="USER",
+            target_id=user.id,
+            target_username=user.username,
+            request=request,
+            details={
+                "self_service": user.id == current_user["id"],
+                "performed_by_role": current_user_role(current_user),
+            },
+        )
+
         return {
             "status": "password_updated",
             "user": serialize_user(user),
@@ -552,7 +724,7 @@ def update_user_password(
 
 
 @app.delete("/users/{user_id}")
-def delete_user(user_id: int, current_user: dict = Depends(require_admin)):
+def delete_user(user_id: int, request: Request, current_user: dict = Depends(require_admin)):
     if user_id == current_user["id"]:
         raise HTTPException(status_code=400, detail="You cannot delete your own account.")
 
@@ -564,8 +736,26 @@ def delete_user(user_id: int, current_user: dict = Depends(require_admin)):
         if not user:
             raise HTTPException(status_code=404, detail="User not found.")
 
+        deleted_username = user.username
+        deleted_role = user.role
+        deleted_is_active = user.is_active
+
         db.delete(user)
         db.commit()
+
+        write_security_audit(
+            event_type="USER_DELETED",
+            outcome="SUCCESS",
+            current_user=current_user,
+            target_type="USER",
+            target_id=user_id,
+            target_username=deleted_username,
+            request=request,
+            details={
+                "role": deleted_role,
+                "is_active": deleted_is_active,
+            },
+        )
 
         return {
             "status": "deleted",
