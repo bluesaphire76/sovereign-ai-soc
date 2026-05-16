@@ -1,7 +1,7 @@
 "use client";
 
 import { downloadBackendFile } from "@/lib/download";
-import { authFetch, getStoredUser, type AuthUser } from "@/lib/auth";
+import { authFetch, fetchCurrentUser, getStoredUser, type AuthUser } from "@/lib/auth";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
@@ -818,6 +818,12 @@ export default function IncidentDetailPage() {
 
   useEffect(() => {
     setCurrentUser(getStoredUser());
+
+    fetchCurrentUser()
+      .then((current) => setCurrentUser(current))
+      .catch(() => {
+        // authFetch handles expired/invalid sessions globally
+      });
   }, []);
 
   async function loadIncident() {

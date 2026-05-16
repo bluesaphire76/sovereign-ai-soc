@@ -1,6 +1,6 @@
 "use client";
 
-import { authFetch, getStoredUser, type AuthUser } from "@/lib/auth";
+import { authFetch, fetchCurrentUser, getStoredUser, type AuthUser } from "@/lib/auth";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
@@ -122,7 +122,7 @@ async function fetchSyntheticScenarios(): Promise<SyntheticScenariosResponse> {
   const currentUser = getStoredUser();
 
   if (currentUser?.role === "VIEWER") {
-    return Promise.resolve({ items: [], scenarios: [] });
+    return Promise.resolve({ items: [] });
   }
 
   return fetchJson<SyntheticScenariosResponse>("/synthetic-tests/scenarios");
@@ -335,6 +335,12 @@ export default function DetectionQualityPage() {
 
   useEffect(() => {
     setCurrentUser(getStoredUser());
+
+    fetchCurrentUser()
+      .then((current) => setCurrentUser(current))
+      .catch(() => {
+        // authFetch handles expired/invalid sessions globally
+      });
   }, []);
 
   const loadDetectionQuality = useCallback(async () => {
@@ -373,6 +379,14 @@ export default function DetectionQualityPage() {
 
 
   useEffect(() => {
+    if (!currentUser) return;
+
+    if (!canOperate) {
+      setSyntheticScenarios([]);
+      setSyntheticError(null);
+      return;
+    }
+
     fetchSyntheticScenarios()
       .then((response) => setSyntheticScenarios(response.items))
       .catch((err) =>
@@ -380,7 +394,7 @@ export default function DetectionQualityPage() {
           err instanceof Error ? err.message : "Unable to load synthetic scenarios"
         )
       );
-  }, []);
+  }, [currentUser, canOperate]);
 
   async function handleRunSyntheticTest() {
     if (!canOperate) {
