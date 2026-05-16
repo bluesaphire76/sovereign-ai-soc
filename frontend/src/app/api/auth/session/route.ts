@@ -7,10 +7,7 @@ export async function POST(request: Request) {
   const token = body?.token;
 
   if (!token || typeof token !== "string") {
-    return NextResponse.json(
-      { detail: "Missing token." },
-      { status: 400 }
-    );
+    return NextResponse.json({ detail: "Missing token." }, { status: 400 });
   }
 
   const response = NextResponse.json({ status: "ok" });
@@ -18,9 +15,9 @@ export async function POST(request: Request) {
   response.cookies.set({
     name: COOKIE_NAME,
     value: token,
-    httpOnly: false,
+    httpOnly: true,
     sameSite: "lax",
-    secure: false,
+    secure: process.env.NODE_ENV === "production",
     path: "/",
     maxAge: 60 * 60 * 8,
   });

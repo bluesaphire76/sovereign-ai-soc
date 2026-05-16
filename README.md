@@ -404,7 +404,7 @@ Recommended environment variables:
 export AI_SOC_AUTH_SECRET="change-this-secret-before-real-use"
 export AI_SOC_AUTH_TOKEN_TTL_SECONDS="28800"
 export AI_SOC_ADMIN_USERNAME="admin"
-export AI_SOC_ADMIN_PASSWORD="ChangeMe123!"
+export AI_SOC_ADMIN_PASSWORD="<set-a-strong-password>"
 export AI_SOC_ADMIN_DISPLAY_NAME="SOC Administrator"
 ```
 
@@ -431,7 +431,7 @@ cd ~/lab/ai-soc-assistant
 ### 6. Create default admin user
 
 ```bash
-AI_SOC_ADMIN_PASSWORD='ChangeMe123!' \
+AI_SOC_ADMIN_PASSWORD='<set-a-strong-password>' \
 .venv/bin/python scripts/create_default_admin_user.py \
   --username admin \
   --display-name "SOC Administrator"
@@ -511,7 +511,7 @@ curl -s -X POST "http://localhost:8008/auth/login" \
   -H "Content-Type: application/json" \
   -d '{
     "username": "admin",
-    "password": "ChangeMe123!"
+    "password": "<set-a-strong-password>"
   }' | python3 -m json.tool
 ```
 
@@ -598,7 +598,7 @@ This project is currently intended for local-first controlled environments.
 Important notes:
 
 - Change `AI_SOC_AUTH_SECRET` before any real use.
-- Change the default admin password immediately.
+- Use a strong initial admin password and rotate it regularly.
 - Do not expose the system directly to the public Internet.
 - Use HTTPS through a trusted reverse proxy.
 - Restrict network access where possible.

@@ -14,11 +14,17 @@ from models import AppUser
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--username", default=os.environ.get("AI_SOC_ADMIN_USERNAME", "admin"))
-    parser.add_argument("--password", default=os.environ.get("AI_SOC_ADMIN_PASSWORD", "ChangeMe123!"))
+    parser.add_argument("--password", default=os.environ.get("AI_SOC_ADMIN_PASSWORD"))
     parser.add_argument("--display-name", default=os.environ.get("AI_SOC_ADMIN_DISPLAY_NAME", "SOC Administrator"))
     args = parser.parse_args()
 
     username = args.username.strip().lower()
+    password = args.password
+
+    if not password:
+        raise SystemExit(
+            "Admin password is required. Set AI_SOC_ADMIN_PASSWORD or pass --password."
+        )
 
     db = SessionLocal()
 
@@ -33,7 +39,7 @@ def main() -> None:
             username=username,
             display_name=args.display_name,
             role="ADMIN",
-            password_hash=hash_password(args.password),
+            password_hash=hash_password(password),
             is_active=True,
         )
 
@@ -42,7 +48,6 @@ def main() -> None:
 
         print("Admin user created.")
         print(f"Username: {username}")
-        print("Password: set from argument/env/default")
     finally:
         db.close()
 

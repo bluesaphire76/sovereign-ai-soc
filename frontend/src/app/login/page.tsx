@@ -11,6 +11,23 @@ type LoginResponse = {
   user: AuthUser;
 };
 
+
+function sanitizeNextPath(value: string | null): string {
+  if (!value) {
+    return "/";
+  }
+
+  if (!value.startsWith("/") || value.startsWith("//")) {
+    return "/";
+  }
+
+  if (value.includes("\\") || value.includes("\n") || value.includes("\r")) {
+    return "/";
+  }
+
+  return value;
+}
+
 export default function LoginPage() {
   const [nextPath, setNextPath] = useState("/");
   const [username, setUsername] = useState("admin");
@@ -20,7 +37,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    setNextPath(params.get("next") || "/");
+    setNextPath(sanitizeNextPath(params.get("next")));
 
     const reason = params.get("reason");
 
@@ -63,7 +80,7 @@ export default function LoginPage() {
       const data = (await response.json()) as LoginResponse;
       await setAuthSession(data.access_token, data.user);
 
-      window.location.href = nextPath;
+      window.location.assign(sanitizeNextPath(nextPath));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown login error");
     } finally {

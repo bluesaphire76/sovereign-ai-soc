@@ -11,7 +11,22 @@ from typing import Any
 
 
 DEFAULT_TOKEN_TTL_SECONDS = int(os.environ.get("AI_SOC_AUTH_TOKEN_TTL_SECONDS", "28800"))
-AUTH_SECRET = os.environ.get("AI_SOC_AUTH_SECRET", "local-dev-secret-change-me")
+
+
+def get_auth_secret() -> str:
+    secret = os.environ.get("AI_SOC_AUTH_SECRET")
+
+    if not secret:
+        raise RuntimeError(
+            "AI_SOC_AUTH_SECRET is required. Set it to a long random value before starting the API."
+        )
+
+    if len(secret) < 32:
+        raise RuntimeError(
+            "AI_SOC_AUTH_SECRET is too short. Use at least 32 characters."
+        )
+
+    return secret
 
 
 def _b64url_encode(data: bytes) -> str:
@@ -93,7 +108,12 @@ def create_access_token(
     payload_b64 = _b64url_encode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
 
     signing_input = f"{header_b64}.{payload_b64}".encode("utf-8")
-    signature = hmac.new(AUTH_SECRET.encode("utf-8"), signing_input, hashlib.sha256).digest()
+    signature = hmac.new(
+        get_auth_secret().encode("utf-8"),
+        signing_input,
+        hashlib.sha256,
+    ).digest()
+
     token = f"{header_b64}.{payload_b64}.{_b64url_encode(signature)}"
 
     return {
@@ -111,7 +131,7 @@ def decode_access_token(token: str) -> dict[str, Any]:
 
     signing_input = f"{header_b64}.{payload_b64}".encode("utf-8")
     expected_signature = hmac.new(
-        AUTH_SECRET.encode("utf-8"),
+        get_auth_secret().encode("utf-8"),
         signing_input,
         hashlib.sha256,
     ).digest()
