@@ -11,6 +11,7 @@ import {
   LayoutDashboard,
   LogOut,
   Shield,
+  ShieldAlert,
   ShieldCheck,
   Users,
 } from "lucide-react";
@@ -34,6 +35,12 @@ const NAV_ITEMS: NavItem[] = [
     label: "Dashboard",
     icon: <LayoutDashboard className="h-3.5 w-3.5" />,
     match: "exact",
+  },
+  {
+    href: "/incidents",
+    label: "Incidents",
+    icon: <ShieldAlert className="h-3.5 w-3.5" />,
+    match: "prefix",
   },
   {
     href: "/cases",

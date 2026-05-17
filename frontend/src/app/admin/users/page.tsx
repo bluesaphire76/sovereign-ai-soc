@@ -127,6 +127,23 @@ export default function AdminUsersPage() {
     });
   }
 
+  async function toggleUserActive(user: AuthUser) {
+    if (currentUser?.id === user.id && user.is_active) {
+      setError("You cannot disable your own active account.");
+      return;
+    }
+
+    const action = user.is_active ? "disable" : "enable";
+
+    if (!window.confirm(`${action.charAt(0).toUpperCase() + action.slice(1)} user ${user.username}?`)) {
+      return;
+    }
+
+    await updateUser(user.id, {
+      is_active: !user.is_active,
+    });
+  }
+
   async function deleteUser(user: AuthUser) {
     if (!window.confirm(`Delete user ${user.username}? This action cannot be undone.`)) {
       return;
@@ -377,6 +394,17 @@ export default function AdminUsersPage() {
 
                               {isAdmin && (
                                 <>
+                                  <button
+                                    onClick={() => toggleUserActive(user)}
+                                    className={`rounded-md border px-2 py-1 text-[11px] font-medium ${
+                                      user.is_active
+                                        ? "border-orange-700 bg-orange-950 text-orange-200 hover:bg-orange-900"
+                                        : "border-emerald-700 bg-emerald-950 text-emerald-200 hover:bg-emerald-900"
+                                    }`}
+                                  >
+                                    {user.is_active ? "Disable" : "Enable"}
+                                  </button>
+
                                   <button
                                     onClick={() => updateDisplayName(user)}
                                     className="rounded-md border border-slate-700 bg-slate-950 px-2 py-0.5 text-[11px] text-slate-300 hover:bg-slate-800"
