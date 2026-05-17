@@ -674,7 +674,7 @@ export default function CasesPage() {
                   ]}
                 />
 
-                <div className="mt-2 flex h-8 min-w-0 items-center rounded-lg border border-slate-800 bg-slate-950 px-2 lg:col-span-4">
+                <div className="self-end flex h-8 min-w-0 items-center rounded-lg border border-slate-800 bg-slate-950 px-2 lg:col-span-4">
                   <div className="flex min-w-0 items-center gap-2 overflow-hidden text-xs leading-none text-slate-300">
                     <Filter className="h-3.5 w-3.5 shrink-0 text-cyan-300" />
                     <span className="shrink-0">
