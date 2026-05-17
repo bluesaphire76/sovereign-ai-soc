@@ -6,51 +6,44 @@ __pycache__/
 
 # Virtual env
 .venv/
-
 # Environment
 .env
-
 # VSCode
 .vscode/
-
 # Logs
 *.log
-
 # OS
 .DS_Store
-
 # Ollama temp
 *.bin
-
 # Qdrant
 qdrant_storage/
-
 # Database temp
 *.sqlite
-
 # Python cache
 .pytest_cache/
-
 # Jupyter
 .ipynb_checkpoints/
-
 # Local data
 data/
-
 # Models
 models/
-
 # Secrets
 secrets/
-
 # Docker overrides
 docker-compose.override.yml
-
 # Frontend
 frontend/.env.local
 frontend/.next/
 frontend/node_modules/
-
-
 # Local runtime secrets
 .runtime/
+# Runtime secrets / local environment
+.env.*
+!.env.example
+!.env.*.example
+frontend/.env.*.local
+!frontend/.env.local.example
+*.pem
+*.key
+*.crt
