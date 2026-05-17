@@ -2,17 +2,21 @@ import json
 import os
 from datetime import datetime, timedelta, timezone
 
+from dotenv import load_dotenv
+
 from database import SessionLocal
 from models import WazuhIngestWatermark, utc_now
 
+load_dotenv()
+
 WAZUH_INGEST_COMPONENT = "wazuh_alerts"
 
-WAZUH_BATCH_SIZE = int(os.getenv("WAZUH_BATCH_SIZE", "50"))
+WAZUH_BATCH_SIZE = int(os.getenv("WAZUH_BATCH_SIZE", "500"))
 WAZUH_INITIAL_LOOKBACK_MINUTES = int(
     os.getenv("WAZUH_INITIAL_LOOKBACK_MINUTES", "60")
 )
 WAZUH_WATERMARK_OVERLAP_SECONDS = int(
-    os.getenv("WAZUH_WATERMARK_OVERLAP_SECONDS", "120")
+    os.getenv("WAZUH_WATERMARK_OVERLAP_SECONDS", "15")
 )
 
 
