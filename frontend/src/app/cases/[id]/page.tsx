@@ -1556,9 +1556,28 @@ export default function CaseDetailPage() {
           </h1>
 
           {caseData && (
-            <p className="mt-1 max-w-5xl text-xs text-slate-500">
-              {caseData.title}
-            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <span className="rounded-full border border-slate-800 bg-slate-900/70 px-2.5 py-1 text-[11px] text-slate-400">
+                Host{" "}
+                <span className="font-medium text-slate-200">
+                  {caseData.agent ?? "unknown"}
+                </span>
+              </span>
+
+              <span className="rounded-full border border-slate-800 bg-slate-900/70 px-2.5 py-1 text-[11px] text-slate-400">
+                Correlation{" "}
+                <span className="font-medium text-slate-200">
+                  {caseData.correlation_type ?? "unknown"}
+                </span>
+              </span>
+
+              <span className="rounded-full border border-slate-800 bg-slate-900/70 px-2.5 py-1 text-[11px] text-slate-400">
+                Opened{" "}
+                <span className="font-medium text-slate-200">
+                  {formatTimestamp(caseData.created_at)}
+                </span>
+              </span>
+            </div>
           )}
 
 
@@ -1912,13 +1931,12 @@ export default function CaseDetailPage() {
                 display: none;
               }
             `}</style>
-            <section className="grid gap-3 md:grid-cols-4">
+            <section className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
               <InfoCard title="Host" value={caseData.agent ?? "unknown"} />
               <InfoCard title="Incidents" value={caseData.incident_count} />
               <InfoCard title="Risk score" value={caseData.risk_score ?? 0} />
               <InfoCard title="Updated" value={formatTimestamp(caseData.updated_at)} />
             </section>
-
             <CaseCommandCenter
               caseData={caseData}
               actionCount={caseActions.length}
@@ -3326,6 +3344,25 @@ function QuickActionButton({
   );
 }
 
+function DetailRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | number | null | undefined;
+}) {
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2">
+      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+        {label}
+      </div>
+      <div className="min-w-0 truncate text-xs font-medium text-slate-200">
+        {value ?? "-"}
+      </div>
+    </div>
+  );
+}
+
 function CaseFocusMode({
   value,
   onChange,
@@ -3368,41 +3405,38 @@ function CaseFocusMode({
   const activeMode = modes.find((mode) => mode.value === value) ?? modes[0];
 
   return (
-    <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-lg">
-      <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div>
-          <h2 className="text-sm font-semibold">Focus Mode</h2>
-          <p className="mt-1 text-xs text-slate-500">
-            Collapse non-relevant sections and focus on the current analyst workflow.
+    <section className="rounded-xl border border-slate-800 bg-slate-900/80 p-3 shadow-lg">
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-300">
+              Focus mode
+            </h2>
+            <span className="rounded-full border border-cyan-800 bg-cyan-950/70 px-2 py-0.5 text-[10px] text-cyan-200">
+              {activeMode.label}
+            </span>
+          </div>
+          <p className="mt-1 text-[11px] text-slate-500">
+            Collapse non-relevant sections and keep the current analyst workflow in focus.
           </p>
         </div>
 
-        <span className="w-fit rounded-full border border-cyan-700 bg-cyan-950 px-3 py-1.5 text-xs text-cyan-200">
-          {activeMode.label}
-        </span>
-      </div>
-
-      <div className="grid gap-3 md:grid-cols-5">
-        {modes.map((mode) => (
-          <button
-            key={mode.value}
-            onClick={() => onChange(mode.value)}
-            className={`rounded-md border p-3 text-left transition ${
-              value === mode.value
-                ? "border-cyan-500 bg-cyan-500 text-slate-950"
-                : "border-slate-800 bg-slate-950 text-slate-300 hover:border-cyan-800 hover:bg-slate-900"
-            }`}
-          >
-            <div className="text-sm font-medium">{mode.label}</div>
-            <div
-              className={`mt-2 text-xs leading-5 ${
-                value === mode.value ? "text-slate-800" : "text-slate-500"
+        <div className="grid w-full grid-cols-2 gap-1.5 sm:grid-cols-5 lg:w-auto lg:min-w-[36rem]">
+          {modes.map((mode) => (
+            <button
+              key={mode.value}
+              onClick={() => onChange(mode.value)}
+              title={mode.description}
+              className={`flex h-7 min-w-0 items-center justify-center rounded-md border px-2 text-center text-[11px] font-medium transition ${
+                value === mode.value
+                  ? "border-cyan-400 bg-cyan-500 text-slate-950"
+                  : "border-slate-800 bg-slate-950 text-slate-300 hover:border-cyan-800 hover:bg-slate-800 hover:text-cyan-200"
               }`}
             >
-              {mode.description}
-            </div>
-          </button>
-        ))}
+              <span className="truncate">{mode.label}</span>
+            </button>
+          ))}
+        </div>
       </div>
     </section>
   );
@@ -3494,7 +3528,7 @@ function CaseCommandCenter({
           Quick navigation
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="mt-2 grid gap-1.5 sm:grid-cols-4 xl:grid-cols-8">
           <QuickAnchor href="#reports-center" label="Reports" />
           <QuickAnchor href="#case-workflow" label="Workflow" />
           <QuickAnchor href="#case-action-plan" label="Actions" />
@@ -3524,10 +3558,10 @@ function CommandMetric({
 }) {
   const toneClass =
     tone === "success"
-      ? "border-emerald-800 bg-emerald-950/30"
+      ? "border-emerald-900/80 bg-emerald-950/20"
       : tone === "warning"
-        ? "border-orange-800 bg-orange-950/30"
-        : "border-slate-800 bg-slate-950";
+        ? "border-orange-900/80 bg-orange-950/20"
+        : "border-slate-800 bg-slate-950/70";
 
   const iconClass =
     tone === "success"
@@ -3537,17 +3571,22 @@ function CommandMetric({
         : "text-slate-400";
 
   return (
-    <div className={`rounded-md border p-3 ${toneClass}`}>
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="text-xs text-slate-500">{title}</div>
-        {icon === "check" && <CheckCircle2 className={`h-4 w-4 ${iconClass}`} />}
-        {icon === "warning" && <AlertTriangle className={`h-4 w-4 ${iconClass}`} />}
-        {icon === "progress" && <CircleDashed className={`h-4 w-4 ${iconClass}`} />}
-        {icon === "bot" && <Bot className={`h-4 w-4 ${iconClass}`} />}
+    <div className={`flex h-20 min-w-0 flex-col justify-between rounded-lg border px-3 py-2 ${toneClass}`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="truncate text-[11px] text-slate-500">{title}</div>
+        {icon === "check" && <CheckCircle2 className={`h-3.5 w-3.5 shrink-0 ${iconClass}`} />}
+        {icon === "warning" && <AlertTriangle className={`h-3.5 w-3.5 shrink-0 ${iconClass}`} />}
+        {icon === "progress" && <CircleDashed className={`h-3.5 w-3.5 shrink-0 ${iconClass}`} />}
+        {icon === "bot" && <Bot className={`h-3.5 w-3.5 shrink-0 ${iconClass}`} />}
       </div>
 
-      <div className="text-xl font-semibold text-slate-100">{value}</div>
-      <div className="mt-2 text-xs leading-5 text-slate-500">{description}</div>
+      <div className="truncate text-base font-semibold text-slate-100">
+        {value}
+      </div>
+
+      <div className="truncate text-[11px] text-slate-500">
+        {description}
+      </div>
     </div>
   );
 }
@@ -3556,9 +3595,10 @@ function QuickAnchor({ href, label }: { href: string; label: string }) {
   return (
     <a
       href={href}
-      className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-300 hover:border-cyan-700 hover:text-cyan-200"
+      title={label}
+      className="flex h-7 w-full min-w-0 items-center justify-center rounded-md border border-slate-800 bg-slate-950 px-2 text-center text-[11px] font-medium text-slate-300 transition hover:border-cyan-700 hover:bg-slate-800 hover:text-cyan-200"
     >
-      {label}
+      <span className="min-w-0 truncate">{label}</span>
     </a>
   );
 }
@@ -3632,20 +3672,13 @@ function InfoCard({
   value: string | number;
 }) {
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-lg">
-      <div className="mb-3 text-xs text-slate-500">{title}</div>
-      <div className="break-words text-xl font-semibold">{value}</div>
-    </div>
-  );
-}
-
-function DetailRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-md border border-slate-800 bg-slate-950 p-4">
-      <div className="mb-1 text-xs uppercase tracking-wide text-slate-500">
-        {label}
+    <div className="flex h-16 min-w-0 flex-col justify-between rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2">
+      <div className="truncate text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+        {title}
       </div>
-      <div className="break-words text-sm text-slate-200">{value}</div>
+      <div className="truncate text-sm font-semibold text-slate-100">
+        {value}
+      </div>
     </div>
   );
 }
