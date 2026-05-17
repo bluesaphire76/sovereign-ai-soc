@@ -12,7 +12,7 @@ from executive_pdf_builder import build_case_executive_pdf
 from case_ai_analysis import generate_case_ai_analysis
 from case_action_suggestions import generate_case_action_suggestions
 from case_timeline import build_case_timeline
-from models import Incident, IncidentAudit, IncidentNote, IncidentCase, CaseIncident, CaseAIAnalysis, CaseAudit, CaseAction, CaseClosureChecklist, AppUser, SecurityAuditEvent
+from models import Incident, IncidentAudit, IncidentNote, IncidentCase, CaseIncident, CaseAIAnalysis, CaseAudit, CaseAction, CaseClosureChecklist, AppUser, SecurityAuditEvent, utc_now
 from timezone_utils import APP_TIMEZONE, format_timestamp_local, normalize_timestamp_utc
 from platform_health import get_platform_health
 from wazuh_ingest_state import get_watermark_snapshot
@@ -393,6 +393,7 @@ RBAC_RULES: list[tuple[str, str, set[str]]] = [
     ("GET", r"^/incidents/\d+/audit$", ALL_ROLES),
     ("GET", r"^/incidents/\d+/notes$", ALL_ROLES),
     ("POST", r"^/incidents/\d+/notes$", OPERATOR_ROLES),
+    ("POST", r"^/incidents/\d+/case$", OPERATOR_ROLES),
 
     # Platform / operations
     ("GET", r"^/platform/health$", ALL_ROLES),
@@ -1409,6 +1410,176 @@ def update_incident_status(
     finally:
         db.close()
 
+
+
+
+@app.post("/incidents/{incident_id}/case")
+def create_case_from_incident(incident_id: int, request: Request):
+    db = SessionLocal()
+
+    try:
+        incident = (
+            db.query(Incident)
+            .filter(Incident.id == incident_id)
+            .first()
+        )
+
+        if not incident:
+            raise HTTPException(status_code=404, detail="Incident not found.")
+
+        existing_link = (
+            db.query(CaseIncident)
+            .filter(CaseIncident.incident_id == incident.id)
+            .order_by(CaseIncident.id.desc())
+            .first()
+        )
+
+        if existing_link:
+            existing_case = (
+                db.query(IncidentCase)
+                .filter(IncidentCase.id == existing_link.case_id)
+                .first()
+            )
+
+            if existing_case:
+                incident_count = (
+                    db.query(CaseIncident)
+                    .filter(CaseIncident.case_id == existing_case.id)
+                    .count()
+                )
+
+                return {
+                    "created": False,
+                    "case_id": existing_case.id,
+                    "item": serialize_case(existing_case, incident_count),
+                }
+
+        actor = security_audit_actor(request) or {}
+        actor_username = actor.get("username") or "local_analyst"
+        now = utc_now()
+
+        risk_score = incident.risk_score or incident.level or 0
+        group_key = f"incident:{incident.id}"
+
+        existing_case_by_group = (
+            db.query(IncidentCase)
+            .filter(IncidentCase.group_key == group_key)
+            .first()
+        )
+
+        if existing_case_by_group:
+            incident_count = (
+                db.query(CaseIncident)
+                .filter(CaseIncident.case_id == existing_case_by_group.id)
+                .count()
+            )
+
+            return {
+                "created": False,
+                "case_id": existing_case_by_group.id,
+                "item": serialize_case(existing_case_by_group, incident_count),
+            }
+
+        if risk_score >= 81:
+            severity = "CRITICAL"
+        elif risk_score >= 61:
+            severity = "HIGH"
+        elif risk_score >= 31:
+            severity = "MEDIUM"
+        else:
+            severity = "LOW"
+
+        case_fields = {}
+
+        def set_case_field(name, value):
+            if hasattr(IncidentCase, name):
+                case_fields[name] = value
+
+        set_case_field("group_key", group_key)
+        set_case_field("title", f"Incident #{incident.id} investigation")
+        set_case_field("status", "OPEN")
+        set_case_field("severity", severity)
+        set_case_field("severity_review", severity)
+        set_case_field("agent", incident.agent)
+        set_case_field("correlation_type", incident.correlation_type or "manual_incident_escalation")
+        set_case_field("risk_score", risk_score)
+        set_case_field("owner", actor_username)
+        set_case_field("created_by", actor_username)
+        set_case_field("created_at", now)
+        set_case_field("updated_at", now)
+        set_case_field(
+            "summary",
+            f"Case created from incident #{incident.id}: {incident.rule or 'Wazuh alert'}",
+        )
+
+        case_row = IncidentCase(**case_fields)
+        db.add(case_row)
+        db.flush()
+
+        link_fields = {
+            "case_id": case_row.id,
+            "incident_id": incident.id,
+        }
+
+        if hasattr(CaseIncident, "created_at"):
+            link_fields["created_at"] = now
+
+        db.add(CaseIncident(**link_fields))
+
+        if hasattr(CaseClosureChecklist, "case_id"):
+            closure_fields = {"case_id": case_row.id}
+
+            if hasattr(CaseClosureChecklist, "created_at"):
+                closure_fields["created_at"] = now
+
+            if hasattr(CaseClosureChecklist, "updated_at"):
+                closure_fields["updated_at"] = now
+
+            db.add(CaseClosureChecklist(**closure_fields))
+
+        write_security_audit(
+            event_type="CASE_CREATED_FROM_INCIDENT",
+            outcome="SUCCESS",
+            current_user=actor,
+            target_type="CASE",
+            target_id=case_row.id,
+            request=request,
+            details={
+                "incident_id": incident.id,
+                "case_id": case_row.id,
+                "severity": severity,
+                "risk_score": risk_score,
+            },
+        )
+
+        db.commit()
+        db.refresh(case_row)
+
+        return {
+            "created": True,
+            "case_id": case_row.id,
+            "item": serialize_case(case_row, 1),
+        }
+
+    except HTTPException:
+        db.rollback()
+        raise
+
+    except Exception as exc:
+        db.rollback()
+        write_security_audit(
+            event_type="CASE_CREATED_FROM_INCIDENT",
+            outcome="FAILURE",
+            current_user=security_audit_actor(request),
+            target_type="INCIDENT",
+            target_id=incident_id,
+            request=request,
+            details={"error": str(exc)},
+        )
+        raise
+
+    finally:
+        db.close()
 
 
 @app.get("/incidents/{incident_id}/audit")

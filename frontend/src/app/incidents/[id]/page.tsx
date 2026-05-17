@@ -5,7 +5,7 @@ import { authFetch, fetchCurrentUser, getStoredUser, type AuthUser } from "@/lib
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import AppNavigation from "../../../components/AppNavigation";
 import {
   AlertTriangle,
@@ -800,6 +800,7 @@ function EnterpriseIncidentAiAnalysis({ incident }: { incident: IncidentAiAssess
 
 export default function IncidentDetailPage() {
   const params = useParams();
+  const router = useRouter();
   const incidentId = String(params.id);
 
   const [incident, setIncident] = useState<IncidentDetail | null>(null);
@@ -809,6 +810,7 @@ export default function IncidentDetailPage() {
   const [savingNote, setSavingNote] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [creatingCase, setCreatingCase] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
 
@@ -905,6 +907,37 @@ export default function IncidentDetailPage() {
     }
   }
 
+  async function createCaseFromIncident() {
+    if (!canOperate) return;
+
+    try {
+      setCreatingCase(true);
+      setError(null);
+
+      const response = await authFetch(`/incidents/${incidentId}/case`, {
+        method: "POST",
+      });
+
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(String(body?.detail ?? `API error ${response.status}`));
+      }
+
+      const caseId = body?.case_id ?? body?.item?.id;
+
+      if (!caseId) {
+        throw new Error("Case was created but the response did not include a case id.");
+      }
+
+      router.push(`/cases/${caseId}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setCreatingCase(false);
+    }
+  }
+
   useEffect(() => {
     loadIncident();
   }, [incidentId]);
@@ -968,6 +1001,16 @@ export default function IncidentDetailPage() {
               />
               Refresh
             </button>
+
+              {canOperate && (
+                <button
+                  onClick={createCaseFromIncident}
+                  disabled={creatingCase}
+                  className="flex h-8 items-center gap-1.5 rounded-lg border border-emerald-700 bg-emerald-500 px-3 text-xs font-medium text-slate-950 shadow-sm hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {creatingCase ? "Creating case..." : "Create case"}
+                </button>
+              )}
 
             <a
               href="#"
