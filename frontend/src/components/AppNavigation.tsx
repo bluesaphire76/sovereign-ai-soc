@@ -124,24 +124,24 @@ export default function AppNavigation() {
     : NAV_ITEMS;
 
   return (
-    <nav className="mb-5 rounded-xl border border-slate-800 bg-slate-900/95 px-3 py-2 shadow-lg">
-      <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
-        <div className="flex items-center gap-2">
+    <nav className="ai-soc-sidebar mb-5 rounded-xl border border-slate-800 bg-slate-900/95 px-3 py-2 shadow-lg xl:fixed xl:bottom-4 xl:left-4 xl:top-4 xl:z-40 xl:mb-0 xl:w-64 xl:px-3 xl:py-3">
+      <div className="flex flex-col gap-3 xl:h-full">
+        <div className="flex items-center gap-2 border-slate-800 xl:border-b xl:pb-3">
           <div className="rounded-lg border border-cyan-900 bg-cyan-950 p-1.5 text-cyan-300">
             <Shield className="h-3.5 w-3.5" />
           </div>
 
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-100">
+          <div className="min-w-0">
+            <div className="truncate text-xs font-semibold uppercase tracking-wide text-slate-100">
               Sovereign AI SOC
             </div>
-            <div className="text-[11px] text-slate-500">
+            <div className="truncate text-[11px] text-slate-500">
               Local-first SOC case management
             </div>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5 xl:flex-1 xl:flex-col xl:items-stretch xl:gap-1.5">
           {navItems.map((item) => {
             const active = isActive(pathname, item);
 
@@ -149,27 +149,29 @@ export default function AppNavigation() {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition ${
+                className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition xl:w-full xl:justify-start ${
                   active
                     ? "border-cyan-500 bg-cyan-500 text-slate-950"
                     : "border-slate-700 bg-slate-950 text-slate-300 hover:border-cyan-800 hover:bg-slate-800 hover:text-cyan-200"
                 }`}
               >
                 {item.icon}
-                {item.label}
+                <span className="truncate">{item.label}</span>
               </Link>
             );
           })}
+        </div>
 
+        <div className="flex flex-wrap items-center gap-1.5 border-slate-800 xl:flex-col xl:items-stretch xl:border-t xl:pt-3">
           {user && (
-            <div className="hidden max-w-[180px] truncate px-2 text-[11px] text-slate-500 xl:block">
+            <div className="max-w-full truncate px-2 text-[11px] text-slate-500">
               {user.display_name || user.username}
             </div>
           )}
 
           <button
             onClick={handleLogout}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-950 px-2.5 text-xs font-medium text-slate-300 transition hover:bg-slate-800 hover:text-slate-100"
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-950 px-2.5 text-xs font-medium text-slate-300 transition hover:bg-slate-800 hover:text-slate-100 xl:w-full xl:justify-start"
           >
             <LogOut className="h-3.5 w-3.5" />
             Logout

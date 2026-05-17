@@ -24,3 +24,12 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* AI SOC desktop shell: keep page content clear of the fixed left sidebar. */
+@media (min-width: 1280px) {
+  main:has(.ai-soc-sidebar) > div {
+    max-width: calc(100vw - 18rem);
+    margin-left: 17rem;
+    margin-right: 1rem;
+  }
+}
