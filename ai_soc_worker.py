@@ -110,6 +110,8 @@ def update_worker_heartbeat(status, last_error=None, details=None):
 
         if status == "OK":
             heartbeat.last_success_at = now
+            heartbeat.last_error = None
+            heartbeat.last_error_at = None
 
         if last_error:
             heartbeat.last_error_at = now
@@ -304,6 +306,15 @@ def run_worker():
         query_info = {}
 
         try:
+            update_worker_heartbeat(
+                "OK",
+                details={
+                    "phase": "polling",
+                    "poll_interval_seconds": POLL_INTERVAL_SECONDS,
+                    "ollama_model": OLLAMA_MODEL,
+                },
+            )
+
             alerts, query_info = get_latest_alerts()
 
             if not alerts:
@@ -313,6 +324,18 @@ def run_worker():
             skipped_count = 0
 
             for alert in alerts:
+                update_worker_heartbeat(
+                    "OK",
+                    details={
+                        "phase": "processing_alert",
+                        "current_doc_id": alert.get("_wazuh_doc_id"),
+                        "current_timestamp": alert.get("@timestamp"),
+                        "poll_interval_seconds": POLL_INTERVAL_SECONDS,
+                        "ollama_model": OLLAMA_MODEL,
+                        "wazuh_ingest": query_info,
+                    },
+                )
+
                 result = process_alert(alert)
 
                 if result == "processed":

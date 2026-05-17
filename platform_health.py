@@ -22,6 +22,7 @@ WAZUH_PASSWORD = os.getenv("WAZUH_PASSWORD")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:8b")
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "30"))
+WORKER_STALE_AFTER_SECONDS = int(os.getenv("WORKER_STALE_AFTER_SECONDS", "300"))
 
 
 def now_iso():
@@ -268,7 +269,7 @@ def check_worker():
         if last_seen:
             age_seconds = round((utc_now() - last_seen).total_seconds(), 2)
 
-        stale_after = max(POLL_INTERVAL_SECONDS * 3, 120)
+        stale_after = max(POLL_INTERVAL_SECONDS * 5, WORKER_STALE_AFTER_SECONDS)
 
         status = heartbeat.status or "UNKNOWN"
         normalized_status = "OK"
