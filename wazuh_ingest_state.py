@@ -18,6 +18,12 @@ WAZUH_INITIAL_LOOKBACK_MINUTES = int(
 WAZUH_WATERMARK_OVERLAP_SECONDS = int(
     os.getenv("WAZUH_WATERMARK_OVERLAP_SECONDS", "15")
 )
+WAZUH_WATERMARK_FLUSH_EVERY = int(
+    os.getenv("WAZUH_WATERMARK_FLUSH_EVERY", "10")
+)
+WAZUH_MAX_CATCHUP_MINUTES = int(
+    os.getenv("WAZUH_MAX_CATCHUP_MINUTES", "30")
+)
 
 
 def iso_utc(dt: datetime) -> str:
@@ -69,17 +75,26 @@ def get_or_create_watermark(db) -> WazuhIngestWatermark:
 
 
 def compute_query_from_timestamp(watermark: WazuhIngestWatermark) -> str:
+    now = datetime.now(timezone.utc)
+    max_catchup_from = now - timedelta(minutes=WAZUH_MAX_CATCHUP_MINUTES)
+
     if watermark.last_timestamp:
         last_dt = parse_wazuh_timestamp(watermark.last_timestamp)
 
         if last_dt:
             overlapped = last_dt - timedelta(seconds=WAZUH_WATERMARK_OVERLAP_SECONDS)
+
+            if overlapped < max_catchup_from:
+                return iso_utc(max_catchup_from)
+
             return iso_utc(overlapped)
 
-    return iso_utc(
-        datetime.now(timezone.utc)
-        - timedelta(minutes=WAZUH_INITIAL_LOOKBACK_MINUTES)
-    )
+    initial_from = now - timedelta(minutes=WAZUH_INITIAL_LOOKBACK_MINUTES)
+
+    if initial_from < max_catchup_from:
+        return iso_utc(max_catchup_from)
+
+    return iso_utc(initial_from)
 
 
 def build_wazuh_alert_query(watermark: WazuhIngestWatermark, limit: int | None = None):
@@ -107,9 +122,68 @@ def build_wazuh_alert_query(watermark: WazuhIngestWatermark, limit: int | None =
         "last_doc_id": watermark.last_doc_id,
         "overlap_seconds": WAZUH_WATERMARK_OVERLAP_SECONDS,
         "initial_lookback_minutes": WAZUH_INITIAL_LOOKBACK_MINUTES,
+        "max_catchup_minutes": WAZUH_MAX_CATCHUP_MINUTES,
     }
 
     return query, query_info
+
+
+def update_watermark_progress(
+    alerts: list[dict],
+    processed_count: int,
+    skipped_count: int,
+    query_info: dict | None = None,
+):
+    """Persist partial ingest progress during a long worker batch.
+
+    This intentionally does not increment total_processed, because the final
+    update_watermark_success call accounts for the full batch once completed.
+    """
+    if not alerts:
+        return
+
+    db = SessionLocal()
+
+    try:
+        now = utc_now()
+        watermark = get_or_create_watermark(db)
+
+        newest = sorted(
+            alerts,
+            key=lambda item: (
+                item.get("@timestamp") or "",
+                item.get("_wazuh_doc_id") or "",
+            ),
+        )[-1]
+
+        watermark.last_poll_at = now
+        watermark.last_success_at = now
+        watermark.updated_at = now
+        watermark.alerts_seen = len(alerts)
+        watermark.alerts_processed = processed_count
+        watermark.alerts_skipped = skipped_count
+        watermark.last_timestamp = newest.get("@timestamp")
+        watermark.last_doc_id = newest.get("_wazuh_doc_id")
+        watermark.last_error = None
+        watermark.last_error_at = None
+        watermark.details = json.dumps(
+            {
+                "query": query_info or {},
+                "partial_progress": {
+                    "alerts_seen": len(alerts),
+                    "alerts_processed": processed_count,
+                    "alerts_skipped": skipped_count,
+                    "latest_timestamp": watermark.last_timestamp,
+                    "latest_doc_id": watermark.last_doc_id,
+                },
+            },
+            ensure_ascii=False,
+        )
+
+        db.commit()
+
+    finally:
+        db.close()
 
 
 def update_watermark_success(
