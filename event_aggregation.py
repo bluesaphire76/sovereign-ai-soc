@@ -207,6 +207,7 @@ def aggregate_alert(alert: dict) -> dict:
                 "duplicate": duplicate,
                 "count": aggregate.count,
                 "window_minutes": EVENT_AGGREGATION_WINDOW_MINUTES,
+                "last_incident_id": aggregate.last_incident_id,
             }
 
         aggregate = EventAggregate(
@@ -238,6 +239,7 @@ def aggregate_alert(alert: dict) -> dict:
             "duplicate": False,
             "count": 1,
             "window_minutes": EVENT_AGGREGATION_WINDOW_MINUTES,
+            "last_incident_id": None,
         }
 
     finally:

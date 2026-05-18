@@ -4,6 +4,7 @@ import time
 import urllib3
 from datetime import datetime, timezone
 from correlation_engine import correlate_incident
+from correlation_precheck import evaluate_correlation_precheck
 from rag_retriever import retrieve_security_context
 from llm_output import is_invalid_llm_output, sanitize_llm_output
 from event_aggregation import (
@@ -306,7 +307,12 @@ def process_alert(alert):
     except Exception as exc:
         print(f"[yellow]Event aggregation non riuscita, continuo senza dedup:[/yellow] {exc}")
 
-    if aggregation_result.get("duplicate"):
+    precheck = evaluate_correlation_precheck(
+        alert,
+        aggregation_result=aggregation_result,
+    )
+
+    if aggregation_result.get("duplicate") and not precheck.get("should_create_incident"):
         update_security_alert_status(
             event_record_ids.get("security_alert_id"),
             "AGGREGATED_DUPLICATE",
@@ -315,11 +321,45 @@ def process_alert(alert):
             "[dim]Evento aggregato entro finestra dedup: "
             f"fingerprint={aggregation_result.get('fingerprint')} "
             f"count={aggregation_result.get('count')} "
-            f"window={aggregation_result.get('window_minutes')}m[/dim]"
+            f"window={aggregation_result.get('window_minutes')}m "
+            f"decision={precheck.get('decision')}[/dim]"
         )
         return "skipped_aggregated_duplicate"
 
-    print("\n[bold cyan]Nuovo alert rilevato[/bold cyan]")
+    if not precheck.get("should_create_incident"):
+        update_security_alert_status(
+            event_record_ids.get("security_alert_id"),
+            "OBSERVED_NO_INCIDENT",
+        )
+        print(
+            "[dim]Security alert osservato senza creazione incident: "
+            f"doc_id={doc_id} "
+            f"level={precheck.get('level')} "
+            f"decision={precheck.get('decision')} "
+            f"reasons={precheck.get('reasons')}[/dim]"
+        )
+        return "observed_no_incident"
+
+    update_security_alert_status(
+        event_record_ids.get("security_alert_id"),
+        "CORRELATION_CANDIDATE",
+    )
+
+    print("\n[bold cyan]Nuovo alert candidato per incident[/bold cyan]")
+    print(
+        {
+            "correlation_precheck": {
+                "decision": precheck.get("decision"),
+                "reasons": precheck.get("reasons"),
+                "score": precheck.get("correlation_precheck_score"),
+                "recommended_priority": precheck.get("recommended_priority"),
+                "recent_alert_count": precheck.get("recent_alert_count"),
+                "aggregate_count": precheck.get("aggregate_count"),
+                "matched_attack_chains": precheck.get("matched_attack_chains"),
+            }
+        }
+    )
+
     print(
         {
             "timestamp": alert.get("@timestamp"),
