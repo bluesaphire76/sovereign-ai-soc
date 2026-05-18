@@ -153,18 +153,18 @@ const CHART_TICK = "#cbd5e1";
 function riskLabel(score: number | null | undefined) {
   const value = score ?? 0;
 
-  if (value >= 81) return "Critical";
-  if (value >= 61) return "High";
-  if (value >= 31) return "Medium";
+  if (value >= 80) return "Critical";
+  if (value >= 60) return "High";
+  if (value >= 40) return "Medium";
   return "Low";
 }
 
 function riskTone(score: number | null | undefined) {
   const value = score ?? 0;
 
-  if (value >= 81) return "danger";
-  if (value >= 61) return "warning";
-  if (value >= 31) return "warning";
+  if (value >= 80) return "danger";
+  if (value >= 60) return "warning";
+  if (value >= 40) return "warning";
   return "success";
 }
 

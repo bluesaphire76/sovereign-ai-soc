@@ -1240,21 +1240,21 @@ def list_incidents(
                 query = query.filter(
                     or_(
                         Incident.risk_score.is_(None),
-                        Incident.risk_score <= 30,
+                        Incident.risk_score <= 39,
                     )
                 )
             elif risk_value == "medium":
                 query = query.filter(
-                    Incident.risk_score >= 31,
-                    Incident.risk_score <= 60,
+                    Incident.risk_score >= 40,
+                    Incident.risk_score <= 59,
                 )
             elif risk_value == "high":
                 query = query.filter(
-                    Incident.risk_score >= 61,
-                    Incident.risk_score <= 80,
+                    Incident.risk_score >= 60,
+                    Incident.risk_score <= 79,
                 )
             elif risk_value == "critical":
-                query = query.filter(Incident.risk_score >= 81)
+                query = query.filter(Incident.risk_score >= 80)
 
         total = query.with_entities(func.count(Incident.id)).scalar() or 0
 

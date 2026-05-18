@@ -125,9 +125,9 @@ function shortText(value: string | null | undefined, max = 96) {
 function toneForRisk(score: number | null | undefined): Tone {
   const value = score ?? 0;
 
-  if (value >= 81) return "danger";
-  if (value >= 61) return "warning";
-  if (value >= 31) return "primary";
+  if (value >= 80) return "danger";
+  if (value >= 60) return "warning";
+  if (value >= 40) return "primary";
   return "success";
 }
 

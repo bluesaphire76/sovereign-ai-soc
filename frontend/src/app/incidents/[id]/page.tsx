@@ -113,18 +113,18 @@ const INCIDENT_STATUSES = [
 function riskLabel(score: number | null | undefined) {
   const value = score ?? 0;
 
-  if (value >= 81) return "Critical";
-  if (value >= 61) return "High";
-  if (value >= 31) return "Medium";
+  if (value >= 80) return "Critical";
+  if (value >= 60) return "High";
+  if (value >= 40) return "Medium";
   return "Low";
 }
 
 function toneForRisk(score: number | null | undefined): Tone {
   const value = score ?? 0;
 
-  if (value >= 81) return "danger";
-  if (value >= 61) return "warning";
-  if (value >= 31) return "primary";
+  if (value >= 80) return "danger";
+  if (value >= 60) return "warning";
+  if (value >= 40) return "primary";
   return "success";
 }
 
@@ -294,17 +294,17 @@ type ParsedAiSection = {
 
 function riskBand(score?: number | null): string {
   const value = score ?? 0;
-  if (value >= 81) return "Critical";
-  if (value >= 61) return "High";
-  if (value >= 31) return "Medium";
+  if (value >= 80) return "Critical";
+  if (value >= 60) return "High";
+  if (value >= 40) return "Medium";
   return "Low";
 }
 
 function riskTone(score?: number | null): string {
   const value = score ?? 0;
-  if (value >= 81) return "border-red-800 bg-red-950/40 text-red-200";
-  if (value >= 61) return "border-orange-800 bg-orange-950/40 text-orange-200";
-  if (value >= 31) return "border-yellow-800 bg-yellow-950/30 text-yellow-200";
+  if (value >= 80) return "border-red-800 bg-red-950/40 text-red-200";
+  if (value >= 60) return "border-orange-800 bg-orange-950/40 text-orange-200";
+  if (value >= 40) return "border-yellow-800 bg-yellow-950/30 text-yellow-200";
   return "border-emerald-800 bg-emerald-950/30 text-emerald-200";
 }
 
@@ -385,9 +385,9 @@ function assessmentDecision(incident: IncidentAiAssessmentInput): string {
   const risk = incident.risk_score ?? 0;
   const priority = (incident.recommended_priority ?? "").toUpperCase();
 
-  if (risk >= 81 || priority === "CRITICAL") return "Immediate escalation review";
-  if (risk >= 61 || priority === "HIGH") return "Priority analyst investigation";
-  if (risk >= 31 || priority === "MEDIUM") return "Standard triage review";
+  if (risk >= 80 || priority === "CRITICAL") return "Immediate escalation review";
+  if (risk >= 60 || priority === "HIGH") return "Priority analyst investigation";
+  if (risk >= 40 || priority === "MEDIUM") return "Standard triage review";
   return "Monitor and validate";
 }
 
