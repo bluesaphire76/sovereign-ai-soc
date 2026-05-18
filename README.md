@@ -609,18 +609,46 @@ Important notes:
 
 ## Roadmap
 
-Planned next improvements include:
+### v0.3 completed
 
-- v0.2 Release Candidate stabilization
+Sovereign AI SOC v0.3 focused on security hardening, RBAC, operational control, enterprise UX and production-like runtime maturity.
+
+Completed v0.3 improvements include:
+
 - API-wide authentication and authorization hardening
-- Role-based access control enforcement across all workflows
-- Better audit visibility for user actions
+- Role-based access control for `ADMIN`, `ANALYST` and `VIEWER`
+- Frontend authorization alignment with backend session state
+- Admin-only Security Audit UI
+- Security audit logging for privileged and security-relevant actions
+- Token/session robustness and expiry handling
+- Nginx security headers and reverse proxy hardening
+- Secrets and configuration hardening
+- PostgreSQL 18.4 Docker runtime migration
+- Wazuh ingest worker hardening
+- Health observability components
+- Sidebar navigation
+- Enterprise-style Incidents page
+- Improved Case Queue and Case Detail UX
+- Create Case from Incident workflow
+- Admin-only enable/disable user workflow
+
+### Planned next improvements
+
+Planned improvements for future releases include:
+
+- Event aggregation and deduplication before incident creation
+- Correlation-first ingestion to reduce noise from repetitive Wazuh events
+- Better separation between raw events, alerts, incidents and cases
+- More advanced case workflow automation
 - Improved report templates
 - Additional synthetic scenarios
 - More detection quality metrics
 - Optional external identity provider integration
 - More granular admin settings
-- Deployment documentation for production-like environments
+- Production-like deployment documentation
+- Backup and restore documentation
+- Database retention and cleanup policies
+- Improved AI model runtime observability
 
 ---
 
