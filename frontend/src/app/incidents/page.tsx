@@ -54,9 +54,9 @@ function formatTimestamp(value: string | null | undefined) {
 function riskBand(score: number | null | undefined) {
   const value = score ?? 0;
 
-  if (value >= 81) return "CRITICAL";
-  if (value >= 61) return "HIGH";
-  if (value >= 31) return "MEDIUM";
+  if (value >= 80) return "CRITICAL";
+  if (value >= 60) return "HIGH";
+  if (value >= 40) return "MEDIUM";
   return "LOW";
 }
 
@@ -142,7 +142,7 @@ export default function IncidentsPage() {
   const totalPages = data?.total_pages ?? 1;
 
   const highRiskCount = useMemo(
-    () => incidents.filter((incident) => (incident.risk_score ?? 0) >= 61).length,
+    () => incidents.filter((incident) => (incident.risk_score ?? 0) >= 60).length,
     [incidents]
   );
 

@@ -11,18 +11,11 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from database import SessionLocal
 from models import CaseIncident, Incident, IncidentCase, utc_now
+from risk_normalization import severity_from_score as normalized_severity_from_score
 
 
 def severity_from_score(score: int | None) -> str:
-    value = score or 0
-
-    if value >= 85:
-        return "CRITICAL"
-    if value >= 65:
-        return "HIGH"
-    if value >= 35:
-        return "MEDIUM"
-    return "LOW"
+    return normalized_severity_from_score(score)
 
 
 def case_status_from_incidents(incidents: list[Incident]) -> str:

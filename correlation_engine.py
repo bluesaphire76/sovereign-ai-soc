@@ -3,6 +3,11 @@ from datetime import datetime, timedelta
 
 from database import SessionLocal
 from models import Incident
+from risk_normalization import (
+    normalize_correlation_score,
+    priority_from_score as normalized_priority_from_score,
+    should_auto_escalate,
+)
 from rich import print
 
 
@@ -213,13 +218,7 @@ def evaluate_attack_chains(detected_patterns):
 
 
 def priority_from_score(score):
-    if score >= 85:
-        return "CRITICAL"
-    if score >= 65:
-        return "HIGH"
-    if score >= 35:
-        return "MEDIUM"
-    return "LOW"
+    return normalized_priority_from_score(score)
 
 
 def build_correlation_summary(
@@ -303,16 +302,23 @@ def correlate_incident(incident_id):
 
         matched_chains = evaluate_attack_chains(detected_patterns)
 
-        base_score = min((incident.level or 0) * 5, 40)
-        volume_score = min(len(recent_incidents) * 5, 35)
-        chain_bonus = sum(chain["score_bonus"] for chain in matched_chains)
+        volume_score_raw = min(len(recent_incidents) * 5, 35)
+        chain_bonus_raw = sum(chain["score_bonus"] for chain in matched_chains)
 
-        final_score = min(
-            base_score + pattern_score + volume_score + chain_bonus,
-            100,
+        normalization = normalize_correlation_score(
+            level=incident.level,
+            pattern_score=pattern_score,
+            volume_score=volume_score_raw,
+            chain_bonus=chain_bonus_raw,
+            matched_chains=matched_chains,
         )
 
-        recommended_priority = priority_from_score(final_score)
+        base_score = normalization["base_score"]
+        pattern_score = normalization["pattern_score"]
+        volume_score = normalization["volume_score"]
+        chain_bonus = normalization["chain_bonus"]
+        final_score = normalization["final_score"]
+        recommended_priority = normalization["recommended_priority"]
 
         if matched_chains:
             strongest_chain = sorted(
@@ -325,7 +331,7 @@ def correlate_incident(incident_id):
             correlation_type = strongest_chain["correlation_type"]
             escalation_reason = strongest_chain["reason"]
 
-            if strongest_chain["priority"] == "CRITICAL":
+            if strongest_chain["priority"] == "CRITICAL" and final_score >= 80:
                 recommended_priority = "CRITICAL"
 
         else:
@@ -346,6 +352,8 @@ def correlate_incident(incident_id):
             recommended_priority=recommended_priority,
         )
 
+        summary["risk_normalization"] = normalization
+
         incident.correlated = True
         incident.correlation_score = final_score
         incident.correlation_summary = json.dumps(summary, ensure_ascii=False)
@@ -358,7 +366,13 @@ def correlate_incident(incident_id):
         if incident.risk_score is None or final_score > incident.risk_score:
             incident.risk_score = final_score
 
-        if final_score >= 85 and incident.status in [None, "NEW", "TRIAGED"]:
+        if (
+            should_auto_escalate(
+                score=final_score,
+                matched_chains=matched_chains,
+            )
+            and incident.status in [None, "NEW", "TRIAGED"]
+        ):
             incident.status = "ESCALATED"
 
         db.commit()

@@ -7,8 +7,8 @@ from dotenv import load_dotenv
 from correlation_engine import (
     detect_patterns,
     evaluate_attack_chains,
-    priority_from_score,
 )
+from risk_normalization import normalize_correlation_score
 from database import SessionLocal
 from models import SecurityAlert
 
@@ -228,10 +228,16 @@ def evaluate_correlation_precheck(
     aggregate_score = min(aggregate_count * 3, 25)
     chain_bonus = sum(chain["score_bonus"] for chain in matched_chains)
 
-    final_score = min(
-        base_score + context_pattern_score + volume_score + aggregate_score + chain_bonus,
-        100,
+    normalization = normalize_correlation_score(
+        level=level,
+        pattern_score=context_pattern_score,
+        volume_score=volume_score,
+        aggregate_score=aggregate_score,
+        chain_bonus=chain_bonus,
+        matched_chains=matched_chains,
     )
+
+    final_score = normalization["final_score"]
 
     decision = "CREATE_INCIDENT" if should_create_incident else "OBSERVE_ONLY"
 
@@ -261,7 +267,8 @@ def evaluate_correlation_precheck(
             for chain in matched_chains
         ],
         "correlation_precheck_score": final_score,
-        "recommended_priority": priority_from_score(final_score),
+        "recommended_priority": normalization["recommended_priority"],
+        "risk_normalization": normalization,
         "window_minutes": CORRELATION_PRECHECK_WINDOW_MINUTES,
         "thresholds": {
             "create_incident_level": CORRELATION_CREATE_INCIDENT_LEVEL,

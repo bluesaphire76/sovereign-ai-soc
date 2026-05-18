@@ -394,7 +394,7 @@ export default function HealthPage() {
                 value={health?.latest_incident ? `#${health.latest_incident.id}` : "-"}
                 subtitle={health?.latest_incident?.agent ?? "No incident"}
                 icon={<Shield className="h-4 w-4" />}
-                tone={(health?.latest_incident?.risk_score ?? 0) >= 61 ? "WARN" : "neutral"}
+                tone={(health?.latest_incident?.risk_score ?? 0) >= 60 ? "WARN" : "neutral"}
               />
 
               <StatusTile
@@ -402,7 +402,7 @@ export default function HealthPage() {
                 value={health?.latest_incident?.risk_score ?? 0}
                 subtitle="Last incident risk"
                 icon={<AlertTriangle className="h-4 w-4" />}
-                tone={(health?.latest_incident?.risk_score ?? 0) >= 81 ? "ERROR" : (health?.latest_incident?.risk_score ?? 0) >= 61 ? "WARN" : "OK"}
+                tone={(health?.latest_incident?.risk_score ?? 0) >= 80 ? "ERROR" : (health?.latest_incident?.risk_score ?? 0) >= 60 ? "WARN" : "OK"}
               />
             </section>
 
