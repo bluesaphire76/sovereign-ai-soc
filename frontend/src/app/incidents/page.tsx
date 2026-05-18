@@ -116,7 +116,7 @@ function MetricCard({
   tone?: "neutral" | "success" | "warning" | "danger" | "cyan";
 }) {
   return (
-    <div className={`rounded-xl border p-3 shadow-sm ${badgeClass(tone).replace("text-", "text-").replace("rounded-full", "")}`}>
+    <div className={`rounded-xl border p-3 shadow-sm ${badgeClass(tone)}`}>
       <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
         {title}
       </div>
