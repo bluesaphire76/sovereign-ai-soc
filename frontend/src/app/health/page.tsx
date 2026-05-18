@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
+  Cloud,
   Database,
   HeartPulse,
   RefreshCw,
@@ -57,7 +58,11 @@ const COMPONENT_ORDER = [
   "qdrant",
   "wazuh_indexer",
   "wazuh_ingest",
+  "event_processing_queue",
+  "active_event_sources",
+  "latest_incident_freshness",
   "ai_soc_worker",
+  "cloudflare_tunnel",
 ];
 
 function statusClasses(status: HealthStatus) {
@@ -106,6 +111,10 @@ function statusIcon(status: HealthStatus) {
 function componentIcon(component: string) {
   if (component.includes("postgres")) return <Database className="h-3.5 w-3.5" />;
   if (component.includes("worker")) return <HeartPulse className="h-3.5 w-3.5" />;
+  if (component.includes("cloudflare")) return <Cloud className="h-3.5 w-3.5" />;
+  if (component.includes("source")) return <Shield className="h-3.5 w-3.5" />;
+  if (component.includes("queue")) return <Clock className="h-3.5 w-3.5" />;
+  if (component.includes("freshness")) return <Shield className="h-3.5 w-3.5" />;
   if (component.includes("wazuh")) return <Server className="h-3.5 w-3.5" />;
   if (component.includes("ollama")) return <Cpu className="h-3.5 w-3.5" />;
   if (component.includes("qdrant")) return <Database className="h-3.5 w-3.5" />;
@@ -114,6 +123,10 @@ function componentIcon(component: string) {
 
 function componentLabel(component: string) {
   return component
+    .replace("event_processing_queue", "Event processing queue")
+    .replace("active_event_sources", "Active event sources")
+    .replace("latest_incident_freshness", "Latest incident freshness")
+    .replace("cloudflare_tunnel", "Cloudflare tunnel")
     .replace("ai_soc_worker", "AI SOC worker")
     .replace("wazuh_indexer", "Wazuh indexer")
     .replace("wazuh_ingest", "Wazuh ingest")
