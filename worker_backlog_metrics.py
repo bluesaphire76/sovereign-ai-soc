@@ -21,7 +21,20 @@ RESULT_COUNT_KEYS = [
     "duplicate_doc_id",
     "no_doc_id",
     "other_skipped",
+    "ai_triage_success",
+    "ai_triage_fallback",
+    "ai_triage_skipped",
 ]
+
+PROCESSED_RESULTS = {
+    "processed",
+    "processed_ai_success",
+    "processed_ai_fallback",
+}
+
+
+def is_processed_result(result: str | None) -> bool:
+    return result in PROCESSED_RESULTS
 
 
 def parse_event_timestamp(value: str | None) -> datetime | None:
@@ -45,7 +58,7 @@ def build_result_counts() -> dict:
 
 
 def classify_result(result: str | None) -> str:
-    if result == "processed":
+    if is_processed_result(result):
         return "processed"
 
     if result == "suppressed_noise":
@@ -67,12 +80,29 @@ def classify_result(result: str | None) -> str:
 
 
 def record_result(result_counts: dict, result: str | None) -> dict:
+    if result == "processed_ai_success":
+        result_counts["processed"] = result_counts.get("processed", 0) + 1
+        result_counts["ai_triage_success"] = result_counts.get("ai_triage_success", 0) + 1
+        return result_counts
+
+    if result == "processed_ai_fallback":
+        result_counts["processed"] = result_counts.get("processed", 0) + 1
+        result_counts["ai_triage_fallback"] = result_counts.get("ai_triage_fallback", 0) + 1
+        return result_counts
+
+    if result == "processed":
+        result_counts["processed"] = result_counts.get("processed", 0) + 1
+        result_counts["ai_triage_success"] = result_counts.get("ai_triage_success", 0) + 1
+        return result_counts
+
     key = classify_result(result)
 
     if key not in result_counts:
         result_counts[key] = 0
 
     result_counts[key] += 1
+    result_counts["ai_triage_skipped"] = result_counts.get("ai_triage_skipped", 0) + 1
+
     return result_counts
 
 

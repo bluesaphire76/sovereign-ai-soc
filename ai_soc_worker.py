@@ -9,7 +9,16 @@ from noise_suppression import evaluate_noise_suppression
 from worker_backlog_metrics import (
     build_batch_metrics,
     build_result_counts,
+    is_processed_result,
     record_result,
+)
+from ai_triage_hardening import (
+    AI_TRIAGE_ENABLED,
+    AI_TRIAGE_FALLBACK_ON_ERROR,
+    AI_TRIAGE_RETRY_ON_INVALID_OUTPUT,
+    AI_TRIAGE_TIMEOUT_SECONDS,
+    build_fallback_analysis,
+    call_ollama_chat,
 )
 from rag_retriever import retrieve_security_context
 from llm_output import is_invalid_llm_output, sanitize_llm_output
@@ -146,29 +155,23 @@ def update_worker_heartbeat(status, last_error=None, details=None):
         db.close()
 
 
-def analyze_alert(alert):
-    rag_query = " ".join([
-        str(alert.get("rule", {}).get("description", "")),
-        str(alert.get("full_log", "")),
-        str(alert.get("rule", {}).get("mitre", "")),
-    ])
-
-    security_context = retrieve_security_context(rag_query, limit=3)
-
-    context_text = "\n\n".join(
-        [
-            f"Source: {item['source']}\n{item['text']}"
-            for item in security_context
-        ]
+def _build_alert_prompt(alert, context_text, context_warning=None):
+    context_note = (
+        context_warning
+        if context_warning
+        else "Knowledge base context retrieved successfully or not required."
     )
 
-    prompt = f"""
+    return f"""
 /no_think
 
 You are a defensive AI SOC Assistant.
 
 Use the knowledge base context when relevant.
 If the context is insufficient, state that clearly.
+
+Knowledge base context status:
+{context_note}
 
 Knowledge base context:
 {context_text}
@@ -201,57 +204,154 @@ Alert JSON:
 {json.dumps(alert, ensure_ascii=False)}
 """
 
-    response = ollama.chat(
-        model=OLLAMA_MODEL,
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are a professional defensive AI SOC Assistant focused on "
-                    "operational triage, alert investigation, and response guidance. "
-                    "Always answer in English unless explicitly configured otherwise. "
-                    "Return only the final answer. Do not include chain-of-thought, "
-                    "hidden reasoning, or <think> tags."
-                ),
-            },
-            {
-                "role": "user",
-                "content": prompt,
-            },
-        ],
+
+def _ai_triage_system_message():
+    return (
+        "You are a professional defensive AI SOC Assistant focused on "
+        "operational triage, alert investigation, and response guidance. "
+        "Always answer in English unless explicitly configured otherwise. "
+        "Return only the final answer. Do not include chain-of-thought, "
+        "hidden reasoning, or <think> tags."
     )
 
-    raw_analysis = response["message"]["content"]
-    analysis = sanitize_llm_output(raw_analysis)
 
-    if is_invalid_llm_output(raw_analysis) or is_invalid_llm_output(analysis):
-        retry_response = ollama.chat(
-            model=OLLAMA_MODEL,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "The previous output was invalid. You must answer in English only. "
-                        "Return only the final SOC analysis. Do not include chain-of-thought, "
-                        "hidden reasoning, Chinese text, Italian text, or <think> tags."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        "/no_think\n\n"
-                        "Regenerate the Wazuh alert analysis below in English only. "
-                        "Return only the final answer.\n\n"
-                        f"{prompt}"
-                    ),
-                },
-            ],
+def _build_retry_messages(prompt):
+    return [
+        {
+            "role": "system",
+            "content": (
+                "The previous output was invalid. You must answer in English only. "
+                "Return only the final SOC analysis. Do not include chain-of-thought, "
+                "hidden reasoning, Chinese text, Italian text, or <think> tags."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                "/no_think\n\n"
+                "Regenerate the Wazuh alert analysis below in English only. "
+                "Return only the final answer.\n\n"
+                f"{prompt}"
+            ),
+        },
+    ]
+
+
+def analyze_alert_result(alert):
+    if not AI_TRIAGE_ENABLED:
+        return {
+            "analysis": build_fallback_analysis(
+                alert,
+                reason="AI triage disabled by policy.",
+                retry_attempted=False,
+            ),
+            "status": "fallback",
+            "mode": "deterministic_fallback",
+            "fallback_reason": "disabled_by_policy",
+        }
+
+    rag_query = " ".join([
+        str(alert.get("rule", {}).get("description", "")),
+        str(alert.get("full_log", "")),
+        str(alert.get("rule", {}).get("mitre", "")),
+    ])
+
+    context_warning = None
+
+    try:
+        security_context = retrieve_security_context(rag_query, limit=3)
+
+    except Exception as exc:
+        security_context = []
+        context_warning = (
+            "Knowledge base context retrieval failed; continuing with alert-only triage."
+        )
+        print(
+            "[yellow]Security context retrieval failed during AI triage; "
+            f"continuing without RAG context: {type(exc).__name__}[/yellow]"
         )
 
-        analysis = sanitize_llm_output(retry_response["message"]["content"])
+    context_text = "\n\n".join(
+        [
+            f"Source: {item['source']}\n{item['text']}"
+            for item in security_context
+        ]
+    )
 
-    return analysis
+    prompt = _build_alert_prompt(
+        alert,
+        context_text=context_text,
+        context_warning=context_warning,
+    )
 
+    messages = [
+        {
+            "role": "system",
+            "content": _ai_triage_system_message(),
+        },
+        {
+            "role": "user",
+            "content": prompt,
+        },
+    ]
+
+    retry_attempted = False
+
+    try:
+        raw_analysis = call_ollama_chat(
+            messages=messages,
+            timeout_seconds=AI_TRIAGE_TIMEOUT_SECONDS,
+        )
+        analysis = sanitize_llm_output(raw_analysis)
+
+        if is_invalid_llm_output(raw_analysis) or is_invalid_llm_output(analysis):
+            if not AI_TRIAGE_RETRY_ON_INVALID_OUTPUT:
+                raise ValueError("invalid_llm_output")
+
+            retry_attempted = True
+            retry_response = call_ollama_chat(
+                messages=_build_retry_messages(prompt),
+                timeout_seconds=AI_TRIAGE_TIMEOUT_SECONDS,
+            )
+            analysis = sanitize_llm_output(retry_response)
+
+            if is_invalid_llm_output(retry_response) or is_invalid_llm_output(analysis):
+                raise ValueError("invalid_llm_output_after_retry")
+
+        return {
+            "analysis": analysis,
+            "status": "success",
+            "mode": "llm",
+            "fallback_reason": None,
+            "retry_attempted": retry_attempted,
+        }
+
+    except Exception as exc:
+        if not AI_TRIAGE_FALLBACK_ON_ERROR:
+            raise
+
+        print(
+            "[yellow]AI triage fallback activated: "
+            f"{type(exc).__name__}[/yellow]"
+        )
+
+        return {
+            "analysis": build_fallback_analysis(
+                alert,
+                reason="AI triage failed, timed out or returned invalid output.",
+                error_type=type(exc).__name__,
+                retry_attempted=retry_attempted,
+                context_note=context_warning,
+            ),
+            "status": "fallback",
+            "mode": "deterministic_fallback",
+            "fallback_reason": type(exc).__name__,
+            "retry_attempted": retry_attempted,
+        }
+
+
+def analyze_alert(alert):
+    return analyze_alert_result(alert)["analysis"]
 
 def save_incident(alert, analysis, event_record_ids=None):
     event_record_ids = event_record_ids or {}
@@ -396,7 +496,9 @@ def process_alert(alert):
         }
     )
 
-    analysis = analyze_alert(alert)
+    triage_result = analyze_alert_result(alert)
+    analysis = triage_result["analysis"]
+
     incident_id = save_incident(
         alert,
         analysis,
@@ -416,8 +518,12 @@ def process_alert(alert):
 
     correlate_incident(incident_id)
 
+    if triage_result.get("status") == "fallback":
+        print("[bold yellow]Alert salvato con AI triage fallback.[/bold yellow]")
+        return "processed_ai_fallback"
+
     print("[bold green]Alert analizzato e salvato in PostgreSQL.[/bold green]")
-    return "processed"
+    return "processed_ai_success"
 
 
 def run_worker():
@@ -473,7 +579,7 @@ def run_worker():
 
                 record_result(result_counts, result)
 
-                if result == "processed":
+                if is_processed_result(result):
                     processed_count += 1
                 else:
                     skipped_count += 1

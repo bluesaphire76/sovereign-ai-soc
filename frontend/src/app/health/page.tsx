@@ -533,108 +533,102 @@ function WorkerIngestMetricsPanel({
   const watermarkLagMinutes = readNumber(batchMetrics, ["watermark_lag_minutes"]);
   const batchSize = readNumber(batchMetrics, ["batch_size"]);
   const pollInterval = readNumber(workerDetails, ["poll_interval_seconds"]);
+  const totalProcessed = readNumber(ingest?.details, ["total_processed"]);
+
+  const suppressedNoise = readNumber(resultCounts, ["suppressed_noise"]);
+  const observedOnly = readNumber(resultCounts, ["observed_no_incident"]);
+  const aggregatedDuplicate = readNumber(resultCounts, ["aggregated_duplicate"]);
+  const duplicateDocId = readNumber(resultCounts, ["duplicate_doc_id"]);
+  const noDocId = readNumber(resultCounts, ["no_doc_id"]);
+  const otherSkipped = readNumber(resultCounts, ["other_skipped"]);
+
+  const aiTriageSuccess = readNumber(resultCounts, ["ai_triage_success"]);
+  const aiTriageFallback = readNumber(resultCounts, ["ai_triage_fallback"]);
+  const aiTriageSkipped = readNumber(resultCounts, ["ai_triage_skipped"]);
 
   return (
-    <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
-      <div className="mb-3 flex flex-col gap-1 md:flex-row md:items-start md:justify-between">
+    <section className="rounded-xl border border-slate-800 bg-slate-900 p-3 shadow-sm">
+      <div className="mb-3 flex flex-col gap-2 xl:flex-row xl:items-start xl:justify-between">
         <div>
+          <div className="mb-1 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wide text-cyan-300">
+            <HeartPulse className="h-3.5 w-3.5" />
+            Runtime operations
+          </div>
+
           <h2 className="text-sm font-semibold">Worker / ingest metrics</h2>
-          <p className="mt-0.5 text-[11px] text-slate-500">
-            Operational visibility for Wazuh ingest, worker backlog and catch-up mode.
+
+          <p className="mt-0.5 max-w-3xl text-[11px] leading-4 text-slate-500">
+            Focused view of Wazuh ingest, worker backlog, batch outcome and AI triage behavior.
           </p>
         </div>
 
-        <span className={`w-fit rounded-md border px-2 py-1 text-[11px] font-medium ${statusClasses(ingestModeTone(ingestMode)).badge}`}>
-          {ingestMode}
-        </span>
+        <div className="flex flex-wrap gap-1.5">
+          <StatusPill label="Mode" value={ingestMode} tone={ingestModeTone(ingestMode)} />
+          <StatusPill label="Worker" value={worker?.status ?? "-"} tone={worker?.status ?? "neutral"} />
+          <StatusPill label="Ingest" value={ingest?.status ?? "-"} tone={ingest?.status ?? "neutral"} />
+          <StatusPill label="Queue" value={queue?.status ?? "-"} tone={queue?.status ?? "neutral"} />
+        </div>
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8">
-        <OperationalMetric
+      <div className="mb-3 grid gap-2 lg:grid-cols-3">
+        <ExecutiveMetric
+          label="Ingest mode"
+          value={ingestMode}
+          subtitle="Current worker processing posture"
+          tone={ingestModeTone(ingestMode)}
+        />
+
+        <ExecutiveMetric
           label="Pending events"
           value={formatNumber(pendingEvents)}
-          subtitle="Newer than watermark"
+          subtitle="Wazuh events newer than watermark"
           tone={(pendingEvents ?? 0) > 50 ? "WARN" : "OK"}
         />
-        <OperationalMetric
-          label="Alerts seen"
-          value={formatNumber(alertsSeen)}
-          subtitle="Last worker batch"
-        />
-        <OperationalMetric
-          label="Processed"
-          value={formatNumber(alertsProcessed)}
-          subtitle="Incidents created"
-          tone={(alertsProcessed ?? 0) > 0 ? "OK" : "neutral"}
-        />
-        <OperationalMetric
-          label="Skipped"
-          value={formatNumber(alertsSkipped)}
-          subtitle="No incident created"
-        />
-        <OperationalMetric
+
+        <ExecutiveMetric
           label="Latest event lag"
           value={formatNumber(latestEventLagMinutes, "min")}
-          subtitle="Newest alert delay"
+          subtitle="Delay of newest event in last batch"
           tone={(latestEventLagMinutes ?? 0) > 15 ? "ERROR" : (latestEventLagMinutes ?? 0) > 2 ? "WARN" : "OK"}
-        />
-        <OperationalMetric
-          label="Watermark lag"
-          value={formatNumber(watermarkLagMinutes, "min")}
-          subtitle="Previous watermark delay"
-          tone={(watermarkLagMinutes ?? 0) > 15 ? "ERROR" : (watermarkLagMinutes ?? 0) > 2 ? "WARN" : "OK"}
-        />
-        <OperationalMetric
-          label="Batch size"
-          value={formatNumber(batchSize)}
-          subtitle="Wazuh query limit"
-        />
-        <OperationalMetric
-          label="Poll interval"
-          value={formatNumber(pollInterval, "sec")}
-          subtitle="Worker cadence"
         />
       </div>
 
-      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7">
-        <OperationalMetric
-          label="Suppressed noise"
-          value={formatNumber(readNumber(resultCounts, ["suppressed_noise"]))}
-          subtitle="Noise policy"
-          tone="OK"
-        />
-        <OperationalMetric
-          label="Observed only"
-          value={formatNumber(readNumber(resultCounts, ["observed_no_incident"]))}
-          subtitle="No incident needed"
-        />
-        <OperationalMetric
-          label="Aggregated duplicate"
-          value={formatNumber(readNumber(resultCounts, ["aggregated_duplicate"]))}
-          subtitle="Dedup window"
-        />
-        <OperationalMetric
-          label="Duplicate doc id"
-          value={formatNumber(readNumber(resultCounts, ["duplicate_doc_id"]))}
-          subtitle="Already processed"
-        />
-        <OperationalMetric
-          label="No doc id"
-          value={formatNumber(readNumber(resultCounts, ["no_doc_id"]))}
-          subtitle="Malformed alert"
-          tone={(readNumber(resultCounts, ["no_doc_id"]) ?? 0) > 0 ? "WARN" : "neutral"}
-        />
-        <OperationalMetric
-          label="Other skipped"
-          value={formatNumber(readNumber(resultCounts, ["other_skipped"]))}
-          subtitle="Fallback bucket"
-          tone={(readNumber(resultCounts, ["other_skipped"]) ?? 0) > 0 ? "WARN" : "neutral"}
-        />
-        <OperationalMetric
-          label="Total processed"
-          value={formatNumber(readNumber(ingest?.details, ["total_processed"]))}
-          subtitle="Watermark counter"
-        />
+      <div className="grid gap-2 xl:grid-cols-3">
+        <MetricGroup
+          title="Ingest & backlog"
+          description="Worker cadence, queue pressure and watermark delay."
+        >
+          <MetricRow label="Alerts seen" value={formatNumber(alertsSeen)} />
+          <MetricRow label="Pending events" value={formatNumber(pendingEvents)} />
+          <MetricRow label="Watermark lag" value={formatNumber(watermarkLagMinutes, "min")} />
+          <MetricRow label="Batch size" value={formatNumber(batchSize)} />
+          <MetricRow label="Poll interval" value={formatNumber(pollInterval, "sec")} />
+          <MetricRow label="Total processed" value={formatNumber(totalProcessed)} />
+        </MetricGroup>
+
+        <MetricGroup
+          title="Batch outcome"
+          description="How the last worker batch was classified."
+        >
+          <MetricRow label="Processed" value={formatNumber(alertsProcessed)} tone={(alertsProcessed ?? 0) > 0 ? "OK" : "neutral"} />
+          <MetricRow label="Skipped" value={formatNumber(alertsSkipped)} />
+          <MetricRow label="Suppressed noise" value={formatNumber(suppressedNoise)} tone="OK" />
+          <MetricRow label="Observed only" value={formatNumber(observedOnly)} />
+          <MetricRow label="Aggregated duplicate" value={formatNumber(aggregatedDuplicate)} />
+          <MetricRow label="Duplicate doc id" value={formatNumber(duplicateDocId)} />
+          <MetricRow label="No doc id" value={formatNumber(noDocId)} tone={(noDocId ?? 0) > 0 ? "WARN" : "neutral"} />
+          <MetricRow label="Other skipped" value={formatNumber(otherSkipped)} tone={(otherSkipped ?? 0) > 0 ? "WARN" : "neutral"} />
+        </MetricGroup>
+
+        <MetricGroup
+          title="AI triage"
+          description="LLM usage and deterministic fallback visibility."
+        >
+          <MetricRow label="AI triage success" value={formatNumber(aiTriageSuccess)} tone="OK" />
+          <MetricRow label="AI fallback" value={formatNumber(aiTriageFallback)} tone={(aiTriageFallback ?? 0) > 0 ? "WARN" : "neutral"} />
+          <MetricRow label="AI skipped" value={formatNumber(aiTriageSkipped)} />
+          <MetricRow label="Configured model" value={readString(workerDetails, ["ollama_model"], "-")} />
+        </MetricGroup>
       </div>
 
       <div className="mt-3 grid gap-2 lg:grid-cols-3">
@@ -655,7 +649,7 @@ function WorkerIngestMetricsPanel({
   );
 }
 
-function OperationalMetric({
+function ExecutiveMetric({
   label,
   value,
   subtitle,
@@ -669,15 +663,85 @@ function OperationalMetric({
   const status = statusClasses(tone);
 
   return (
-    <div className={`rounded-md border px-2 py-2 ${status.card}`}>
-      <div className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
-        {label}
+    <div className={`rounded-lg border px-3 py-2.5 ${status.card}`}>
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <div className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
+          {label}
+        </div>
+        <div className={`h-2 w-2 rounded-full ${status.dot}`} />
       </div>
-      <div className="mt-1 truncate text-base font-semibold leading-5 text-slate-100">
+
+      <div className="truncate text-xl font-semibold leading-6 text-slate-100">
         {value}
       </div>
-      <div className="truncate text-[11px] text-slate-500">{subtitle}</div>
+
+      <div className="mt-0.5 truncate text-[11px] text-slate-500">
+        {subtitle}
+      </div>
     </div>
+  );
+}
+
+function MetricGroup({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-2.5">
+      <div className="mb-2 border-b border-slate-800 pb-2">
+        <div className="text-xs font-semibold text-slate-100">{title}</div>
+        <div className="mt-0.5 text-[11px] leading-4 text-slate-500">
+          {description}
+        </div>
+      </div>
+
+      <div className="space-y-1.5">{children}</div>
+    </div>
+  );
+}
+
+function MetricRow({
+  label,
+  value,
+  tone = "neutral",
+}: {
+  label: string;
+  value: string | number;
+  tone?: HealthStatus | "neutral";
+}) {
+  const status = statusClasses(tone);
+
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-md border border-slate-800 bg-slate-900/70 px-2 py-1.5">
+      <div className="truncate text-[11px] text-slate-400">{label}</div>
+      <div className={`shrink-0 rounded-md border px-2 py-0.5 text-[11px] font-medium ${status.badge}`}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function StatusPill({
+  label,
+  value,
+  tone = "neutral",
+}: {
+  label: string;
+  value: string | number;
+  tone?: HealthStatus | "neutral";
+}) {
+  const status = statusClasses(tone);
+
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium ${status.badge}`}>
+      <span className="text-slate-400">{label}</span>
+      <span>{value}</span>
+    </span>
   );
 }
 
