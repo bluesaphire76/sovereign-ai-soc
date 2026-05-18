@@ -1,0 +1,39 @@
+{
+  "run_id": "20260518T133048Z",
+  "mode": "DRY_RUN",
+  "options": {
+    "include_closed": false,
+    "include_attack_chain": false,
+    "update_status": false,
+    "update_cases": false,
+    "update_case_status": false,
+    "limit": 50
+  },
+  "candidate_incidents": 33,
+  "incident_changes": 33,
+  "case_changes": 0,
+  "exports": {
+    "incident_csv": "reports/backfill/risk-backfill-incidents-20260518T133048Z.csv",
+    "case_csv": "reports/backfill/risk-backfill-cases-20260518T133048Z.csv",
+    "summary_json": "reports/backfill/risk-backfill-summary-20260518T133048Z.json"
+  },
+  "incident_old_priority": {
+    "LOW": 2,
+    "MEDIUM": 2,
+    "HIGH": 2,
+    "CRITICAL": 27
+  },
+  "incident_new_priority": {
+    "LOW": 33
+  },
+  "incident_old_status": {
+    "NEW": 6,
+    "ESCALATED": 27
+  },
+  "incident_new_status": {
+    "NEW": 6,
+    "ESCALATED": 27
+  },
+  "case_old_severity": {},
+  "case_new_severity": {}
+}

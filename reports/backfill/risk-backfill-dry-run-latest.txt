@@ -1,0 +1,64 @@
+=== Controlled risk normalization backfill ===
+Mode: DRY_RUN
+Candidate incidents evaluated: 3438
+Incident changes: 3379
+Case changes: 4
+Incident CSV: reports/backfill/risk-backfill-incidents-20260518T133109Z.csv
+Case CSV: reports/backfill/risk-backfill-cases-20260518T133109Z.csv
+Summary JSON: reports/backfill/risk-backfill-summary-20260518T133109Z.json
+
+Incident old priority:
+  CRITICAL: 3179
+  MEDIUM: 101
+  HIGH: 89
+  LOW: 10
+
+Incident new priority:
+  LOW: 3116
+  MEDIUM: 178
+  HIGH: 85
+
+Incident old status:
+  ESCALATED: 3178
+  NEW: 199
+  TRIAGED: 2
+
+Incident new status:
+  TRIAGED: 3180
+  NEW: 199
+
+Case old severity:
+  CRITICAL: 4
+
+Case new severity:
+  LOW: 4
+
+Sample incident changes:
+{'id': 4, 'level': 3, 'old': {'risk_score': 25, 'correlation_score': 25, 'recommended_priority': 'LOW', 'status': 'NEW'}, 'new': {'risk_score': 20, 'correlation_score': 20, 'recommended_priority': 'LOW', 'status': 'NEW'}, 'matched_chain_count': 0, 'cap': 25, 'rule': 'CIS Benchmark for Amazon Linux 2023 Benchmark v1.0.0.: Ensure mounting of squashfs filesy…'}
+{'id': 5, 'level': 3, 'old': {'risk_score': 35, 'correlation_score': 35, 'recommended_priority': 'MEDIUM', 'status': 'NEW'}, 'new': {'risk_score': 25, 'correlation_score': 25, 'recommended_priority': 'LOW', 'status': 'NEW'}, 'matched_chain_count': 0, 'cap': 25, 'rule': 'CIS Benchmark for Amazon Linux 2023 Benchmark v1.0.0.: Ensure mounting of udf filesystems…'}
+{'id': 6, 'level': 3, 'old': {'risk_score': 80, 'correlation_score': 80, 'recommended_priority': 'HIGH', 'status': 'NEW'}, 'new': {'risk_score': 25, 'correlation_score': 25, 'recommended_priority': 'LOW', 'status': 'NEW'}, 'matched_chain_count': 0, 'cap': 25, 'rule': 'CIS Benchmark for Amazon Linux 2023 Benchmark v1.0.0.: Ensure /tmp is a separate partitio…'}
+{'id': 8, 'level': 3, 'old': {'risk_score': 85, 'correlation_score': 85, 'recommended_priority': 'CRITICAL', 'status': 'ESCALATED'}, 'new': {'risk_score': 25, 'correlation_score': 25, 'recommended_priority': 'LOW', 'status': 'TRIAGED'}, 'matched_chain_count': 0, 'cap': 25, 'rule': 'CIS Benchmark for Amazon Linux 2023 Benchmark v1.0.0.: Ensure noexec option set on /tmp p…'}
+{'id': 9, 'level': 3, 'old': {'risk_score': 85, 'correlation_score': 85, 'recommended_priority': 'CRITICAL', 'status': 'ESCALATED'}, 'new': {'risk_score': 25, 'correlation_score': 25, 'recommended_priority': 'LOW', 'status': 'TRIAGED'}, 'matched_chain_count': 0, 'cap': 25, 'rule': 'CIS Benchmark for Amazon Linux 2023 Benchmark v1.0.0.: Ensure nosuid option set on /tmp p…'}
+{'id': 10, 'level': 3, 'old': {'risk_score': 85, 'correlation_score': 85, 'recommended_priority': 'CRITICAL', 'status': 'ESCALATED'}, 'new': {'risk_score': 25, 'correlation_score': 25, 'recommended_priority': 'LOW', 'status': 'TRIAGED'}, 'matched_chain_count': 0, 'cap': 25, 'rule': 'CIS Benchmark for Amazon Linux 2023 Benchmark v1.0.0.: Ensure separate partition exists f…'}
+{'id': 11, 'level': 3, 'old': {'risk_score': 85, 'correlation_score': 85, 'recommended_priority': 'CRITICAL', 'status': 'ESCALATED'}, 'new': {'risk_score': 25, 'correlation_score': 25, 'recommended_priority': 'LOW', 'status': 'TRIAGED'}, 'matched_chain_count': 0, 'cap': 25, 'rule': 'CIS Benchmark for Amazon Linux 2023 Benchmark v1.0.0.: Ensure nodev option set on /var pa…'}
+{'id': 12, 'level': 3, 'old': {'risk_score': 85, 'correlation_score': 85, 'recommended_priority': 'CRITICAL', 'status': 'ESCALATED'}, 'new': {'risk_score': 25, 'correlation_score': 25, 'recommended_priority': 'LOW', 'status': 'TRIAGED'}, 'matched_chain_count': 0, 'cap': 25, 'rule': 'CIS Benchmark for Amazon Linux 2023 Benchmark v1.0.0.: Ensure nosuid option set on /var p…'}
+{'id': 13, 'level': 3, 'old': {'risk_score': 85, 'correlation_score': 85, 'recommended_priority': 'CRITICAL', 'status': 'ESCALATED'}, 'new': {'risk_score': 25, 'correlation_score': 25, 'recommended_priority': 'LOW', 'status': 'TRIAGED'}, 'matched_chain_count': 0, 'cap': 25, 'rule': 'CIS Benchmark for Amazon Linux 2023 Benchmark v1.0.0.: Ensure separate partition exists f…'}
+{'id': 14, 'level': 3, 'old': {'risk_score': 25, 'correlation_score': 25, 'recommended_priority': 'LOW', 'status': 'NEW'}, 'new': {'risk_score': 20, 'correlation_score': 20, 'recommended_priority': 'LOW', 'status': 'NEW'}, 'matched_chain_count': 0, 'cap': 25, 'rule': 'CIS Benchmark for Amazon Linux 2023 Benchmark v1.0.0.: Ensure mounting of squashfs filesy…'}
+{'id': 15, 'level': 3, 'old': {'risk_score': 35, 'correlation_score': 35, 'recommended_priority': 'MEDIUM', 'status': 'NEW'}, 'new': {'risk_score': 25, 'correlation_score': 25, 'recommended_priority': 'LOW', 'status': 'NEW'}, 'matched_chain_count': 0, 'cap': 25, 'rule': 'CIS Benchmark for Amazon Linux 2023 Benchmark v1.0.0.: Ensure mounting of udf filesystems…'}
+{'id': 16, 'level': 3, 'old': {'risk_score': 80, 'correlation_score': 80, 'recommended_priority': 'HIGH', 'status': 'NEW'}, 'new': {'risk_score': 25, 'correlation_score': 25, 'recommended_priority': 'LOW', 'status': 'NEW'}, 'matched_chain_count': 0, 'cap': 25, 'rule': 'CIS Benchmark for Amazon Linux 2023 Benchmark v1.0.0.: Ensure /tmp is a separate partitio…'}
+{'id': 17, 'level': 3, 'old': {'risk_score': 85, 'correlation_score': 85, 'recommended_priority': 'CRITICAL', 'status': 'ESCALATED'}, 'new': {'risk_score': 25, 'correlation_score': 25, 'recommended_priority': 'LOW', 'status': 'TRIAGED'}, 'matched_chain_count': 0, 'cap': 25, 'rule': 'CIS Benchmark for Amazon Linux 2023 Benchmark v1.0.0.: Ensure nodev option set on /tmp pa…'}
+{'id': 18, 'level': 3, 'old': {'risk_score': 85, 'correlation_score': 85, 'recommended_priority': 'CRITICAL', 'status': 'ESCALATED'}, 'new': {'risk_score': 25, 'correlation_score': 25, 'recommended_priority': 'LOW', 'status': 'TRIAGED'}, 'matched_chain_count': 0, 'cap': 25, 'rule': 'CIS Benchmark for Amazon Linux 2023 Benchmark v1.0.0.: Ensure noexec option set on /tmp p…'}
+{'id': 19, 'level': 3, 'old': {'risk_score': 85, 'correlation_score': 85, 'recommended_priority': 'CRITICAL', 'status': 'ESCALATED'}, 'new': {'risk_score': 25, 'correlation_score': 25, 'recommended_priority': 'LOW', 'status': 'TRIAGED'}, 'matched_chain_count': 0, 'cap': 25, 'rule': 'CIS Benchmark for Amazon Linux 2023 Benchmark v1.0.0.: Ensure nosuid option set on /tmp p…'}
+{'id': 20, 'level': 3, 'old': {'risk_score': 85, 'correlation_score': 85, 'recommended_priority': 'CRITICAL', 'status': 'ESCALATED'}, 'new': {'risk_score': 25, 'correlation_score': 25, 'recommended_priority': 'LOW', 'status': 'TRIAGED'}, 'matched_chain_count': 0, 'cap': 25, 'rule': 'CIS Benchmark for Amazon Linux 2023 Benchmark v1.0.0.: Ensure separate partition exists f…'}
+{'id': 21, 'level': 3, 'old': {'risk_score': 85, 'correlation_score': 85, 'recommended_priority': 'CRITICAL', 'status': 'ESCALATED'}, 'new': {'risk_score': 25, 'correlation_score': 25, 'recommended_priority': 'LOW', 'status': 'TRIAGED'}, 'matched_chain_count': 0, 'cap': 25, 'rule': 'CIS Benchmark for Amazon Linux 2023 Benchmark v1.0.0.: Ensure nodev option set on /var pa…'}
+{'id': 23, 'level': 3, 'old': {'risk_score': 85, 'correlation_score': 85, 'recommended_priority': 'CRITICAL', 'status': 'ESCALATED'}, 'new': {'risk_score': 25, 'correlation_score': 25, 'recommended_priority': 'LOW', 'status': 'TRIAGED'}, 'matched_chain_count': 0, 'cap': 25, 'rule': 'CIS Benchmark for Amazon Linux 2023 Benchmark v1.0.0.: Ensure separate partition exists f…'}
+{'id': 24, 'level': 3, 'old': {'risk_score': 100, 'correlation_score': 100, 'recommended_priority': 'CRITICAL', 'status': 'ESCALATED'}, 'new': {'risk_score': 25, 'correlation_score': 25, 'recommended_priority': 'LOW', 'status': 'TRIAGED'}, 'matched_chain_count': 0, 'cap': 25, 'rule': 'PAM: Login session opened.'}
+{'id': 25, 'level': 3, 'old': {'risk_score': 100, 'correlation_score': 100, 'recommended_priority': 'CRITICAL', 'status': 'ESCALATED'}, 'new': {'risk_score': 25, 'correlation_score': 25, 'recommended_priority': 'LOW', 'status': 'TRIAGED'}, 'matched_chain_count': 0, 'cap': 25, 'rule': 'PAM: Login session closed.'}
+
+Sample case changes:
+{'id': 6, 'old': {'risk_score': 100, 'severity': 'CRITICAL', 'status': 'OPEN'}, 'new': {'risk_score': 35, 'severity': 'LOW', 'status': 'OPEN'}, 'linked_incident_count': 1, 'title': 'Incident #2624 investigation'}
+{'id': 7, 'old': {'risk_score': 100, 'severity': 'CRITICAL', 'status': 'OPEN'}, 'new': {'risk_score': 25, 'severity': 'LOW', 'status': 'OPEN'}, 'linked_incident_count': 1, 'title': 'Incident #2626 investigation'}
+{'id': 8, 'old': {'risk_score': 100, 'severity': 'CRITICAL', 'status': 'OPEN'}, 'new': {'risk_score': 25, 'severity': 'LOW', 'status': 'OPEN'}, 'linked_incident_count': 1, 'title': 'Incident #2618 investigation'}
+{'id': 9, 'old': {'risk_score': 100, 'severity': 'CRITICAL', 'status': 'OPEN'}, 'new': {'risk_score': 35, 'severity': 'LOW', 'status': 'OPEN'}, 'linked_incident_count': 1, 'title': 'Incident #2644 investigation'}
+
+Dry-run only. No database changes applied.
