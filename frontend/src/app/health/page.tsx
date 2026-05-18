@@ -135,6 +135,7 @@ function componentLabel(component: string) {
     .replace("wazuh_indexer", "Wazuh indexer")
     .replace("wazuh_ingest", "Wazuh ingest")
     .replace("postgres", "Postgres")
+    .replace("ai_runtime", "AI Runtime")
     .replace("ollama", "Ollama")
     .replace("qdrant", "Qdrant")
     .replace("api", "API");

@@ -13,6 +13,7 @@ from sqlalchemy import text as sql_text
 
 from database import engine, SessionLocal
 from models import Incident, RawEvent, SecurityAlert, WorkerHeartbeat, utc_now
+from ai_runtime_observability import get_ai_runtime_health_details
 from wazuh_ingest_state import get_watermark_snapshot
 
 urllib3.disable_warnings()
@@ -146,6 +147,38 @@ def parse_wazuh_dt(value):
     except Exception:
         return None
 
+
+
+
+def check_ai_runtime():
+    started_at = time.perf_counter()
+
+    try:
+        details = get_ai_runtime_health_details()
+
+        if not details.get("model_present"):
+            status = "WARN"
+            message = "Configured AI model is not available in Ollama."
+        else:
+            status = "OK"
+            message = "AI runtime is reachable and configured model is available."
+
+        return component_result(
+            component="ai_runtime",
+            status=status,
+            message=message,
+            started_at=started_at,
+            details=details,
+        )
+
+    except Exception as exc:
+        return component_result(
+            component="ai_runtime",
+            status="ERROR",
+            message="AI runtime health check failed.",
+            started_at=started_at,
+            details={"error_type": type(exc).__name__},
+        )
 
 def wazuh_search(payload, timeout=8):
     if not WAZUH_INDEXER_URL:
@@ -833,6 +866,7 @@ def get_platform_health():
         check_api(),
         check_postgres(),
         check_ollama(),
+        check_ai_runtime(),
         check_wazuh_indexer(),
         check_wazuh_ingest(),
         check_event_processing_queue(),
