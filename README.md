@@ -709,3 +709,26 @@ Key v0.4 documents:
 - `docs/v0.4-production-demo-hardening.md`
 - `docs/v0.4-release-checklist.md`
 
+## v0.4 release status
+
+Sovereign AI SOC v0.4.0 focuses on operational maturity, ingestion quality, AI triage robustness, risk governance, enterprise reporting, DB lifecycle controls and repeatable release validation.
+
+v0.4.0 introduces:
+
+- event aggregation and deduplication;
+- raw events / security alerts / incidents / cases separation;
+- correlation-first ingestion;
+- deterministic noise suppression;
+- worker and ingest metrics;
+- AI triage timeout/fallback policy;
+- risk normalization and controlled historical backfill;
+- AI runtime observability;
+- enterprise incident/case/executive reports;
+- DB retention and backup/restore documentation;
+- regression/smoke validation;
+- production/demo hardening documentation.
+
+Release notes:
+
+- `RELEASE_NOTES_v0.4.0.md`
+
