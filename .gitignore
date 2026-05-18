@@ -47,3 +47,5 @@ frontend/.env.*.local
 *.pem
 *.key
 *.crt
+backups/
+reports/validation/*.pdf
