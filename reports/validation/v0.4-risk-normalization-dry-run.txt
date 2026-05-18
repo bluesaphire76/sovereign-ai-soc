@@ -1,0 +1,71 @@
+=== Risk normalization dry-run ===
+Correlated incidents evaluated: 4750
+Incidents that would change: 3576
+
+Old priority distribution among changed incidents:
+CRITICAL: 3372
+MEDIUM: 102
+HIGH: 92
+LOW: 10
+
+New priority distribution among changed incidents:
+LOW: 3124
+CRITICAL: 189
+MEDIUM: 178
+HIGH: 85
+
+Old status distribution among changed incidents:
+ESCALATED: 3363
+NEW: 202
+CLOSED: 6
+TRIAGED: 3
+FALSE_POSITIVE: 2
+
+New status distribution among changed incidents:
+TRIAGED: 3362
+NEW: 201
+CLOSED: 6
+ESCALATED: 5
+FALSE_POSITIVE: 2
+
+Sample changes:
+{'id': 4751, 'level': 7, 'old_risk': 80, 'new_risk': 55, 'old_priority': 'HIGH', 'new_priority': 'MEDIUM', 'old_status': 'NEW', 'new_status': 'NEW', 'matched_chain_count': 0, 'cap': 55, 'rule': 'Dpkg (Debian Package) half configured.'}
+{'id': 4750, 'level': 7, 'old_risk': 75, 'new_risk': 55, 'old_priority': 'HIGH', 'new_priority': 'MEDIUM', 'old_status': 'NEW', 'new_status': 'NEW', 'matched_chain_count': 0, 'cap': 55, 'rule': 'New dpkg (Debian Package) installed.'}
+{'id': 4749, 'level': 7, 'old_risk': 70, 'new_risk': 55, 'old_priority': 'HIGH', 'new_priority': 'MEDIUM', 'old_status': 'NEW', 'new_status': 'NEW', 'matched_chain_count': 0, 'cap': 55, 'rule': 'Dpkg (Debian Package) removed.'}
+{'id': 4748, 'level': 9, 'old_risk': 100, 'new_risk': 70, 'old_priority': 'CRITICAL', 'new_priority': 'HIGH', 'old_status': 'ESCALATED', 'new_status': 'TRIAGED', 'matched_chain_count': 0, 'cap': 70, 'rule': 'Agent event queue is full. Events may be lost.'}
+{'id': 4747, 'level': 7, 'old_risk': 100, 'new_risk': 55, 'old_priority': 'CRITICAL', 'new_priority': 'MEDIUM', 'old_status': 'ESCALATED', 'new_status': 'TRIAGED', 'matched_chain_count': 0, 'cap': 55, 'rule': 'Agent event queue is 90% full.'}
+{'id': 4746, 'level': 3, 'old_risk': 100, 'new_risk': 25, 'old_priority': 'CRITICAL', 'new_priority': 'LOW', 'old_status': 'ESCALATED', 'new_status': 'TRIAGED', 'matched_chain_count': 0, 'cap': 25, 'rule': 'Successful sudo to ROOT executed.'}
+{'id': 4745, 'level': 3, 'old_risk': 100, 'new_risk': 25, 'old_priority': 'CRITICAL', 'new_priority': 'LOW', 'old_status': 'ESCALATED', 'new_status': 'TRIAGED', 'matched_chain_count': 0, 'cap': 25, 'rule': 'PAM: Login session opened.'}
+{'id': 4744, 'level': 3, 'old_risk': 100, 'new_risk': 25, 'old_priority': 'CRITICAL', 'new_priority': 'LOW', 'old_status': 'ESCALATED', 'new_status': 'TRIAGED', 'matched_chain_count': 0, 'cap': 25, 'rule': 'sshd: authentication success.'}
+{'id': 4743, 'level': 7, 'old_risk': 95, 'new_risk': 55, 'old_priority': 'CRITICAL', 'new_priority': 'MEDIUM', 'old_status': 'ESCALATED', 'new_status': 'TRIAGED', 'matched_chain_count': 0, 'cap': 55, 'rule': 'Listened ports status (netstat) changed (new port opened or closed).'}
+{'id': 4742, 'level': 7, 'old_risk': 90, 'new_risk': 55, 'old_priority': 'CRITICAL', 'new_priority': 'MEDIUM', 'old_status': 'ESCALATED', 'new_status': 'TRIAGED', 'matched_chain_count': 0, 'cap': 55, 'rule': 'Host-based anomaly detection event (rootcheck).'}
+{'id': 4740, 'level': 3, 'old_risk': 100, 'new_risk': 25, 'old_priority': 'CRITICAL', 'new_priority': 'LOW', 'old_status': 'FALSE_POSITIVE', 'new_status': 'FALSE_POSITIVE', 'matched_chain_count': 0, 'cap': 25, 'rule': 'sshd: authentication success.'}
+{'id': 4739, 'level': 3, 'old_risk': 100, 'new_risk': 25, 'old_priority': 'CRITICAL', 'new_priority': 'LOW', 'old_status': 'ESCALATED', 'new_status': 'TRIAGED', 'matched_chain_count': 0, 'cap': 25, 'rule': 'PAM: Login session closed.'}
+{'id': 4738, 'level': 3, 'old_risk': 100, 'new_risk': 25, 'old_priority': 'CRITICAL', 'new_priority': 'LOW', 'old_status': 'ESCALATED', 'new_status': 'TRIAGED', 'matched_chain_count': 0, 'cap': 25, 'rule': 'Successful sudo to ROOT executed.'}
+{'id': 4737, 'level': 3, 'old_risk': 100, 'new_risk': 25, 'old_priority': 'CRITICAL', 'new_priority': 'LOW', 'old_status': 'ESCALATED', 'new_status': 'TRIAGED', 'matched_chain_count': 0, 'cap': 25, 'rule': 'PAM: Login session opened.'}
+{'id': 4736, 'level': 3, 'old_risk': 100, 'new_risk': 25, 'old_priority': 'CRITICAL', 'new_priority': 'LOW', 'old_status': 'ESCALATED', 'new_status': 'TRIAGED', 'matched_chain_count': 0, 'cap': 25, 'rule': 'PAM: Login session closed.'}
+{'id': 4735, 'level': 3, 'old_risk': 100, 'new_risk': 25, 'old_priority': 'CRITICAL', 'new_priority': 'LOW', 'old_status': 'ESCALATED', 'new_status': 'TRIAGED', 'matched_chain_count': 0, 'cap': 25, 'rule': 'Successful sudo to ROOT executed.'}
+{'id': 4734, 'level': 3, 'old_risk': 100, 'new_risk': 25, 'old_priority': 'CRITICAL', 'new_priority': 'LOW', 'old_status': 'ESCALATED', 'new_status': 'TRIAGED', 'matched_chain_count': 0, 'cap': 25, 'rule': 'PAM: Login session opened.'}
+{'id': 4729, 'level': 3, 'old_risk': 100, 'new_risk': 25, 'old_priority': 'CRITICAL', 'new_priority': 'LOW', 'old_status': 'ESCALATED', 'new_status': 'TRIAGED', 'matched_chain_count': 0, 'cap': 25, 'rule': 'Successful sudo to ROOT executed.'}
+{'id': 4728, 'level': 3, 'old_risk': 100, 'new_risk': 25, 'old_priority': 'CRITICAL', 'new_priority': 'LOW', 'old_status': 'ESCALATED', 'new_status': 'TRIAGED', 'matched_chain_count': 0, 'cap': 25, 'rule': 'PAM: Login session opened.'}
+{'id': 4727, 'level': 3, 'old_risk': 100, 'new_risk': 25, 'old_priority': 'CRITICAL', 'new_priority': 'LOW', 'old_status': 'ESCALATED', 'new_status': 'TRIAGED', 'matched_chain_count': 0, 'cap': 25, 'rule': 'PAM: Login session closed.'}
+{'id': 4726, 'level': 3, 'old_risk': 100, 'new_risk': 25, 'old_priority': 'CRITICAL', 'new_priority': 'LOW', 'old_status': 'ESCALATED', 'new_status': 'TRIAGED', 'matched_chain_count': 0, 'cap': 25, 'rule': 'Successful sudo to ROOT executed.'}
+{'id': 4725, 'level': 3, 'old_risk': 100, 'new_risk': 25, 'old_priority': 'CRITICAL', 'new_priority': 'LOW', 'old_status': 'ESCALATED', 'new_status': 'TRIAGED', 'matched_chain_count': 0, 'cap': 25, 'rule': 'PAM: Login session opened.'}
+{'id': 4724, 'level': 3, 'old_risk': 100, 'new_risk': 25, 'old_priority': 'CRITICAL', 'new_priority': 'LOW', 'old_status': 'ESCALATED', 'new_status': 'TRIAGED', 'matched_chain_count': 0, 'cap': 25, 'rule': 'Apparmor messages grouped.'}
+{'id': 4723, 'level': 5, 'old_risk': 100, 'new_risk': 35, 'old_priority': 'CRITICAL', 'new_priority': 'LOW', 'old_status': 'ESCALATED', 'new_status': 'TRIAGED', 'matched_chain_count': 0, 'cap': 35, 'rule': 'Systemd: Service exited due to a failure.'}
+{'id': 4722, 'level': 5, 'old_risk': 100, 'new_risk': 35, 'old_priority': 'CRITICAL', 'new_priority': 'LOW', 'old_status': 'ESCALATED', 'new_status': 'TRIAGED', 'matched_chain_count': 0, 'cap': 35, 'rule': 'Systemd: Service exited due to a failure.'}
+{'id': 4721, 'level': 5, 'old_risk': 100, 'new_risk': 35, 'old_priority': 'CRITICAL', 'new_priority': 'LOW', 'old_status': 'ESCALATED', 'new_status': 'TRIAGED', 'matched_chain_count': 0, 'cap': 35, 'rule': 'Systemd: Service exited due to a failure.'}
+{'id': 4720, 'level': 5, 'old_risk': 100, 'new_risk': 35, 'old_priority': 'CRITICAL', 'new_priority': 'LOW', 'old_status': 'ESCALATED', 'new_status': 'TRIAGED', 'matched_chain_count': 0, 'cap': 35, 'rule': 'Systemd: Service exited due to a failure.'}
+{'id': 4719, 'level': 3, 'old_risk': 100, 'new_risk': 25, 'old_priority': 'CRITICAL', 'new_priority': 'LOW', 'old_status': 'ESCALATED', 'new_status': 'TRIAGED', 'matched_chain_count': 0, 'cap': 25, 'rule': 'Apparmor DENIED'}
+{'id': 4718, 'level': 3, 'old_risk': 100, 'new_risk': 25, 'old_priority': 'CRITICAL', 'new_priority': 'LOW', 'old_status': 'ESCALATED', 'new_status': 'TRIAGED', 'matched_chain_count': 0, 'cap': 25, 'rule': 'Apparmor DENIED'}
+{'id': 4717, 'level': 3, 'old_risk': 100, 'new_risk': 25, 'old_priority': 'CRITICAL', 'new_priority': 'LOW', 'old_status': 'ESCALATED', 'new_status': 'TRIAGED', 'matched_chain_count': 0, 'cap': 25, 'rule': 'Apparmor messages grouped.'}
+
+Case distribution current state:
+Case severity:
+CRITICAL: 7
+MEDIUM: 1
+Case status:
+OPEN: 4
+CLOSED: 2
+INVESTIGATING: 1
+ESCALATED: 1
