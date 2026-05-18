@@ -14,9 +14,9 @@ from case_action_suggestions import generate_case_action_suggestions
 from case_timeline import build_case_timeline
 from models import Incident, IncidentAudit, IncidentNote, IncidentCase, CaseIncident, CaseAIAnalysis, CaseAudit, CaseAction, CaseClosureChecklist, AppUser, SecurityAuditEvent, utc_now
 from timezone_utils import APP_TIMEZONE, format_timestamp_local, normalize_timestamp_utc
-from platform_health import get_platform_health
 from wazuh_ingest_state import get_watermark_snapshot
 from auth_utils import create_access_token, decode_access_token, hash_password, verify_password
+from routers.health import router as health_router
 
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -40,6 +40,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(health_router)
 
 VALID_INCIDENT_STATUSES = {
     "NEW",
@@ -920,13 +922,6 @@ def list_security_audit_events(
 
 
 
-@app.get("/health")
-def health():
-    return {
-        "status": "ok",
-        "service": "sovereign-ai-soc-api",
-    }
-
 SYNTHETIC_SCENARIOS = {
     "ssh_bruteforce": {
         "title": "SYNTHETIC ssh_bruteforce: repeated authentication failures",
@@ -1729,21 +1724,6 @@ def create_incident_note(
 
     finally:
         db.close()
-
-
-
-@app.get("/platform/health")
-def platform_health():
-    try:
-        return get_platform_health()
-    except Exception:
-        import logging
-
-        logging.getLogger(__name__).error("Platform health check failed.")
-        raise HTTPException(
-            status_code=503,
-            detail="Platform health check failed.",
-        )
 
 
 
