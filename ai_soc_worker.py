@@ -11,6 +11,11 @@ from event_aggregation import (
     aggregate_alert,
     record_aggregate_incident,
 )
+from event_records import (
+    link_security_alert_to_incident,
+    persist_event_records,
+    update_security_alert_status,
+)
 from timezone_utils import normalize_timestamp_utc
 from wazuh_ingest_state import (
     WAZUH_BATCH_SIZE,
@@ -72,6 +77,7 @@ def get_latest_alerts(limit=None):
     for hit in hits:
         alert = hit["_source"]
         alert["_wazuh_doc_id"] = hit["_id"]
+        alert["_wazuh_index"] = hit.get("_index")
         alerts.append(alert)
 
     return alerts, query_info
@@ -240,12 +246,15 @@ Alert JSON:
     return analysis
 
 
-def save_incident(alert, analysis):
+def save_incident(alert, analysis, event_record_ids=None):
+    event_record_ids = event_record_ids or {}
     db = SessionLocal()
 
     try:
         incident = Incident(
             wazuh_doc_id=alert.get("_wazuh_doc_id"),
+            raw_event_id=event_record_ids.get("raw_event_id"),
+            security_alert_id=event_record_ids.get("security_alert_id"),
             timestamp=normalize_timestamp_utc(alert.get("@timestamp")),
             agent=alert.get("agent", {}).get("name"),
             rule=alert.get("rule", {}).get("description"),
@@ -273,7 +282,19 @@ def process_alert(alert):
         print("[yellow]Alert senza doc_id, salto.[/yellow]")
         return "skipped_no_doc_id"
 
+    event_record_ids = {}
+
+    try:
+        event_record_ids = persist_event_records(alert)
+
+    except Exception as exc:
+        print(f"[yellow]Event record persistence non riuscita, continuo:[/yellow] {exc}")
+
     if incident_exists(doc_id):
+        update_security_alert_status(
+            event_record_ids.get("security_alert_id"),
+            "DUPLICATE_DOC_ID",
+        )
         print(f"[dim]Già processato: {doc_id}[/dim]")
         return "skipped_duplicate"
 
@@ -286,6 +307,10 @@ def process_alert(alert):
         print(f"[yellow]Event aggregation non riuscita, continuo senza dedup:[/yellow] {exc}")
 
     if aggregation_result.get("duplicate"):
+        update_security_alert_status(
+            event_record_ids.get("security_alert_id"),
+            "AGGREGATED_DUPLICATE",
+        )
         print(
             "[dim]Evento aggregato entro finestra dedup: "
             f"fingerprint={aggregation_result.get('fingerprint')} "
@@ -306,7 +331,16 @@ def process_alert(alert):
     )
 
     analysis = analyze_alert(alert)
-    incident_id = save_incident(alert, analysis)
+    incident_id = save_incident(
+        alert,
+        analysis,
+        event_record_ids=event_record_ids,
+    )
+
+    link_security_alert_to_incident(
+        event_record_ids.get("security_alert_id"),
+        incident_id,
+    )
 
     if aggregation_result.get("fingerprint"):
         record_aggregate_incident(

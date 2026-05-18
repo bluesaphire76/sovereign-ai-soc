@@ -5,11 +5,76 @@ from sqlalchemy.orm import declarative_base
 Base = declarative_base()
 
 
+def utc_now():
+    return datetime.now(timezone.utc)
+
+
+
+class RawEvent(Base):
+    __tablename__ = "raw_events"
+    __table_args__ = (
+        UniqueConstraint("source", "source_event_id", name="uq_raw_event_source_event_id"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    source = Column(String, default="wazuh", index=True, nullable=False)
+    source_event_id = Column(String, index=True, nullable=False)
+    source_index = Column(String)
+
+    event_timestamp = Column(String, index=True)
+    ingested_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+    agent = Column(String, index=True)
+    rule_id = Column(String, index=True)
+    rule_description = Column(Text)
+    level = Column(Integer)
+
+    payload_hash = Column(String, index=True, nullable=False)
+    payload_json = Column(Text, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class SecurityAlert(Base):
+    __tablename__ = "security_alerts"
+    __table_args__ = (
+        UniqueConstraint("source", "source_event_id", name="uq_security_alert_source_event_id"),
+        UniqueConstraint("raw_event_id", name="uq_security_alert_raw_event_id"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    raw_event_id = Column(Integer, ForeignKey("raw_events.id"), index=True, nullable=False)
+
+    source = Column(String, default="wazuh", index=True, nullable=False)
+    source_event_id = Column(String, index=True, nullable=False)
+
+    fingerprint = Column(String, index=True)
+    status = Column(String, default="OBSERVED", index=True)
+
+    agent = Column(String, index=True)
+    rule_id = Column(String, index=True)
+    rule_description = Column(Text)
+    level = Column(Integer)
+    severity_bucket = Column(String, index=True)
+
+    event_timestamp = Column(String, index=True)
+
+    incident_id = Column(Integer, index=True)
+
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
 class Incident(Base):
     __tablename__ = "incidents"
 
     id = Column(Integer, primary_key=True, index=True)
     wazuh_doc_id = Column(String, unique=True, index=True)
+    raw_event_id = Column(Integer, ForeignKey("raw_events.id"), index=True)
+    security_alert_id = Column(Integer, ForeignKey("security_alerts.id"), index=True)
 
     status = Column(String, default="NEW")
 
@@ -30,10 +95,6 @@ class Incident(Base):
     correlation_type = Column(String)
     escalation_reason = Column(Text)
     recommended_priority = Column(String)
-
-def utc_now():
-    return datetime.now(timezone.utc)
-
 
 class IncidentAudit(Base):
     __tablename__ = "incident_audit"
