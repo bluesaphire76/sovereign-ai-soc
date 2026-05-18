@@ -37,6 +37,7 @@ type IncidentsResponse = {
 
 const STATUS_OPTIONS = ["ALL", "NEW", "TRIAGED", "ESCALATED", "CLOSED", "FALSE_POSITIVE"];
 const RISK_OPTIONS = ["ALL", "LOW", "MEDIUM", "HIGH", "CRITICAL"];
+const DEMO_SEARCH_TERM = "AI SOC demo scenario";
 
 function formatTimestamp(value: string | null | undefined) {
   if (!value) return "-";
@@ -90,6 +91,10 @@ function statusTone(status: string | null | undefined): "neutral" | "success" | 
   return "warning";
 }
 
+function isDemoIncident(incident: Incident) {
+  return (incident.rule ?? "").includes(DEMO_SEARCH_TERM);
+}
+
 function EnterpriseBadge({
   children,
   tone = "neutral",
@@ -140,6 +145,7 @@ export default function IncidentsPage() {
   const incidents = data?.items ?? [];
   const total = data?.total ?? 0;
   const totalPages = data?.total_pages ?? 1;
+  const demoMode = searchFilter.trim() === DEMO_SEARCH_TERM;
 
   const highRiskCount = useMemo(
     () => incidents.filter((incident) => (incident.risk_score ?? 0) >= 60).length,
@@ -153,6 +159,11 @@ export default function IncidentsPage() {
 
   const correlatedCount = useMemo(
     () => incidents.filter((incident) => incident.correlated).length,
+    [incidents]
+  );
+
+  const demoIncidentCount = useMemo(
+    () => incidents.filter(isDemoIncident).length,
     [incidents]
   );
 
@@ -200,6 +211,19 @@ export default function IncidentsPage() {
     setPage(1);
   }
 
+  function enableDemoMode() {
+    setStatusFilter("ALL");
+    setRiskFilter("ALL");
+    setSearchFilter(DEMO_SEARCH_TERM);
+    setHostFilter("");
+    setPage(1);
+  }
+
+  function exitDemoMode() {
+    setSearchFilter("");
+    setPage(1);
+  }
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto max-w-[1600px] px-4 py-4">
@@ -224,18 +248,32 @@ export default function IncidentsPage() {
             </h1>
 
             <p className="mt-1 max-w-4xl text-xs leading-5 text-slate-500">
-              Enterprise incident stream with Wazuh evidence, AI risk scoring,
-              correlation context and analyst-ready investigation links.
+              {demoMode
+                ? "Demo mode is showing controlled v0.5 incident scenarios generated from the Sovereign AI SOC demo scenario pack."
+                : "Enterprise incident stream with Wazuh evidence, AI risk scoring, correlation context and analyst-ready investigation links."}
             </p>
           </div>
 
-          <button
-            onClick={loadIncidents}
-            className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 text-xs text-slate-200 shadow-sm hover:bg-slate-800"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
-            Refresh
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={demoMode ? exitDemoMode : enableDemoMode}
+              className={`flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs shadow-sm ${
+                demoMode
+                  ? "border-cyan-600 bg-cyan-950 text-cyan-100 hover:bg-cyan-900"
+                  : "border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"
+              }`}
+            >
+              {demoMode ? "Exit demo mode" : "Demo mode"}
+            </button>
+
+            <button
+              onClick={loadIncidents}
+              className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 text-xs text-slate-200 shadow-sm hover:bg-slate-800"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
+              Refresh
+            </button>
+          </div>
         </header>
 
         {error && (
@@ -245,6 +283,24 @@ export default function IncidentsPage() {
         )}
 
         <div className="space-y-3">
+          {demoMode && (
+            <section className="rounded-xl border border-cyan-800 bg-cyan-950/30 p-3 shadow-lg">
+              <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-cyan-200">
+                    Demo mode active
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-cyan-100/80">
+                    Showing controlled v0.5 demo incidents only. Runtime data is hidden by the active search filter.
+                  </p>
+                </div>
+                <EnterpriseBadge tone="cyan">
+                  {demoIncidentCount} demo incident(s)
+                </EnterpriseBadge>
+              </div>
+            </section>
+          )}
+
           <section className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
             <MetricCard
               title="Visible incidents"
@@ -280,16 +336,27 @@ export default function IncidentsPage() {
                   Queue controls
                 </div>
                 <p className="mt-1 text-xs text-slate-500">
-                  Filter the active incident stream by status, risk, host and search terms.
+                  {demoMode
+                    ? "Demo mode applies a controlled search filter for v0.5 scenario incidents."
+                    : "Filter the active incident stream by status, risk, host and search terms."}
                 </p>
               </div>
 
-              <button
-                onClick={resetFilters}
-                className="h-8 rounded-lg border border-slate-700 bg-slate-950 px-3 text-xs text-slate-300 hover:bg-slate-800"
-              >
-                Reset filters
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={enableDemoMode}
+                  className="h-8 rounded-lg border border-cyan-700 bg-cyan-950 px-3 text-xs text-cyan-100 hover:bg-cyan-900"
+                >
+                  Show demo incidents
+                </button>
+
+                <button
+                  onClick={resetFilters}
+                  className="h-8 rounded-lg border border-slate-700 bg-slate-950 px-3 text-xs text-slate-300 hover:bg-slate-800"
+                >
+                  Reset filters
+                </button>
+              </div>
             </div>
 
             <div className="grid gap-2 md:grid-cols-[160px_160px_1fr_1fr]">
@@ -400,7 +467,10 @@ export default function IncidentsPage() {
 
                   <tbody className="divide-y divide-slate-800/80">
                     {incidents.map((incident) => (
-                      <tr key={incident.id} className="hover:bg-slate-800/40">
+                      <tr
+                        key={incident.id}
+                        className={isDemoIncident(incident) ? "bg-cyan-950/10 hover:bg-cyan-900/20" : "hover:bg-slate-800/40"}
+                      >
                         <td className="py-2 pr-3">
                           <Link
                             href={`/incidents/${incident.id}`}
@@ -421,12 +491,19 @@ export default function IncidentsPage() {
                           {incident.agent ?? "unknown"}
                         </td>
                         <td className="max-w-[420px] py-2 pr-3">
-                          <Link
-                            href={`/incidents/${incident.id}`}
-                            className="line-clamp-2 text-slate-200 hover:text-cyan-200"
-                          >
-                            {incident.rule ?? "-"}
-                          </Link>
+                          <div className="flex flex-col gap-1">
+                            {isDemoIncident(incident) && (
+                              <div>
+                                <EnterpriseBadge tone="cyan">DEMO</EnterpriseBadge>
+                              </div>
+                            )}
+                            <Link
+                              href={`/incidents/${incident.id}`}
+                              className="line-clamp-2 text-slate-200 hover:text-cyan-200"
+                            >
+                              {incident.rule ?? "-"}
+                            </Link>
+                          </div>
                         </td>
                         <td className="py-2 pr-3 text-slate-300">
                           {incident.level ?? 0}
