@@ -49,3 +49,5 @@ frontend/.env.*.local
 *.crt
 backups/
 reports/validation/*.pdf
+reports/validation/*.json
+reports/retention/
