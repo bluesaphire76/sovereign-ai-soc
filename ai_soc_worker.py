@@ -6,6 +6,11 @@ from datetime import datetime, timezone
 from correlation_engine import correlate_incident
 from correlation_precheck import evaluate_correlation_precheck
 from noise_suppression import evaluate_noise_suppression
+from worker_backlog_metrics import (
+    build_batch_metrics,
+    build_result_counts,
+    record_result,
+)
 from rag_retriever import retrieve_security_context
 from llm_output import is_invalid_llm_output, sanitize_llm_output
 from event_aggregation import (
@@ -449,6 +454,7 @@ def run_worker():
 
             processed_count = 0
             skipped_count = 0
+            result_counts = build_result_counts()
 
             for index, alert in enumerate(alerts, start=1):
                 update_worker_heartbeat(
@@ -465,24 +471,46 @@ def run_worker():
 
                 result = process_alert(alert)
 
+                record_result(result_counts, result)
+
                 if result == "processed":
                     processed_count += 1
                 else:
                     skipped_count += 1
 
                 if index % WAZUH_WATERMARK_FLUSH_EVERY == 0:
+                    progress_metrics = build_batch_metrics(
+                        alerts=alerts[:index],
+                        processed_count=processed_count,
+                        skipped_count=skipped_count,
+                        result_counts=result_counts,
+                        query_info=query_info,
+                    )
+
                     update_watermark_progress(
                         alerts=alerts[:index],
                         processed_count=processed_count,
                         skipped_count=skipped_count,
                         query_info=query_info,
+                        result_counts=result_counts,
+                        batch_metrics=progress_metrics,
                     )
+
+            batch_metrics = build_batch_metrics(
+                alerts=alerts,
+                processed_count=processed_count,
+                skipped_count=skipped_count,
+                result_counts=result_counts,
+                query_info=query_info,
+            )
 
             update_watermark_success(
                 alerts=alerts,
                 processed_count=processed_count,
                 skipped_count=skipped_count,
                 query_info=query_info,
+                result_counts=result_counts,
+                batch_metrics=batch_metrics,
             )
 
             update_worker_heartbeat(
@@ -491,9 +519,14 @@ def run_worker():
                     "alerts_seen": len(alerts),
                     "alerts_processed": processed_count,
                     "alerts_skipped": skipped_count,
+                    "result_counts": result_counts,
+                    "ingest_mode": batch_metrics.get("ingest_mode"),
+                    "latest_event_lag_seconds": batch_metrics.get("latest_event_lag_seconds"),
+                    "latest_event_lag_minutes": batch_metrics.get("latest_event_lag_minutes"),
                     "poll_interval_seconds": POLL_INTERVAL_SECONDS,
                     "ollama_model": OLLAMA_MODEL,
                     "wazuh_ingest": query_info,
+                    "batch_metrics": batch_metrics,
                 },
             )
 

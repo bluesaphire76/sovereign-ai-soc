@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import time
@@ -31,6 +32,20 @@ LATEST_INCIDENT_WARN_AFTER_SECONDS = int(os.getenv("LATEST_INCIDENT_WARN_AFTER_S
 LATEST_INCIDENT_ERROR_AFTER_SECONDS = int(os.getenv("LATEST_INCIDENT_ERROR_AFTER_SECONDS", "3600"))
 LATEST_EVENT_RECORD_WARN_AFTER_SECONDS = int(os.getenv("LATEST_EVENT_RECORD_WARN_AFTER_SECONDS", "900"))
 LATEST_EVENT_RECORD_ERROR_AFTER_SECONDS = int(os.getenv("LATEST_EVENT_RECORD_ERROR_AFTER_SECONDS", "3600"))
+
+
+
+def parse_json_details(value):
+    if not value:
+        return None
+
+    if isinstance(value, dict):
+        return value
+
+    try:
+        return json.loads(value)
+    except Exception:
+        return {"raw": value}
 
 
 def now_iso():
@@ -677,7 +692,11 @@ def check_wazuh_ingest():
             status=status,
             message=message,
             started_at=started_at,
-            details=snapshot,
+            details={
+                **snapshot,
+                "details_raw": snapshot.get("details"),
+                "details": parse_json_details(snapshot.get("details")),
+            },
         )
 
     except Exception as exc:
@@ -751,7 +770,8 @@ def check_worker():
                 if heartbeat.last_error_at
                 else None,
                 "last_error": heartbeat.last_error,
-                "details": heartbeat.details,
+                "details": parse_json_details(heartbeat.details),
+                "details_raw": heartbeat.details,
                 "age_seconds": age_seconds,
                 "stale_after_seconds": stale_after,
             },

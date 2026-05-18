@@ -133,6 +133,8 @@ def update_watermark_progress(
     processed_count: int,
     skipped_count: int,
     query_info: dict | None = None,
+    result_counts: dict | None = None,
+    batch_metrics: dict | None = None,
 ):
     """Persist partial ingest progress during a long worker batch.
 
@@ -173,6 +175,8 @@ def update_watermark_progress(
                     "alerts_seen": len(alerts),
                     "alerts_processed": processed_count,
                     "alerts_skipped": skipped_count,
+                    "result_counts": result_counts or {},
+                    "batch_metrics": batch_metrics or {},
                     "latest_timestamp": watermark.last_timestamp,
                     "latest_doc_id": watermark.last_doc_id,
                 },
@@ -191,6 +195,8 @@ def update_watermark_success(
     processed_count: int,
     skipped_count: int,
     query_info: dict | None = None,
+    result_counts: dict | None = None,
+    batch_metrics: dict | None = None,
 ):
     db = SessionLocal()
 
@@ -225,6 +231,8 @@ def update_watermark_success(
                     "alerts_seen": len(alerts),
                     "alerts_processed": processed_count,
                     "alerts_skipped": skipped_count,
+                    "result_counts": result_counts or {},
+                    "batch_metrics": batch_metrics or {},
                 },
             },
             ensure_ascii=False,
