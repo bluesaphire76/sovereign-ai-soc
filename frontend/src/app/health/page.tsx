@@ -140,6 +140,70 @@ function componentLabel(component: string) {
     .replace("api", "API");
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readUnknown(root: unknown, path: string[]): unknown {
+  let current: unknown = root;
+
+  for (const key of path) {
+    if (!isRecord(current)) return undefined;
+    current = current[key];
+  }
+
+  return current;
+}
+
+function readRecord(root: unknown, path: string[]): Record<string, unknown> {
+  const value = readUnknown(root, path);
+  return isRecord(value) ? value : {};
+}
+
+function readString(root: unknown, path: string[], fallback = "-") {
+  const value = readUnknown(root, path);
+
+  if (value === null || value === undefined || value === "") {
+    return fallback;
+  }
+
+  return String(value);
+}
+
+function readNumber(root: unknown, path: string[]): number | null {
+  const value = readUnknown(root, path);
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function formatNumber(value: number | null, suffix = "") {
+  if (value === null || value === undefined) return "-";
+
+  const formatted = Number.isInteger(value) ? String(value) : value.toFixed(2);
+
+  return suffix ? `${formatted} ${suffix}` : formatted;
+}
+
+function ingestModeTone(mode: string): HealthStatus | "neutral" {
+  const value = mode.toUpperCase();
+
+  if (value === "REALTIME") return "OK";
+  if (value === "CATCHING_UP" || value === "IDLE") return "WARN";
+  if (value === "LAGGING") return "ERROR";
+
+  return "neutral";
+}
+
+
 function formatTimestamp(value: string | null | undefined) {
   if (!value) return "-";
 
@@ -384,6 +448,8 @@ export default function HealthPage() {
               </section>
             )}
 
+            <WorkerIngestMetricsPanel components={sortedComponents} />
+
             <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
               <div className="mb-2 flex items-center justify-between gap-3">
                 <div>
@@ -410,6 +476,211 @@ export default function HealthPage() {
     </main>
   );
 }
+
+function WorkerIngestMetricsPanel({
+  components,
+}: {
+  components: HealthComponent[];
+}) {
+  const worker = components.find((item) => item.component === "ai_soc_worker");
+  const ingest = components.find((item) => item.component === "wazuh_ingest");
+  const queue = components.find((item) => item.component === "event_processing_queue");
+
+  if (!worker && !ingest && !queue) return null;
+
+  const workerDetails = readRecord(worker?.details, ["details"]);
+  const workerBatchMetrics = readRecord(workerDetails, ["batch_metrics"]);
+  const workerResultCounts = readRecord(workerDetails, ["result_counts"]);
+
+  const ingestDetails = readRecord(ingest?.details, ["details"]);
+  const ingestLastRun = readRecord(ingestDetails, ["last_run"]);
+  const ingestBatchMetrics = readRecord(ingestLastRun, ["batch_metrics"]);
+  const ingestResultCounts = readRecord(ingestLastRun, ["result_counts"]);
+
+  const batchMetrics =
+    Object.keys(workerBatchMetrics).length > 0
+      ? workerBatchMetrics
+      : ingestBatchMetrics;
+
+  const resultCounts =
+    Object.keys(workerResultCounts).length > 0
+      ? workerResultCounts
+      : ingestResultCounts;
+
+  const ingestMode =
+    readString(batchMetrics, ["ingest_mode"], readString(workerDetails, ["ingest_mode"], "-"));
+
+  const pendingEvents = readNumber(queue?.details, ["pending_events"]);
+  const alertsSeen =
+    readNumber(batchMetrics, ["alerts_seen"]) ??
+    readNumber(workerDetails, ["alerts_seen"]) ??
+    readNumber(ingest?.details, ["alerts_seen"]);
+
+  const alertsProcessed =
+    readNumber(batchMetrics, ["alerts_processed"]) ??
+    readNumber(workerDetails, ["alerts_processed"]) ??
+    readNumber(ingest?.details, ["alerts_processed"]);
+
+  const alertsSkipped =
+    readNumber(batchMetrics, ["alerts_skipped"]) ??
+    readNumber(workerDetails, ["alerts_skipped"]) ??
+    readNumber(ingest?.details, ["alerts_skipped"]);
+
+  const latestEventLagMinutes =
+    readNumber(batchMetrics, ["latest_event_lag_minutes"]) ??
+    readNumber(workerDetails, ["latest_event_lag_minutes"]);
+
+  const watermarkLagMinutes = readNumber(batchMetrics, ["watermark_lag_minutes"]);
+  const batchSize = readNumber(batchMetrics, ["batch_size"]);
+  const pollInterval = readNumber(workerDetails, ["poll_interval_seconds"]);
+
+  return (
+    <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
+      <div className="mb-3 flex flex-col gap-1 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h2 className="text-sm font-semibold">Worker / ingest metrics</h2>
+          <p className="mt-0.5 text-[11px] text-slate-500">
+            Operational visibility for Wazuh ingest, worker backlog and catch-up mode.
+          </p>
+        </div>
+
+        <span className={`w-fit rounded-md border px-2 py-1 text-[11px] font-medium ${statusClasses(ingestModeTone(ingestMode)).badge}`}>
+          {ingestMode}
+        </span>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8">
+        <OperationalMetric
+          label="Pending events"
+          value={formatNumber(pendingEvents)}
+          subtitle="Newer than watermark"
+          tone={(pendingEvents ?? 0) > 50 ? "WARN" : "OK"}
+        />
+        <OperationalMetric
+          label="Alerts seen"
+          value={formatNumber(alertsSeen)}
+          subtitle="Last worker batch"
+        />
+        <OperationalMetric
+          label="Processed"
+          value={formatNumber(alertsProcessed)}
+          subtitle="Incidents created"
+          tone={(alertsProcessed ?? 0) > 0 ? "OK" : "neutral"}
+        />
+        <OperationalMetric
+          label="Skipped"
+          value={formatNumber(alertsSkipped)}
+          subtitle="No incident created"
+        />
+        <OperationalMetric
+          label="Latest event lag"
+          value={formatNumber(latestEventLagMinutes, "min")}
+          subtitle="Newest alert delay"
+          tone={(latestEventLagMinutes ?? 0) > 15 ? "ERROR" : (latestEventLagMinutes ?? 0) > 2 ? "WARN" : "OK"}
+        />
+        <OperationalMetric
+          label="Watermark lag"
+          value={formatNumber(watermarkLagMinutes, "min")}
+          subtitle="Previous watermark delay"
+          tone={(watermarkLagMinutes ?? 0) > 15 ? "ERROR" : (watermarkLagMinutes ?? 0) > 2 ? "WARN" : "OK"}
+        />
+        <OperationalMetric
+          label="Batch size"
+          value={formatNumber(batchSize)}
+          subtitle="Wazuh query limit"
+        />
+        <OperationalMetric
+          label="Poll interval"
+          value={formatNumber(pollInterval, "sec")}
+          subtitle="Worker cadence"
+        />
+      </div>
+
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7">
+        <OperationalMetric
+          label="Suppressed noise"
+          value={formatNumber(readNumber(resultCounts, ["suppressed_noise"]))}
+          subtitle="Noise policy"
+          tone="OK"
+        />
+        <OperationalMetric
+          label="Observed only"
+          value={formatNumber(readNumber(resultCounts, ["observed_no_incident"]))}
+          subtitle="No incident needed"
+        />
+        <OperationalMetric
+          label="Aggregated duplicate"
+          value={formatNumber(readNumber(resultCounts, ["aggregated_duplicate"]))}
+          subtitle="Dedup window"
+        />
+        <OperationalMetric
+          label="Duplicate doc id"
+          value={formatNumber(readNumber(resultCounts, ["duplicate_doc_id"]))}
+          subtitle="Already processed"
+        />
+        <OperationalMetric
+          label="No doc id"
+          value={formatNumber(readNumber(resultCounts, ["no_doc_id"]))}
+          subtitle="Malformed alert"
+          tone={(readNumber(resultCounts, ["no_doc_id"]) ?? 0) > 0 ? "WARN" : "neutral"}
+        />
+        <OperationalMetric
+          label="Other skipped"
+          value={formatNumber(readNumber(resultCounts, ["other_skipped"]))}
+          subtitle="Fallback bucket"
+          tone={(readNumber(resultCounts, ["other_skipped"]) ?? 0) > 0 ? "WARN" : "neutral"}
+        />
+        <OperationalMetric
+          label="Total processed"
+          value={formatNumber(readNumber(ingest?.details, ["total_processed"]))}
+          subtitle="Watermark counter"
+        />
+      </div>
+
+      <div className="mt-3 grid gap-2 lg:grid-cols-3">
+        <CompactField
+          label="Latest event timestamp"
+          value={formatTimestamp(readString(batchMetrics, ["latest_event_timestamp"], readString(ingest?.details, ["last_timestamp"], "-")))}
+        />
+        <CompactField
+          label="Watermark timestamp"
+          value={formatTimestamp(readString(ingest?.details, ["last_timestamp"], "-"))}
+        />
+        <CompactField
+          label="Worker last seen"
+          value={formatTimestamp(readString(worker?.details, ["last_seen_at"], "-"))}
+        />
+      </div>
+    </section>
+  );
+}
+
+function OperationalMetric({
+  label,
+  value,
+  subtitle,
+  tone = "neutral",
+}: {
+  label: string;
+  value: string | number;
+  subtitle: string;
+  tone?: HealthStatus | "neutral";
+}) {
+  const status = statusClasses(tone);
+
+  return (
+    <div className={`rounded-md border px-2 py-2 ${status.card}`}>
+      <div className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
+        {label}
+      </div>
+      <div className="mt-1 truncate text-base font-semibold leading-5 text-slate-100">
+        {value}
+      </div>
+      <div className="truncate text-[11px] text-slate-500">{subtitle}</div>
+    </div>
+  );
+}
+
 
 function StatusTile({
   title,
