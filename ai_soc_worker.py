@@ -5,6 +5,7 @@ import urllib3
 from datetime import datetime, timezone
 from correlation_engine import correlate_incident
 from correlation_precheck import evaluate_correlation_precheck
+from noise_suppression import evaluate_noise_suppression
 from rag_retriever import retrieve_security_context
 from llm_output import is_invalid_llm_output, sanitize_llm_output
 from event_aggregation import (
@@ -306,6 +307,26 @@ def process_alert(alert):
 
     except Exception as exc:
         print(f"[yellow]Event aggregation non riuscita, continuo senza dedup:[/yellow] {exc}")
+
+    noise_decision = evaluate_noise_suppression(
+        alert,
+        aggregation_result=aggregation_result,
+    )
+
+    if noise_decision.get("should_suppress"):
+        update_security_alert_status(
+            event_record_ids.get("security_alert_id"),
+            "SUPPRESSED_NOISE",
+        )
+        print(
+            "[dim]Security alert soppresso da noise policy: "
+            f"doc_id={doc_id} "
+            f"policy={noise_decision.get('policy_id')} "
+            f"rule_id={noise_decision.get('rule_id')} "
+            f"level={noise_decision.get('level')} "
+            f"reasons={noise_decision.get('reasons')}[/dim]"
+        )
+        return "suppressed_noise"
 
     precheck = evaluate_correlation_precheck(
         alert,
