@@ -308,6 +308,68 @@ def add_structured_ai_text(
         )
 
 
+
+def workflow_decision_note(status: str | None) -> str:
+    normalized = (status or "").upper()
+
+    if normalized in {"CLOSED", "FALSE_POSITIVE"}:
+        return "The case has reached a terminal workflow state. Retain the report as evidence of review and decision."
+
+    if normalized in {"ESCALATED", "INVESTIGATING"}:
+        return "The case requires active investigation or management attention until ownership, evidence and remediation are confirmed."
+
+    if normalized in {"OPEN", "NEW", "TRIAGED"}:
+        return "The case remains open for human review. Evidence, ownership, residual risk and closure decision should be documented before closure."
+
+    return "The workflow status should be reviewed by an analyst before external distribution."
+
+
+def severity_governance_note(severity: str | None, severity_review: str | None) -> str:
+    current = (severity or "").upper()
+    reviewed = (severity_review or "").upper()
+
+    if current and reviewed and current != reviewed:
+        return (
+            "The reviewed severity differs from the current case severity. "
+            "A human validation step is required before using this report for executive or audit purposes."
+        )
+
+    return "No severity review discrepancy is currently visible in the case metadata."
+
+
+def closure_readiness_note(readiness: dict | None) -> str:
+    readiness = readiness or {}
+
+    if readiness.get("ready_to_close"):
+        return "The case appears ready for closure review based on the configured closure checklist."
+
+    blockers = readiness.get("blocking_items") or []
+    if blockers:
+        return (
+            "Closure is blocked because mandatory closure fields or decisions are still missing: "
+            + ", ".join(str(item) for item in blockers[:6])
+            + ("." if len(blockers) <= 6 else ", ...")
+        )
+
+    return "Closure is not yet confirmed. Review the checklist and open actions before changing workflow status."
+
+
+def build_decision_brief(case, readiness, styles):
+    rows = [
+        ("Workflow decision", workflow_decision_note(case.get("status"))),
+        (
+            "Severity governance",
+            severity_governance_note(
+                case.get("severity"),
+                case.get("severity_review"),
+            ),
+        ),
+        ("Closure readiness", closure_readiness_note(readiness)),
+        ("SLA posture", case.get("sla_status")),
+    ]
+
+    return build_key_value_table(rows, styles)
+
 def build_key_value_table(rows: list[tuple[str, object]], styles):
     data = [
         [
@@ -535,6 +597,10 @@ def build_executive_pdf_bytes(payload: dict) -> bytes:
     )
 
     story.append(build_metric_cards(case, readiness, actions, incidents, styles))
+    story.append(Spacer(1, 0.4 * cm))
+
+    story.append(Paragraph("Executive Decision Brief", styles["section"]))
+    story.append(build_decision_brief(case, readiness, styles))
     story.append(Spacer(1, 0.4 * cm))
 
     story.append(Paragraph("Executive Summary", styles["section"]))
