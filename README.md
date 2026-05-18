@@ -8,9 +8,11 @@ The project is built for environments where **data sovereignty**, **local execut
 
 ## Current Status
 
-This repository is currently moving toward the **v0.2 Release Candidate**.
+This repository is currently at **Sovereign AI SOC v0.4.0**.
 
-The v0.2 scope includes:
+The v0.4.0 release completes a major operational maturity phase of the project, moving the platform beyond a functional SOC demo toward a more credible local-first security operations assistant.
+
+The current scope includes:
 
 - Enterprise-style SOC dashboard
 - Incident queue and incident detail views
@@ -19,16 +21,29 @@ The v0.2 scope includes:
 - Case workflow management
 - Case closure checklist and closure readiness validation
 - Analyst evidence pack export
+- Enterprise incident and case report templates
 - Executive PDF report generation
 - Executive summary dashboard
 - Detection quality dashboard
 - Synthetic test runner from the GUI
 - Platform health dashboard
+- Worker and ingest metrics rendering
+- AI runtime observability
+- Event aggregation and deduplication
+- Raw events / security alerts / incidents / cases separation
+- Correlation-first ingestion
+- Deterministic noise suppression
+- AI triage timeout and fallback policy
+- Risk normalization and controlled historical backfill
+- DB retention, cleanup, backup and restore documentation
+- Regression and smoke validation script
+- Production/demo hardening documentation
 - Local user management and personal login
 - Admin user management page
+- RBAC-aware frontend authorization
+- Security audit UI for administrators
 - Local HTTPS access through Nginx
-
----
+- Cloudflare Access protected demo posture
 
 ## Why This Project Exists
 
