@@ -11,7 +11,7 @@ from requests.auth import HTTPBasicAuth
 from sqlalchemy import text as sql_text
 
 from database import engine, SessionLocal
-from models import Incident, WorkerHeartbeat, utc_now
+from models import Incident, RawEvent, SecurityAlert, WorkerHeartbeat, utc_now
 from wazuh_ingest_state import get_watermark_snapshot
 
 urllib3.disable_warnings()
@@ -29,6 +29,8 @@ EVENT_BACKLOG_WARN_THRESHOLD = int(os.getenv("EVENT_BACKLOG_WARN_THRESHOLD", "50
 EVENT_BACKLOG_ERROR_THRESHOLD = int(os.getenv("EVENT_BACKLOG_ERROR_THRESHOLD", "500"))
 LATEST_INCIDENT_WARN_AFTER_SECONDS = int(os.getenv("LATEST_INCIDENT_WARN_AFTER_SECONDS", "900"))
 LATEST_INCIDENT_ERROR_AFTER_SECONDS = int(os.getenv("LATEST_INCIDENT_ERROR_AFTER_SECONDS", "3600"))
+LATEST_EVENT_RECORD_WARN_AFTER_SECONDS = int(os.getenv("LATEST_EVENT_RECORD_WARN_AFTER_SECONDS", "900"))
+LATEST_EVENT_RECORD_ERROR_AFTER_SECONDS = int(os.getenv("LATEST_EVENT_RECORD_ERROR_AFTER_SECONDS", "3600"))
 
 
 def now_iso():
@@ -346,6 +348,125 @@ def check_cloudflare_tunnel():
         )
 
 
+
+def normalize_db_dt(value):
+    if not value:
+        return None
+
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        parsed = parse_wazuh_dt(value)
+
+    if parsed and parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+
+    return parsed
+
+
+def latest_record_age_seconds(model, timestamp_field="updated_at"):
+    db = SessionLocal()
+
+    try:
+        timestamp_column = getattr(model, timestamp_field)
+        row = (
+            db.query(model)
+            .order_by(timestamp_column.desc().nullslast(), model.id.desc())
+            .first()
+        )
+
+        if not row:
+            return None, None
+
+        timestamp_value = getattr(row, timestamp_field, None)
+        timestamp_dt = normalize_db_dt(timestamp_value)
+
+        if not timestamp_dt:
+            return row, None
+
+        return row, round((utc_now() - timestamp_dt).total_seconds(), 2)
+
+    finally:
+        db.close()
+
+
+def check_event_record_freshness(model, component, label):
+    started_at = time.perf_counter()
+    row, age_seconds = latest_record_age_seconds(model, "updated_at")
+
+    if not row:
+        return component_result(
+            component=component,
+            status="WARN",
+            message=f"No {label} record is available yet.",
+            started_at=started_at,
+            details={
+                "warn_after_seconds": LATEST_EVENT_RECORD_WARN_AFTER_SECONDS,
+                "error_after_seconds": LATEST_EVENT_RECORD_ERROR_AFTER_SECONDS,
+            },
+        )
+
+    if age_seconds is None:
+        return component_result(
+            component=component,
+            status="WARN",
+            message=f"Latest {label} timestamp could not be parsed.",
+            started_at=started_at,
+            details={
+                "record_id": row.id,
+                "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+            },
+        )
+
+    status = "OK"
+
+    if age_seconds > LATEST_EVENT_RECORD_ERROR_AFTER_SECONDS:
+        status = "ERROR"
+    elif age_seconds > LATEST_EVENT_RECORD_WARN_AFTER_SECONDS:
+        status = "WARN"
+
+    details = {
+        "record_id": row.id,
+        "source_event_id": getattr(row, "source_event_id", None),
+        "event_timestamp": getattr(row, "event_timestamp", None),
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        "agent": getattr(row, "agent", None),
+        "rule_id": getattr(row, "rule_id", None),
+        "age_seconds": age_seconds,
+        "warn_after_seconds": LATEST_EVENT_RECORD_WARN_AFTER_SECONDS,
+        "error_after_seconds": LATEST_EVENT_RECORD_ERROR_AFTER_SECONDS,
+    }
+
+    if hasattr(row, "status"):
+        details["record_status"] = row.status
+
+    if hasattr(row, "incident_id"):
+        details["incident_id"] = row.incident_id
+
+    return component_result(
+        component=component,
+        status=status,
+        message=f"Latest {label} record was updated {age_seconds}s ago.",
+        started_at=started_at,
+        details=details,
+    )
+
+
+def check_latest_raw_event_freshness():
+    return check_event_record_freshness(
+        RawEvent,
+        "latest_raw_event_freshness",
+        "raw event",
+    )
+
+
+def check_latest_security_alert_freshness():
+    return check_event_record_freshness(
+        SecurityAlert,
+        "latest_security_alert_freshness",
+        "security alert",
+    )
+
 def check_latest_incident_freshness():
     started_at = time.perf_counter()
     db = SessionLocal()
@@ -381,16 +502,37 @@ def check_latest_incident_freshness():
 
         age_seconds = round((utc_now() - incident_ts).total_seconds(), 2)
 
+        security_alert, security_alert_age_seconds = latest_record_age_seconds(
+            SecurityAlert,
+            "updated_at",
+        )
+
         status = "OK"
+        message = f"Latest processed incident is {age_seconds}s old."
+        incident_creation_delayed_but_pipeline_active = False
+
         if age_seconds > LATEST_INCIDENT_ERROR_AFTER_SECONDS:
             status = "ERROR"
         elif age_seconds > LATEST_INCIDENT_WARN_AFTER_SECONDS:
             status = "WARN"
 
+        if (
+            status in {"WARN", "ERROR"}
+            and security_alert_age_seconds is not None
+            and security_alert_age_seconds <= LATEST_EVENT_RECORD_WARN_AFTER_SECONDS
+        ):
+            status = "OK"
+            incident_creation_delayed_but_pipeline_active = True
+            message = (
+                f"Latest incident creation is {age_seconds}s old, "
+                f"but security alert processing is active "
+                f"({security_alert_age_seconds}s old)."
+            )
+
         return component_result(
             component="latest_incident_freshness",
             status=status,
-            message=f"Latest processed incident is {age_seconds}s old.",
+            message=message,
             started_at=started_at,
             details={
                 "incident_id": incident.id,
@@ -401,6 +543,9 @@ def check_latest_incident_freshness():
                 "age_seconds": age_seconds,
                 "warn_after_seconds": LATEST_INCIDENT_WARN_AFTER_SECONDS,
                 "error_after_seconds": LATEST_INCIDENT_ERROR_AFTER_SECONDS,
+                "security_alert_age_seconds": security_alert_age_seconds,
+                "latest_security_alert_id": security_alert.id if security_alert else None,
+                "incident_creation_delayed_but_pipeline_active": incident_creation_delayed_but_pipeline_active,
             },
         )
 
@@ -672,6 +817,8 @@ def get_platform_health():
         check_wazuh_ingest(),
         check_event_processing_queue(),
         check_active_event_sources(),
+        check_latest_raw_event_freshness(),
+        check_latest_security_alert_freshness(),
         check_latest_incident_freshness(),
         check_qdrant(),
         check_worker(),

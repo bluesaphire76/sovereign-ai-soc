@@ -60,6 +60,8 @@ const COMPONENT_ORDER = [
   "wazuh_ingest",
   "event_processing_queue",
   "active_event_sources",
+  "latest_raw_event_freshness",
+  "latest_security_alert_freshness",
   "latest_incident_freshness",
   "ai_soc_worker",
   "cloudflare_tunnel",
@@ -125,7 +127,9 @@ function componentLabel(component: string) {
   return component
     .replace("event_processing_queue", "Event processing queue")
     .replace("active_event_sources", "Active event sources")
-    .replace("latest_incident_freshness", "Latest incident freshness")
+    .replace("latest_raw_event_freshness", "Latest RAW event freshness")
+    .replace("latest_security_alert_freshness", "Latest SEC event freshness")
+    .replace("latest_incident_freshness", "Latest incident creation freshness")
     .replace("cloudflare_tunnel", "Cloudflare tunnel")
     .replace("ai_soc_worker", "AI SOC worker")
     .replace("wazuh_indexer", "Wazuh indexer")
@@ -332,7 +336,7 @@ export default function HealthPage() {
               <StatusTile
                 title="Latest risk"
                 value={health?.latest_incident?.risk_score ?? 0}
-                subtitle="Last processed event"
+                subtitle="Last incident risk"
                 icon={<AlertTriangle className="h-4 w-4" />}
                 tone={(health?.latest_incident?.risk_score ?? 0) >= 81 ? "ERROR" : (health?.latest_incident?.risk_score ?? 0) >= 61 ? "WARN" : "OK"}
               />
