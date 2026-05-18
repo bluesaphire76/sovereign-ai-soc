@@ -1,0 +1,140 @@
+from __future__ import annotations
+
+import os
+import time
+from typing import Any
+
+import requests
+
+
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:8b")
+
+AI_RUNTIME_HEALTH_TIMEOUT_SECONDS = float(
+    os.getenv("AI_RUNTIME_HEALTH_TIMEOUT_SECONDS", "3")
+)
+AI_RUNTIME_HEALTH_CHAT_ENABLED = (
+    os.getenv("AI_RUNTIME_HEALTH_CHAT_ENABLED", "false").strip().lower()
+    in {"1", "true", "yes", "on"}
+)
+AI_RUNTIME_HEALTH_CHAT_TIMEOUT_SECONDS = float(
+    os.getenv("AI_RUNTIME_HEALTH_CHAT_TIMEOUT_SECONDS", "20")
+)
+
+
+def _empty_model_details() -> dict[str, Any]:
+    return {
+        "name": None,
+        "family": None,
+        "families": [],
+        "parameter_size": None,
+        "quantization_level": None,
+        "format": None,
+        "size_bytes": None,
+        "modified_at": None,
+        "digest": None,
+    }
+
+
+def _normalize_model(item: dict[str, Any]) -> dict[str, Any]:
+    details = item.get("details") or {}
+
+    return {
+        "name": item.get("name") or item.get("model"),
+        "family": details.get("family"),
+        "families": details.get("families") or [],
+        "parameter_size": details.get("parameter_size"),
+        "quantization_level": details.get("quantization_level"),
+        "format": details.get("format"),
+        "size_bytes": item.get("size"),
+        "modified_at": item.get("modified_at"),
+        "digest": item.get("digest"),
+    }
+
+
+def get_ollama_runtime_snapshot() -> dict[str, Any]:
+    started_at = time.perf_counter()
+
+    response = requests.get(
+        f"{OLLAMA_BASE_URL}/api/tags",
+        timeout=AI_RUNTIME_HEALTH_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+
+    latency_ms = round((time.perf_counter() - started_at) * 1000, 2)
+
+    payload = response.json()
+    raw_models = payload.get("models") or []
+    models = [_normalize_model(item) for item in raw_models]
+
+    configured = next(
+        (
+            item
+            for item in models
+            if item.get("name") == OLLAMA_MODEL
+            or item.get("name", "").split(":")[0] == OLLAMA_MODEL.split(":")[0]
+        ),
+        None,
+    )
+
+    return {
+        "provider": "ollama",
+        "base_url": OLLAMA_BASE_URL,
+        "configured_model": OLLAMA_MODEL,
+        "model_present": configured is not None,
+        "available_model_count": len(models),
+        "available_models": [item.get("name") for item in models if item.get("name")],
+        "configured_model_details": configured or _empty_model_details(),
+        "tags_latency_ms": latency_ms,
+        "health_chat_enabled": AI_RUNTIME_HEALTH_CHAT_ENABLED,
+        "health_timeout_seconds": AI_RUNTIME_HEALTH_TIMEOUT_SECONDS,
+        "health_chat_timeout_seconds": AI_RUNTIME_HEALTH_CHAT_TIMEOUT_SECONDS,
+    }
+
+
+def run_optional_ollama_chat_probe() -> dict[str, Any] | None:
+    if not AI_RUNTIME_HEALTH_CHAT_ENABLED:
+        return None
+
+    started_at = time.perf_counter()
+
+    response = requests.post(
+        f"{OLLAMA_BASE_URL}/api/chat",
+        json={
+            "model": OLLAMA_MODEL,
+            "stream": False,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "Return only the word OK.",
+                }
+            ],
+        },
+        timeout=AI_RUNTIME_HEALTH_CHAT_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+
+    latency_ms = round((time.perf_counter() - started_at) * 1000, 2)
+    payload = response.json()
+
+    return {
+        "latency_ms": latency_ms,
+        "done": payload.get("done"),
+        "done_reason": payload.get("done_reason"),
+        "total_duration_ns": payload.get("total_duration"),
+        "load_duration_ns": payload.get("load_duration"),
+        "prompt_eval_count": payload.get("prompt_eval_count"),
+        "prompt_eval_duration_ns": payload.get("prompt_eval_duration"),
+        "eval_count": payload.get("eval_count"),
+        "eval_duration_ns": payload.get("eval_duration"),
+    }
+
+
+def get_ai_runtime_health_details() -> dict[str, Any]:
+    snapshot = get_ollama_runtime_snapshot()
+    chat_probe = run_optional_ollama_chat_probe()
+
+    if chat_probe is not None:
+        snapshot["chat_probe"] = chat_probe
+
+    return snapshot
