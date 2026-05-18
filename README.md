@@ -696,3 +696,16 @@ See:
 - `docs/v0.3-release-notes.md`
 - `docs/v0.3-release-checklist.md`
 - `docs/v0.3-final-validation.md`
+
+## v0.4 operational maturity documents
+
+The v0.4 roadmap adds operational hardening around ingestion quality, AI triage robustness, risk governance, reporting, database lifecycle and release validation.
+
+Key v0.4 documents:
+
+- `docs/v0.4-risk-normalization-dry-run.md`
+- `docs/v0.4-db-retention-backup-restore.md`
+- `docs/v0.4-regression-smoke-validation.md`
+- `docs/v0.4-production-demo-hardening.md`
+- `docs/v0.4-release-checklist.md`
+
