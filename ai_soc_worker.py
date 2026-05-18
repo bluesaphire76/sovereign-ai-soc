@@ -13,6 +13,8 @@ from wazuh_ingest_state import (
     get_or_create_watermark,
     update_watermark_error,
     update_watermark_success,
+    update_watermark_progress,
+    WAZUH_WATERMARK_FLUSH_EVERY,
 )
 
 import ollama
@@ -323,7 +325,7 @@ def run_worker():
             processed_count = 0
             skipped_count = 0
 
-            for alert in alerts:
+            for index, alert in enumerate(alerts, start=1):
                 update_worker_heartbeat(
                     "OK",
                     details={
@@ -342,6 +344,14 @@ def run_worker():
                     processed_count += 1
                 else:
                     skipped_count += 1
+
+                if index % WAZUH_WATERMARK_FLUSH_EVERY == 0:
+                    update_watermark_progress(
+                        alerts=alerts[:index],
+                        processed_count=processed_count,
+                        skipped_count=skipped_count,
+                        query_info=query_info,
+                    )
 
             update_watermark_success(
                 alerts=alerts,
