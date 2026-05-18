@@ -638,3 +638,33 @@ Apache License 2.0
 Sovereign AI SOC is an experimental AI-assisted SOC platform.
 
 It is not a certified SIEM, SOAR, MDR platform, or compliance product. All AI-generated content must be reviewed by qualified security personnel before operational or executive decisions are made.
+
+## v0.3 release status
+
+Sovereign AI SOC v0.3 introduces the security, operational and enterprise UX hardening needed to move the project beyond the initial prototype stage.
+
+Key v0.3 improvements include:
+
+- Role-based access control for `ADMIN`, `ANALYST` and `VIEWER`
+- Admin-only Security Audit UI
+- Security-relevant audit logging
+- Token/session robustness
+- Frontend authorization alignment with `/auth/me`
+- Nginx security headers and runtime binding hardening
+- Secrets and configuration hardening
+- PostgreSQL 18.4 Docker runtime migration
+- Wazuh ingest and worker hardening
+- Health observability components
+- Enterprise-style sidebar navigation
+- Improved Case Queue and Case Detail UX
+- Dedicated Incidents page
+- Create Case from Incident workflow
+- Admin-only enable/disable user workflow
+
+The platform remains local-first and human-in-the-loop: AI supports triage, correlation, investigation summaries and remediation planning, but does not execute security actions automatically.
+
+See:
+
+- `docs/v0.3-release-notes.md`
+- `docs/v0.3-release-checklist.md`
+- `docs/v0.3-final-validation.md`
