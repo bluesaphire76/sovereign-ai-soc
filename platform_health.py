@@ -209,7 +209,7 @@ def check_event_processing_queue():
             status="ERROR",
             message="Event backlog check failed.",
             started_at=started_at,
-            details={"error": str(exc)},
+            details={"error": "internal_error"},
         )
 
 
@@ -274,7 +274,7 @@ def check_active_event_sources():
             status="ERROR",
             message="Active event source check failed.",
             started_at=started_at,
-            details={"error": str(exc)},
+            details={"error": "internal_error"},
         )
 
 
@@ -342,7 +342,7 @@ def check_cloudflare_tunnel():
             status="ERROR",
             message="Cloudflare tunnel check failed.",
             started_at=started_at,
-            details={"error": str(exc)},
+            details={"error": "internal_error"},
         )
 
 
@@ -410,7 +410,7 @@ def check_latest_incident_freshness():
             status="ERROR",
             message="Latest incident freshness check failed.",
             started_at=started_at,
-            details={"error": str(exc)},
+            details={"error": "internal_error"},
         )
 
     finally:

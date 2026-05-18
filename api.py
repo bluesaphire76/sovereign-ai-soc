@@ -1574,7 +1574,7 @@ def create_case_from_incident(incident_id: int, request: Request):
             target_type="INCIDENT",
             target_id=incident_id,
             request=request,
-            details={"error": str(exc)},
+            details={"error": "internal_error"},
         )
         raise
 
@@ -3126,7 +3126,7 @@ def suggest_case_action_plan(case_id: int, request: Request):
     except Exception as exc:
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to generate case action suggestions: {exc}",
+            detail="Failed to generate case action suggestions.",
         )
 
 
