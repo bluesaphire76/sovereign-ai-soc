@@ -6,9 +6,6 @@ from fastapi import FastAPI, HTTPException, Query, Response, Depends, Header, Re
 from sqlalchemy import func, or_, case as sql_case
 
 from database import SessionLocal
-from report_builder import build_case_report, build_incident_report
-from evidence_pack_builder import build_case_evidence_pack
-from executive_pdf_builder import build_case_executive_pdf
 from case_ai_analysis import generate_case_ai_analysis
 from case_action_suggestions import generate_case_action_suggestions
 from case_timeline import build_case_timeline
@@ -17,6 +14,7 @@ from timezone_utils import APP_TIMEZONE, format_timestamp_local, normalize_times
 from wazuh_ingest_state import get_watermark_snapshot
 from auth_utils import create_access_token, decode_access_token, hash_password, verify_password
 from routers.health import router as health_router
+from routers.reports import router as reports_router
 
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -42,6 +40,7 @@ app.add_middleware(
 )
 
 app.include_router(health_router)
+app.include_router(reports_router)
 
 VALID_INCIDENT_STATUSES = {
     "NEW",
@@ -1986,121 +1985,6 @@ def executive_summary():
     finally:
         db.close()
 
-
-
-@app.get("/reports/incidents/{incident_id}")
-def export_incident_report(
-    incident_id: int,
-    format: str = Query("markdown"),
-):
-    if format not in {"markdown", "json"}:
-        raise HTTPException(status_code=400, detail="format must be markdown or json")
-
-    try:
-        report = build_incident_report(incident_id)
-
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail="Resource not found.")
-
-    if format == "json":
-        filename = report["filename"].replace(".md", ".json")
-
-        return JSONResponse(
-            content=report["payload"],
-            headers={
-                "Content-Disposition": f'attachment; filename="{filename}"',
-            },
-        )
-
-    return Response(
-        content=report["markdown"],
-        media_type="text/markdown; charset=utf-8",
-        headers={
-            "Content-Disposition": f'attachment; filename="{report["filename"]}"',
-        },
-    )
-
-
-@app.get("/reports/cases/{case_id}")
-def export_case_report(
-    case_id: int,
-    format: str = Query("markdown"),
-):
-    if format not in {"markdown", "json"}:
-        raise HTTPException(status_code=400, detail="format must be markdown or json")
-
-    try:
-        report = build_case_report(case_id)
-
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail="Resource not found.")
-
-    if format == "json":
-        filename = report["filename"].replace(".md", ".json")
-
-        return JSONResponse(
-            content=report["payload"],
-            headers={
-                "Content-Disposition": f'attachment; filename="{filename}"',
-            },
-        )
-
-    return Response(
-        content=report["markdown"],
-        media_type="text/markdown; charset=utf-8",
-        headers={
-            "Content-Disposition": f'attachment; filename="{report["filename"]}"',
-        },
-    )
-
-@app.get("/reports/cases/{case_id}/executive-pdf")
-def export_case_executive_pdf(case_id: int):
-    try:
-        report = build_case_executive_pdf(case_id)
-
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail="Resource not found.")
-
-    return Response(
-        content=report["pdf"],
-        media_type="application/pdf",
-        headers={
-            "Content-Disposition": f'attachment; filename="{report["filename"]}"',
-        },
-    )
-
-
-@app.get("/reports/cases/{case_id}/evidence-pack")
-def export_case_evidence_pack(
-    case_id: int,
-    format: str = Query("markdown"),
-):
-    if format not in {"markdown", "json"}:
-        raise HTTPException(status_code=400, detail="format must be markdown or json")
-
-    try:
-        report = build_case_evidence_pack(case_id)
-
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail="Resource not found.")
-
-    if format == "json":
-        filename = report["filename"].replace(".md", ".json")
-
-        return JSONResponse(
-            content=report["payload"],
-            headers={
-                "Content-Disposition": f'attachment; filename="{filename}"',
-            },
-        )
-
-    return Response(
-        content=report["markdown"],
-        media_type="text/markdown; charset=utf-8",
-        headers={
-            "Content-Disposition": f'attachment; filename="{report["filename"]}"',
-        },
-    )
 
 
 @app.get("/metrics/status-distribution")
