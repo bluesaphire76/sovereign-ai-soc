@@ -6,6 +6,11 @@ from datetime import datetime, timezone
 from correlation_engine import correlate_incident
 from rag_retriever import retrieve_security_context
 from llm_output import is_invalid_llm_output, sanitize_llm_output
+from event_aggregation import (
+    EVENT_AGGREGATION_WINDOW_MINUTES,
+    aggregate_alert,
+    record_aggregate_incident,
+)
 from timezone_utils import normalize_timestamp_utc
 from wazuh_ingest_state import (
     WAZUH_BATCH_SIZE,
@@ -272,6 +277,23 @@ def process_alert(alert):
         print(f"[dim]Già processato: {doc_id}[/dim]")
         return "skipped_duplicate"
 
+    aggregation_result = {}
+
+    try:
+        aggregation_result = aggregate_alert(alert)
+
+    except Exception as exc:
+        print(f"[yellow]Event aggregation non riuscita, continuo senza dedup:[/yellow] {exc}")
+
+    if aggregation_result.get("duplicate"):
+        print(
+            "[dim]Evento aggregato entro finestra dedup: "
+            f"fingerprint={aggregation_result.get('fingerprint')} "
+            f"count={aggregation_result.get('count')} "
+            f"window={aggregation_result.get('window_minutes')}m[/dim]"
+        )
+        return "skipped_aggregated_duplicate"
+
     print("\n[bold cyan]Nuovo alert rilevato[/bold cyan]")
     print(
         {
@@ -285,6 +307,13 @@ def process_alert(alert):
 
     analysis = analyze_alert(alert)
     incident_id = save_incident(alert, analysis)
+
+    if aggregation_result.get("fingerprint"):
+        record_aggregate_incident(
+            aggregation_result.get("fingerprint"),
+            incident_id,
+        )
+
     correlate_incident(incident_id)
 
     print("[bold green]Alert analizzato e salvato in PostgreSQL.[/bold green]")
@@ -295,6 +324,7 @@ def run_worker():
     print("[bold green]AI SOC Worker avviato.[/bold green]")
     print(f"Polling interval: {POLL_INTERVAL_SECONDS} secondi")
     print(f"Modello Ollama: {OLLAMA_MODEL}")
+    print(f"Event aggregation window: {EVENT_AGGREGATION_WINDOW_MINUTES} minuti")
 
     update_worker_heartbeat(
         "STARTING",

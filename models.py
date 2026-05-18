@@ -168,6 +168,37 @@ class CaseAIAnalysis(Base):
     created_by = Column(String, default="llm")
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
 
+
+class EventAggregate(Base):
+    __tablename__ = "event_aggregates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    fingerprint = Column(String, unique=True, index=True, nullable=False)
+
+    source = Column(String, default="wazuh", index=True, nullable=False)
+    rule_id = Column(String, index=True)
+    rule_description = Column(Text)
+    agent = Column(String, index=True)
+    location = Column(String, index=True)
+    decoder = Column(String, index=True)
+    level = Column(Integer)
+    severity_bucket = Column(String, index=True)
+
+    first_seen = Column(String, index=True)
+    last_seen = Column(String, index=True)
+    count = Column(Integer, default=1, nullable=False)
+
+    first_wazuh_doc_id = Column(String)
+    last_wazuh_doc_id = Column(String)
+    last_incident_id = Column(Integer, index=True)
+
+    sample_event_json = Column(Text)
+    last_event_json = Column(Text)
+
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
 class WorkerHeartbeat(Base):
     __tablename__ = "worker_heartbeats"
 
