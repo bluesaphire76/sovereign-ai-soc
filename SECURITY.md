@@ -1,108 +1,117 @@
 # Security Policy
 
-## Supported Versions
+## Project security posture
 
-Sovereign AI SOC is currently in early release development.
+Sovereign AI SOC is a local-first, human-in-the-loop security operations platform.
 
-| Version | Supported |
+The project is designed to support:
+
+- local SOC experimentation and demos;
+- AI-assisted incident triage;
+- Wazuh event ingestion;
+- incident and case management;
+- security audit visibility;
+- role-based access control;
+- operational health monitoring.
+
+AI is used to support investigation, correlation, summarization and remediation planning. It does not execute remediation actions automatically.
+
+## Supported versions
+
+| Version | Security support |
 |---|---|
-| v0.2.x | Yes |
-| v0.1.x | Limited |
-| Older versions | No |
+| v0.3.x | Supported |
+| v0.2.x | Best-effort critical fixes only |
+| < v0.2 | Not supported |
 
----
+## Reporting a vulnerability
 
-## Reporting a Vulnerability
+Please do **not** report security vulnerabilities through public GitHub issues.
 
-Please do not report security vulnerabilities through public GitHub issues.
+Use one of the following private channels:
 
-If you discover a vulnerability, use one of the following options:
+1. GitHub private vulnerability reporting, if enabled for this repository.
+2. Direct contact with the repository maintainer.
 
-1. Open a private GitHub Security Advisory, if available for this repository.
-2. Contact the repository maintainer privately through an agreed secure channel.
+When reporting a vulnerability, please include:
 
-When reporting a vulnerability, include:
+- affected version or commit;
+- clear description of the issue;
+- steps to reproduce;
+- expected impact;
+- relevant logs, screenshots or payloads if safe to share;
+- whether the issue affects local-only deployments, exposed demo deployments or both.
 
-- A clear description of the issue
-- Affected component or file
-- Steps to reproduce
-- Potential impact
-- Suggested mitigation, if known
-- Whether the issue may expose credentials, tokens, SOC data, or internal system details
+Do not include production secrets, passwords, tokens, private keys or sensitive personal data in the report.
 
-Do not include real customer data, production secrets, or sensitive SOC logs.
+## Security response expectations
 
----
+This is an open-source project and response times are best-effort.
 
-## Security Scope
+Target response times:
 
-Security-sensitive areas include:
+| Severity | Target initial response |
+|---|---|
+| Critical | 72 hours |
+| High | 7 days |
+| Medium | 14 days |
+| Low | Best effort |
 
-- Authentication and session handling
-- User management
-- Authorization and role enforcement
-- API endpoints
-- Evidence export
-- Executive PDF report generation
-- Case and incident data handling
-- Synthetic test generation
-- Local runtime secrets
-- Nginx and systemd deployment configuration
-- Any future external AI provider integration
+Fix timelines depend on impact, reproducibility and project capacity.
 
----
+## Security boundaries
 
-## Current Security Notes
+The following are considered in scope:
 
-Sovereign AI SOC is intended for local-first controlled environments.
+- authentication and session handling;
+- authorization and RBAC bypasses;
+- privilege escalation between `VIEWER`, `ANALYST` and `ADMIN`;
+- exposure of secrets or sensitive configuration;
+- unauthenticated access to protected API routes;
+- security audit bypass or tampering;
+- unsafe case/incident operations;
+- injection vulnerabilities;
+- unsafe file or report handling;
+- insecure default deployment configuration.
 
-Important operational notes:
+The following are generally out of scope:
 
-- Do not expose the system directly to the public Internet without additional hardening.
-- Use HTTPS through a trusted reverse proxy.
-- Use strong secrets for authentication token signing.
-- Do not commit `.runtime/`, `.env`, credentials, certificates, or private keys.
-- Rotate default or temporary credentials immediately.
-- Review access to local SOC data before enabling external integrations.
-- Treat AI-generated analysis as decision support, not as authoritative security evidence.
+- vulnerabilities in local lab infrastructure not caused by this project;
+- attacks requiring full administrative access to the host;
+- denial-of-service through intentionally excessive local workload;
+- vulnerabilities in third-party dependencies without a demonstrated impact on this project;
+- findings based only on automated scanner output without validation.
 
----
+## Deployment security notes
 
-## Dependency Vulnerabilities
+Recommended secure deployment practices:
 
-Dependency vulnerabilities should be reviewed based on:
+- keep `.env` and runtime secrets out of version control;
+- use strong JWT secrets;
+- expose the application only behind a trusted reverse proxy;
+- keep API and frontend runtime bindings on `127.0.0.1` where possible;
+- use TLS when exposing the UI remotely;
+- restrict remote access through a controlled tunnel, VPN or equivalent secure access layer;
+- keep Wazuh, PostgreSQL, Python dependencies and Node dependencies updated;
+- use `ADMIN` accounts only where required;
+- regularly review Security Audit events.
 
-- Actual runtime usage
-- Exploitability in the project context
-- Availability of a patched version
-- Risk of breaking the application through forced upgrades
-- Whether the vulnerable code path is actually used
+## Secrets handling
 
-If a dependency advisory is not exploitable in the current project usage, document the assessment under `docs/security/`.
+The repository must not contain:
 
----
+- `.env` files with real secrets;
+- passwords;
+- API tokens;
+- private keys;
+- production database credentials;
+- Cloudflare tunnel credentials;
+- Wazuh credentials.
 
-## Disclosure Process
+Use the provided example files as templates only.
 
-After a vulnerability is reported, maintainers should:
+## Responsible disclosure
 
-1. Acknowledge receipt.
-2. Validate the finding.
-3. Assess severity and exploitability.
-4. Prepare a fix or mitigation.
-5. Release the fix.
-6. Credit the reporter if appropriate and agreed.
+Please allow reasonable time for investigation and remediation before public disclosure.
 
----
-
-## Security Hardening Roadmap
-
-Planned security improvements include:
-
-- API-wide authentication enforcement
-- Full role-based access control
-- More granular audit logging
-- Stronger session handling
-- Improved secrets management
-- Production deployment hardening
-- Optional external identity provider integration
+Security fixes may be released as patch versions when appropriate.
