@@ -1,0 +1,90 @@
+<!--
+  Sovereign AI SOC v0.5 demo scenario rules.
+
+  Defensive/lab-only rules for controlled demo JSONL events emitted by:
+  tools/synthetic_scenarios/emit_demo_scenario_pack.py
+
+  These rules do not execute any action.
+  They only classify synthetic demo events with predictable severity.
+-->
+
+<group name="ai_soc_demo,local,">
+
+  <rule id="100210" level="10">
+    <decoded_as>json</decoded_as>
+    <field name="source">sovereign-ai-soc-demo-pack</field>
+    <field name="scenario">brute_force_ssh</field>
+    <description>AI SOC demo scenario: brute force SSH</description>
+    <mitre>
+      <id>T1110</id>
+      <id>T1021.004</id>
+    </mitre>
+    <group>ai_soc_demo,authentication_failed,credential_access,</group>
+  </rule>
+
+  <rule id="100211" level="12">
+    <decoded_as>json</decoded_as>
+    <field name="source">sovereign-ai-soc-demo-pack</field>
+    <field name="scenario">sudo_escalation</field>
+    <description>AI SOC demo scenario: sudo privilege escalation</description>
+    <mitre>
+      <id>T1548</id>
+      <id>T1548.003</id>
+    </mitre>
+    <group>ai_soc_demo,privilege_escalation,sudo,</group>
+  </rule>
+
+  <rule id="100212" level="8">
+    <decoded_as>json</decoded_as>
+    <field name="source">sovereign-ai-soc-demo-pack</field>
+    <field name="scenario">suspicious_package_activity</field>
+    <description>AI SOC demo scenario: suspicious package activity</description>
+    <mitre>
+      <id>T1072</id>
+      <id>T1546</id>
+    </mitre>
+    <group>ai_soc_demo,system_change,persistence,</group>
+  </rule>
+
+  <rule id="100213" level="3">
+    <decoded_as>json</decoded_as>
+    <field name="source">sovereign-ai-soc-demo-pack</field>
+    <field name="scenario">noisy_operational_baseline</field>
+    <description>AI SOC demo scenario: noisy operational baseline</description>
+    <group>ai_soc_demo,operational_noise,</group>
+  </rule>
+
+  <rule id="100214" level="4">
+    <decoded_as>json</decoded_as>
+    <field name="source">sovereign-ai-soc-demo-pack</field>
+    <field name="scenario">false_positive</field>
+    <description>AI SOC demo scenario: analyst-confirmed false positive context</description>
+    <group>ai_soc_demo,false_positive,approved_change,</group>
+  </rule>
+
+  <rule id="100215" level="13">
+    <decoded_as>json</decoded_as>
+    <field name="source">sovereign-ai-soc-demo-pack</field>
+    <field name="scenario">real_incident</field>
+    <description>AI SOC demo scenario: real multi-stage incident</description>
+    <mitre>
+      <id>T1110</id>
+      <id>T1021.004</id>
+      <id>T1548</id>
+    </mitre>
+    <group>ai_soc_demo,attack_chain,credential_access,privilege_escalation,</group>
+  </rule>
+
+  <rule id="100216" level="12">
+    <decoded_as>json</decoded_as>
+    <field name="source">sovereign-ai-soc-demo-pack</field>
+    <field name="scenario">case_ready</field>
+    <description>AI SOC demo scenario: case-ready correlated evidence</description>
+    <mitre>
+      <id>T1110</id>
+      <id>T1548</id>
+    </mitre>
+    <group>ai_soc_demo,case_ready,correlation,</group>
+  </rule>
+
+</group>
