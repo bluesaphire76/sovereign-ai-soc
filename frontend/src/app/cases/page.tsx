@@ -41,8 +41,10 @@ type IncidentCase = {
   updated_at: string | null;
   incident_count: number;
   owner: string | null;
+  assignee: string | null;
   sla_due_at: string | null;
   sla_status: string | null;
+  sla_breach_risk: string | null;
   severity_review: string | null;
   status_reason: string | null;
   last_reviewed_by: string | null;
@@ -194,6 +196,29 @@ function aiClass(item: IncidentCase) {
 function slaLabel(value: string | null | undefined) {
   if (!value) return "NOT SET";
   return value.replaceAll("_", " ");
+}
+
+function slaRiskLabel(value: string | null | undefined) {
+  if (!value) return "UNKNOWN";
+  return value.replaceAll("_", " ");
+}
+
+function slaRiskClass(value: string | null | undefined) {
+  const risk = value ?? "UNKNOWN";
+
+  if (risk === "BREACHED" || risk === "HIGH") {
+    return "bg-red-100 text-red-800 border-red-200";
+  }
+
+  if (risk === "MEDIUM") {
+    return "bg-orange-100 text-orange-800 border-orange-200";
+  }
+
+  if (risk === "LOW" || risk === "NONE") {
+    return "bg-emerald-100 text-emerald-800 border-emerald-200";
+  }
+
+  return "bg-slate-100 text-slate-700 border-slate-200";
 }
 
 function formatTimestamp(value: string | null | undefined) {
@@ -682,7 +707,7 @@ export default function CasesPage() {
                       <strong>{cases.length}</strong> loaded cases.
                     </span>
                     <span className="min-w-0 truncate whitespace-nowrap text-slate-500">
-                      Sorted by SLA breach, escalation, severity, open actions, missing AI, closure readiness, ownership and risk score.
+                      Sorted by SLA breach, escalation, severity, open actions, missing AI, closure readiness, ownership, assignment and risk score.
                     </span>
                   </div>
                 </div>
@@ -713,6 +738,7 @@ export default function CasesPage() {
                         <th className="py-1.5 pr-2">Status</th>
                         <th className="min-w-28 whitespace-nowrap py-2 pr-3">Severity</th>
                         <th className="py-1.5 pr-2">Owner</th>
+                        <th className="py-1.5 pr-2">Assignee</th>
                         <th className="min-w-36 whitespace-nowrap py-2 pr-3">SLA</th>
                         <th className="min-w-36 whitespace-nowrap py-2 pr-3">Readiness</th>
                         <th className="min-w-28 whitespace-nowrap py-2 pr-3">Actions</th>
@@ -783,6 +809,17 @@ export default function CasesPage() {
                               )}
                             </td>
 
+                            <td className="py-2 pr-3 text-slate-300">
+                              {item.assignee ? (
+                                item.assignee
+                              ) : (
+                                <span className="inline-flex items-center gap-1 whitespace-nowrap text-orange-300">
+                                  <AlertTriangle className="h-3 w-3" />
+                                  unassigned
+                                </span>
+                              )}
+                            </td>
+
                             <td className="min-w-36 whitespace-nowrap py-2 pr-3">
                               <div className="flex min-w-40 flex-col gap-1">
                                 <span
@@ -791,6 +828,13 @@ export default function CasesPage() {
                                   )}`}
                                 >
                                   {slaLabel(item.sla_status)}
+                                </span>
+                                <span
+                                  className={`inline-flex w-fit whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] ${slaRiskClass(
+                                    item.sla_breach_risk
+                                  )}`}
+                                >
+                                  Risk {slaRiskLabel(item.sla_breach_risk)}
                                 </span>
                                 {item.sla_due_at && (
                                   <span className="whitespace-nowrap text-xs text-slate-500">

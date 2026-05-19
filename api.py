@@ -130,6 +130,7 @@ class IncidentNoteCreate(BaseModel):
 
 class CaseWorkflowUpdate(BaseModel):
     owner: str | None = None
+    assignee: str | None = None
     status: str | None = None
     severity: str | None = None
     sla_due_at: str | None = None
@@ -165,6 +166,8 @@ class CaseClosureChecklistUpdate(BaseModel):
     closure_decision: str | None = None
     final_severity: str | None = None
     residual_risk: str | None = None
+    closure_approved: bool | None = None
+    closure_approved_by: str | None = None
     reviewed_by: str | None = None
 
 
@@ -2139,6 +2142,35 @@ def calculate_case_sla_status(case: IncidentCase) -> str:
     return "BREACHED"
 
 
+def calculate_case_sla_breach_risk(case: IncidentCase) -> str:
+    status = (case.status or "OPEN").upper()
+
+    if status in {"CLOSED", "FALSE_POSITIVE"}:
+        return "NONE"
+
+    if not case.sla_due_at:
+        return "UNKNOWN"
+
+    due_at = case.sla_due_at
+
+    if due_at.tzinfo is None:
+        due_at = due_at.replace(tzinfo=timezone.utc)
+
+    now = datetime.now(timezone.utc)
+    seconds_to_due = (due_at - now).total_seconds()
+
+    if seconds_to_due < 0:
+        return "BREACHED"
+
+    if seconds_to_due <= 4 * 60 * 60:
+        return "HIGH"
+
+    if seconds_to_due <= 24 * 60 * 60:
+        return "MEDIUM"
+
+    return "LOW"
+
+
 def serialize_case(
     case: IncidentCase,
     incident_count: int | None = None,
@@ -2159,8 +2191,10 @@ def serialize_case(
         "updated_at": case.updated_at.isoformat() if case.updated_at else None,
         "incident_count": incident_count,
         "owner": case.owner,
+        "assignee": case.assignee,
         "sla_due_at": case.sla_due_at.isoformat() if case.sla_due_at else None,
         "sla_status": calculate_case_sla_status(case),
+        "sla_breach_risk": calculate_case_sla_breach_risk(case),
         "severity_review": case.severity_review,
         "status_reason": case.status_reason,
         "last_reviewed_by": case.last_reviewed_by,
@@ -2239,6 +2273,11 @@ def serialize_case_closure_checklist(row: CaseClosureChecklist | None) -> dict |
         "closure_decision": row.closure_decision,
         "final_severity": row.final_severity,
         "residual_risk": row.residual_risk,
+        "closure_approved": bool(row.closure_approved),
+        "closure_approved_by": row.closure_approved_by,
+        "closure_approved_at": row.closure_approved_at.isoformat()
+        if row.closure_approved_at
+        else None,
         "reviewed_by": row.reviewed_by,
         "reviewed_at": row.reviewed_at.isoformat() if row.reviewed_at else None,
         "created_at": row.created_at.isoformat() if row.created_at else None,
@@ -2289,11 +2328,15 @@ def validate_case_closure_readiness(
 
     if not checklist:
         missing_items.extend(required_fields.values())
+        missing_items.append("Closure approval")
     else:
         for field, label in required_fields.items():
             value = getattr(checklist, field, None)
             if not value or not str(value).strip():
                 missing_items.append(label)
+
+        if not checklist.closure_approved:
+            missing_items.append("Closure approval")
 
         if checklist.final_severity and checklist.final_severity not in VALID_CASE_SEVERITIES:
             missing_items.append(
@@ -2377,13 +2420,19 @@ def build_case_queue_flags(
     status = (case.status or "OPEN").upper()
     severity = (case.severity_review or case.severity or "LOW").upper()
     sla_status = calculate_case_sla_status(case)
+    sla_breach_risk = calculate_case_sla_breach_risk(case)
     open_action_count = int(action_stats.get("open_action_count") or 0)
 
     if status not in TERMINAL_CASE_STATUSES and not case.owner:
         flags.append("NO_OWNER")
 
+    if status not in TERMINAL_CASE_STATUSES and not case.assignee:
+        flags.append("NO_ASSIGNEE")
+
     if sla_status == "BREACHED":
         flags.append("SLA_BREACHED")
+    elif sla_breach_risk == "HIGH":
+        flags.append("SLA_BREACH_RISK")
 
     if status == "ESCALATED":
         flags.append("ESCALATED")
@@ -2399,6 +2448,13 @@ def build_case_queue_flags(
 
     if status not in TERMINAL_CASE_STATUSES and not closure_checklist:
         flags.append("NO_CLOSURE_CHECKLIST")
+
+    if (
+        status not in TERMINAL_CASE_STATUSES
+        and closure_checklist
+        and not closure_checklist.closure_approved
+    ):
+        flags.append("CLOSURE_NOT_APPROVED")
 
     if ready_to_close and status not in TERMINAL_CASE_STATUSES:
         flags.append("READY_TO_CLOSE")
@@ -2434,6 +2490,7 @@ def build_case_queue_enrichment(
         "completed_action_count": completed_action_count,
         "cancelled_action_count": cancelled_action_count,
         "latest_action_at": safe_isoformat(latest_action_at),
+        "sla_breach_risk": calculate_case_sla_breach_risk(case),
         "has_ai_analysis": latest_analysis is not None,
         "latest_ai_analysis_at": safe_isoformat(latest_analysis.created_at)
         if latest_analysis
@@ -2456,6 +2513,15 @@ def build_case_queue_enrichment(
         if closure_checklist
         else None,
         "closure_reviewed_at": safe_isoformat(closure_checklist.reviewed_at)
+        if closure_checklist
+        else None,
+        "closure_approved": bool(closure_checklist.closure_approved)
+        if closure_checklist
+        else False,
+        "closure_approved_by": closure_checklist.closure_approved_by
+        if closure_checklist
+        else None,
+        "closure_approved_at": safe_isoformat(closure_checklist.closure_approved_at)
         if closure_checklist
         else None,
     }
@@ -2673,6 +2739,12 @@ def update_case_workflow(
             if case.owner != owner:
                 changes["owner"] = [case.owner, owner]
                 case.owner = owner
+
+        if payload.assignee is not None:
+            assignee = payload.assignee.strip() or None
+            if case.assignee != assignee:
+                changes["assignee"] = [case.assignee, assignee]
+                case.assignee = assignee
 
         if payload.status is not None:
             requested_status = payload.status.upper()
@@ -2916,6 +2988,23 @@ def update_case_closure(
                 )
 
             checklist.closure_decision = closure_decision or None
+
+        if payload.closure_approved is not None:
+            closure_approved = bool(payload.closure_approved)
+            checklist.closure_approved = closure_approved
+
+            if closure_approved:
+                approved_by = (
+                    payload.closure_approved_by
+                    or payload.reviewed_by
+                    or reviewed_by
+                    or "local_analyst"
+                )
+                checklist.closure_approved_by = approved_by.strip() or reviewed_by
+                checklist.closure_approved_at = now
+            else:
+                checklist.closure_approved_by = None
+                checklist.closure_approved_at = None
 
         checklist.reviewed_by = reviewed_by
         checklist.reviewed_at = now

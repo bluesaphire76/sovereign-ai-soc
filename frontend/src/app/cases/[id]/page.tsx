@@ -34,8 +34,10 @@ type IncidentCase = {
   updated_at: string | null;
   incident_count: number;
   owner: string | null;
+  assignee: string | null;
   sla_due_at: string | null;
   sla_status: string | null;
+  sla_breach_risk: string | null;
   severity_review: string | null;
   status_reason: string | null;
   last_reviewed_by: string | null;
@@ -114,6 +116,9 @@ type CaseClosureChecklist = {
   closure_decision: string | null;
   final_severity: string | null;
   residual_risk: string | null;
+  closure_approved: boolean | null;
+  closure_approved_by: string | null;
+  closure_approved_at: string | null;
   reviewed_by: string | null;
   reviewed_at: string | null;
   created_at: string | null;
@@ -137,6 +142,8 @@ type ClosureForm = {
   closure_decision: string;
   final_severity: string;
   residual_risk: string;
+  closure_approved: boolean;
+  closure_approved_by: string;
 };
 
 type CaseAction = {
@@ -166,6 +173,7 @@ type CaseActionSuggestion = {
 
 type WorkflowForm = {
   owner: string;
+  assignee: string;
   status: string;
   severity: string;
   sla_due_at: string;
@@ -257,6 +265,29 @@ function slaLabel(value: string | null | undefined) {
   return value.replace("_", " ");
 }
 
+function slaRiskLabel(value: string | null | undefined) {
+  if (!value) return "UNKNOWN";
+  return value.replaceAll("_", " ");
+}
+
+function slaRiskClass(value: string | null | undefined) {
+  const risk = value ?? "UNKNOWN";
+
+  if (risk === "BREACHED" || risk === "HIGH") {
+    return "border-red-700 bg-red-950 text-red-200";
+  }
+
+  if (risk === "MEDIUM") {
+    return "border-orange-700 bg-orange-950 text-orange-200";
+  }
+
+  if (risk === "LOW" || risk === "NONE") {
+    return "border-emerald-700 bg-emerald-950 text-emerald-200";
+  }
+
+  return "border-slate-700 bg-slate-950 text-slate-300";
+}
+
 function toDatetimeLocalValue(value: string | null | undefined) {
   if (!value) return "";
 
@@ -273,6 +304,7 @@ function toDatetimeLocalValue(value: string | null | undefined) {
 function workflowFormFromCase(item: IncidentCase): WorkflowForm {
   return {
     owner: item.owner ?? "",
+    assignee: item.assignee ?? "",
     status: item.status ?? "OPEN",
     severity: item.severity_review ?? item.severity ?? "LOW",
     sla_due_at: toDatetimeLocalValue(item.sla_due_at),
@@ -293,6 +325,8 @@ function closureFormFromResponse(
     closure_decision: checklist?.closure_decision ?? "RESOLVED",
     final_severity: checklist?.final_severity ?? "LOW",
     residual_risk: checklist?.residual_risk ?? "",
+    closure_approved: Boolean(checklist?.closure_approved),
+    closure_approved_by: checklist?.closure_approved_by ?? "",
   };
 }
 
@@ -450,6 +484,7 @@ async function updateCaseWorkflow(
   id: string,
   payload: {
     owner: string;
+    assignee?: string;
     status: string;
     severity: string;
     sla_due_at: string;
@@ -994,6 +1029,8 @@ export default function CaseDetailPage() {
     closure_decision: "RESOLVED",
     final_severity: "LOW",
     residual_risk: "",
+    closure_approved: false,
+    closure_approved_by: "",
   });
   const [savingClosureChecklist, setSavingClosureChecklist] = useState(false);
   const [actionForm, setActionForm] = useState<ActionForm>({
@@ -1015,6 +1052,7 @@ export default function CaseDetailPage() {
   >(null);
   const [workflowForm, setWorkflowForm] = useState<WorkflowForm>({
     owner: "",
+    assignee: "",
     status: "OPEN",
     severity: "LOW",
     sla_due_at: "",
@@ -1231,6 +1269,9 @@ export default function CaseDetailPage() {
 
       const response = await updateCaseClosure(caseId, {
         ...closureForm,
+        closure_approved_by: closureForm.closure_approved
+          ? closureForm.closure_approved_by.trim() || currentUsername
+          : "",
         reviewed_by: currentUsername,
       });
 
@@ -1253,6 +1294,7 @@ export default function CaseDetailPage() {
 
       const updatedCase = await updateCaseWorkflow(caseId, {
         owner: workflowForm.owner,
+        assignee: workflowForm.assignee,
         status: workflowForm.status,
         severity: workflowForm.severity,
         sla_due_at: workflowForm.sla_due_at
@@ -2147,13 +2189,22 @@ export default function CaseDetailPage() {
                   </p>
                 </div>
 
-                <span
-                  className={`w-fit rounded-full border px-3 py-1.5 text-xs ${slaClass(
-                    caseData.sla_status
-                  )}`}
-                >
-                  SLA {slaLabel(caseData.sla_status)}
-                </span>
+                <div className="flex flex-wrap gap-2">
+                  <span
+                    className={`w-fit rounded-full border px-3 py-1.5 text-xs ${slaClass(
+                      caseData.sla_status
+                    )}`}
+                  >
+                    SLA {slaLabel(caseData.sla_status)}
+                  </span>
+                  <span
+                    className={`w-fit rounded-full border px-3 py-1.5 text-xs ${slaRiskClass(
+                      caseData.sla_breach_risk
+                    )}`}
+                  >
+                    Breach risk {slaRiskLabel(caseData.sla_breach_risk)}
+                  </span>
+                </div>
               </div>
 
               <div className="grid gap-3 md:grid-cols-2">
@@ -2167,6 +2218,23 @@ export default function CaseDetailPage() {
                       setWorkflowForm((current) => ({
                         ...current,
                         owner: event.target.value,
+                      }))
+                    }
+                    placeholder={currentUsername}
+                    className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                    Assignee
+                  </span>
+                  <input
+                    value={workflowForm.assignee}
+                    onChange={(event) =>
+                      setWorkflowForm((current) => ({
+                        ...current,
+                        assignee: event.target.value,
                       }))
                     }
                     placeholder={currentUsername}
@@ -2746,9 +2814,82 @@ export default function CaseDetailPage() {
 
               {caseClosure?.ready_to_close && (
                 <div className="mb-3 rounded-md border border-emerald-800 bg-emerald-950/40 p-3 text-sm text-emerald-200">
-                  Closure checklist is complete and all actions are resolved. The case can now be moved to CLOSED or FALSE_POSITIVE.
+                  Closure checklist is complete, approved and all actions are resolved. The case can now be moved to CLOSED or FALSE_POSITIVE.
                 </div>
               )}
+
+              <div className="mb-3 rounded-md border border-slate-800 bg-slate-950 p-3">
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      Closure approval
+                    </div>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                      Final human approval is required before the case can be closed.
+                    </p>
+                  </div>
+
+                  <span
+                    className={`w-fit rounded-full border px-3 py-1.5 text-xs ${
+                      closureForm.closure_approved
+                        ? "border-emerald-700 bg-emerald-950 text-emerald-200"
+                        : "border-orange-700 bg-orange-950 text-orange-200"
+                    }`}
+                  >
+                    {closureForm.closure_approved ? "Approved" : "Not approved"}
+                  </span>
+                </div>
+
+                <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(240px,320px)] md:items-end">
+                  <label className="flex min-h-10 items-start gap-3 rounded-md border border-slate-800 bg-slate-900/70 px-3 py-2">
+                    <input
+                      type="checkbox"
+                      checked={closureForm.closure_approved}
+                      onChange={(event) =>
+                        setClosureForm((current) => ({
+                          ...current,
+                          closure_approved: event.target.checked,
+                          closure_approved_by: event.target.checked
+                            ? current.closure_approved_by || currentUsername
+                            : "",
+                        }))
+                      }
+                      className="mt-1 h-4 w-4 rounded border-slate-700 bg-slate-950"
+                    />
+                    <span>
+                      <span className="block text-sm font-medium text-slate-200">
+                        I approve this case for closure
+                      </span>
+                      <span className="mt-0.5 block text-xs leading-5 text-slate-500">
+                        Use this only after evidence, actions, residual risk and closure decision have been reviewed.
+                      </span>
+                    </span>
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                      Approved by
+                    </span>
+                    <input
+                      value={closureForm.closure_approved_by}
+                      onChange={(event) =>
+                        setClosureForm((current) => ({
+                          ...current,
+                          closure_approved_by: event.target.value,
+                        }))
+                      }
+                      placeholder={currentUsername}
+                      disabled={!closureForm.closure_approved}
+                      className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500 disabled:cursor-not-allowed disabled:opacity-50"
+                    />
+                  </label>
+                </div>
+
+                <div className="mt-3 text-xs text-slate-500">
+                  Last approved by {caseClosure?.checklist?.closure_approved_by ?? "-"} ·{" "}
+                  {formatTimestamp(caseClosure?.checklist?.closure_approved_at)}
+                </div>
+              </div>
 
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="block">
