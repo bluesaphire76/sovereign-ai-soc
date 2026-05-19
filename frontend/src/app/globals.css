@@ -33,3 +33,87 @@ body {
     margin-right: 1rem;
   }
 }
+
+/* Enterprise SOC additive design tokens
+ *
+ * Safe foundation layer:
+ * - additive only
+ * - not wired into global body/background
+ * - not wired into Tailwind @theme yet
+ * - intended for future enterprise components via CSS variables
+ */
+:root {
+  --soc-enterprise-bg: #0b0f14;
+  --soc-enterprise-bg-subtle: #101820;
+  --soc-enterprise-surface: #111827;
+  --soc-enterprise-surface-muted: #0f172a;
+  --soc-enterprise-panel: #151b23;
+  --soc-enterprise-panel-elevated: #1b2430;
+  --soc-enterprise-border: #253142;
+  --soc-enterprise-border-strong: #334155;
+
+  --soc-enterprise-text: #f3f6f9;
+  --soc-enterprise-text-muted: #a7b4c3;
+  --soc-enterprise-text-subtle: #7d8b9d;
+  --soc-enterprise-text-disabled: #526173;
+
+  --soc-enterprise-accent: #4cc2ff;
+  --soc-enterprise-accent-muted: #0e7490;
+  --soc-enterprise-focus: #60a5fa;
+
+  --soc-enterprise-success: #3fb950;
+  --soc-enterprise-warning: #d29922;
+  --soc-enterprise-danger: #f85149;
+  --soc-enterprise-info: #58a6ff;
+  --soc-enterprise-purple: #a78bfa;
+
+  --soc-enterprise-severity-critical: #f85149;
+  --soc-enterprise-severity-high: #ff8c42;
+  --soc-enterprise-severity-medium: #d29922;
+  --soc-enterprise-severity-low: #3fb950;
+  --soc-enterprise-severity-informational: #58a6ff;
+
+  --soc-enterprise-chart-grid: #253142;
+  --soc-enterprise-chart-axis: #6b7c93;
+  --soc-enterprise-chart-tick: #a7b4c3;
+
+  --soc-enterprise-radius: 2px;
+  --soc-enterprise-radius-sm: 3px;
+}
+
+:root.light {
+  --soc-enterprise-bg: #f5f7fa;
+  --soc-enterprise-bg-subtle: #eef2f6;
+  --soc-enterprise-surface: #ffffff;
+  --soc-enterprise-surface-muted: #f8fafc;
+  --soc-enterprise-panel: #ffffff;
+  --soc-enterprise-panel-elevated: #ffffff;
+  --soc-enterprise-border: #d8dee8;
+  --soc-enterprise-border-strong: #b7c2d0;
+
+  --soc-enterprise-text: #18212f;
+  --soc-enterprise-text-muted: #44546a;
+  --soc-enterprise-text-subtle: #667085;
+  --soc-enterprise-text-disabled: #98a2b3;
+
+  --soc-enterprise-accent: #0078d4;
+  --soc-enterprise-accent-muted: #106ebe;
+  --soc-enterprise-focus: #2563eb;
+
+  --soc-enterprise-success: #107c10;
+  --soc-enterprise-warning: #ca5010;
+  --soc-enterprise-danger: #d13438;
+  --soc-enterprise-info: #0078d4;
+  --soc-enterprise-purple: #5c2d91;
+
+  --soc-enterprise-severity-critical: #d13438;
+  --soc-enterprise-severity-high: #ca5010;
+  --soc-enterprise-severity-medium: #f2c811;
+  --soc-enterprise-severity-low: #107c10;
+  --soc-enterprise-severity-informational: #0078d4;
+
+  --soc-enterprise-chart-grid: #d8dee8;
+  --soc-enterprise-chart-axis: #667085;
+  --soc-enterprise-chart-tick: #44546a;
+}
+
