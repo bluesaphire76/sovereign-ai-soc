@@ -31,8 +31,10 @@ type IncidentCase = {
   updated_at: string | null;
   incident_count: number;
   owner: string | null;
+  assignee: string | null;
   sla_due_at: string | null;
   sla_status: string | null;
+  sla_breach_risk: string | null;
   severity_review: string | null;
   status_reason: string | null;
   last_reviewed_by: string | null;
@@ -205,6 +207,21 @@ function slaLabel(value: string | null | undefined) {
   return value.replaceAll("_", " ");
 }
 
+function slaRiskLabel(value: string | null | undefined) {
+  if (!value) return "UNKNOWN";
+  return value.replaceAll("_", " ");
+}
+
+function slaRiskTone(value: string | null | undefined): Tone {
+  const risk = value ?? "UNKNOWN";
+
+  if (risk === "BREACHED" || risk === "HIGH") return "danger";
+  if (risk === "MEDIUM") return "warning";
+  if (risk === "LOW" || risk === "NONE") return "success";
+
+  return "neutral";
+}
+
 function formatTimestamp(value: string | null | undefined) {
   if (!value) return "-";
 
@@ -261,6 +278,8 @@ function operationalPriority(item: IncidentCase) {
   const severity = item.severity_review ?? item.final_severity ?? item.severity ?? "LOW";
 
   if (item.sla_status === "BREACHED") score += 1000;
+  if (item.sla_breach_risk === "HIGH") score += 650;
+  if (item.sla_breach_risk === "MEDIUM") score += 300;
   if (status === "ESCALATED") score += 800;
   if (severity === "CRITICAL") score += 600;
   if (severity === "HIGH") score += 400;
@@ -268,6 +287,7 @@ function operationalPriority(item: IncidentCase) {
   if (!item.has_ai_analysis && isOpenCase(item)) score += 180;
   if (!item.has_closure_checklist && isOpenCase(item)) score += 140;
   if (!item.owner && isOpenCase(item)) score += 100;
+  if (!item.assignee && isOpenCase(item)) score += 95;
   if (item.ready_to_close && isOpenCase(item)) score += 90;
 
   score += item.risk_score ?? 0;
@@ -316,12 +336,14 @@ export default function CaseKanbanPage() {
           item.group_key,
           item.agent,
           item.owner,
+          item.assignee,
           item.status,
           item.severity,
           item.severity_review,
           item.final_severity,
           item.correlation_type,
           item.closure_decision,
+          item.sla_breach_risk,
           item.queue_flags?.join(" "),
         ]
           .map((value) => normalize(String(value ?? "")))
@@ -636,6 +658,16 @@ function CaseCard({
             </MiniFlag>
           )}
 
+          {item.sla_status !== "BREACHED" &&
+            (item.sla_breach_risk === "HIGH" || item.sla_breach_risk === "MEDIUM") && (
+              <MiniFlag
+                tone={item.sla_breach_risk === "HIGH" ? "danger" : "warning"}
+                icon={<AlertTriangle className="h-3 w-3" />}
+              >
+                SLA risk
+              </MiniFlag>
+            )}
+
           {item.ready_to_close && (
             <MiniFlag tone="success" icon={<CheckCircle2 className="h-3 w-3" />}>
               Ready
@@ -659,6 +691,12 @@ function CaseCard({
               Owner
             </MiniFlag>
           )}
+
+          {!item.assignee && isOpenCase(item) && (
+            <MiniFlag tone="warning" icon={<AlertTriangle className="h-3 w-3" />}>
+              Assignee
+            </MiniFlag>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-1.5">
@@ -667,7 +705,17 @@ function CaseCard({
             value={item.owner ?? "unassigned"}
             warning={!item.owner && isOpenCase(item)}
           />
+          <CompactMetric
+            label="Assignee"
+            value={item.assignee ?? "unassigned"}
+            warning={!item.assignee && isOpenCase(item)}
+          />
           <CompactMetric label="Host" value={item.agent ?? "unknown"} />
+          <CompactMetric
+            label="SLA risk"
+            value={slaRiskLabel(item.sla_breach_risk)}
+            warning={["BREACHED", "HIGH", "MEDIUM"].includes(item.sla_breach_risk ?? "")}
+          />
           <CompactMetric label="Incidents" value={String(item.incident_count ?? 0)} />
           <CompactMetric label="Actions" value={`${completedActions}/${totalActions}`} />
         </div>
@@ -697,6 +745,9 @@ function CaseCard({
       <div className="mb-2 flex flex-wrap items-center gap-1">
         <Badge tone={statusTone(item.status)}>{item.status ?? "OPEN"}</Badge>
         <Badge tone={slaTone(item.sla_status)}>{slaLabel(item.sla_status)}</Badge>
+        <Badge tone={slaRiskTone(item.sla_breach_risk)}>
+          Risk {slaRiskLabel(item.sla_breach_risk)}
+        </Badge>
       </div>
 
       <div className="grid grid-cols-2 gap-1.5">
@@ -705,7 +756,17 @@ function CaseCard({
           value={item.owner ?? "unassigned"}
           warning={!item.owner && isOpenCase(item)}
         />
+        <CompactMetric
+          label="Assignee"
+          value={item.assignee ?? "unassigned"}
+          warning={!item.assignee && isOpenCase(item)}
+        />
         <CompactMetric label="Host" value={item.agent ?? "unknown"} />
+        <CompactMetric
+          label="SLA risk"
+          value={slaRiskLabel(item.sla_breach_risk)}
+          warning={["BREACHED", "HIGH", "MEDIUM"].includes(item.sla_breach_risk ?? "")}
+        />
         <CompactMetric label="Incidents" value={String(item.incident_count ?? 0)} />
         <CompactMetric label="Actions" value={`${completedActions}/${totalActions}`} />
       </div>

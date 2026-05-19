@@ -136,6 +136,7 @@ class IncidentCase(Base):
     summary = Column(Text)
 
     owner = Column(String)
+    assignee = Column(String)
     sla_due_at = Column(DateTime(timezone=True))
     severity_review = Column(String)
     status_reason = Column(Text)
@@ -208,6 +209,9 @@ class CaseClosureChecklist(Base):
     closure_decision = Column(String)
     final_severity = Column(String)
     residual_risk = Column(Text)
+    closure_approved = Column(Boolean, default=False)
+    closure_approved_by = Column(String)
+    closure_approved_at = Column(DateTime(timezone=True))
 
     reviewed_by = Column(String, default="local_analyst")
     reviewed_at = Column(DateTime(timezone=True))
