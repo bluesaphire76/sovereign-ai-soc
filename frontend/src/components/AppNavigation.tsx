@@ -33,43 +33,43 @@ const NAV_ITEMS: NavItem[] = [
   {
     href: "/",
     label: "Dashboard",
-    icon: <LayoutDashboard className="h-3.5 w-3.5" />,
+    icon: <LayoutDashboard className="h-3.5 w-3.5" strokeWidth={1.75} />,
     match: "exact",
   },
   {
     href: "/incidents",
     label: "Incidents",
-    icon: <ShieldAlert className="h-3.5 w-3.5" />,
+    icon: <ShieldAlert className="h-3.5 w-3.5" strokeWidth={1.75} />,
     match: "prefix",
   },
   {
     href: "/cases",
     label: "Case Queue",
-    icon: <Briefcase className="h-3.5 w-3.5" />,
+    icon: <Briefcase className="h-3.5 w-3.5" strokeWidth={1.75} />,
     match: "cases",
   },
   {
     href: "/cases/kanban",
     label: "Kanban",
-    icon: <Columns3 className="h-3.5 w-3.5" />,
+    icon: <Columns3 className="h-3.5 w-3.5" strokeWidth={1.75} />,
     match: "prefix",
   },
   {
     href: "/executive",
     label: "Executive",
-    icon: <BarChart3 className="h-3.5 w-3.5" />,
+    icon: <BarChart3 className="h-3.5 w-3.5" strokeWidth={1.75} />,
     match: "prefix",
   },
   {
     href: "/detection-quality",
     label: "Detection Quality",
-    icon: <Shield className="h-3.5 w-3.5" />,
+    icon: <Shield className="h-3.5 w-3.5" strokeWidth={1.75} />,
     match: "prefix",
   },
   {
     href: "/health",
     label: "Health",
-    icon: <HeartPulse className="h-3.5 w-3.5" />,
+    icon: <HeartPulse className="h-3.5 w-3.5" strokeWidth={1.75} />,
     match: "prefix",
   },
 ];
@@ -116,7 +116,7 @@ export default function AppNavigation() {
               {
                 href: "/admin/security-audit",
                 label: "Security Audit",
-                icon: <ShieldCheck className="h-3.5 w-3.5" />,
+                icon: <ShieldCheck className="h-3.5 w-3.5" strokeWidth={1.75} />,
                 match: "prefix" as const,
               },
             ]
@@ -124,18 +124,18 @@ export default function AppNavigation() {
         {
           href: "/admin/users",
           label: "Users",
-          icon: <Users className="h-3.5 w-3.5" />,
+          icon: <Users className="h-3.5 w-3.5" strokeWidth={1.75} />,
           match: "prefix",
         },
       ]
     : NAV_ITEMS;
 
   return (
-    <nav className="ai-soc-sidebar mb-5 rounded-xl border border-slate-800 bg-slate-900/95 px-3 py-2 shadow-lg xl:fixed xl:bottom-4 xl:left-4 xl:top-4 xl:z-40 xl:mb-0 xl:w-64 xl:px-3 xl:py-3">
+    <nav className="ai-soc-sidebar mb-5 rounded-sm border border-slate-800 bg-slate-950/95 px-2.5 py-2 shadow-sm xl:fixed xl:bottom-4 xl:left-4 xl:top-4 xl:z-40 xl:mb-0 xl:w-64 xl:px-2.5 xl:py-3">
       <div className="flex flex-col gap-3 xl:h-full">
         <div className="flex items-center gap-2 border-slate-800 xl:border-b xl:pb-3">
-          <div className="rounded-lg border border-cyan-900 bg-cyan-950 p-1.5 text-cyan-300">
-            <Shield className="h-3.5 w-3.5" />
+          <div className="rounded-sm border border-cyan-900/80 bg-slate-950 p-1.5 text-cyan-300">
+            <Shield className="h-3.5 w-3.5" strokeWidth={1.75} />
           </div>
 
           <div className="min-w-0">
@@ -156,10 +156,10 @@ export default function AppNavigation() {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition xl:w-full xl:justify-start ${
+                className={`inline-flex h-8 items-center gap-1.5 rounded-sm border px-2.5 text-xs font-medium transition xl:w-full xl:justify-start ${
                   active
                     ? "border-cyan-500 bg-cyan-500 text-slate-950"
-                    : "border-slate-700 bg-slate-950 text-slate-300 hover:border-cyan-800 hover:bg-slate-800 hover:text-cyan-200"
+                    : "border-transparent bg-transparent text-slate-300 hover:border-slate-700 hover:bg-slate-900 hover:text-cyan-200"
                 }`}
               >
                 {item.icon}
@@ -178,9 +178,9 @@ export default function AppNavigation() {
 
           <button
             onClick={handleLogout}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-950 px-2.5 text-xs font-medium text-slate-300 transition hover:bg-slate-800 hover:text-slate-100 xl:w-full xl:justify-start"
+            className="inline-flex h-8 items-center gap-1.5 rounded-sm border border-transparent bg-transparent px-2.5 text-xs font-medium text-slate-300 transition hover:border-slate-700 hover:bg-slate-900 hover:text-slate-100 xl:w-full xl:justify-start"
           >
-            <LogOut className="h-3.5 w-3.5" />
+            <LogOut className="h-3.5 w-3.5" strokeWidth={1.75} />
             Logout
           </button>
         </div>
