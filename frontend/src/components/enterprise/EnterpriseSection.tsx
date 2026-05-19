@@ -24,7 +24,7 @@ export default function EnterpriseSection({
   return (
     <section
       className={cx(
-        "rounded-xl border border-slate-800 bg-slate-900/95 shadow-lg",
+        "rounded-sm border border-slate-800 bg-slate-900/95 shadow-sm",
         dense ? "p-4" : "p-5",
         className
       )}

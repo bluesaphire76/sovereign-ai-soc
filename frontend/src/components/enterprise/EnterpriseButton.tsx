@@ -65,7 +65,7 @@ export default function EnterpriseButton({
   type = "button",
 }: EnterpriseButtonProps) {
   const classes = cx(
-    "inline-flex items-center justify-center gap-2 rounded-lg border font-medium shadow-sm transition disabled:cursor-not-allowed disabled:opacity-40",
+    "inline-flex items-center justify-center gap-2 rounded-sm border font-medium shadow-sm transition disabled:cursor-not-allowed disabled:opacity-40",
     toneClasses[tone],
     sizeClasses[size],
     className
