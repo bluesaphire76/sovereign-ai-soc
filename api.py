@@ -13,7 +13,8 @@ from models import Incident, IncidentAudit, IncidentNote, IncidentCase, CaseInci
 from timezone_utils import APP_TIMEZONE, format_timestamp_local, normalize_timestamp_utc
 from wazuh_ingest_state import get_watermark_snapshot
 from auth_utils import create_access_token, decode_access_token, hash_password, verify_password
-from routers import include_app_routers
+from routers.health import router as health_router
+from routers.reports import router as reports_router
 
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -38,7 +39,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-include_app_routers(app)
+app.include_router(health_router)
+app.include_router(reports_router)
 
 VALID_INCIDENT_STATUSES = {
     "NEW",
@@ -394,9 +396,12 @@ RBAC_RULES: list[tuple[str, str, set[str]]] = [
 
     # Incidents
     ("GET", r"^/incidents$", ALL_ROLES),
-    ("GET", r"^/incidents/\d+(/(audit|notes|command-room-analysis))?$", ALL_ROLES),
+    ("GET", r"^/incidents/\d+$", ALL_ROLES),
     ("PATCH", r"^/incidents/\d+/status$", OPERATOR_ROLES),
-    ("POST", r"^/incidents/\d+/(notes|case|command-room-analysis)$", OPERATOR_ROLES),
+    ("GET", r"^/incidents/\d+/audit$", ALL_ROLES),
+    ("GET", r"^/incidents/\d+/notes$", ALL_ROLES),
+    ("POST", r"^/incidents/\d+/notes$", OPERATOR_ROLES),
+    ("POST", r"^/incidents/\d+/case$", OPERATOR_ROLES),
 
     # Platform / operations
     ("GET", r"^/platform/health$", ALL_ROLES),
