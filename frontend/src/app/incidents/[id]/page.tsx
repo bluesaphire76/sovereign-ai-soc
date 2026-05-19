@@ -105,9 +105,12 @@ const API_BASE =
 const INCIDENT_STATUSES = [
   "NEW",
   "TRIAGED",
-  "ESCALATED",
+  "INVESTIGATING",
+  "CONTAINED",
+  "RESOLVED",
   "CLOSED",
   "FALSE_POSITIVE",
+  "ESCALATED",
 ];
 
 function riskLabel(score: number | null | undefined) {
@@ -129,11 +132,12 @@ function toneForRisk(score: number | null | undefined): Tone {
 }
 
 function toneForStatus(status: string | null | undefined): Tone {
-  const value = status ?? "NEW";
+  const value = (status ?? "NEW").toUpperCase();
 
   if (value === "ESCALATED") return "danger";
-  if (value === "TRIAGED") return "primary";
-  if (value === "CLOSED") return "success";
+  if (value === "TRIAGED" || value === "INVESTIGATING") return "primary";
+  if (value === "CONTAINED") return "warning";
+  if (value === "RESOLVED" || value === "CLOSED") return "success";
   if (value === "FALSE_POSITIVE") return "executive";
 
   return "neutral";
