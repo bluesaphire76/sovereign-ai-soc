@@ -45,9 +45,13 @@ app.include_router(reports_router)
 VALID_INCIDENT_STATUSES = {
     "NEW",
     "TRIAGED",
-    "ESCALATED",
+    "INVESTIGATING",
+    "CONTAINED",
+    "RESOLVED",
     "CLOSED",
     "FALSE_POSITIVE",
+    # Legacy-compatible status kept for existing records and executive metrics.
+    "ESCALATED",
 }
 
 VALID_CASE_STATUSES = {

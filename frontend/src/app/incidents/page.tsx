@@ -35,7 +35,17 @@ type IncidentsResponse = {
   total_pages: number;
 };
 
-const STATUS_OPTIONS = ["ALL", "NEW", "TRIAGED", "ESCALATED", "CLOSED", "FALSE_POSITIVE"];
+const STATUS_OPTIONS = [
+  "ALL",
+  "NEW",
+  "TRIAGED",
+  "INVESTIGATING",
+  "CONTAINED",
+  "RESOLVED",
+  "CLOSED",
+  "FALSE_POSITIVE",
+  "ESCALATED",
+];
 const RISK_OPTIONS = ["ALL", "LOW", "MEDIUM", "HIGH", "CRITICAL"];
 const DEMO_SEARCH_TERM = "AI SOC demo scenario";
 
@@ -86,8 +96,9 @@ function statusTone(status: string | null | undefined): "neutral" | "success" | 
   const value = (status ?? "NEW").toUpperCase();
 
   if (value === "ESCALATED") return "danger";
-  if (value === "TRIAGED") return "cyan";
-  if (value === "CLOSED" || value === "FALSE_POSITIVE") return "success";
+  if (value === "TRIAGED" || value === "INVESTIGATING") return "cyan";
+  if (value === "CONTAINED") return "warning";
+  if (value === "RESOLVED" || value === "CLOSED" || value === "FALSE_POSITIVE") return "success";
   return "warning";
 }
 
@@ -152,8 +163,13 @@ export default function IncidentsPage() {
     [incidents]
   );
 
-  const escalatedCount = useMemo(
-    () => incidents.filter((incident) => (incident.status ?? "").toUpperCase() === "ESCALATED").length,
+  const activeLifecycleCount = useMemo(
+    () =>
+      incidents.filter((incident) =>
+        ["INVESTIGATING", "CONTAINED", "ESCALATED"].includes(
+          (incident.status ?? "").toUpperCase()
+        )
+      ).length,
     [incidents]
   );
 
@@ -315,10 +331,10 @@ export default function IncidentsPage() {
               tone={highRiskCount > 0 ? "warning" : "success"}
             />
             <MetricCard
-              title="Escalated"
-              value={escalatedCount}
-              description="Escalated incidents on this page."
-              tone={escalatedCount > 0 ? "danger" : "success"}
+              title="Active lifecycle"
+              value={activeLifecycleCount}
+              description="Investigating, contained or legacy escalated."
+              tone={activeLifecycleCount > 0 ? "warning" : "success"}
             />
             <MetricCard
               title="Correlated"
