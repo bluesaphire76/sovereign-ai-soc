@@ -50,7 +50,7 @@ export default function EnterpriseMetricCard({
   return (
     <div
       className={cx(
-        "rounded-xl border shadow-lg",
+        "rounded-sm border shadow-sm",
         toneClasses[tone],
         compact ? "p-3" : "p-4"
       )}
@@ -61,7 +61,7 @@ export default function EnterpriseMetricCard({
         </div>
 
         {icon && (
-          <div className={cx("rounded-lg p-1.5", iconToneClasses[tone])}>
+          <div className={cx("rounded-sm p-1.5", iconToneClasses[tone])}>
             {icon}
           </div>
         )}
