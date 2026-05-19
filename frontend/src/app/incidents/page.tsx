@@ -114,7 +114,7 @@ function EnterpriseBadge({
   tone?: "neutral" | "success" | "warning" | "danger" | "cyan";
 }) {
   return (
-    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${badgeClass(tone)}`}>
+    <span className={`inline-flex items-center rounded-sm border px-2 py-0.5 text-[11px] font-medium ${badgeClass(tone)}`}>
       {children}
     </span>
   );
@@ -132,7 +132,7 @@ function MetricCard({
   tone?: "neutral" | "success" | "warning" | "danger" | "cyan";
 }) {
   return (
-    <div className={`rounded-xl border p-3 shadow-sm ${badgeClass(tone)}`}>
+    <div className={`rounded-sm border p-3 shadow-sm ${badgeClass(tone)}`}>
       <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
         {title}
       </div>
@@ -273,7 +273,7 @@ export default function IncidentsPage() {
           <div className="flex flex-wrap gap-2">
             <button
               onClick={demoMode ? exitDemoMode : enableDemoMode}
-              className={`flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs shadow-sm ${
+              className={`flex h-8 items-center gap-1.5 rounded-sm border px-3 text-xs shadow-sm ${
                 demoMode
                   ? "border-cyan-600 bg-cyan-950 text-cyan-100 hover:bg-cyan-900"
                   : "border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"
@@ -284,7 +284,7 @@ export default function IncidentsPage() {
 
             <button
               onClick={loadIncidents}
-              className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 text-xs text-slate-200 shadow-sm hover:bg-slate-800"
+              className="flex h-8 items-center gap-1.5 rounded-sm border border-slate-700 bg-slate-900 px-3 text-xs text-slate-200 shadow-sm hover:bg-slate-800"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
               Refresh
@@ -293,14 +293,14 @@ export default function IncidentsPage() {
         </header>
 
         {error && (
-          <div className="mb-3 rounded-lg border border-red-800 bg-red-950/60 p-3 text-xs text-red-200">
+          <div className="mb-3 rounded-sm border border-red-800 bg-red-950/60 p-3 text-xs text-red-200">
             {error}
           </div>
         )}
 
         <div className="space-y-3">
           {demoMode && (
-            <section className="rounded-xl border border-cyan-800 bg-cyan-950/30 p-3 shadow-lg">
+            <section className="rounded-sm border border-cyan-800 bg-cyan-950/30 p-3 shadow-sm">
               <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                 <div>
                   <div className="text-xs font-semibold uppercase tracking-wide text-cyan-200">
@@ -344,7 +344,7 @@ export default function IncidentsPage() {
             />
           </section>
 
-          <section className="rounded-xl border border-slate-800 bg-slate-900/80 p-3 shadow-lg">
+          <section className="rounded-sm border border-slate-800 bg-slate-900/80 p-3 shadow-sm">
             <div className="mb-3 flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
               <div>
                 <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-300">
@@ -361,14 +361,14 @@ export default function IncidentsPage() {
               <div className="flex flex-wrap gap-2">
                 <button
                   onClick={enableDemoMode}
-                  className="h-8 rounded-lg border border-cyan-700 bg-cyan-950 px-3 text-xs text-cyan-100 hover:bg-cyan-900"
+                  className="h-8 rounded-sm border border-cyan-700 bg-cyan-950 px-3 text-xs text-cyan-100 hover:bg-cyan-900"
                 >
                   Show demo incidents
                 </button>
 
                 <button
                   onClick={resetFilters}
-                  className="h-8 rounded-lg border border-slate-700 bg-slate-950 px-3 text-xs text-slate-300 hover:bg-slate-800"
+                  className="h-8 rounded-sm border border-slate-700 bg-slate-950 px-3 text-xs text-slate-300 hover:bg-slate-800"
                 >
                   Reset filters
                 </button>
@@ -386,7 +386,7 @@ export default function IncidentsPage() {
                     setStatusFilter(event.target.value);
                     setPage(1);
                   }}
-                  className="h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500"
+                  className="h-8 w-full rounded-sm border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500"
                 >
                   {STATUS_OPTIONS.map((item) => (
                     <option key={item} value={item}>{item}</option>
@@ -404,7 +404,7 @@ export default function IncidentsPage() {
                     setRiskFilter(event.target.value);
                     setPage(1);
                   }}
-                  className="h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500"
+                  className="h-8 w-full rounded-sm border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500"
                 >
                   {RISK_OPTIONS.map((item) => (
                     <option key={item} value={item}>{item}</option>
@@ -423,7 +423,7 @@ export default function IncidentsPage() {
                     setPage(1);
                   }}
                   placeholder="atomicstar, darkstar..."
-                  className="h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500"
+                  className="h-8 w-full rounded-sm border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500"
                 />
               </label>
 
@@ -431,7 +431,7 @@ export default function IncidentsPage() {
                 <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-slate-500">
                   Search
                 </span>
-                <div className="flex h-8 items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-2 focus-within:border-cyan-500">
+                <div className="flex h-8 items-center gap-2 rounded-sm border border-slate-700 bg-slate-950 px-2 focus-within:border-cyan-500">
                   <Search className="h-3.5 w-3.5 text-slate-500" />
                   <input
                     value={searchFilter}
@@ -447,7 +447,7 @@ export default function IncidentsPage() {
             </div>
           </section>
 
-          <section className="rounded-xl border border-slate-800 bg-slate-900/80 p-3 shadow-lg">
+          <section className="rounded-sm border border-slate-800 bg-slate-900/80 p-3 shadow-sm">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-sm font-semibold text-slate-100">Incident stream</h2>
@@ -462,7 +462,7 @@ export default function IncidentsPage() {
             </div>
 
             {loading ? (
-              <div className="rounded-lg border border-slate-800 bg-slate-950 p-4 text-xs text-slate-500">
+              <div className="rounded-sm border border-slate-800 bg-slate-950 p-4 text-xs text-slate-500">
                 Loading incidents...
               </div>
             ) : (
@@ -562,7 +562,7 @@ export default function IncidentsPage() {
                 <button
                   onClick={() => setPage((current) => Math.max(1, current - 1))}
                   disabled={page <= 1}
-                  className="h-8 rounded-lg border border-slate-700 bg-slate-950 px-3 text-slate-300 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="h-8 rounded-sm border border-slate-700 bg-slate-950 px-3 text-slate-300 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   Previous
                 </button>
@@ -570,7 +570,7 @@ export default function IncidentsPage() {
                 <button
                   onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
                   disabled={page >= totalPages}
-                  className="h-8 rounded-lg border border-slate-700 bg-slate-950 px-3 text-slate-300 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="h-8 rounded-sm border border-slate-700 bg-slate-950 px-3 text-slate-300 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   Next
                 </button>
