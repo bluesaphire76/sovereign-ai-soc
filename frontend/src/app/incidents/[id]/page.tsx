@@ -10,6 +10,8 @@ import AppNavigation from "../../../components/AppNavigation";
 import {
   AlertTriangle,
   Brain,
+  CheckCircle2,
+  ClipboardList,
   Database,
   FileDown,
   FileText,
@@ -99,8 +101,30 @@ type CorrelationSummary = {
 
 type Tone = "success" | "warning" | "danger" | "primary" | "neutral" | "executive";
 
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8008";
+type IncidentAiAssessmentInput = {
+  ai_analysis: string | null;
+  risk_score?: number | null;
+  recommended_priority?: string | null;
+  status?: string | null;
+  correlation_score?: number | null;
+  correlation_type?: string | null;
+  attack_chain?: string | null;
+  escalation_reason?: string | null;
+  agent?: string | null;
+  rule?: string | null;
+};
+
+type ParsedAiSection = {
+  title: string;
+  lines: string[];
+};
+
+type HierarchicalAiItem = {
+  title: string;
+  children: string[];
+};
+
+type RemediationPhase = "Validate" | "Contain" | "Remediate" | "Close";
 
 const INCIDENT_STATUSES = [
   "NEW",
@@ -111,6 +135,34 @@ const INCIDENT_STATUSES = [
   "CLOSED",
   "FALSE_POSITIVE",
   "ESCALATED",
+];
+
+const INCIDENT_EXCEPTION_STATUSES = ["FALSE_POSITIVE", "ESCALATED"];
+
+const INCIDENT_WORKFLOW_STATUSES = INCIDENT_STATUSES.filter(
+  (status) => !INCIDENT_EXCEPTION_STATUSES.includes(status)
+);
+
+const AI_REMEDIATION_HEADINGS = [
+  "suggested remediation",
+  "suggested remediations",
+  "recommended actions",
+  "next actions",
+];
+
+const AI_SUBSECTION_HEADINGS = [
+  "short executive summary",
+  "executive summary",
+  "recommended checks",
+  "recommended check",
+  ...AI_REMEDIATION_HEADINGS,
+];
+
+const REVIEW_CHECKS = [
+  "Validate the AI interpretation against raw Wazuh evidence.",
+  "Confirm whether correlation context supports escalation.",
+  "Check affected host, rule metadata and related events.",
+  "Document analyst conclusion before closing or escalating.",
 ];
 
 function riskLabel(score: number | null | undefined) {
@@ -144,34 +196,34 @@ function toneForStatus(status: string | null | undefined): Tone {
 }
 
 function toneClasses(tone: Tone) {
-  const classes: Record<Tone, { card: string; badge: string; text: string }> = {
+  const classes: Record<Tone, { panel: string; badge: string; text: string }> = {
     success: {
-      card: "border-emerald-900/70 bg-emerald-950/20",
+      panel: "border-emerald-900/70 bg-emerald-950/20",
       badge: "border-emerald-700 bg-emerald-950 text-emerald-200",
       text: "text-emerald-300",
     },
     warning: {
-      card: "border-orange-900/70 bg-orange-950/20",
+      panel: "border-orange-900/70 bg-orange-950/20",
       badge: "border-orange-700 bg-orange-950 text-orange-200",
       text: "text-orange-300",
     },
     danger: {
-      card: "border-red-900/70 bg-red-950/25",
+      panel: "border-red-900/70 bg-red-950/25",
       badge: "border-red-800 bg-red-950 text-red-200",
       text: "text-red-300",
     },
     primary: {
-      card: "border-cyan-900/70 bg-cyan-950/20",
+      panel: "border-cyan-900/70 bg-cyan-950/20",
       badge: "border-cyan-700 bg-cyan-950 text-cyan-200",
       text: "text-cyan-300",
     },
     neutral: {
-      card: "border-slate-800 bg-slate-900",
+      panel: "border-slate-800 bg-slate-900",
       badge: "border-slate-700 bg-slate-950 text-slate-300",
       text: "text-slate-300",
     },
     executive: {
-      card: "border-violet-900/70 bg-violet-950/20",
+      panel: "border-violet-900/70 bg-violet-950/20",
       badge: "border-violet-700 bg-violet-950 text-violet-200",
       text: "text-violet-300",
     },
@@ -237,7 +289,7 @@ function shortTimestamp(value: string | null | undefined) {
 function shortText(value: string | null | undefined, max = 120) {
   if (!value) return "-";
   if (value.length <= max) return value;
-  return `${value.slice(0, max - 1)}…`;
+  return `${value.slice(0, max - 1)}...`;
 }
 
 async function fetchIncident(id: string): Promise<IncidentDetail> {
@@ -276,48 +328,12 @@ async function fetchIncidentNotes(id: string): Promise<IncidentNote[]> {
   return response.json();
 }
 
-
-
-type IncidentAiAssessmentInput = {
-  ai_analysis: string | null;
-  risk_score?: number | null;
-  recommended_priority?: string | null;
-  status?: string | null;
-  correlation_score?: number | null;
-  correlation_type?: string | null;
-  attack_chain?: string | null;
-  escalation_reason?: string | null;
-  agent?: string | null;
-  rule?: string | null;
-};
-
-type ParsedAiSection = {
-  title: string;
-  lines: string[];
-};
-
-function riskBand(score?: number | null): string {
-  const value = score ?? 0;
-  if (value >= 80) return "Critical";
-  if (value >= 60) return "High";
-  if (value >= 40) return "Medium";
-  return "Low";
-}
-
-function riskTone(score?: number | null): string {
-  const value = score ?? 0;
-  if (value >= 80) return "border-red-800 bg-red-950/40 text-red-200";
-  if (value >= 60) return "border-orange-800 bg-orange-950/40 text-orange-200";
-  if (value >= 40) return "border-yellow-800 bg-yellow-950/30 text-yellow-200";
-  return "border-emerald-800 bg-emerald-950/30 text-emerald-200";
-}
-
 function normalizeAiLine(line: string): string {
   return line
     .replace(/^[-*•]\s+/, "")
     .replace(/^\d+[.)]\s+/, "")
     .replace(/^#{1,4}\s*/, "")
-    .replace(/^\*\*(.*)\*\*$/, "$1")
+    .replace(/^\*\*(.*)\*\*:?$/, "$1")
     .trim();
 }
 
@@ -328,7 +344,7 @@ function splitAiSentences(value: string): string[] {
 
   const withExplicitSections = normalized.replace(
     /\s*(?:\d+[.)]\s*)?(Short executive summary|Executive summary|Recommended checks|Recommended check|Suggested remediation|Suggested remediations|Recommended actions|Next actions):\s*/gi,
-    "\n$1:\n",
+    "\n$1:\n"
   );
 
   const cleanLines = withExplicitSections
@@ -395,61 +411,6 @@ function assessmentDecision(incident: IncidentAiAssessmentInput): string {
   return "Monitor and validate";
 }
 
-function CompactMetric({
-  label,
-  value,
-  tone = "neutral",
-}: {
-  label: string;
-  value: string | number;
-  tone?: "neutral" | "risk";
-}) {
-  const toneClass =
-    tone === "risk"
-      ? riskTone(typeof value === "number" ? value : undefined)
-      : "border-slate-800 bg-slate-950 text-slate-200";
-
-  return (
-    <div className={`rounded-lg border px-3 py-2 ${toneClass}`}>
-      <div className="text-[10px] font-medium uppercase tracking-wide opacity-70">
-        {label}
-      </div>
-      <div className="mt-1 truncate text-sm font-semibold" title={String(value)}>
-        {value}
-      </div>
-    </div>
-  );
-}
-
-function DecisionField({ label, value }: { label: string; value?: string | number | null }) {
-  return (
-    <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
-      <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
-        {label}
-      </div>
-      <div className="mt-1 break-words text-sm leading-5 text-slate-200">
-        {value || "-"}
-      </div>
-    </div>
-  );
-}
-
-type HierarchicalAiItem = {
-  title: string;
-  children: string[];
-};
-
-const AI_SUBSECTION_HEADINGS = [
-  "short executive summary",
-  "executive summary",
-  "recommended checks",
-  "recommended check",
-  "suggested remediation",
-  "suggested remediations",
-  "recommended actions",
-  "next actions",
-];
-
 function canonicalAiHeading(line: string): string {
   return normalizeAiLine(line)
     .replace(/:$/, "")
@@ -459,6 +420,10 @@ function canonicalAiHeading(line: string): string {
 
 function isAiSubsectionHeading(line: string): boolean {
   return AI_SUBSECTION_HEADINGS.includes(canonicalAiHeading(line));
+}
+
+function isAiRemediationHeading(line: string): boolean {
+  return AI_REMEDIATION_HEADINGS.includes(canonicalAiHeading(line));
 }
 
 function stripAiListMarker(line: string): string {
@@ -555,252 +520,966 @@ function buildHierarchicalAiItems(lines: string[]): HierarchicalAiItem[] {
   return items.filter((item) => item.title || item.children.length > 0);
 }
 
-function StructuredAiNarrative({
-  lines,
-  variant = "primary",
+function flattenAiItems(items: HierarchicalAiItem[]): string[] {
+  return items
+    .flatMap((item) => [item.title, ...item.children])
+    .map(stripAiListMarker)
+    .filter((line) => line && !isAiSubsectionHeading(line));
+}
+
+function dedupeAiItems(items: HierarchicalAiItem[]): HierarchicalAiItem[] {
+  const seen = new Set<string>();
+
+  return items.filter((item) => {
+    const key = `${item.title}|${item.children.join("|")}`.toLowerCase();
+
+    if (seen.has(key)) return false;
+
+    seen.add(key);
+    return true;
+  });
+}
+
+function remediationItemsFromAiSections(
+  sections: ParsedAiSection[]
+): HierarchicalAiItem[] {
+  const items: HierarchicalAiItem[] = [];
+
+  for (const section of sections) {
+    const sectionIsRemediation = isAiRemediationHeading(section.title);
+    const structuredItems = buildHierarchicalAiItems(section.lines);
+
+    if (sectionIsRemediation) {
+      for (const item of structuredItems) {
+        items.push(item);
+      }
+
+      if (structuredItems.length === 0) {
+        for (const line of section.lines) {
+          items.push({ title: line, children: [] });
+        }
+      }
+
+      continue;
+    }
+
+    for (const item of structuredItems) {
+      if (!isAiRemediationHeading(item.title)) continue;
+
+      if (item.children.length > 0) {
+        for (const child of item.children) {
+          items.push({ title: child, children: [] });
+        }
+      } else {
+        items.push(item);
+      }
+    }
+  }
+
+  return dedupeAiItems(items).filter((item) => item.title || item.children.length > 0);
+}
+
+function contextRemediationItems(
+  incident: IncidentAiAssessmentInput
+): HierarchicalAiItem[] {
+  const host = incident.agent ?? "affected host";
+  const rule = incident.rule ?? "the triggering Wazuh rule";
+  const risk = incident.risk_score ?? 0;
+  const correlationScore = incident.correlation_score ?? 0;
+  const actions: HierarchicalAiItem[] = [
+    {
+      title: "Validate and preserve evidence",
+      children: [
+        `Review raw Wazuh alert, ${rule}, affected host ${host}, timestamps and audit context before changing status.`,
+      ],
+    },
+    {
+      title: "Scope affected activity",
+      children: [
+        "Check recent alerts from the same host, user, source IP and detection family.",
+      ],
+    },
+  ];
+
+  if (risk >= 60 || (incident.recommended_priority ?? "").toUpperCase() === "HIGH") {
+    actions.push({
+      title: "Prepare containment decision",
+      children: [
+        `Prioritize host ${host} for containment review, credential checks and endpoint telemetry validation.`,
+      ],
+    });
+  }
+
+  if (correlationScore > 0 || incident.correlation_type || incident.attack_chain) {
+    actions.push({
+      title: "Remediate correlated chain",
+      children: [
+        `Use ${incident.correlation_type ?? "correlation context"} and ${incident.attack_chain ?? "attack chain context"} to identify upstream and downstream tasks.`,
+      ],
+    });
+  }
+
+  actions.push({
+    title: "Document closure criteria",
+    children: [
+      "Record validation, remediation outcome and residual risk before moving to a terminal status.",
+    ],
+  });
+
+  return actions;
+}
+
+function remediationPhase(item: HierarchicalAiItem): RemediationPhase {
+  const text = `${item.title} ${item.children.join(" ")}`.toLowerCase();
+
+  if (/\b(close|closure|document|residual|resolved|false_positive|false positive)\b/.test(text)) {
+    return "Close";
+  }
+
+  if (/\b(contain|containment|isolate|block|disable|credential|quarantine|escalat)\b/.test(text)) {
+    return "Contain";
+  }
+
+  if (/\b(remediate|remove|patch|recover|restore|reset|harden|eradicate)\b/.test(text)) {
+    return "Remediate";
+  }
+
+  return "Validate";
+}
+
+function MetricTile({
+  title,
+  value,
+  tone,
+  icon,
 }: {
-  lines: string[];
-  variant?: "primary" | "compact";
+  title: string;
+  value: string | number;
+  tone: Tone;
+  icon?: ReactNode;
 }) {
-  const items = buildHierarchicalAiItems(lines);
+  const classes = toneClasses(tone);
 
-  if (items.length === 0) {
-    return (
-      <div className="rounded-lg border border-slate-800 bg-slate-950 p-3 text-xs text-slate-500">
-        No structured AI narrative available.
-      </div>
-    );
-  }
-
-  if (variant === "compact") {
-    return (
-      <div className="space-y-3">
-        {items.map((item, index) => (
-          <div key={`${item.title}-${index}`} className="space-y-2">
-            <div className="flex gap-2 text-sm leading-6 text-slate-300">
-              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-400" />
-              <span className={item.children.length > 0 ? "font-semibold text-slate-100" : ""}>
-                {item.title}
-              </span>
-            </div>
-
-            {item.children.length > 0 && (
-              <div className="ml-5 space-y-2 border-l border-cyan-900/70 pl-4">
-                {item.children.map((child, childIndex) => (
-                  <div
-                    key={`${item.title}-${childIndex}`}
-                    className="flex gap-2 rounded-md border border-slate-800 bg-slate-900/70 px-3 py-2"
-                  >
-                    <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-500" />
-                    <span className="text-sm leading-6 text-slate-300">{child}</span>
-                  </div>
-                ))}
-              </div>
-            )}
+  return (
+    <div className={`rounded-md border px-2.5 py-2 shadow-sm ${classes.panel}`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
+            {title}
           </div>
-        ))}
+          <div className="mt-0.5 truncate text-sm font-semibold leading-5 text-slate-100">
+            {value}
+          </div>
+        </div>
+        {icon && (
+          <div className={`shrink-0 rounded-md bg-slate-950 p-1.5 ${classes.text}`}>
+            {icon}
+          </div>
+        )}
       </div>
-    );
-  }
+    </div>
+  );
+}
+
+function Panel({
+  title,
+  description,
+  icon,
+  children,
+}: {
+  title: string;
+  description?: string;
+  icon?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section className="rounded-md border border-slate-800 bg-slate-900/80 shadow-sm">
+      <div className="flex items-start justify-between gap-3 border-b border-slate-800 px-3 py-2">
+        <div>
+          <div className="flex items-center gap-2">
+            {icon && <div className="text-cyan-300">{icon}</div>}
+            <h2 className="text-sm font-semibold uppercase tracking-wide">{title}</h2>
+          </div>
+          {description && (
+            <p className="mt-0.5 text-[11px] leading-4 text-slate-500">
+              {description}
+            </p>
+          )}
+        </div>
+      </div>
+      <div className="p-3">{children}</div>
+    </section>
+  );
+}
+
+function Badge({ tone, children }: { tone: Tone; children: ReactNode }) {
+  return (
+    <span className={`inline-flex h-5 items-center justify-center rounded-md border px-2 text-[10px] font-medium leading-none ${toneClasses(tone).badge}`}>
+      {children}
+    </span>
+  );
+}
+
+function EmptyState({ label }: { label: string }) {
+  return (
+    <div className="rounded-md border border-slate-800 bg-slate-950 px-2 py-1.5 text-xs text-slate-500">
+      {label}
+    </div>
+  );
+}
+
+function DenseField({ label, value }: { label: string; value?: string | number | null }) {
+  return (
+    <div className="min-w-0 bg-slate-950 px-2.5 py-2">
+      <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
+        {label}
+      </div>
+      <div className="mt-0.5 line-clamp-2 break-words text-xs leading-5 text-slate-200">
+        {value || "-"}
+      </div>
+    </div>
+  );
+}
+
+function CommandButton({
+  children,
+  tone = "neutral",
+  disabled,
+  onClick,
+}: {
+  children: ReactNode;
+  tone?: "neutral" | "primary" | "success";
+  disabled?: boolean;
+  onClick?: () => void;
+}) {
+  const className =
+    tone === "success"
+      ? "border-emerald-700 bg-emerald-500 text-slate-950 hover:bg-emerald-400"
+      : tone === "primary"
+        ? "border-cyan-700 bg-cyan-500 text-slate-950 hover:bg-cyan-400"
+        : "border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800";
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium shadow-sm disabled:cursor-not-allowed disabled:opacity-50 ${className}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function LinkCommand({
+  children,
+  tone = "neutral",
+  onClick,
+}: {
+  children: ReactNode;
+  tone?: "neutral" | "primary";
+  onClick: () => void;
+}) {
+  const className =
+    tone === "primary"
+      ? "border-cyan-700 bg-cyan-500 text-slate-950 hover:bg-cyan-400"
+      : "border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800";
+
+  return (
+    <a
+      href="#"
+      onClick={(event) => {
+        event.preventDefault();
+        onClick();
+      }}
+      download
+      className={`inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium shadow-sm ${className}`}
+    >
+      {children}
+    </a>
+  );
+}
+
+function LifecycleConsole({
+  status,
+  timestamp,
+  onStatusChange,
+  readOnly = false,
+}: {
+  status: string | null | undefined;
+  timestamp: string | null | undefined;
+  onStatusChange?: (status: string) => void;
+  readOnly?: boolean;
+}) {
+  const currentStatus = (status ?? "NEW").toUpperCase();
+  const activeWorkflowIndex = INCIDENT_WORKFLOW_STATUSES.indexOf(currentStatus);
+  const activeTone = toneForStatus(currentStatus);
+  const activeClasses = toneClasses(activeTone);
+
+  const handleChange = (nextStatus: string) => {
+    if (readOnly || !onStatusChange) return;
+    onStatusChange(nextStatus);
+  };
 
   return (
     <div className="space-y-3">
-      {items.map((item, index) => (
-        <div
-          key={`${item.title}-${index}`}
-          className="rounded-lg border border-slate-800 bg-slate-950 p-3"
-        >
-          <div className="flex gap-3">
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-cyan-800 bg-cyan-950 text-xs font-semibold text-cyan-200">
-              {index + 1}
+      <div className={`rounded-md border px-2.5 py-2 ${activeClasses.panel}`}>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+              Current state
             </div>
-
-            <div className="min-w-0 flex-1">
-              <p
-                className={`text-sm leading-6 ${
-                  item.children.length > 0
-                    ? "font-semibold text-slate-100"
-                    : "text-slate-300"
-                }`}
-              >
-                {item.title}
-              </p>
-
-              {item.children.length > 0 && (
-                <div className="mt-3 space-y-2 border-l border-cyan-900/70 pl-4">
-                  {item.children.map((child, childIndex) => (
-                    <div
-                      key={`${item.title}-${childIndex}`}
-                      className="flex gap-3 rounded-md border border-slate-800 bg-slate-900/80 p-3"
-                    >
-                      <div className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-400" />
-                      <p className="text-sm leading-6 text-slate-300">{child}</p>
-                    </div>
-                  ))}
-                </div>
+            <div className="mt-1 flex items-center gap-2">
+              <Badge tone={activeTone}>{currentStatus}</Badge>
+              {activeWorkflowIndex >= 0 && (
+                <span className="text-[10px] uppercase tracking-wide text-slate-500">
+                  Workflow {activeWorkflowIndex + 1}/{INCIDENT_WORKFLOW_STATUSES.length}
+                </span>
               )}
             </div>
           </div>
+
+          <div className="text-right">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+              Event time
+            </div>
+            <div className="mt-1 text-[11px] text-slate-300">
+              {shortTimestamp(timestamp)}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-md border border-slate-800 bg-slate-950">
+        <div className="border-b border-slate-800 bg-slate-900/70 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+          Primary workflow
+        </div>
+        <div className="divide-y divide-slate-800">
+          {INCIDENT_WORKFLOW_STATUSES.map((candidate, index) => {
+            const isActive = candidate === currentStatus;
+            const isCompleted = activeWorkflowIndex >= 0 && index < activeWorkflowIndex;
+
+            return (
+              <button
+                key={candidate}
+                type="button"
+                aria-pressed={isActive}
+                disabled={readOnly}
+                onClick={() => handleChange(candidate)}
+                className={`grid h-8 w-full grid-cols-[1.25rem_1fr_auto] items-center gap-2 border-l-2 px-2 text-left text-xs transition disabled:cursor-default ${
+                  isActive
+                    ? "border-l-cyan-400 bg-cyan-950/40 text-cyan-100"
+                    : isCompleted
+                      ? "border-l-emerald-800 bg-emerald-950/15 text-slate-300"
+                      : "border-l-transparent bg-slate-950 text-slate-400 hover:bg-slate-900 hover:text-slate-200"
+                }`}
+              >
+                <span
+                  className={`flex h-4 w-4 items-center justify-center rounded-sm border text-[9px] font-semibold ${
+                    isActive
+                      ? "border-cyan-400 bg-cyan-500 text-slate-950"
+                      : isCompleted
+                        ? "border-emerald-700 bg-emerald-950 text-emerald-200"
+                        : "border-slate-700 bg-slate-900 text-slate-500"
+                  }`}
+                >
+                  {index + 1}
+                </span>
+                <span className="truncate font-medium">{candidate}</span>
+                <span className="text-[10px] uppercase tracking-wide text-slate-600">
+                  {isActive ? "Now" : isCompleted ? "Done" : "Next"}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="rounded-md border border-slate-800 bg-slate-950 p-2">
+        <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+          Exception disposition
+        </div>
+        <div className="grid grid-cols-2 gap-1.5">
+          {INCIDENT_EXCEPTION_STATUSES.map((candidate) => {
+            const isActive = candidate === currentStatus;
+            return (
+              <button
+                key={candidate}
+                type="button"
+                aria-pressed={isActive}
+                disabled={readOnly}
+                onClick={() => handleChange(candidate)}
+                className={`inline-flex h-7 items-center justify-center rounded-md border px-2 text-[10px] font-semibold leading-none transition disabled:cursor-default ${
+                  isActive
+                    ? "border-cyan-400 bg-cyan-500 text-slate-950"
+                    : "border-slate-800 bg-slate-950 text-slate-400 hover:border-slate-700 hover:bg-slate-900 hover:text-slate-200"
+                }`}
+              >
+                {candidate}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {readOnly && (
+        <div className="rounded-md border border-slate-800 bg-slate-950 px-2 py-1.5 text-[11px] leading-4 text-slate-500">
+          Read-only access: your role can review lifecycle state but cannot modify it.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ExecutiveBrief({
+  lines,
+  decision,
+}: {
+  lines: string[];
+  decision: string;
+}) {
+  const items = buildHierarchicalAiItems(lines);
+  const flattenedLines = flattenAiItems(items);
+  const summary = flattenedLines[0] ?? "No executive assessment available.";
+  const keyFindings = flattenedLines.slice(1, 4);
+
+  return (
+    <div className="space-y-2">
+      <div className="grid gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800 xl:grid-cols-[minmax(0,1fr)_220px]">
+        <DenseField label="Briefing summary" value={summary} />
+        <DenseField label="Decision posture" value={decision} />
+      </div>
+
+      {keyFindings.length > 0 && (
+        <div className="grid gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800 md:grid-cols-3">
+          {keyFindings.map((finding, index) => (
+            <DenseField key={`${finding}-${index}`} label="Key point" value={finding} />
+          ))}
+        </div>
+      )}
+
+      <details className="rounded-md border border-slate-800 bg-slate-950">
+        <summary className="cursor-pointer px-2.5 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400 hover:text-cyan-200">
+          Full assessment detail
+        </summary>
+        <div className="max-h-64 space-y-1.5 overflow-auto border-t border-slate-800 p-2.5">
+          {flattenedLines.map((line, index) => (
+            <div key={`${line}-${index}`} className="text-xs leading-5 text-slate-300">
+              {line}
+            </div>
+          ))}
+        </div>
+      </details>
+    </div>
+  );
+}
+
+function DecisionMatrix({ incident }: { incident: IncidentAiAssessmentInput }) {
+  const fields: Array<[string, string | number | null | undefined]> = [
+    ["Correlation type", incident.correlation_type],
+    ["Attack chain", incident.attack_chain],
+    ["Escalation reason", incident.escalation_reason],
+    ["Affected host", incident.agent],
+    ["Detection rule", incident.rule],
+  ];
+
+  return (
+    <div className="grid gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800 md:grid-cols-2 xl:grid-cols-5">
+      {fields.map(([label, value]) => (
+        <DenseField key={label} label={label} value={value} />
+      ))}
+    </div>
+  );
+}
+
+function ResponseBoard({
+  incident,
+  sections,
+}: {
+  incident: IncidentAiAssessmentInput;
+  sections: ParsedAiSection[];
+}) {
+  const aiItems = remediationItemsFromAiSections(sections);
+  const items = aiItems.length > 0 ? aiItems : contextRemediationItems(incident);
+  const sourceLabel = aiItems.length > 0 ? "AI output" : "Context generated";
+  const phases: Array<{
+    key: RemediationPhase;
+    description: string;
+    items: HierarchicalAiItem[];
+  }> = [
+    {
+      key: "Validate",
+      description: "Confirm evidence and scope.",
+      items: items.filter((item) => remediationPhase(item) === "Validate"),
+    },
+    {
+      key: "Contain",
+      description: "Limit impact and exposure.",
+      items: items.filter((item) => remediationPhase(item) === "Contain"),
+    },
+    {
+      key: "Remediate",
+      description: "Remove cause and recover.",
+      items: items.filter((item) => remediationPhase(item) === "Remediate"),
+    },
+    {
+      key: "Close",
+      description: "Document outcome and residual risk.",
+      items: items.filter((item) => remediationPhase(item) === "Close"),
+    },
+  ];
+
+  return (
+    <div className="overflow-hidden rounded-md border border-slate-800 bg-slate-950">
+      <div className="flex items-center justify-between border-b border-slate-800 bg-slate-900/70 px-2.5 py-1.5">
+        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+          Response board
+        </div>
+        <span className="inline-flex h-5 items-center rounded-sm border border-slate-700 bg-slate-950 px-2 text-[10px] leading-none text-slate-400">
+          {sourceLabel}
+        </span>
+      </div>
+
+      <div className="grid gap-px bg-slate-800 lg:grid-cols-4">
+        {phases.map((phase) => (
+          <div key={phase.key} className="min-h-32 bg-slate-950">
+            <div className="border-b border-slate-800 px-2.5 py-2">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-emerald-300">
+                {phase.key}
+              </div>
+              <div className="mt-0.5 text-[11px] leading-4 text-slate-500">
+                {phase.description}
+              </div>
+            </div>
+
+            <div className="divide-y divide-slate-800">
+              {phase.items.length === 0 ? (
+                <div className="px-2.5 py-2 text-xs text-slate-600">No action.</div>
+              ) : (
+                phase.items.map((item, index) => (
+                  <div key={`${phase.key}-${item.title}-${index}`} className="px-2.5 py-2">
+                    <div className="text-xs font-semibold leading-5 text-slate-100">
+                      {item.title}
+                    </div>
+                    <div className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-slate-400">
+                      {item.children.join(" ") || "-"}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ReviewChecklist() {
+  return (
+    <div className="grid gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800 sm:grid-cols-2">
+      {REVIEW_CHECKS.map((item) => (
+        <div key={item} className="flex gap-2 bg-slate-950 px-2.5 py-2">
+          <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-cyan-300" />
+          <div className="text-xs leading-5 text-slate-300">{item}</div>
         </div>
       ))}
     </div>
   );
 }
 
-
-function AiSectionCard({ title, lines }: ParsedAiSection) {
+function AnalystNotesPanel({
+  notes,
+  noteDraft,
+  savingNote,
+  canOperate,
+  isViewer,
+  onNoteDraftChange,
+  onAddNote,
+}: {
+  notes: IncidentNote[];
+  noteDraft: string;
+  savingNote: boolean;
+  canOperate: boolean;
+  isViewer: boolean;
+  onNoteDraftChange: (value: string) => void;
+  onAddNote: () => void;
+}) {
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 shadow-sm">
-      <div className="mb-3 flex items-center justify-between gap-3 border-b border-slate-800 pb-2">
-        <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-300">
-          {title}
-        </h4>
-        <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-0.5 text-[10px] text-slate-400">
-          AI insight
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+          Investigation rationale
+        </div>
+        <span className="inline-flex h-5 items-center rounded-sm border border-slate-700 bg-slate-900 px-2 text-[10px] leading-none text-slate-400">
+          {notes.length} notes
         </span>
       </div>
 
-      <StructuredAiNarrative lines={lines} variant="compact" />
-    </div>
-  );
-}
+      {isViewer && (
+        <p className="rounded-md border border-slate-800 bg-slate-900/70 px-2 py-1.5 text-[11px] leading-4 text-slate-500">
+          Read-only access: your role can review existing analyst notes but cannot add new notes.
+        </p>
+      )}
 
-function AnalystReviewChecklist() {
-  const items = [
-    "Validate the AI interpretation against raw Wazuh evidence.",
-    "Confirm whether correlation context supports escalation.",
-    "Check affected host, rule metadata and related events.",
-    "Document analyst conclusion before closing or escalating.",
-  ];
+      {canOperate && (
+        <div className="grid gap-2 lg:grid-cols-[1fr_auto] lg:items-end">
+          <textarea
+            value={noteDraft}
+            onChange={(event) => onNoteDraftChange(event.target.value)}
+            placeholder="Write an analyst note..."
+            className="min-h-14 w-full rounded-md border border-slate-700 bg-slate-950 px-2.5 py-2 text-xs leading-5 text-slate-100 outline-none focus:border-cyan-400"
+          />
 
-  return (
-    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
-      <div className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-slate-300">
-        Analyst review checklist
-      </div>
+          <button
+            onClick={onAddNote}
+            disabled={savingNote || !noteDraft.trim()}
+            className="inline-flex h-8 items-center justify-center rounded-md bg-cyan-500 px-3 text-xs font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {savingNote ? "Saving..." : "Add note"}
+          </button>
+        </div>
+      )}
 
-      <div className="space-y-2">
-        {items.map((item, index) => (
-          <div key={item} className="flex gap-3 rounded-lg border border-slate-800 bg-slate-900/70 p-3">
-            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-slate-700 bg-slate-950 text-[11px] font-semibold text-cyan-300">
-              {index + 1}
+      {notes.length === 0 ? (
+        <EmptyState label="No analyst notes available." />
+      ) : (
+        <div className="max-h-48 divide-y divide-slate-800 overflow-auto rounded-md border border-slate-800 bg-slate-950">
+          {notes.map((note) => (
+            <div key={note.id} className="px-2.5 py-2">
+              <div className="mb-1 text-[10px] uppercase tracking-wide text-slate-500">
+                {formatTimestamp(note.created_at)} · {note.created_by ?? "local_analyst"}
+              </div>
+              <p className="whitespace-pre-wrap text-xs leading-5 text-slate-200">{note.note}</p>
             </div>
-            <div className="text-sm leading-5 text-slate-300">{item}</div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-function EnterpriseIncidentAiAnalysis({ incident }: { incident: IncidentAiAssessmentInput }) {
-  const analysis = (incident.ai_analysis ?? "").trim();
-
-  if (!analysis) {
-    return (
-      <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 text-xs text-slate-500">
-        No AI analysis available.
+function ConsoleRow({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="grid border-b border-slate-800 last:border-b-0 xl:grid-cols-[220px_1fr]">
+      <div className="border-b border-slate-800 bg-slate-900/60 px-3 py-2.5 xl:border-b-0 xl:border-r">
+        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-100">
+          {title}
+        </h3>
+        <p className="mt-1 text-[11px] leading-4 text-slate-500">{description}</p>
       </div>
-    );
-  }
 
-  const sections = parseAiAnalysis(analysis);
+      <div className="min-w-0 bg-slate-950 px-3 py-2.5">{children}</div>
+    </section>
+  );
+}
+
+function InvestigationConsole({
+  incident,
+  notes,
+  noteDraft,
+  savingNote,
+  canOperate,
+  isViewer,
+  onNoteDraftChange,
+  onAddNote,
+}: {
+  incident: IncidentAiAssessmentInput;
+  notes: IncidentNote[];
+  noteDraft: string;
+  savingNote: boolean;
+  canOperate: boolean;
+  isViewer: boolean;
+  onNoteDraftChange: (value: string) => void;
+  onAddNote: () => void;
+}) {
+  const analysis = (incident.ai_analysis ?? "").trim();
+  const sections = analysis ? parseAiAnalysis(analysis) : [];
   const primary = sections[0];
-  const secondary = sections.slice(1);
+  const secondary = sections
+    .slice(1)
+    .filter((section) => !isAiRemediationHeading(section.title));
   const decision = assessmentDecision(incident);
 
   return (
     <div className="space-y-3">
-      <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-xl">
-        <div className="border-b border-slate-800 bg-gradient-to-r from-slate-900 via-violet-950/40 to-slate-900 p-4">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+      <div className="overflow-hidden rounded-md border border-slate-800 bg-slate-950 shadow-sm">
+        <div className="border-b border-slate-800 bg-slate-900/80 p-3">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
             <div>
-              <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-violet-300">
-                Sovereign AI SOC Assessment
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-violet-300">
+                AI investigation console
               </div>
-              <h3 className="mt-2 text-lg font-semibold tracking-tight text-slate-100">
+              <h3 className="mt-1 text-sm font-semibold tracking-tight text-slate-100">
                 {decision}
               </h3>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-                AI-assisted triage summary structured for analyst review, escalation decisioning and audit-ready investigation handling.
+              <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-400">
+                One review surface for assessment, response planning, validation and notes.
               </p>
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              <span className="rounded-full border border-violet-700 bg-violet-950 px-3 py-1 text-xs font-medium text-violet-200">
-                AI-assisted
-              </span>
-              <span className="rounded-full border border-orange-700 bg-orange-950 px-3 py-1 text-xs font-medium text-orange-200">
-                Human approval required
-              </span>
+            <div className="flex flex-wrap gap-1.5">
+              <Badge tone={toneForRisk(incident.risk_score)}>
+                {riskLabel(incident.risk_score)}
+              </Badge>
+              <Badge tone={toneForStatus(incident.status)}>
+                {incident.status ?? "NEW"}
+              </Badge>
+              <Badge tone="warning">Human approval</Badge>
             </div>
-          </div>
-
-          <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-            <CompactMetric label="Risk" value={`${riskBand(incident.risk_score)} · ${incident.risk_score ?? 0}`} />
-            <CompactMetric label="Priority" value={incident.recommended_priority ?? "-"} />
-            <CompactMetric label="Status" value={incident.status ?? "-"} />
-            <CompactMetric label="Correlation" value={incident.correlation_score ?? 0} />
           </div>
         </div>
 
-        <div className="grid gap-3 p-4 xl:grid-cols-[1.2fr_0.8fr]">
-          <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-            <div className="mb-3 border-b border-slate-800 pb-2">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-300">
-                Executive assessment
-              </div>
-              <div className="mt-1 text-sm text-slate-500">
-                Concise AI interpretation of the current incident.
-              </div>
-            </div>
-
-            <StructuredAiNarrative
+        <ConsoleRow
+          title="Executive brief"
+          description="Compact AI summary with full detail collapsed."
+        >
+          {analysis ? (
+            <ExecutiveBrief
               lines={primary?.lines ?? splitAiSentences(analysis)}
-              variant="primary"
+              decision={decision}
+            />
+          ) : (
+            <EmptyState label="No AI analysis available." />
+          )}
+
+          {secondary.length > 0 && (
+            <details className="mt-2 rounded-md border border-slate-800 bg-slate-950">
+              <summary className="cursor-pointer px-2.5 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400 hover:text-cyan-200">
+                Additional AI context
+              </summary>
+              <div className="grid gap-2 border-t border-slate-800 p-2.5 xl:grid-cols-2">
+                {secondary.map((section) => (
+                  <div key={section.title} className="space-y-1.5">
+                    <div className="text-[10px] font-semibold uppercase tracking-wide text-cyan-300">
+                      {section.title}
+                    </div>
+                    {flattenAiItems(buildHierarchicalAiItems(section.lines)).slice(0, 4).map((line) => (
+                      <div key={line} className="line-clamp-2 text-xs leading-5 text-slate-300">
+                        {line}
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+        </ConsoleRow>
+
+        <ConsoleRow
+          title="Decision facts"
+          description="Incident facts needed before escalation or closure."
+        >
+          <DecisionMatrix incident={incident} />
+        </ConsoleRow>
+
+        <ConsoleRow
+          title="Response plan"
+          description="Actions grouped by operational phase."
+        >
+          <ResponseBoard incident={incident} sections={sections} />
+        </ConsoleRow>
+
+        <ConsoleRow
+          title="Human review"
+          description="Validation gates and analyst rationale."
+        >
+          <div className="grid gap-3 xl:grid-cols-[0.95fr_1.05fr]">
+            <ReviewChecklist />
+            <AnalystNotesPanel
+              notes={notes}
+              noteDraft={noteDraft}
+              savingNote={savingNote}
+              canOperate={canOperate}
+              isViewer={isViewer}
+              onNoteDraftChange={onNoteDraftChange}
+              onAddNote={onAddNote}
             />
           </div>
-
-          <div className="space-y-3">
-            <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-              <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-300">
-                Analyst decision support
-              </div>
-
-              <div className="grid gap-2">
-                <DecisionField label="Correlation type" value={incident.correlation_type} />
-                <DecisionField label="Attack chain" value={incident.attack_chain} />
-                <DecisionField label="Escalation reason" value={incident.escalation_reason} />
-                <DecisionField label="Affected host" value={incident.agent} />
-                <DecisionField label="Detection rule" value={incident.rule} />
-              </div>
-            </div>
-
-            <AnalystReviewChecklist />
-          </div>
-        </div>
+        </ConsoleRow>
       </div>
 
-      {secondary.length > 0 && (
-        <div className="grid gap-3 xl:grid-cols-2">
-          {secondary.map((section, index) => (
-            <AiSectionCard key={`${section.title}-${index}`} {...section} />
-          ))}
-        </div>
-      )}
-
-      <details className="rounded-xl border border-slate-800 bg-slate-950">
-        <summary className="cursor-pointer px-4 py-3 text-xs font-medium text-slate-300 hover:text-cyan-200">
+      <details className="rounded-md border border-slate-800 bg-slate-950">
+        <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-slate-300 hover:text-cyan-200">
           Show original AI output
         </summary>
-        <pre className="max-h-72 overflow-auto whitespace-pre-wrap border-t border-slate-800 p-4 text-xs leading-5 text-slate-400">
-          {analysis}
+        <pre className="max-h-56 overflow-auto whitespace-pre-wrap border-t border-slate-800 p-3 text-xs leading-5 text-slate-400">
+          {analysis || "No AI analysis available."}
         </pre>
       </details>
     </div>
   );
 }
 
+function CorrelationConsole({
+  parsedCorrelationSummary,
+  matchedPatterns,
+  matchedAttackChains,
+  relatedCorrelationEvents,
+}: {
+  parsedCorrelationSummary: CorrelationSummary | null;
+  matchedPatterns: Array<[string, { keywords?: string[]; weight?: number }]>;
+  matchedAttackChains: NonNullable<CorrelationSummary["matched_attack_chains"]>;
+  relatedCorrelationEvents: NonNullable<CorrelationSummary["related_event_details"]>;
+}) {
+  if (!parsedCorrelationSummary) {
+    return <EmptyState label="No structured correlation explanation available yet." />;
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="grid gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800 sm:grid-cols-2 lg:grid-cols-4">
+        <DenseField label="Base score" value={parsedCorrelationSummary.base_score ?? 0} />
+        <DenseField label="Pattern score" value={parsedCorrelationSummary.pattern_score ?? 0} />
+        <DenseField label="Volume score" value={parsedCorrelationSummary.volume_score ?? 0} />
+        <DenseField label="Chain bonus" value={parsedCorrelationSummary.chain_bonus ?? 0} />
+      </div>
+
+      <div className="grid gap-3 xl:grid-cols-3">
+        <DenseList title="Matched patterns" emptyLabel="No security patterns matched.">
+          {matchedPatterns.map(([name, pattern]) => (
+            <div key={name} className="grid gap-2 border-b border-slate-800 px-2.5 py-2 last:border-b-0">
+              <div className="flex items-center justify-between gap-2">
+                <div className="truncate text-xs font-semibold text-cyan-300">{name}</div>
+                <span className="min-w-10 text-right text-[11px] text-slate-500">
+                  w {pattern.weight ?? 0}
+                </span>
+              </div>
+              <div className="line-clamp-2 text-[11px] text-slate-400">
+                {(pattern.keywords ?? []).join(", ")}
+              </div>
+            </div>
+          ))}
+        </DenseList>
+
+        <DenseList title="Attack chains" emptyLabel="No multi-step attack chain matched.">
+          {matchedAttackChains.map((chain, index) => (
+            <div key={`${chain.name ?? "chain"}-${index}`} className="border-b border-slate-800 px-2.5 py-2 last:border-b-0">
+              <div className="flex items-center justify-between gap-2">
+                <div className="truncate text-xs font-semibold text-cyan-300">
+                  {chain.name ?? "Unnamed chain"}
+                </div>
+                <span className="min-w-8 text-right text-[11px] text-slate-500">
+                  +{chain.score_bonus ?? 0}
+                </span>
+              </div>
+              <div className="mt-0.5 line-clamp-2 text-[11px] text-slate-400">
+                {chain.reason ?? "No explanation available."}
+              </div>
+            </div>
+          ))}
+        </DenseList>
+
+        <DenseList title="Related events" emptyLabel="No related events available.">
+          {relatedCorrelationEvents.slice(0, 8).map((event) => (
+            <div key={event.id} className="border-b border-slate-800 px-2.5 py-2 last:border-b-0">
+              <div className="flex items-center justify-between gap-2">
+                <Link href={`/incidents/${event.id}`} className="text-xs font-semibold text-cyan-300 hover:text-cyan-200">
+                  #{event.id}
+                </Link>
+                <span className="min-w-12 text-right text-[11px] text-slate-500">
+                  risk {event.risk_score ?? 0}
+                </span>
+              </div>
+              <div className="mt-0.5 truncate text-[11px] text-slate-400">
+                {event.rule ?? "-"}
+              </div>
+            </div>
+          ))}
+        </DenseList>
+      </div>
+    </div>
+  );
+}
+
+function DenseList({
+  title,
+  emptyLabel,
+  children,
+}: {
+  title: string;
+  emptyLabel: string;
+  children: ReactNode;
+}) {
+  const hasChildren = Array.isArray(children)
+    ? children.length > 0
+    : Boolean(children);
+
+  return (
+    <div className="overflow-hidden rounded-md border border-slate-800 bg-slate-950">
+      <div className="border-b border-slate-800 bg-slate-900/70 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-300">
+        {title}
+      </div>
+      {!hasChildren ? (
+        <div className="p-2">
+          <EmptyState label={emptyLabel} />
+        </div>
+      ) : (
+        <div className="max-h-56 overflow-auto">{children}</div>
+      )}
+    </div>
+  );
+}
+
+function AuditTrail({ auditEvents }: { auditEvents: AuditEvent[] }) {
+  if (auditEvents.length === 0) {
+    return <EmptyState label="No audit events available." />;
+  }
+
+  return (
+    <div className="max-h-72 divide-y divide-slate-800 overflow-auto rounded-md border border-slate-800 bg-slate-950">
+      {auditEvents.map((event) => (
+        <div key={event.id} className="px-2.5 py-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="truncate text-xs font-semibold text-slate-200">
+              {event.event_type}
+            </div>
+            <div className="shrink-0 text-right text-[10px] text-slate-500">
+              {formatTimestamp(event.created_at)}
+            </div>
+          </div>
+          <div className="mt-1 line-clamp-1 text-[11px] text-slate-400">
+            {event.old_value ?? "-"} -&gt; {event.new_value ?? "-"}
+          </div>
+          {event.comment && (
+            <div className="mt-1 line-clamp-2 rounded-sm bg-slate-900 px-2 py-1 text-[11px] text-slate-300">
+              {event.comment}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function EvidenceBlock({
+  title,
+  children,
+  defaultOpen = false,
+}: {
+  title: string;
+  children: ReactNode;
+  defaultOpen?: boolean;
+}) {
+  return (
+    <details open={defaultOpen} className="rounded-md border border-slate-800 bg-slate-950">
+      <summary className="cursor-pointer px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500 hover:text-cyan-200">
+        {title}
+      </summary>
+      <pre className="max-h-72 overflow-auto whitespace-pre-wrap border-t border-slate-800 p-3 text-xs leading-5 text-slate-300">
+        {children}
+      </pre>
+    </details>
+  );
+}
 
 export default function IncidentDetailPage() {
   const params = useParams();
@@ -968,21 +1647,21 @@ export default function IncidentDetailPage() {
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto max-w-[1600px] px-4 py-4">
+      <div className="mx-auto max-w-[1600px] px-4 py-3">
         <AppNavigation />
 
-        <header className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <header className="mb-3 flex flex-col gap-3 border-b border-slate-900 pb-3 md:flex-row md:items-start md:justify-between">
           <div>
             <Link
               href="/"
-              className="mb-2 inline-flex items-center gap-1.5 text-xs text-cyan-300 hover:text-cyan-200"
+              className="mb-1.5 inline-flex items-center gap-1.5 text-xs text-cyan-300 hover:text-cyan-200"
             >
-              ← Dashboard
+              Back to dashboard
             </Link>
 
-            <div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-cyan-300">
+            <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-cyan-300">
               <ShieldAlert className="h-3.5 w-3.5" />
-              Incident Detail
+              Incident command record
             </div>
 
             <h1 className="text-xl font-semibold tracking-tight">
@@ -990,68 +1669,61 @@ export default function IncidentDetailPage() {
             </h1>
 
             <p className="mt-1 max-w-4xl text-xs leading-5 text-slate-500">
-              Compact AI triage view with lifecycle, correlation explanation,
-              analyst notes and raw Wazuh evidence.
+              Enterprise SOC console for triage, lifecycle, AI assessment, response planning and evidence review.
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={loadIncident}
-              className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 text-xs text-slate-200 shadow-sm hover:bg-slate-800"
-            >
-              <RefreshCw
-                className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`}
-              />
+          <div className="flex flex-wrap gap-1.5">
+            <CommandButton onClick={loadIncident}>
+              <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
               Refresh
-            </button>
+            </CommandButton>
 
-              {canOperate && (
-                <button
-                  onClick={createCaseFromIncident}
-                  disabled={creatingCase}
-                  className="flex h-8 items-center gap-1.5 rounded-lg border border-emerald-700 bg-emerald-500 px-3 text-xs font-medium text-slate-950 shadow-sm hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {creatingCase ? "Creating case..." : "Create case"}
-                </button>
-              )}
+            {canOperate && (
+              <CommandButton
+                tone="success"
+                disabled={creatingCase}
+                onClick={createCaseFromIncident}
+              >
+                {creatingCase ? "Creating case..." : "Create case"}
+              </CommandButton>
+            )}
 
-            <a
-              href="#"
-              onClick={(event) => {
-                event.preventDefault();
-                downloadBackendFile(`/reports/incidents/${incidentId}?format=markdown`, `incident-${incidentId}-report.md`).catch((error) => alert(error.message));
-              }}
-              download
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-cyan-700 bg-cyan-500 px-3 text-xs font-medium text-slate-950 shadow-sm hover:bg-cyan-400"
+            <LinkCommand
+              tone="primary"
+              onClick={() =>
+                downloadBackendFile(
+                  `/reports/incidents/${incidentId}?format=markdown`,
+                  `incident-${incidentId}-report.md`
+                ).catch((error) => alert(error.message))
+              }
             >
               <FileDown className="h-3.5 w-3.5" />
               Markdown
-            </a>
+            </LinkCommand>
 
-            <a
-              href="#"
-              onClick={(event) => {
-                event.preventDefault();
-                downloadBackendFile(`/reports/incidents/${incidentId}?format=json`, `incident-${incidentId}-report.json`).catch((error) => alert(error.message));
-              }}
-              download
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 text-xs text-slate-200 shadow-sm hover:bg-slate-800"
+            <LinkCommand
+              onClick={() =>
+                downloadBackendFile(
+                  `/reports/incidents/${incidentId}?format=json`,
+                  `incident-${incidentId}-report.json`
+                ).catch((error) => alert(error.message))
+              }
             >
               <FileDown className="h-3.5 w-3.5" />
               JSON
-            </a>
+            </LinkCommand>
           </div>
         </header>
 
         {loading && (
-          <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 text-xs text-slate-300">
+          <section className="rounded-md border border-slate-800 bg-slate-900 p-3 text-xs text-slate-300">
             Loading incident...
           </section>
         )}
 
         {error && (
-          <div className="mb-3 rounded-lg border border-red-800 bg-red-950/60 p-3 text-xs text-red-200">
+          <div className="mb-3 rounded-md border border-red-800 bg-red-950/60 p-3 text-xs text-red-200">
             API error: {error}
           </div>
         )}
@@ -1061,7 +1733,7 @@ export default function IncidentDetailPage() {
             <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
               <MetricTile
                 title="Risk"
-                value={`${riskLabel(incident.risk_score)} · ${incident.risk_score ?? 0}`}
+                value={`${riskLabel(incident.risk_score)} - ${incident.risk_score ?? 0}`}
                 tone={toneForRisk(incident.risk_score)}
                 icon={<AlertTriangle className="h-4 w-4" />}
               />
@@ -1097,381 +1769,105 @@ export default function IncidentDetailPage() {
               />
             </section>
 
-            <section className="grid gap-3 xl:grid-cols-[420px_1fr]">
+            <section className="grid gap-3 xl:grid-cols-[340px_1fr]">
               {canOperate ? (
-              <Panel title="Incident lifecycle" description="Update operational SOC status.">
-                <div className="mb-2 flex items-center justify-between">
-                  <Badge tone={toneForStatus(incident.status)}>
-                    {incident.status ?? "NEW"}
-                  </Badge>
-                  <span className="text-[11px] text-slate-500">
-                    {shortTimestamp(incident.timestamp_local ?? incident.timestamp)}
-                  </span>
-                </div>
-
-                <div className="flex flex-wrap gap-1.5">
-                  {INCIDENT_STATUSES.map((status) => (
-                    <button
-                      key={status}
-                      onClick={() => updateStatus(status)}
-                      className={`h-7 rounded-md border px-2 text-[11px] ${
-                        incident.status === status
-                          ? "border-cyan-400 bg-cyan-500 text-slate-950"
-                          : "border-slate-700 bg-slate-950 text-slate-300 hover:bg-slate-800"
-                      }`}
-                    >
-                      {status}
-                    </button>
-                  ))}
-                </div>
-              </Panel>
+                <Panel title="Lifecycle" description="Controlled incident state transitions.">
+                  <LifecycleConsole
+                    status={incident.status}
+                    timestamp={incident.timestamp_local ?? incident.timestamp}
+                    onStatusChange={updateStatus}
+                  />
+                </Panel>
               ) : isViewer ? (
-              <Panel title="Incident lifecycle" description="Read-only operational status.">
-                <p className="text-xs text-slate-500">
-                  Read-only access: your role can review the incident status but cannot modify it.
-                </p>
-              </Panel>
+                <Panel title="Lifecycle" description="Read-only incident state.">
+                  <LifecycleConsole
+                    status={incident.status}
+                    timestamp={incident.timestamp_local ?? incident.timestamp}
+                    readOnly
+                  />
+                </Panel>
               ) : null}
 
-              <Panel title="Detection rule" description="Primary Wazuh detection metadata.">
-                <div className="grid gap-2 lg:grid-cols-4">
-                  <CompactField
+              <Panel title="Detection record" description="Primary alert identity and source metadata.">
+                <div className="grid gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800 lg:grid-cols-4">
+                  <DenseField
                     label="Timestamp"
                     value={incident.timestamp_local ?? formatTimestamp(incident.timestamp)}
                   />
-                  <CompactField label="Agent" value={incident.agent ?? "-"} />
-                  <CompactField label="Rule" value={shortText(incident.rule, 120)} />
-                  <CompactField label="Wazuh doc ID" value={incident.wazuh_doc_id ?? "-"} />
-                </div>
-              </Panel>
-            </section>
-
-            <section className="grid gap-3 xl:grid-cols-[1fr_420px]">
-              <Panel title="AI analysis" description="Generated triage explanation.">
-                <EnterpriseIncidentAiAnalysis incident={incident} />
-              </Panel>
-
-              <Panel title="Analyst notes" description="Investigation notes and rationale.">
-                <div className="space-y-3">
-                  {isViewer && (
-                    <p className="rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-500">
-                      Read-only access: your role can review existing analyst notes but cannot add new notes.
-                    </p>
-                  )}
-
-                  {canOperate && (
-                    <>
-                      <textarea
-                        value={noteDraft}
-                        onChange={(event) => setNoteDraft(event.target.value)}
-                        placeholder="Write an analyst note..."
-                        className="min-h-24 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-400"
-                      />
-
-                      <div className="flex justify-end">
-                        <button
-                          onClick={addNote}
-                          disabled={savingNote || !noteDraft.trim()}
-                          className="rounded-md bg-cyan-500 px-3 py-1.5 text-xs font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          {savingNote ? "Saving..." : "Add note"}
-                        </button>
-                      </div>
-                    </>
-                  )}
-
-                  {notes.length === 0 ? (
-                    <EmptyState label="No analyst notes available." />
-                  ) : (
-                    <div className="space-y-2">
-                      {notes.map((note) => (
-                        <div
-                          key={note.id}
-                          className="rounded-md border border-slate-800 bg-slate-950 p-3"
-                        >
-                          <div className="mb-1 text-[11px] uppercase tracking-wide text-slate-500">
-                            {formatTimestamp(note.created_at)} · {note.created_by ?? "local_analyst"}
-                          </div>
-                          <p className="whitespace-pre-wrap text-sm text-slate-200">{note.note}</p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  <DenseField label="Agent" value={incident.agent ?? "-"} />
+                  <DenseField label="Rule" value={shortText(incident.rule, 140)} />
+                  <DenseField label="Wazuh doc ID" value={incident.wazuh_doc_id ?? "-"} />
                 </div>
               </Panel>
             </section>
 
             <Panel
-              title="Correlation explanation"
-              description="Explainable correlation details derived from recent events, matched patterns and score components."
+              title="Investigation console"
+              description="AI brief, decision facts, response plan, review gates and notes in one surface."
               icon={<Brain className="h-3.5 w-3.5" />}
             >
-              {!parsedCorrelationSummary ? (
-                <EmptyState label="No structured correlation explanation available yet." />
-              ) : (
-                <div className="space-y-3">
-                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                    <MetricTile title="Base score" value={parsedCorrelationSummary.base_score ?? 0} tone="neutral" />
-                    <MetricTile title="Pattern score" value={parsedCorrelationSummary.pattern_score ?? 0} tone="primary" />
-                    <MetricTile title="Volume score" value={parsedCorrelationSummary.volume_score ?? 0} tone="warning" />
-                    <MetricTile title="Chain bonus" value={parsedCorrelationSummary.chain_bonus ?? 0} tone="executive" />
-                  </div>
-
-                  <div className="grid gap-3 xl:grid-cols-3">
-                    <CompactList
-                      title="Matched patterns"
-                      emptyLabel="No security patterns matched."
-                    >
-                      {matchedPatterns.map(([name, pattern]) => (
-                        <div key={name} className="rounded-md border border-slate-800 bg-slate-950 p-2">
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="truncate text-xs font-medium text-cyan-300">
-                              {name}
-                            </div>
-                            <span className="text-[11px] text-slate-500">
-                              w {pattern.weight ?? 0}
-                            </span>
-                          </div>
-                          <div className="mt-1 line-clamp-2 text-[11px] text-slate-400">
-                            {(pattern.keywords ?? []).join(", ")}
-                          </div>
-                        </div>
-                      ))}
-                    </CompactList>
-
-                    <CompactList
-                      title="Matched attack chains"
-                      emptyLabel="No multi-step attack chain matched."
-                    >
-                      {matchedAttackChains.map((chain, index) => (
-                        <div key={`${chain.name ?? "chain"}-${index}`} className="rounded-md border border-slate-800 bg-slate-950 p-2">
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="truncate text-xs font-medium text-cyan-300">
-                              {chain.name ?? "Unnamed chain"}
-                            </div>
-                            <span className="text-[11px] text-slate-500">
-                              +{chain.score_bonus ?? 0}
-                            </span>
-                          </div>
-                          <div className="mt-1 line-clamp-2 text-[11px] text-slate-400">
-                            {chain.reason ?? "No explanation available."}
-                          </div>
-                        </div>
-                      ))}
-                    </CompactList>
-
-                    <CompactList
-                      title="Related events"
-                      emptyLabel="No related events available."
-                    >
-                      {relatedCorrelationEvents.slice(0, 8).map((event) => (
-                        <div key={event.id} className="rounded-md border border-slate-800 bg-slate-950 px-2 py-1.5">
-                          <div className="flex items-center justify-between gap-2">
-                            <Link
-                              href={`/incidents/${event.id}`}
-                              className="text-xs text-cyan-300 hover:text-cyan-200"
-                            >
-                              #{event.id}
-                            </Link>
-                            <span className="text-[11px] text-slate-500">
-                              risk {event.risk_score ?? 0}
-                            </span>
-                          </div>
-                          <div className="mt-0.5 truncate text-[11px] text-slate-400">
-                            {event.rule ?? "-"}
-                          </div>
-                        </div>
-                      ))}
-                    </CompactList>
-                  </div>
-                </div>
-              )}
+              <InvestigationConsole
+                incident={incident}
+                notes={notes}
+                noteDraft={noteDraft}
+                savingNote={savingNote}
+                canOperate={canOperate}
+                isViewer={isViewer}
+                onNoteDraftChange={setNoteDraft}
+                onAddNote={addNote}
+              />
             </Panel>
 
-            <section className="grid gap-3 xl:grid-cols-2">
-              <Panel title="Structured correlation" icon={<Brain className="h-3.5 w-3.5" />}>
-                <div className="grid gap-2 lg:grid-cols-2">
-                  <CompactField label="Correlation type" value={incident.correlation_type ?? "-"} />
-                  <CompactField label="Recommended priority" value={incident.recommended_priority ?? "-"} />
-                  <CompactField label="Attack chain" value={incident.attack_chain ?? "-"} />
-                  <CompactField label="Escalation reason" value={incident.escalation_reason ?? "-"} />
+            <Panel
+              title="Correlation intelligence"
+              description="Explainable correlation score, matched patterns, attack chains and related events."
+              icon={<Brain className="h-3.5 w-3.5" />}
+            >
+              <CorrelationConsole
+                parsedCorrelationSummary={parsedCorrelationSummary}
+                matchedPatterns={matchedPatterns}
+                matchedAttackChains={matchedAttackChains}
+                relatedCorrelationEvents={relatedCorrelationEvents}
+              />
+            </Panel>
+
+            <section className="grid gap-3 xl:grid-cols-[1fr_420px]">
+              <Panel title="Structured context" icon={<Database className="h-3.5 w-3.5" />}>
+                <div className="grid gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800 lg:grid-cols-2">
+                  <DenseField label="Correlation type" value={incident.correlation_type ?? "-"} />
+                  <DenseField label="Recommended priority" value={incident.recommended_priority ?? "-"} />
+                  <DenseField label="Attack chain" value={incident.attack_chain ?? "-"} />
+                  <DenseField label="Escalation reason" value={incident.escalation_reason ?? "-"} />
                 </div>
               </Panel>
 
-              <Panel title="Audit trail" icon={<FileText className="h-3.5 w-3.5" />}>
-                {auditEvents.length === 0 ? (
-                  <EmptyState label="No audit events available." />
-                ) : (
-                  <div className="max-h-56 space-y-2 overflow-auto pr-1">
-                    {auditEvents.map((event) => (
-                      <div
-                        key={event.id}
-                        className="rounded-md border border-slate-800 bg-slate-950 p-2"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="text-xs font-medium text-slate-200">
-                            {event.event_type}
-                          </div>
-                          <div className="text-[10px] text-slate-500">
-                            {formatTimestamp(event.created_at)}
-                          </div>
-                        </div>
-                        <div className="mt-1 text-[11px] text-slate-400">
-                          {event.old_value ?? "-"} → {event.new_value ?? "-"}
-                        </div>
-                        {event.comment && (
-                          <div className="mt-1 line-clamp-2 rounded-md border border-slate-800 bg-slate-900 px-2 py-1 text-[11px] text-slate-300">
-                            {event.comment}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
+              <Panel title="Audit trail" icon={<ClipboardList className="h-3.5 w-3.5" />}>
+                <AuditTrail auditEvents={auditEvents} />
               </Panel>
             </section>
 
             <section className="grid gap-3 xl:grid-cols-2">
               <Panel title="MITRE / Metadata" icon={<Database className="h-3.5 w-3.5" />}>
-                <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-md border border-slate-800 bg-slate-950 p-3 text-xs leading-5 text-slate-300">
+                <EvidenceBlock title="MITRE evidence">
                   {incident.mitre ?? "No MITRE data available."}
-                </pre>
+                </EvidenceBlock>
               </Panel>
 
               <Panel title="Correlation summary" icon={<FileText className="h-3.5 w-3.5" />}>
-                <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-md border border-slate-800 bg-slate-950 p-3 text-xs leading-5 text-slate-300">
+                <EvidenceBlock title="Structured payload">
                   {correlationSummary || "No correlation summary available."}
-                </pre>
+                </EvidenceBlock>
               </Panel>
             </section>
 
             <Panel title="Raw Wazuh alert" icon={<FileText className="h-3.5 w-3.5" />}>
-              <pre className="max-h-[420px] overflow-auto rounded-md border border-slate-800 bg-slate-950 p-3 text-xs leading-5 text-slate-300">
+              <EvidenceBlock title="Raw JSON evidence">
                 {rawAlert || "No raw alert available."}
-              </pre>
+              </EvidenceBlock>
             </Panel>
           </div>
         )}
       </div>
     </main>
-  );
-}
-
-function MetricTile({
-  title,
-  value,
-  tone,
-  icon,
-}: {
-  title: string;
-  value: string | number;
-  tone: Tone;
-  icon?: ReactNode;
-}) {
-  const classes = toneClasses(tone);
-
-  return (
-    <div className={`rounded-lg border px-3 py-2 shadow-sm ${classes.card}`}>
-      <div className="flex items-center justify-between gap-2">
-        <div className="min-w-0">
-          <div className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
-            {title}
-          </div>
-          <div className="mt-0.5 truncate text-lg font-semibold leading-6 text-slate-100">
-            {value}
-          </div>
-        </div>
-        {icon && (
-          <div className={`shrink-0 rounded-md bg-slate-950 p-1.5 ${classes.text}`}>
-            {icon}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function Panel({
-  title,
-  description,
-  icon,
-  children,
-}: {
-  title: string;
-  description?: string;
-  icon?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
-      <div className="mb-2 flex items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            {icon && <div className="text-cyan-300">{icon}</div>}
-            <h2 className="text-sm font-semibold">{title}</h2>
-          </div>
-          {description && (
-            <p className="mt-0.5 text-[11px] leading-4 text-slate-500">
-              {description}
-            </p>
-          )}
-        </div>
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function Badge({ tone, children }: { tone: Tone; children: ReactNode }) {
-  return (
-    <span className={`rounded-md border px-2 py-0.5 text-[11px] ${toneClasses(tone).badge}`}>
-      {children}
-    </span>
-  );
-}
-
-function CompactField({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0 rounded-md border border-slate-800 bg-slate-950 px-2 py-1.5">
-      <div className="text-[10px] uppercase tracking-wide text-slate-500">
-        {label}
-      </div>
-      <div className="truncate text-xs text-slate-200" title={value}>
-        {value}
-      </div>
-    </div>
-  );
-}
-
-function CompactList({
-  title,
-  emptyLabel,
-  children,
-}: {
-  title: string;
-  emptyLabel: string;
-  children: ReactNode;
-}) {
-  const hasChildren = Array.isArray(children)
-    ? children.length > 0
-    : Boolean(children);
-
-  return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-2">
-      <div className="mb-2 text-xs font-semibold text-slate-200">{title}</div>
-      {!hasChildren ? (
-        <EmptyState label={emptyLabel} />
-      ) : (
-        <div className="max-h-56 space-y-2 overflow-auto pr-1">{children}</div>
-      )}
-    </div>
-  );
-}
-
-function EmptyState({ label }: { label: string }) {
-  return (
-    <div className="rounded-md border border-slate-800 bg-slate-950 p-2 text-xs text-slate-500">
-      {label}
-    </div>
   );
 }
