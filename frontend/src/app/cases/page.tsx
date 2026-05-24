@@ -2,14 +2,12 @@
 
 import { authFetch } from "@/lib/auth";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import AppNavigation from "../../components/AppNavigation";
 import {
   EnterpriseBadge,
   EnterpriseButton,
-  EnterpriseMetricCard,
-  EnterprisePageHeader,
   EnterpriseSection,
 } from "../../components/enterprise";
 import {
@@ -23,7 +21,6 @@ import {
   RefreshCw,
   Search,
   ShieldAlert,
-  SlidersHorizontal,
 } from "lucide-react";
 
 type IncidentCase = {
@@ -81,54 +78,7 @@ type CasesResponse = {
   total_pages: number;
 };
 
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8008";
-
 const TERMINAL_STATUSES = new Set(["CLOSED", "FALSE_POSITIVE"]);
-
-function severityTone(value: string | null | undefined): "neutral" | "primary" | "warning" | "danger" {
-  const severity = value ?? "LOW";
-
-  if (severity === "CRITICAL") return "danger";
-  if (severity === "HIGH") return "warning";
-  if (severity === "MEDIUM") return "primary";
-
-  return "neutral";
-}
-
-function statusTone(value: string | null | undefined): "neutral" | "primary" | "success" | "danger" | "executive" {
-  const status = value ?? "OPEN";
-
-  if (status === "ESCALATED") return "danger";
-  if (status === "INVESTIGATING") return "executive";
-  if (status === "TRIAGED") return "primary";
-  if (status === "CLOSED") return "success";
-  if (status === "FALSE_POSITIVE") return "executive";
-
-  return "neutral";
-}
-
-function slaTone(value: string | null | undefined): "neutral" | "success" | "danger" {
-  const status = value ?? "NOT_SET";
-
-  if (status === "BREACHED") return "danger";
-  if (status === "WITHIN_SLA" || status === "COMPLETED") return "success";
-
-  return "neutral";
-}
-
-function priorityTone(item: IncidentCase): "neutral" | "primary" | "success" | "warning" | "danger" {
-  const severity = item.severity_review ?? item.final_severity ?? item.severity ?? "LOW";
-
-  if (item.sla_status === "BREACHED") return "danger";
-  if (item.status === "ESCALATED") return "danger";
-  if (["CRITICAL", "HIGH"].includes(severity)) return "warning";
-  if ((item.open_action_count ?? 0) > 0) return "warning";
-  if (!item.has_ai_analysis && isOpenCase(item)) return "warning";
-  if (item.ready_to_close && isOpenCase(item)) return "success";
-
-  return "neutral";
-}
 
 function shortText(value: string | null | undefined, maxLength = 96) {
   if (!value) return "-";
@@ -252,10 +202,6 @@ function isOpenCase(item: IncidentCase) {
   return !TERMINAL_STATUSES.has(status);
 }
 
-function hasFlag(item: IncidentCase, flag: string) {
-  return Boolean(item.queue_flags?.includes(flag));
-}
-
 function operationalPriority(item: IncidentCase) {
   let score = 0;
 
@@ -303,7 +249,7 @@ export default function CasesPage() {
   const [ownerFilter, setOwnerFilter] = useState("ALL");
   const [quickView, setQuickView] = useState("OPERATIONS");
 
-  const cases = data?.items ?? [];
+  const cases = useMemo(() => data?.items ?? [], [data?.items]);
 
   const owners = useMemo(() => {
     const values = Array.from(
@@ -525,7 +471,7 @@ export default function CasesPage() {
     }
   }
 
-  async function loadCases() {
+  const loadCases = useCallback(async () => {
     try {
       setRefreshing(true);
       setError(null);
@@ -537,11 +483,15 @@ export default function CasesPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
-    loadCases();
-  }, []);
+    const timeoutId = window.setTimeout(() => {
+      void loadCases();
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [loadCases]);
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
@@ -597,13 +547,49 @@ export default function CasesPage() {
           </EnterpriseSection>
         ) : (
           <div className="space-y-3">
-            <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-              <EnterpriseMetricCard title="Active" value={metrics.active} subtitle={`${metrics.total} total`} tone="primary" icon={<Briefcase className="h-4 w-4" />} />
-              <EnterpriseMetricCard title="SLA breached" value={metrics.breached} subtitle="Immediate review" tone={metrics.breached > 0 ? "danger" : "success"} icon={<AlertTriangle className="h-4 w-4" />} />
-              <EnterpriseMetricCard title="High / Critical" value={metrics.criticalHigh} subtitle="Priority queue" tone={metrics.criticalHigh > 0 ? "warning" : "success"} icon={<ShieldAlert className="h-4 w-4" />} />
-              <EnterpriseMetricCard title="Ready to close" value={metrics.readyToClose} subtitle="Can be closed" tone={metrics.readyToClose > 0 ? "success" : "neutral"} icon={<CheckCircle2 className="h-4 w-4" />} />
-              <EnterpriseMetricCard title="Open actions" value={metrics.blockedByActions} subtitle="Blocked cases" tone={metrics.blockedByActions > 0 ? "warning" : "success"} icon={<CircleDashed className="h-4 w-4" />} />
-              <EnterpriseMetricCard title="Needs AI" value={metrics.needsAi} subtitle="No analysis yet" tone={metrics.needsAi > 0 ? "warning" : "success"} icon={<Bot className="h-4 w-4" />} />
+            <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
+              <CaseQueueMetric
+                title="Active"
+                value={metrics.active}
+                subtitle={`${metrics.total} total`}
+                tone="primary"
+                icon={<Briefcase className="h-3.5 w-3.5" />}
+              />
+              <CaseQueueMetric
+                title="SLA breached"
+                value={metrics.breached}
+                subtitle="Immediate review"
+                tone={metrics.breached > 0 ? "danger" : "success"}
+                icon={<AlertTriangle className="h-3.5 w-3.5" />}
+              />
+              <CaseQueueMetric
+                title="High / Critical"
+                value={metrics.criticalHigh}
+                subtitle="Priority queue"
+                tone={metrics.criticalHigh > 0 ? "warning" : "success"}
+                icon={<ShieldAlert className="h-3.5 w-3.5" />}
+              />
+              <CaseQueueMetric
+                title="Ready to close"
+                value={metrics.readyToClose}
+                subtitle="Can be closed"
+                tone={metrics.readyToClose > 0 ? "success" : "neutral"}
+                icon={<CheckCircle2 className="h-3.5 w-3.5" />}
+              />
+              <CaseQueueMetric
+                title="Open actions"
+                value={metrics.blockedByActions}
+                subtitle="Blocked cases"
+                tone={metrics.blockedByActions > 0 ? "warning" : "success"}
+                icon={<CircleDashed className="h-3.5 w-3.5" />}
+              />
+              <CaseQueueMetric
+                title="Needs AI"
+                value={metrics.needsAi}
+                subtitle="No analysis yet"
+                tone={metrics.needsAi > 0 ? "warning" : "success"}
+                icon={<Bot className="h-3.5 w-3.5" />}
+              />
             </section>
 
             <EnterpriseSection
@@ -889,34 +875,57 @@ export default function CasesPage() {
   );
 }
 
-function MetricCard({
+type CaseMetricTone = "neutral" | "primary" | "success" | "warning" | "danger";
+
+const caseMetricToneClasses: Record<CaseMetricTone, string> = {
+  neutral: "border-slate-800 bg-slate-900 text-slate-100",
+  primary: "border-cyan-900 bg-cyan-950/30 text-cyan-100",
+  success: "border-emerald-900 bg-emerald-950/30 text-emerald-100",
+  warning: "border-orange-900 bg-orange-950/30 text-orange-100",
+  danger: "border-red-900 bg-red-950/30 text-red-100",
+};
+
+const caseMetricIconClasses: Record<CaseMetricTone, string> = {
+  neutral: "bg-slate-950 text-slate-400",
+  primary: "bg-cyan-950 text-cyan-300",
+  success: "bg-emerald-950 text-emerald-300",
+  warning: "bg-orange-950 text-orange-300",
+  danger: "bg-red-950 text-red-300",
+};
+
+function CaseQueueMetric({
   title,
   value,
   subtitle,
-  danger = false,
-  warning = false,
-  success = false,
+  tone = "neutral",
+  icon,
 }: {
   title: string;
   value: number;
   subtitle?: string;
-  danger?: boolean;
-  warning?: boolean;
-  success?: boolean;
+  tone?: CaseMetricTone;
+  icon: ReactNode;
 }) {
-  const className = danger
-    ? "border-red-800 bg-red-950/50"
-    : warning
-      ? "border-orange-800 bg-orange-950/40"
-      : success
-        ? "border-emerald-800 bg-emerald-950/40"
-        : "border-slate-800 bg-slate-900";
-
   return (
-    <div className={`rounded-2xl border p-5 shadow-lg ${className}`}>
-      <div className="mb-3 text-xs text-slate-500">{title}</div>
-      <div className="text-3xl font-semibold">{value}</div>
-      {subtitle && <div className="mt-2 text-xs text-slate-500">{subtitle}</div>}
+    <div
+      className={`flex min-h-[58px] items-center justify-between gap-3 rounded-sm border px-2.5 py-2 shadow-sm ${caseMetricToneClasses[tone]}`}
+    >
+      <div className="min-w-0">
+        <div className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
+          {title}
+        </div>
+        <div className="mt-0.5 flex min-w-0 items-baseline gap-2">
+          <span className="text-xl font-semibold leading-6">{value}</span>
+          {subtitle && (
+            <span className="min-w-0 truncate text-[11px] leading-4 text-slate-500">
+              {subtitle}
+            </span>
+          )}
+        </div>
+      </div>
+      <div className={`shrink-0 rounded-sm p-1.5 ${caseMetricIconClasses[tone]}`}>
+        {icon}
+      </div>
     </div>
   );
 }
