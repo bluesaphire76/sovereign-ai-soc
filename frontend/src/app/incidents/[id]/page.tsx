@@ -15,6 +15,7 @@ import {
   Database,
   FileDown,
   FileText,
+  Network,
   RefreshCw,
   ShieldAlert,
   Target,
@@ -60,6 +61,45 @@ type IncidentNote = {
   note: string;
   created_by: string | null;
   created_at: string | null;
+};
+
+type NetworkEvidenceItem = {
+  id: number;
+  source: string | null;
+  event_type: string;
+  event_timestamp: string | null;
+  src_ip: string | null;
+  src_port: number | null;
+  dest_ip: string | null;
+  dest_port: number | null;
+  proto: string | null;
+  app_proto: string | null;
+  hostname: string | null;
+  url: string | null;
+  http_method: string | null;
+  http_user_agent: string | null;
+  tls_sni: string | null;
+  alert_signature: string | null;
+  alert_category: string | null;
+  alert_severity: number | null;
+  created_at: string | null;
+};
+
+type IncidentNetworkEvidence = {
+  incident_id: number;
+  incident_timestamp: string | null;
+  correlation_window_minutes: number;
+  matched_ips: string[];
+  matched_hostnames: string[];
+  summary: {
+    total: number;
+    alert: number;
+    dns: number;
+    http: number;
+    tls: number;
+    flow: number;
+  };
+  items: NetworkEvidenceItem[];
 };
 
 type CorrelationSummary = {
@@ -409,6 +449,21 @@ async function fetchIncidentNotes(id: string): Promise<IncidentNote[]> {
 
   return response.json();
 }
+
+
+async function fetchIncidentNetworkEvidence(id: string): Promise<IncidentNetworkEvidence> {
+  const response = await authFetch(`/incidents/${id}/network-evidence?window_minutes=120&limit=25`, {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to load network evidence: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+
 
 function normalizeAiLine(line: string): string {
   return line
@@ -1731,6 +1786,128 @@ function reportId(value: string | number) {
   return String(value).padStart(6, "0");
 }
 
+
+function formatNetworkEvidenceTimestamp(value: string | null) {
+  if (!value) return "-";
+
+  try {
+    return new Intl.DateTimeFormat("en-GB", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(new Date(value));
+  } catch {
+    return value;
+  }
+}
+
+function NetworkEvidencePanel({
+  evidence,
+}: {
+  evidence: IncidentNetworkEvidence | null;
+}) {
+  const summary = evidence?.summary;
+
+  return (
+    <Panel title="Network evidence" icon={<Network className="h-3.5 w-3.5" />}>
+      {!evidence ? (
+        <p className="text-xs leading-5 text-slate-500">
+          Network telemetry is not available for this incident.
+        </p>
+      ) : (
+        <div className="space-y-3">
+          <div className="grid gap-2 sm:grid-cols-3">
+            <DenseField label="Related events" value={summary?.total ?? 0} />
+            <DenseField label="Window" value={`${evidence.correlation_window_minutes} min`} />
+            <DenseField label="Latest source" value="Suricata" />
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-5">
+            <DenseField label="Alerts" value={summary?.alert ?? 0} />
+            <DenseField label="DNS" value={summary?.dns ?? 0} />
+            <DenseField label="HTTP" value={summary?.http ?? 0} />
+            <DenseField label="TLS" value={summary?.tls ?? 0} />
+            <DenseField label="Flows" value={summary?.flow ?? 0} />
+          </div>
+
+          {(evidence.matched_ips.length > 0 || evidence.matched_hostnames.length > 0) && (
+            <div className="rounded-sm border border-slate-800 bg-slate-950 p-3">
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                    Matched IPs
+                  </p>
+                  <p className="mt-1 break-words font-mono text-xs leading-5 text-slate-300">
+                    {evidence.matched_ips.length > 0 ? evidence.matched_ips.join(", ") : "-"}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                    Matched hosts
+                  </p>
+                  <p className="mt-1 break-words font-mono text-xs leading-5 text-slate-300">
+                    {evidence.matched_hostnames.length > 0
+                      ? evidence.matched_hostnames.join(", ")
+                      : "-"}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {evidence.items.length === 0 ? (
+            <div className="rounded-sm border border-dashed border-slate-800 bg-slate-950 p-3 text-xs leading-5 text-slate-500">
+              No related Suricata network telemetry was found in the selected correlation window.
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-sm border border-slate-800">
+              <table className="min-w-full text-left text-xs">
+                <thead className="border-b border-slate-800 bg-slate-950 text-[10px] uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2">Time</th>
+                    <th className="px-3 py-2">Type</th>
+                    <th className="px-3 py-2">Source</th>
+                    <th className="px-3 py-2">Destination</th>
+                    <th className="px-3 py-2">Host / SNI</th>
+                    <th className="px-3 py-2">Alert</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-900">
+                  {evidence.items.slice(0, 8).map((item) => (
+                    <tr key={item.id} className="align-top text-slate-300">
+                      <td className="px-3 py-2 text-slate-500">
+                        {formatNetworkEvidenceTimestamp(item.event_timestamp)}
+                      </td>
+                      <td className="px-3 py-2 font-mono uppercase text-slate-300">
+                        {item.event_type}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-slate-400">
+                        {item.src_ip ?? "-"}
+                        {item.src_port ? `:${item.src_port}` : ""}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-slate-400">
+                        {item.dest_ip ?? "-"}
+                        {item.dest_port ? `:${item.dest_port}` : ""}
+                      </td>
+                      <td className="max-w-[220px] truncate px-3 py-2 text-slate-300">
+                        {item.hostname ?? item.tls_sni ?? "-"}
+                      </td>
+                      <td className="max-w-[260px] truncate px-3 py-2 text-slate-400">
+                        {item.alert_signature ?? "No IDS alert"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+
 export default function IncidentDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -1740,6 +1917,7 @@ export default function IncidentDetailPage() {
   const [incident, setIncident] = useState<IncidentDetail | null>(null);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [notes, setNotes] = useState<IncidentNote[]>([]);
+  const [networkEvidence, setNetworkEvidence] = useState<IncidentNetworkEvidence | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
   const [savingNote, setSavingNote] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -1766,15 +1944,17 @@ export default function IncidentDetailPage() {
     try {
       setRefreshing(true);
       setError(null);
-      const [data, auditData, notesData] = await Promise.all([
+      const [data, auditData, notesData, networkEvidenceData] = await Promise.all([
         fetchIncident(incidentId),
         fetchIncidentAudit(incidentId),
         fetchIncidentNotes(incidentId),
+        fetchIncidentNetworkEvidence(incidentId),
       ]);
 
       setIncident(data);
       setAuditEvents(auditData);
       setNotes(notesData);
+      setNetworkEvidence(networkEvidenceData);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
@@ -2097,6 +2277,8 @@ export default function IncidentDetailPage() {
                 <AuditTrail auditEvents={auditEvents} />
               </Panel>
             </section>
+
+            <NetworkEvidencePanel evidence={networkEvidence} />
 
             <section className="grid gap-3 xl:grid-cols-2">
               <Panel title="MITRE / Metadata" icon={<Database className="h-3.5 w-3.5" />}>
