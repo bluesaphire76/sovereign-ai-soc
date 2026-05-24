@@ -982,6 +982,101 @@ SYNTHETIC_SCENARIOS = {
             }
         },
     },
+    "suspicious_package_activity": {
+        "title": "SYNTHETIC suspicious_package_activity: package and configuration change",
+        "rule": "SYNTHETIC suspicious_package_activity - package activity outside maintenance window",
+        "level": 8,
+        "mitre": ["T1072", "T1546"],
+        "risk_score": 58,
+        "correlation_score": 68,
+        "correlation_type": "SYNTHETIC_SUSPICIOUS_PACKAGE_ACTIVITY",
+        "recommended_priority": "MEDIUM",
+        "attack_chain": "Defense Evasion -> Persistence",
+        "escalation_reason": "Synthetic package activity scenario generated system-change evidence outside the expected maintenance context.",
+        "ai_analysis": "Synthetic package-activity test. Validate medium-risk triage, package-change evidence and MITRE mapping.",
+        "matched_patterns": {
+            "suspicious_package_activity": {
+                "keywords": ["package", "dpkg", "apt", "configuration", "maintenance"],
+                "weight": 35,
+            }
+        },
+    },
+    "noisy_operational_baseline": {
+        "title": "SYNTHETIC noisy_operational_baseline: benign operational activity",
+        "rule": "SYNTHETIC noisy_operational_baseline - routine administrative signal",
+        "level": 3,
+        "mitre": [],
+        "risk_score": 18,
+        "correlation_score": 32,
+        "correlation_type": "SYNTHETIC_NOISY_OPERATIONAL_BASELINE",
+        "recommended_priority": "LOW",
+        "attack_chain": "Operational Activity",
+        "escalation_reason": "Synthetic operational baseline scenario generated benign activity for noise-handling validation.",
+        "ai_analysis": "Synthetic noisy-baseline test. Validate that routine operational activity stays low priority and remains analyst-verifiable.",
+        "matched_patterns": {
+            "noisy_operational_baseline": {
+                "keywords": ["routine", "systemctl", "pam session", "trusted operator"],
+                "weight": 15,
+            }
+        },
+    },
+    "false_positive": {
+        "title": "SYNTHETIC false_positive: approved maintenance context",
+        "rule": "SYNTHETIC false_positive - approved administrative change with ticket context",
+        "level": 4,
+        "mitre": [],
+        "risk_score": 16,
+        "correlation_score": 28,
+        "correlation_type": "SYNTHETIC_FALSE_POSITIVE",
+        "recommended_priority": "LOW",
+        "attack_chain": "Approved Change -> Human Validation",
+        "escalation_reason": "Synthetic false-positive scenario generated approved maintenance context for analyst disposition validation.",
+        "ai_analysis": "Synthetic false-positive test. Validate benign classification, analyst decision support and audit-ready rationale.",
+        "matched_patterns": {
+            "false_positive": {
+                "keywords": ["approved maintenance", "change ticket", "false positive", "authorized"],
+                "weight": 15,
+            }
+        },
+    },
+    "real_incident": {
+        "title": "SYNTHETIC real_incident: multi-stage critical compromise signal",
+        "rule": "SYNTHETIC real_incident - brute force followed by privileged activity",
+        "level": 14,
+        "mitre": ["T1110", "T1021.004", "T1548"],
+        "risk_score": 94,
+        "correlation_score": 96,
+        "correlation_type": "SYNTHETIC_REAL_INCIDENT",
+        "recommended_priority": "CRITICAL",
+        "attack_chain": "Credential Access -> Initial Access -> Privilege Escalation",
+        "escalation_reason": "Synthetic real incident scenario generated a multi-stage authentication and privilege escalation chain.",
+        "ai_analysis": "Synthetic real-incident test. Validate critical priority, multi-stage correlation, MITRE coverage and escalation workflow.",
+        "matched_patterns": {
+            "real_incident": {
+                "keywords": ["bruteforce", "successful login", "root", "privilege escalation"],
+                "weight": 60,
+            }
+        },
+    },
+    "case_ready": {
+        "title": "SYNTHETIC case_ready: investigation-ready correlated evidence",
+        "rule": "SYNTHETIC case_ready - correlated authentication and privilege evidence",
+        "level": 13,
+        "mitre": ["T1110", "T1548"],
+        "risk_score": 90,
+        "correlation_score": 94,
+        "correlation_type": "SYNTHETIC_CASE_READY",
+        "recommended_priority": "CRITICAL",
+        "attack_chain": "Credential Access -> Privilege Escalation -> Case Workflow",
+        "escalation_reason": "Synthetic case-ready scenario generated correlated evidence suitable for incident-to-case validation.",
+        "ai_analysis": "Synthetic case-ready test. Validate case creation, investigation evidence, AI case analysis and closure governance.",
+        "matched_patterns": {
+            "case_ready": {
+                "keywords": ["case", "correlated", "same host", "analyst context", "escalation"],
+                "weight": 55,
+            }
+        },
+    },
 }
 
 
