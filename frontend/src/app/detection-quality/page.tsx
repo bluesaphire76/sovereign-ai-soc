@@ -141,6 +141,63 @@ const CHART_COLORS = {
 
 const TABLE_BADGE_BASE =
   "inline-flex h-5 w-fit items-center justify-center whitespace-nowrap rounded-sm border px-1.5 text-[10px] font-medium leading-none";
+const ACTION_GUIDANCE_STORAGE_KEY =
+  "ai-soc:detection-quality-action-guidance:v1";
+
+function isActionGuidance(
+  value: unknown
+): value is DetectionQualityActionGuidance {
+  if (!value || typeof value !== "object") return false;
+
+  const candidate = value as Partial<DetectionQualityActionGuidance>;
+
+  return (
+    Array.isArray(candidate.how_to_execute) &&
+    candidate.how_to_execute.every((step) => typeof step === "string") &&
+    typeof candidate.validation_notes === "string"
+  );
+}
+
+function loadStoredActionGuidance(): Record<
+  string,
+  DetectionQualityActionGuidance
+> {
+  if (typeof window === "undefined") return {};
+
+  try {
+    const rawValue = window.localStorage.getItem(ACTION_GUIDANCE_STORAGE_KEY);
+    if (!rawValue) return {};
+
+    const parsed = JSON.parse(rawValue);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+
+    return Object.fromEntries(
+      Object.entries(parsed).filter((entry): entry is [
+        string,
+        DetectionQualityActionGuidance,
+      ] => typeof entry[0] === "string" && isActionGuidance(entry[1]))
+    );
+  } catch {
+    return {};
+  }
+}
+
+function storeActionGuidance(
+  guidanceByKey: Record<string, DetectionQualityActionGuidance>
+) {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(
+      ACTION_GUIDANCE_STORAGE_KEY,
+      JSON.stringify(guidanceByKey)
+    );
+  } catch {
+    // localStorage persistence is a convenience; generation state still works in memory.
+  }
+}
 
 async function fetchJson<T>(path: string): Promise<T> {
   const response = await authFetch(path, {
@@ -480,6 +537,10 @@ export default function DetectionQualityPage() {
   const isViewer = currentUser?.role === "VIEWER";
 
   useEffect(() => {
+    setActionGuidanceByKey(loadStoredActionGuidance());
+  }, []);
+
+  useEffect(() => {
     setCurrentUser(getStoredUser());
 
     fetchCurrentUser()
@@ -793,10 +854,14 @@ export default function DetectionQualityPage() {
         },
       });
 
-      setActionGuidanceByKey((previous) => ({
-        ...previous,
-        [guidanceKey]: response,
-      }));
+      setActionGuidanceByKey((previous) => {
+        const next = {
+          ...previous,
+          [guidanceKey]: response,
+        };
+        storeActionGuidance(next);
+        return next;
+      });
     } catch (err) {
       setGuidanceErrorByKey((previous) => ({
         ...previous,
@@ -1350,147 +1415,162 @@ function DetectionQualityBrief({
 }) {
   const scoreTone = toneForCoverage(qualityScore, totalSynthetic > 0);
   const weakestQuality = weakestScenario ? scenarioQualityScore(weakestScenario) : 0;
+  const alignedBriefItems: BriefItem[] = [
+    ...items,
+    {
+      label: "Quality score",
+      value: `${qualityScore}%`,
+      tone: scoreTone,
+    },
+    {
+      label: "Weakest scenario",
+      value: weakestScenario
+        ? `${scenarioLabel(weakestScenario.scenario)} · ${weakestQuality}%`
+        : "Not available",
+      tone: weakestScenario ? toneForCoverage(weakestQuality, true) : "neutral",
+    },
+  ];
 
   return (
     <section className="rounded-sm border border-slate-800 bg-slate-900 p-3 shadow-sm">
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <div>
-          <div className="mb-1 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wide text-violet-300">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-800 pb-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-wide text-violet-300">
             <Brain className="h-3.5 w-3.5" />
             Detection quality brief
           </div>
-          <h2 className="text-sm font-semibold">Synthetic validation posture</h2>
-          <p className="mt-1 max-w-4xl text-xs leading-5 text-slate-400">
-            {summary}
-          </p>
+          <h2 className="mt-1 text-sm font-semibold">
+            Synthetic validation posture
+          </h2>
+        </div>
 
-          <div className="mt-2 grid gap-1.5 sm:grid-cols-3">
-            {items.map((item) => (
-              <div
-                key={item.label}
-                className="rounded-sm border border-slate-800 bg-slate-950 px-2 py-1.5"
-              >
-                <div className="truncate text-[10px] uppercase tracking-wide text-slate-500">
-                  {item.label}
-                </div>
-                <div className="mt-1 flex items-center justify-between gap-2">
-                  <span className="text-sm font-semibold text-slate-100">
-                    {item.value}
-                  </span>
-                  <span
-                    className={`h-2 w-2 shrink-0 rounded-full ${toneDotClass(item.tone)}`}
-                  />
-                </div>
+        <div className="flex items-center gap-2">
+          <span
+            className={`${TABLE_BADGE_BASE} ${
+              toneClasses(scoreTone).badge
+            }`}
+          >
+            Quality {qualityScore}%
+          </span>
+          <span className="rounded-sm border border-slate-700 bg-slate-950 px-2 py-1 text-[10px] uppercase tracking-wide text-slate-500">
+            Human review
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-3">
+        <p className="text-xs leading-5 text-slate-400">
+          {summary}
+        </p>
+
+        <div className="mt-3 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-5">
+          {alignedBriefItems.map((item) => (
+            <div
+              key={item.label}
+              className="rounded-sm border border-slate-800 bg-slate-950 px-2 py-1.5"
+            >
+              <div className="truncate text-[10px] uppercase tracking-wide text-slate-500">
+                {item.label}
               </div>
-            ))}
+              <div className="mt-1 flex items-center justify-between gap-2">
+                <span
+                  className="truncate text-sm font-semibold text-slate-100"
+                  title={item.value}
+                >
+                  {item.value}
+                </span>
+                <span
+                  className={`h-2 w-2 shrink-0 rounded-full ${toneDotClass(item.tone)}`}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-2 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+        <div className="rounded-sm border border-slate-800 bg-slate-950 px-2.5 py-2">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-[10px] uppercase tracking-wide text-slate-500">
+                Recommended next action
+              </div>
+              <div className="mt-1 text-xs leading-5 text-slate-300">
+                {nextAction}
+              </div>
+            </div>
+            <span className="shrink-0 rounded-sm border border-amber-900/70 bg-amber-950/30 px-1.5 py-0.5 text-[10px] leading-none text-amber-200">
+              Analyst decision
+            </span>
+          </div>
+          <div className="mt-1 text-[10px] uppercase tracking-wide text-slate-600">
+            Human validation required before tuning or release decisions
           </div>
         </div>
 
-        <div className="grid gap-1.5 sm:grid-cols-3 xl:grid-cols-1">
-          <BriefFact
-            label="Quality score"
-            value={`${qualityScore}%`}
-            tone={scoreTone}
-          />
-          <BriefFact
-            label="Weakest scenario"
-            value={
-              weakestScenario
-                ? `${scenarioLabel(weakestScenario.scenario)} · ${weakestQuality}%`
-                : "Not available"
-            }
-            tone={weakestScenario ? toneForCoverage(weakestQuality, true) : "neutral"}
-          />
-          <div className="rounded-sm border border-slate-800 bg-slate-950 px-2 py-1.5">
-            <div className="text-[10px] uppercase tracking-wide text-slate-500">
-              Recommended next action
-            </div>
-            <div className="mt-1 text-[11px] leading-4 text-slate-300">
-              {nextAction}
-            </div>
-            <div className="mt-1 text-[10px] uppercase tracking-wide text-slate-600">
-              Human validation required
-            </div>
-          </div>
-          <div className="rounded-sm border border-violet-900/70 bg-violet-950/20 px-2 py-1.5">
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-[10px] uppercase tracking-wide text-violet-300">
-                How to execute
+        <div className="rounded-sm border border-violet-900/70 bg-violet-950/20 px-2.5 py-2">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <div className="text-[10px] uppercase leading-4 tracking-wide text-violet-300">
+                AI suggestion
               </div>
-              {actionGuidance ? (
-                <span className="rounded-sm border border-violet-800 bg-violet-950 px-1.5 py-0.5 text-[10px] leading-none text-violet-200">
-                  {actionGuidance.source === "local_ai" ? "LLM" : "Fallback"}
-                  {actionGuidance.cache_hit ? " cache" : ""}
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  onClick={onGenerateGuidance}
-                  disabled={guidanceLoading}
-                  className="rounded-sm border border-violet-800 bg-violet-950 px-2 py-1 text-[10px] font-medium leading-none text-violet-200 hover:bg-violet-900 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {guidanceLoading ? "Generating..." : "How to execute"}
-                </button>
-              )}
+              <div className="mt-0.5 text-[11px] text-slate-500">
+                LLM-assisted execution guidance
+              </div>
             </div>
-
-            {guidanceLoading ? (
-              <div className="mt-1 text-[11px] leading-4 text-slate-400">
-                Generating LLM execution guidance...
-              </div>
-            ) : guidanceError ? (
-              <div className="mt-1 text-[11px] leading-4 text-orange-200">
-                LLM guidance unavailable: {guidanceError}
-              </div>
-            ) : actionGuidance ? (
-              <>
-                <ol className="mt-1 space-y-1 text-[11px] leading-4 text-slate-300">
-                  {actionGuidance.how_to_execute.map((step, index) => (
-                    <li key={`${step}-${index}`} className="flex gap-1.5">
-                      <span className="mt-0.5 h-4 min-w-4 rounded-sm border border-violet-800 bg-violet-950 text-center text-[10px] leading-4 text-violet-200">
-                        {index + 1}
-                      </span>
-                      <span>{step}</span>
-                    </li>
-                  ))}
-                </ol>
-                <div className="mt-1 border-t border-violet-900/50 pt-1 text-[10px] leading-4 text-slate-500">
-                  {actionGuidance.validation_notes}
-                </div>
-              </>
+            {actionGuidance ? (
+              <span
+                className="inline-flex h-4 items-center rounded-sm border border-violet-800 bg-violet-950 px-1.5 py-0 text-[10px] leading-4 text-violet-200"
+                title={`${actionGuidance.source === "local_ai" ? "LLM" : "Fallback"}${
+                  actionGuidance.cache_hit ? " cache" : ""
+                }`}
+              >
+                AI generated
+              </span>
             ) : (
-              <div className="mt-1 text-[11px] leading-4 text-slate-500">
-                Click How to execute to generate LLM execution guidance for this recommended action.
-              </div>
+              <button
+                type="button"
+                onClick={onGenerateGuidance}
+                disabled={guidanceLoading}
+                className="inline-flex h-4 items-center rounded-sm border border-violet-800 bg-violet-950 px-2 py-0 text-[10px] font-medium leading-4 text-violet-200 hover:bg-violet-900 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {guidanceLoading ? "Generating..." : "Generate AI suggestion"}
+              </button>
             )}
           </div>
+
+          {guidanceLoading ? (
+            <div className="mt-2 rounded-sm border border-violet-900/50 bg-slate-950 px-2 py-1.5 text-[11px] leading-4 text-slate-400">
+              Generating AI suggestion...
+            </div>
+          ) : guidanceError ? (
+            <div className="mt-2 rounded-sm border border-orange-900/60 bg-orange-950/20 px-2 py-1.5 text-[11px] leading-4 text-orange-200">
+              LLM guidance unavailable: {guidanceError}
+            </div>
+          ) : actionGuidance ? (
+            <>
+              <ol className="mt-2 space-y-1 text-[11px] leading-4 text-slate-300">
+                {actionGuidance.how_to_execute.map((step, index) => (
+                  <li key={`${step}-${index}`} className="flex gap-1.5">
+                    <span className="mt-0.5 h-4 min-w-4 rounded-sm border border-violet-800 bg-violet-950 text-center text-[10px] leading-4 text-violet-200">
+                      {index + 1}
+                    </span>
+                    <span>{step}</span>
+                  </li>
+                ))}
+              </ol>
+              <div className="mt-2 border-t border-violet-900/50 pt-1.5 text-[10px] leading-4 text-slate-500">
+                {actionGuidance.validation_notes}
+              </div>
+            </>
+          ) : (
+            <div className="mt-2 rounded-sm border border-violet-900/40 bg-slate-950 px-2 py-1.5 text-[11px] leading-4 text-slate-500">
+              Click Generate AI suggestion to generate LLM execution guidance for this recommended action.
+            </div>
+          )}
         </div>
       </div>
     </section>
-  );
-}
-
-function BriefFact({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone: Tone;
-}) {
-  return (
-    <div className="rounded-sm border border-slate-800 bg-slate-950 px-2 py-1.5">
-      <div className="text-[10px] uppercase tracking-wide text-slate-500">
-        {label}
-      </div>
-      <div
-        className={`mt-1 truncate text-sm font-semibold ${toneClasses(tone).text}`}
-        title={value}
-      >
-        {value}
-      </div>
-    </div>
   );
 }
 
