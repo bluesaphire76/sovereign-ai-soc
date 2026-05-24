@@ -1,0 +1,21 @@
+services:
+  suricata:
+    image: jasonish/suricata:latest
+    container_name: ai-soc-suricata
+    network_mode: host
+
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_NICE
+
+    volumes:
+      - ./logs:/var/log/suricata
+
+    command: >
+      suricata
+      -i eth0
+      -v
+
+    restart: unless-stopped
+

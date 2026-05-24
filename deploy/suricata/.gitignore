@@ -1,0 +1,6 @@
+logs/*
+rules/*
+config/*
+config.backup.*
+!logs/.gitkeep
+!rules/.gitkeep
