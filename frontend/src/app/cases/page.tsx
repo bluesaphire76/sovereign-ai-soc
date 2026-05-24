@@ -79,6 +79,10 @@ type CasesResponse = {
 };
 
 const TERMINAL_STATUSES = new Set(["CLOSED", "FALSE_POSITIVE"]);
+const CASE_TABLE_BADGE_BASE =
+  "inline-flex h-5 w-fit items-center gap-1 whitespace-nowrap rounded-sm border px-1.5 text-[10px] font-medium leading-none";
+const CASE_TABLE_PRIORITY_BADGE_BASE =
+  `${CASE_TABLE_BADGE_BASE} min-w-[58px] justify-center uppercase tracking-wide`;
 
 function shortText(value: string | null | undefined, maxLength = 96) {
   if (!value) return "-";
@@ -88,59 +92,59 @@ function shortText(value: string | null | undefined, maxLength = 96) {
 }
 
 function severityClass(value: string | null | undefined) {
-  const severity = value ?? "LOW";
+  const severity = (value ?? "LOW").toUpperCase();
 
-  if (severity === "CRITICAL") return "bg-red-100 text-red-800 border-red-200";
-  if (severity === "HIGH") return "bg-orange-100 text-orange-800 border-orange-200";
-  if (severity === "MEDIUM") return "bg-yellow-100 text-yellow-800 border-yellow-200";
+  if (severity === "CRITICAL") return "border-red-800 bg-red-950/70 text-red-200";
+  if (severity === "HIGH") return "border-orange-800 bg-orange-950/70 text-orange-200";
+  if (severity === "MEDIUM") return "border-amber-800 bg-amber-950/70 text-amber-200";
 
-  return "bg-emerald-100 text-emerald-800 border-emerald-200";
+  return "border-emerald-800 bg-emerald-950/60 text-emerald-200";
 }
 
 function statusClass(value: string | null | undefined) {
-  const status = value ?? "OPEN";
+  const status = (value ?? "OPEN").toUpperCase();
 
-  if (status === "ESCALATED") return "bg-red-100 text-red-800 border-red-200";
-  if (status === "INVESTIGATING") return "bg-violet-100 text-violet-800 border-violet-200";
-  if (status === "TRIAGED") return "bg-blue-100 text-blue-800 border-blue-200";
-  if (status === "CLOSED") return "bg-slate-200 text-slate-800 border-slate-300";
-  if (status === "FALSE_POSITIVE") return "bg-purple-100 text-purple-800 border-purple-200";
+  if (status === "ESCALATED") return "border-red-800 bg-red-950/70 text-red-200";
+  if (status === "INVESTIGATING") return "border-cyan-800 bg-cyan-950/60 text-cyan-200";
+  if (status === "TRIAGED") return "border-blue-800 bg-blue-950/60 text-blue-200";
+  if (status === "CLOSED") return "border-emerald-800 bg-emerald-950/60 text-emerald-200";
+  if (status === "FALSE_POSITIVE") return "border-violet-800 bg-violet-950/60 text-violet-200";
 
-  return "bg-cyan-100 text-cyan-800 border-cyan-200";
+  return "border-cyan-800 bg-cyan-950/60 text-cyan-200";
 }
 
 function slaClass(value: string | null | undefined) {
-  const status = value ?? "NOT_SET";
+  const status = (value ?? "NOT_SET").toUpperCase();
 
-  if (status === "BREACHED") return "bg-red-100 text-red-800 border-red-200";
-  if (status === "WITHIN_SLA") return "bg-emerald-100 text-emerald-800 border-emerald-200";
-  if (status === "COMPLETED") return "bg-slate-200 text-slate-800 border-slate-300";
+  if (status === "BREACHED") return "border-red-800 bg-red-950/70 text-red-200";
+  if (status === "WITHIN_SLA") return "border-emerald-800 bg-emerald-950/60 text-emerald-200";
+  if (status === "COMPLETED") return "border-emerald-800 bg-emerald-950/60 text-emerald-200";
 
-  return "bg-slate-100 text-slate-700 border-slate-200";
+  return "border-slate-700 bg-slate-950 text-slate-400";
 }
 
 function readinessClass(item: IncidentCase) {
   if (item.ready_to_close) {
-    return "border-emerald-200 bg-emerald-100 text-emerald-800";
+    return "border-emerald-800 bg-emerald-950/60 text-emerald-200";
   }
 
   if ((item.open_action_count ?? 0) > 0) {
-    return "border-orange-200 bg-orange-100 text-orange-800";
+    return "border-orange-800 bg-orange-950/70 text-orange-200";
   }
 
   if (!item.has_closure_checklist) {
-    return "border-yellow-200 bg-yellow-100 text-yellow-800";
+    return "border-amber-800 bg-amber-950/70 text-amber-200";
   }
 
-  return "border-slate-300 bg-slate-200 text-slate-800";
+  return "border-cyan-800 bg-cyan-950/50 text-cyan-200";
 }
 
 function aiClass(item: IncidentCase) {
   if (item.has_ai_analysis) {
-    return "border-violet-200 bg-violet-100 text-violet-800";
+    return "border-violet-800 bg-violet-950/60 text-violet-200";
   }
 
-  return "border-yellow-200 bg-yellow-100 text-yellow-800";
+  return "border-amber-800 bg-amber-950/70 text-amber-200";
 }
 
 function slaLabel(value: string | null | undefined) {
@@ -154,21 +158,21 @@ function slaRiskLabel(value: string | null | undefined) {
 }
 
 function slaRiskClass(value: string | null | undefined) {
-  const risk = value ?? "UNKNOWN";
+  const risk = (value ?? "UNKNOWN").toUpperCase();
 
   if (risk === "BREACHED" || risk === "HIGH") {
-    return "bg-red-100 text-red-800 border-red-200";
+    return "border-red-800 bg-red-950/70 text-red-200";
   }
 
   if (risk === "MEDIUM") {
-    return "bg-orange-100 text-orange-800 border-orange-200";
+    return "border-orange-800 bg-orange-950/70 text-orange-200";
   }
 
   if (risk === "LOW" || risk === "NONE") {
-    return "bg-emerald-100 text-emerald-800 border-emerald-200";
+    return "border-emerald-800 bg-emerald-950/60 text-emerald-200";
   }
 
-  return "bg-slate-100 text-slate-700 border-slate-200";
+  return "border-slate-700 bg-slate-950 text-slate-400";
 }
 
 function formatTimestamp(value: string | null | undefined) {
@@ -765,21 +769,13 @@ export default function CasesPage() {
                             </td>
 
                             <td className="py-1.5 pr-2">
-                              <span
-                                className={`rounded-md border px-2 py-0.5 text-[11px] ${statusClass(
-                                  item.status
-                                )}`}
-                              >
+                              <span className={`${CASE_TABLE_BADGE_BASE} ${statusClass(item.status)}`}>
                                 {item.status ?? "OPEN"}
                               </span>
                             </td>
 
                             <td className="min-w-28 whitespace-nowrap py-2 pr-3">
-                              <span
-                                className={`inline-flex whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] ${severityClass(
-                                  severity
-                                )}`}
-                              >
+                              <span className={`${CASE_TABLE_BADGE_BASE} ${severityClass(severity)}`}>
                                 {severity ?? "LOW"} · {item.risk_score ?? 0}
                               </span>
                             </td>
@@ -808,18 +804,10 @@ export default function CasesPage() {
 
                             <td className="min-w-36 whitespace-nowrap py-2 pr-3">
                               <div className="flex min-w-40 flex-col gap-1">
-                                <span
-                                  className={`inline-flex w-fit whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] ${slaClass(
-                                    item.sla_status
-                                  )}`}
-                                >
+                                <span className={`${CASE_TABLE_BADGE_BASE} ${slaClass(item.sla_status)}`}>
                                   {slaLabel(item.sla_status)}
                                 </span>
-                                <span
-                                  className={`inline-flex w-fit whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] ${slaRiskClass(
-                                    item.sla_breach_risk
-                                  )}`}
-                                >
+                                <span className={`${CASE_TABLE_BADGE_BASE} ${slaRiskClass(item.sla_breach_risk)}`}>
                                   Risk {slaRiskLabel(item.sla_breach_risk)}
                                 </span>
                                 {item.sla_due_at && (
@@ -995,7 +983,7 @@ function OperationalPriorityBadge({
 
   if (item.sla_status === "BREACHED") {
     return (
-      <span className="rounded-full border border-red-200 bg-red-100 px-3 py-1 text-xs text-red-800">
+      <span className={`${CASE_TABLE_PRIORITY_BADGE_BASE} ${slaClass("BREACHED")}`}>
         SLA
       </span>
     );
@@ -1003,7 +991,7 @@ function OperationalPriorityBadge({
 
   if (item.status === "ESCALATED") {
     return (
-      <span className="rounded-full border border-red-200 bg-red-100 px-3 py-1 text-xs text-red-800">
+      <span className={`${CASE_TABLE_PRIORITY_BADGE_BASE} ${statusClass("ESCALATED")}`}>
         Escalated
       </span>
     );
@@ -1011,7 +999,7 @@ function OperationalPriorityBadge({
 
   if (["CRITICAL", "HIGH"].includes(severity)) {
     return (
-      <span className="rounded-full border border-orange-200 bg-orange-100 px-3 py-1 text-xs text-orange-800">
+      <span className={`${CASE_TABLE_PRIORITY_BADGE_BASE} ${severityClass("HIGH")}`}>
         High risk
       </span>
     );
@@ -1019,7 +1007,7 @@ function OperationalPriorityBadge({
 
   if ((item.open_action_count ?? 0) > 0) {
     return (
-      <span className="rounded-full border border-orange-200 bg-orange-100 px-3 py-1 text-xs text-orange-800">
+      <span className={`${CASE_TABLE_PRIORITY_BADGE_BASE} ${readinessClass(item)}`}>
         Actions
       </span>
     );
@@ -1027,7 +1015,7 @@ function OperationalPriorityBadge({
 
   if (!item.has_ai_analysis && isOpenCase(item)) {
     return (
-      <span className="rounded-full border border-yellow-200 bg-yellow-100 px-3 py-1 text-xs text-yellow-800">
+      <span className={`${CASE_TABLE_PRIORITY_BADGE_BASE} ${aiClass(item)}`}>
         Needs AI
       </span>
     );
@@ -1035,7 +1023,7 @@ function OperationalPriorityBadge({
 
   if (item.ready_to_close && isOpenCase(item)) {
     return (
-      <span className="rounded-full border border-emerald-200 bg-emerald-100 px-3 py-1 text-xs text-emerald-800">
+      <span className={`${CASE_TABLE_PRIORITY_BADGE_BASE} ${readinessClass(item)}`}>
         Close
       </span>
     );
@@ -1043,7 +1031,7 @@ function OperationalPriorityBadge({
 
   if (!item.owner && isOpenCase(item)) {
     return (
-      <span className="rounded-full border border-yellow-200 bg-yellow-100 px-3 py-1 text-xs text-yellow-800">
+      <span className={`${CASE_TABLE_PRIORITY_BADGE_BASE} border-amber-800 bg-amber-950/70 text-amber-200`}>
         No owner
       </span>
     );
@@ -1051,14 +1039,14 @@ function OperationalPriorityBadge({
 
   if (score > 200) {
     return (
-      <span className="rounded-full border border-cyan-200 bg-cyan-100 px-3 py-1 text-xs text-cyan-800">
+      <span className={`${CASE_TABLE_PRIORITY_BADGE_BASE} border-cyan-800 bg-cyan-950/60 text-cyan-200`}>
         Review
       </span>
     );
   }
 
   return (
-    <span className="rounded-full border border-slate-300 bg-slate-200 px-3 py-1 text-xs text-slate-800">
+    <span className={`${CASE_TABLE_PRIORITY_BADGE_BASE} border-slate-700 bg-slate-950 text-slate-400`}>
       Normal
     </span>
   );
@@ -1068,7 +1056,7 @@ function ClosureReadinessBadge({ item }: { item: IncidentCase }) {
   if (item.ready_to_close) {
     return (
       <div className="flex flex-col gap-1">
-        <span className={`inline-flex w-fit items-center gap-1 whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] ${readinessClass(item)}`}>
+        <span className={`${CASE_TABLE_BADGE_BASE} ${readinessClass(item)}`}>
           <CheckCircle2 className="h-3 w-3" />
           Ready
         </span>
@@ -1082,7 +1070,7 @@ function ClosureReadinessBadge({ item }: { item: IncidentCase }) {
   if ((item.open_action_count ?? 0) > 0) {
     return (
       <div className="flex flex-col gap-1">
-        <span className={`inline-flex w-fit items-center gap-1 whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] ${readinessClass(item)}`}>
+        <span className={`${CASE_TABLE_BADGE_BASE} ${readinessClass(item)}`}>
           <CircleDashed className="h-3 w-3" />
           Blocked
         </span>
@@ -1095,7 +1083,7 @@ function ClosureReadinessBadge({ item }: { item: IncidentCase }) {
 
   if (!item.has_closure_checklist) {
     return (
-      <span className={`inline-flex w-fit whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] ${readinessClass(item)}`}>
+      <span className={`${CASE_TABLE_BADGE_BASE} ${readinessClass(item)}`}>
         Needs checklist
       </span>
     );
@@ -1103,7 +1091,7 @@ function ClosureReadinessBadge({ item }: { item: IncidentCase }) {
 
   return (
     <div className="flex flex-col gap-1">
-      <span className={`inline-flex w-fit whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] ${readinessClass(item)}`}>
+      <span className={`${CASE_TABLE_BADGE_BASE} ${readinessClass(item)}`}>
         In progress
       </span>
       {(item.closure_missing_count ?? 0) > 0 && (
@@ -1141,7 +1129,7 @@ function AIStatusBadge({ item }: { item: IncidentCase }) {
   if (item.has_ai_analysis) {
     return (
       <div className="flex flex-col gap-1">
-        <span className={`inline-flex w-fit items-center gap-1 whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] ${aiClass(item)}`}>
+        <span className={`${CASE_TABLE_BADGE_BASE} ${aiClass(item)}`}>
           <Bot className="h-3 w-3" />
           AI done
         </span>
@@ -1155,7 +1143,7 @@ function AIStatusBadge({ item }: { item: IncidentCase }) {
   }
 
   return (
-    <span className={`inline-flex w-fit items-center gap-1 whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] ${aiClass(item)}`}>
+    <span className={`${CASE_TABLE_BADGE_BASE} ${aiClass(item)}`}>
       <Bot className="h-3 w-3" />
       Needs AI
     </span>
