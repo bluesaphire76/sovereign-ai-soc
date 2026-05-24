@@ -270,6 +270,24 @@ function compactAxisLabel(value: string | number) {
   return labels[label] ?? label;
 }
 
+function compactYAxisNumber(value: string | number) {
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue)) {
+    return String(value);
+  }
+
+  if (Math.abs(numericValue) >= 1_000_000) {
+    return `${Math.round(numericValue / 100_000) / 10}M`;
+  }
+
+  if (Math.abs(numericValue) >= 1_000) {
+    return `${Math.round(numericValue / 100) / 10}k`;
+  }
+
+  return String(numericValue);
+}
+
 async function fetchJson<T>(path: string): Promise<T> {
   const response = await authFetch(path, {
     cache: "no-store",
@@ -1151,7 +1169,7 @@ function DashboardBarChart({
       <BarChart
         data={data}
         barCategoryGap="30%"
-        margin={{ top: 4, right: 6, left: -18, bottom: 0 }}
+        margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
       >
         <CartesianGrid
           vertical={false}
@@ -1171,7 +1189,9 @@ function DashboardBarChart({
           tick={{ fill: CHART_COLORS.axis, fontSize: 10 }}
           axisLine={false}
           tickLine={false}
-          width={34}
+          tickFormatter={compactYAxisNumber}
+          tickMargin={4}
+          width={44}
         />
         <Tooltip
           cursor={{ fill: CHART_COLORS.cursor }}
