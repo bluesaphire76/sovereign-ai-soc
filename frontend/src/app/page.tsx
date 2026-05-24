@@ -2,7 +2,7 @@
 
 import { authFetch } from "@/lib/auth";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
   Activity,
@@ -33,7 +33,6 @@ import {
   EnterpriseBadge,
   EnterpriseButton,
   EnterpriseChartCard,
-  EnterpriseMetricCard,
   EnterprisePageHeader,
   EnterpriseSection,
 } from "../components/enterprise";
@@ -591,68 +590,68 @@ export default function Home() {
           </EnterpriseSection>
         ) : (
           <div className="space-y-3">
-            <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
-              <EnterpriseMetricCard
+            <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+              <DashboardKpi
                 title="Incidents"
                 value={summary?.total_incidents ?? 0}
                 subtitle="Total observed"
                 tone="primary"
-                icon={<Database className="h-4 w-4" />}
+                icon={<Database className="h-3.5 w-3.5" />}
               />
 
-              <EnterpriseMetricCard
+              <DashboardKpi
                 title="Avg risk"
                 value={summary?.average_risk_score ?? 0}
                 subtitle="Current dataset"
-                icon={<Activity className="h-4 w-4" />}
+                icon={<Activity className="h-3.5 w-3.5" />}
               />
 
-              <EnterpriseMetricCard
+              <DashboardKpi
                 title="Max risk"
                 value={summary?.max_risk_score ?? 0}
                 subtitle={riskLabel(summary?.max_risk_score)}
                 tone={riskTone(summary?.max_risk_score)}
-                icon={<AlertTriangle className="h-4 w-4" />}
+                icon={<AlertTriangle className="h-3.5 w-3.5" />}
               />
 
-              <EnterpriseMetricCard
+              <DashboardKpi
                 title="Correlated"
                 value={summary?.correlated_incidents ?? 0}
                 subtitle="AI correlation"
                 tone="executive"
-                icon={<Brain className="h-4 w-4" />}
+                icon={<Brain className="h-3.5 w-3.5" />}
               />
 
-              <EnterpriseMetricCard
+              <DashboardKpi
                 title="Cases"
                 value={caseMetrics.total}
                 subtitle={`${caseMetrics.active} active`}
                 tone="primary"
-                icon={<Briefcase className="h-4 w-4" />}
+                icon={<Briefcase className="h-3.5 w-3.5" />}
               />
 
-              <EnterpriseMetricCard
+              <DashboardKpi
                 title="SLA breach"
                 value={caseMetrics.slaBreached}
                 subtitle="Immediate attention"
                 tone={caseMetrics.slaBreached > 0 ? "danger" : "success"}
-                icon={<Clock className="h-4 w-4" />}
+                icon={<Clock className="h-3.5 w-3.5" />}
               />
 
-              <EnterpriseMetricCard
+              <DashboardKpi
                 title="Open actions"
                 value={caseMetrics.openActions}
                 subtitle="Cases with tasks"
                 tone={caseMetrics.openActions > 0 ? "warning" : "success"}
-                icon={<Zap className="h-4 w-4" />}
+                icon={<Zap className="h-3.5 w-3.5" />}
               />
 
-              <EnterpriseMetricCard
+              <DashboardKpi
                 title="Needs AI"
                 value={caseMetrics.needsAi}
                 subtitle="Open cases"
                 tone={caseMetrics.needsAi > 0 ? "warning" : "success"}
-                icon={<Target className="h-4 w-4" />}
+                icon={<Target className="h-3.5 w-3.5" />}
               />
             </section>
 
@@ -1082,6 +1081,61 @@ export default function Home() {
         )}
       </div>
     </main>
+  );
+}
+
+const dashboardKpiToneClasses: Record<EnterpriseTone, string> = {
+  neutral: "border-slate-800 bg-slate-900 text-slate-100",
+  primary: "border-cyan-900 bg-cyan-950/30 text-cyan-100",
+  success: "border-emerald-900 bg-emerald-950/30 text-emerald-100",
+  warning: "border-orange-900 bg-orange-950/30 text-orange-100",
+  danger: "border-red-900 bg-red-950/30 text-red-100",
+  executive: "border-violet-900 bg-violet-950/30 text-violet-100",
+};
+
+const dashboardKpiIconClasses: Record<EnterpriseTone, string> = {
+  neutral: "bg-slate-950 text-slate-400",
+  primary: "bg-cyan-950 text-cyan-300",
+  success: "bg-emerald-950 text-emerald-300",
+  warning: "bg-orange-950 text-orange-300",
+  danger: "bg-red-950 text-red-300",
+  executive: "bg-violet-950 text-violet-300",
+};
+
+function DashboardKpi({
+  title,
+  value,
+  subtitle,
+  tone = "neutral",
+  icon,
+}: {
+  title: string;
+  value: string | number;
+  subtitle?: string;
+  tone?: EnterpriseTone;
+  icon: ReactNode;
+}) {
+  return (
+    <div
+      className={`flex min-h-[58px] items-center justify-between gap-3 rounded-sm border px-2.5 py-2 shadow-sm ${dashboardKpiToneClasses[tone]}`}
+    >
+      <div className="min-w-0">
+        <div className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
+          {title}
+        </div>
+        <div className="mt-0.5 flex min-w-0 items-baseline gap-2">
+          <span className="text-xl font-semibold leading-6">{value}</span>
+          {subtitle && (
+            <span className="min-w-0 truncate text-[11px] leading-4 text-slate-500">
+              {subtitle}
+            </span>
+          )}
+        </div>
+      </div>
+      <div className={`shrink-0 rounded-sm p-1.5 ${dashboardKpiIconClasses[tone]}`}>
+        {icon}
+      </div>
+    </div>
   );
 }
 
