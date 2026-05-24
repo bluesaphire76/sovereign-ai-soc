@@ -17,6 +17,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Legend,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -62,6 +63,12 @@ type ScenarioSummary = {
 
 type Tone = "success" | "warning" | "danger" | "primary" | "neutral";
 
+type BriefItem = {
+  label: string;
+  value: string;
+  tone: Tone;
+};
+
 type SyntheticScenario = {
   id: string;
   title: string;
@@ -92,18 +99,36 @@ type SyntheticRunResponse = {
   }>;
 };
 
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8008";
-
 const KNOWN_SCENARIOS = [
   "ssh_bruteforce",
   "privilege_escalation",
   "malware_indicator",
 ];
 
-const CHART_GRID = "#334155";
-const CHART_AXIS = "#64748b";
-const CHART_TICK = "#cbd5e1";
+const CHART_COLORS = {
+  critical: "#ef4444",
+  high: "#f97316",
+  medium: "#f59e0b",
+  low: "#10b981",
+  primary: "#22d3ee",
+  secondary: "#60a5fa",
+  ai: "#a78bfa",
+  success: "#10b981",
+  warning: "#f59e0b",
+  failed: "#ef4444",
+  partial: "#f97316",
+  muted: "#64748b",
+  grid: "rgba(148, 163, 184, 0.14)",
+  axis: "#94a3b8",
+  panel: "#020617",
+  tooltip: "#0f172a",
+  border: "#334155",
+  text: "#e2e8f0",
+  cursor: "rgba(15, 23, 42, 0.42)",
+};
+
+const TABLE_BADGE_BASE =
+  "inline-flex h-5 w-fit items-center justify-center whitespace-nowrap rounded-sm border px-1.5 text-[10px] font-medium leading-none";
 
 async function fetchJson<T>(path: string): Promise<T> {
   const response = await authFetch(path, {
@@ -258,6 +283,16 @@ function priorityIsHighOrCritical(priority: string | null | undefined): boolean 
   return value === "HIGH" || value === "CRITICAL";
 }
 
+function toneForPriority(priority: string | null | undefined): Tone {
+  const value = (priority ?? "").toUpperCase();
+
+  if (value === "CRITICAL") return "danger";
+  if (value === "HIGH") return "warning";
+  if (value === "MEDIUM") return "primary";
+  if (value === "LOW") return "success";
+  return "neutral";
+}
+
 function pct(value: number, total: number): number {
   if (!total) return 0;
   return Math.round((value / total) * 100);
@@ -268,6 +303,33 @@ function toneForScore(score: number): Tone {
   if (score >= 61) return "warning";
   if (score >= 31) return "primary";
   return "success";
+}
+
+function toneForCoverage(percent: number, hasData: boolean): Tone {
+  if (!hasData) return "neutral";
+  if (percent >= 90) return "success";
+  if (percent >= 70) return "primary";
+  if (percent >= 40) return "warning";
+  return "danger";
+}
+
+function scenarioQualityScore(row: ScenarioSummary) {
+  if (!row.incidents) return 0;
+
+  return Math.round(
+    (pct(row.correlated, row.incidents) +
+      pct(row.high_or_critical, row.incidents) +
+      pct(row.mitre_tagged, row.incidents)) /
+      3
+  );
+}
+
+function scenarioGapCount(row: ScenarioSummary) {
+  return (
+    Math.max(row.incidents - row.correlated, 0) +
+    Math.max(row.incidents - row.high_or_critical, 0) +
+    Math.max(row.incidents - row.mitre_tagged, 0)
+  );
 }
 
 function toneClasses(tone: Tone) {
@@ -302,6 +364,18 @@ function toneClasses(tone: Tone) {
   return classes[tone];
 }
 
+function toneDotClass(tone: Tone) {
+  const classes: Record<Tone, string> = {
+    success: "bg-emerald-400",
+    warning: "bg-orange-400",
+    danger: "bg-red-400",
+    primary: "bg-cyan-400",
+    neutral: "bg-slate-500",
+  };
+
+  return classes[tone];
+}
+
 function shortText(value: string | null | undefined, max = 96) {
   if (!value) return "-";
   if (value.length <= max) return value;
@@ -310,6 +384,24 @@ function shortText(value: string | null | undefined, max = 96) {
 
 function scenarioLabel(value: string) {
   return value.replaceAll("_", " ");
+}
+
+function topGapLabel({
+  correlationGap,
+  priorityGap,
+  mitreGap,
+}: {
+  correlationGap: number;
+  priorityGap: number;
+  mitreGap: number;
+}) {
+  const gaps = [
+    ["correlation", correlationGap],
+    ["priority assignment", priorityGap],
+    ["MITRE mapping", mitreGap],
+  ] as const;
+
+  return [...gaps].sort((a, b) => b[1] - a[1])[0];
 }
 
 export default function DetectionQualityPage() {
@@ -506,11 +598,65 @@ export default function DetectionQualityPage() {
 
   const scenarioChartData = useMemo(() => {
     return scenarioRows.map((row) => ({
+      key: row.scenario,
       name: scenarioLabel(row.scenario),
       incidents: row.incidents,
       correlated: row.correlated,
+      correlation_gap: Math.max(row.incidents - row.correlated, 0),
+      coverage_percent: pct(row.correlated, row.incidents),
+      quality_score: scenarioQualityScore(row),
     }));
   }, [scenarioRows]);
+
+  const correlationGap = Math.max(totalSynthetic - correlatedSynthetic, 0);
+  const priorityGap = Math.max(totalSynthetic - highOrCriticalSynthetic, 0);
+  const mitreGap = Math.max(totalSynthetic - mitreTaggedSynthetic, 0);
+  const weakestScenario = useMemo(() => {
+    if (scenarioRows.length === 0) return null;
+
+    return [...scenarioRows]
+      .sort((a, b) => {
+        const qualityDelta = scenarioQualityScore(a) - scenarioQualityScore(b);
+        if (qualityDelta !== 0) return qualityDelta;
+        return scenarioGapCount(b) - scenarioGapCount(a);
+      })[0];
+  }, [scenarioRows]);
+  const [dominantGapLabel, dominantGapCount] = topGapLabel({
+    correlationGap,
+    priorityGap,
+    mitreGap,
+  });
+  const detectionBriefItems: BriefItem[] = [
+    {
+      label: "Correlation coverage",
+      value: `${pct(correlatedSynthetic, totalSynthetic)}%`,
+      tone: toneForCoverage(pct(correlatedSynthetic, totalSynthetic), totalSynthetic > 0),
+    },
+    {
+      label: "Priority validation",
+      value: `${pct(highOrCriticalSynthetic, totalSynthetic)}%`,
+      tone: toneForCoverage(pct(highOrCriticalSynthetic, totalSynthetic), totalSynthetic > 0),
+    },
+    {
+      label: "MITRE coverage",
+      value: `${pct(mitreTaggedSynthetic, totalSynthetic)}%`,
+      tone: toneForCoverage(pct(mitreTaggedSynthetic, totalSynthetic), totalSynthetic > 0),
+    },
+  ];
+  const detectionBriefSummary =
+    totalSynthetic === 0
+      ? "No synthetic validation data is loaded yet. Run or ingest synthetic scenarios before assessing detection quality."
+      : detectionQualityScore >= 85
+        ? "Synthetic validation posture is strong across correlation, priority assignment and MITRE mapping."
+        : detectionQualityScore >= 60
+          ? "Synthetic validation is partially covered. Review the weakest scenario and close remaining mapping gaps."
+          : "Synthetic validation requires attention. Correlation, priority or MITRE signals are missing from the loaded sample.";
+  const detectionBriefNextAction =
+    totalSynthetic === 0
+      ? "Run all synthetic scenarios, wait for ingestion, then refresh this page."
+      : dominantGapCount > 0
+        ? `Prioritize ${dominantGapLabel} review across ${dominantGapCount} loaded synthetic signal(s).`
+        : "Validate the latest synthetic incidents with a human analyst and document tuning evidence before release.";
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
@@ -543,7 +689,7 @@ export default function DetectionQualityPage() {
 
           <button
             onClick={loadDetectionQuality}
-            className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 text-xs text-slate-200 shadow-sm hover:bg-slate-800"
+            className="flex h-8 items-center gap-1.5 rounded-sm border border-slate-700 bg-slate-900 px-3 text-xs text-slate-200 shadow-sm hover:bg-slate-800"
           >
             <RefreshCw
               className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`}
@@ -553,19 +699,19 @@ export default function DetectionQualityPage() {
         </header>
 
         {error && (
-          <div className="mb-3 rounded-lg border border-red-800 bg-red-950/60 p-3 text-xs text-red-200">
+          <div className="mb-3 rounded-sm border border-red-800 bg-red-950/60 p-3 text-xs text-red-200">
             API error: {error}
           </div>
         )}
 
         {loading ? (
-          <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 text-xs text-slate-300">
+          <section className="rounded-sm border border-slate-800 bg-slate-900 p-3 text-xs text-slate-300">
             Loading detection quality data...
           </section>
         ) : (
           <div className="space-y-3">
             {canOperate ? (
-            <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
+            <section className="rounded-sm border border-slate-800 bg-slate-900 p-3 shadow-sm">
               <div className="mb-3 flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
                 <div>
                   <h2 className="text-sm font-semibold">Synthetic test runner</h2>
@@ -577,7 +723,7 @@ export default function DetectionQualityPage() {
                 <button
                   onClick={handleRunSyntheticTest}
                   disabled={runningSynthetic}
-                  className="h-8 rounded-lg border border-cyan-700 bg-cyan-500 px-3 text-xs font-medium text-slate-950 shadow-sm hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="h-8 rounded-sm border border-cyan-700 bg-cyan-500 px-3 text-xs font-medium text-slate-950 shadow-sm hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {runningSynthetic ? "Running..." : "Run synthetic test"}
                 </button>
@@ -591,7 +737,7 @@ export default function DetectionQualityPage() {
                   <select
                     value={selectedScenario}
                     onChange={(event) => setSelectedScenario(event.target.value)}
-                    className="h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500"
+                    className="h-8 w-full rounded-sm border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500"
                   >
                     <option value="all">All scenarios</option>
                     {syntheticScenarios.map((scenario) => (
@@ -616,7 +762,7 @@ export default function DetectionQualityPage() {
                         Math.max(1, Math.min(Number(event.target.value || 1), 10))
                       )
                     }
-                    className="h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500"
+                    className="h-8 w-full rounded-sm border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500"
                   />
                 </label>
 
@@ -627,7 +773,7 @@ export default function DetectionQualityPage() {
                   <input
                     value={syntheticHost}
                     onChange={(event) => setSyntheticHost(event.target.value)}
-                    className="h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500"
+                    className="h-8 w-full rounded-sm border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500"
                   />
                 </label>
 
@@ -638,19 +784,19 @@ export default function DetectionQualityPage() {
                   <input
                     value={syntheticCreatedBy}
                     onChange={(event) => setSyntheticCreatedBy(event.target.value)}
-                    className="h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500"
+                    className="h-8 w-full rounded-sm border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500"
                   />
                 </label>
               </div>
 
               {syntheticError && (
-                <div className="mt-2 rounded-md border border-red-800 bg-red-950/60 p-2 text-xs text-red-200">
+                <div className="mt-2 rounded-sm border border-red-800 bg-red-950/60 p-2 text-xs text-red-200">
                   Synthetic test error: {syntheticError}
                 </div>
               )}
 
               {syntheticResult && (
-                <div className="mt-2 rounded-md border border-emerald-800 bg-emerald-950/30 p-2 text-xs text-emerald-200">
+                <div className="mt-2 rounded-sm border border-emerald-800 bg-emerald-950/30 p-2 text-xs text-emerald-200">
                   Created {syntheticResult.created} synthetic incident(s) on host{" "}
                   <strong>{syntheticResult.host}</strong>. Latest IDs:{" "}
                   {syntheticResult.incidents.slice(0, 6).map((item) => `#${item.id}`).join(", ")}
@@ -659,7 +805,7 @@ export default function DetectionQualityPage() {
               )}
             </section>
             ) : isViewer ? (
-            <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-lg">
+            <section className="rounded-sm border border-slate-800 bg-slate-900 p-3 shadow-sm">
               <h2 className="text-sm font-semibold">Synthetic test runner</h2>
               <p className="mt-2 text-xs text-slate-500">
                 Read-only access: synthetic test execution is available only to ADMIN and ANALYST roles.
@@ -681,11 +827,7 @@ export default function DetectionQualityPage() {
                 value={`${pct(correlatedSynthetic, totalSynthetic)}%`}
                 subtitle={`${correlatedSynthetic}/${totalSynthetic}`}
                 icon={<Brain className="h-3.5 w-3.5" />}
-                tone={
-                  correlatedSynthetic === totalSynthetic && totalSynthetic > 0
-                    ? "success"
-                    : "warning"
-                }
+                tone={toneForCoverage(pct(correlatedSynthetic, totalSynthetic), totalSynthetic > 0)}
               />
 
               <QualityMetric
@@ -693,7 +835,7 @@ export default function DetectionQualityPage() {
                 value={`${pct(highOrCriticalSynthetic, totalSynthetic)}%`}
                 subtitle={`${highOrCriticalSynthetic}/${totalSynthetic}`}
                 icon={<AlertTriangle className="h-3.5 w-3.5" />}
-                tone={highOrCriticalSynthetic > 0 ? "warning" : "neutral"}
+                tone={toneForCoverage(pct(highOrCriticalSynthetic, totalSynthetic), totalSynthetic > 0)}
               />
 
               <QualityMetric
@@ -701,11 +843,7 @@ export default function DetectionQualityPage() {
                 value={`${pct(mitreTaggedSynthetic, totalSynthetic)}%`}
                 subtitle={`${mitreTaggedSynthetic}/${totalSynthetic}`}
                 icon={<Target className="h-3.5 w-3.5" />}
-                tone={
-                  mitreTaggedSynthetic === totalSynthetic && totalSynthetic > 0
-                    ? "success"
-                    : "warning"
-                }
+                tone={toneForCoverage(pct(mitreTaggedSynthetic, totalSynthetic), totalSynthetic > 0)}
               />
 
               <QualityMetric
@@ -713,24 +851,33 @@ export default function DetectionQualityPage() {
                 value={`${detectionQualityScore}%`}
                 subtitle="Correlation + priority + MITRE"
                 icon={<CheckCircle2 className="h-3.5 w-3.5" />}
-                tone={toneForScore(detectionQualityScore)}
+                tone={toneForCoverage(detectionQualityScore, totalSynthetic > 0)}
               />
             </section>
 
-            <section className="grid gap-3 xl:grid-cols-[420px_1fr]">
-              <div className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
+            <DetectionQualityBrief
+              summary={detectionBriefSummary}
+              nextAction={detectionBriefNextAction}
+              qualityScore={detectionQualityScore}
+              totalSynthetic={totalSynthetic}
+              weakestScenario={weakestScenario}
+              items={detectionBriefItems}
+            />
+
+            <section className="grid gap-2 xl:grid-cols-[440px_1fr]">
+              <div className="rounded-sm border border-slate-800 bg-slate-900 p-3 shadow-sm">
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <div>
                     <h2 className="text-sm font-semibold">
                       Synthetic scenario coverage
                     </h2>
                     <p className="mt-0.5 text-[11px] text-slate-500">
-                      Compact chart of scenario visibility and correlation.
+                      Stacked view of correlated detections and correlation gaps by scenario.
                     </p>
                   </div>
 
                   <span
-                    className={`shrink-0 rounded-md border px-2 py-1 text-[11px] ${
+                    className={`shrink-0 rounded-sm border px-2 py-1 text-[11px] ${
                       toneClasses(toneForScore(maxRisk)).badge
                     }`}
                   >
@@ -739,59 +886,82 @@ export default function DetectionQualityPage() {
                 </div>
 
                 {totalSynthetic === 0 ? (
-                  <div className="rounded-md border border-orange-800 bg-orange-950/40 p-3 text-xs text-orange-100">
+                  <div className="rounded-sm border border-orange-800 bg-orange-950/40 p-3 text-xs text-orange-100">
                     No synthetic incidents found. Run a synthetic scenario, wait
                     for ingestion, then refresh.
                   </div>
                 ) : (
-                  <div className="h-36">
+                  <div className="h-40">
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart
                         data={scenarioChartData}
                         layout="vertical"
-                        margin={{ top: 4, right: 12, left: 8, bottom: 4 }}
+                        barCategoryGap="28%"
+                        margin={{ top: 4, right: 12, left: 4, bottom: 4 }}
                       >
-                        <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
+                        <CartesianGrid
+                          horizontal={false}
+                          strokeDasharray="2 4"
+                          stroke={CHART_COLORS.grid}
+                        />
                         <XAxis
                           type="number"
                           allowDecimals={false}
-                          tick={{ fill: CHART_TICK, fontSize: 10 }}
-                          axisLine={{ stroke: CHART_AXIS }}
-                          tickLine={{ stroke: CHART_AXIS }}
+                          tick={{ fill: CHART_COLORS.axis, fontSize: 10 }}
+                          axisLine={{ stroke: CHART_COLORS.grid }}
+                          tickLine={false}
                         />
                         <YAxis
                           type="category"
                           dataKey="name"
                           width={115}
-                          tick={{ fill: CHART_TICK, fontSize: 10 }}
-                          axisLine={{ stroke: CHART_AXIS }}
-                          tickLine={{ stroke: CHART_AXIS }}
+                          tick={{ fill: CHART_COLORS.axis, fontSize: 10 }}
+                          axisLine={false}
+                          tickLine={false}
                         />
                         <Tooltip
-                          cursor={{ fill: "rgba(15, 23, 42, 0.6)" }}
+                          cursor={{ fill: CHART_COLORS.cursor }}
                           contentStyle={{
-                            backgroundColor: "#020617",
-                            border: "1px solid #334155",
-                            borderRadius: "10px",
-                            color: "#e2e8f0",
+                            backgroundColor: CHART_COLORS.tooltip,
+                            border: `1px solid ${CHART_COLORS.border}`,
+                            borderRadius: "3px",
+                            color: CHART_COLORS.text,
                             fontSize: "12px",
                           }}
-                          labelStyle={{ color: "#67e8f9" }}
-                          itemStyle={{ color: "#e2e8f0" }}
+                          labelStyle={{ color: CHART_COLORS.primary }}
+                          itemStyle={{ color: CHART_COLORS.text }}
+                          formatter={(value, name) => [
+                            value,
+                            String(name).toLowerCase().includes("gap")
+                              ? "Correlation gap"
+                              : "Correlated detections",
+                          ]}
                         />
-                        <Bar
-                          dataKey="incidents"
-                          name="Incidents"
-                          fill="#22d3ee"
-                          radius={[0, 6, 6, 0]}
-                          barSize={12}
+                        <Legend
+                          verticalAlign="top"
+                          align="right"
+                          iconType="square"
+                          wrapperStyle={{
+                            color: CHART_COLORS.axis,
+                            fontSize: "11px",
+                            lineHeight: "16px",
+                          }}
                         />
                         <Bar
                           dataKey="correlated"
-                          name="Correlated"
-                          fill="#34d399"
-                          radius={[0, 6, 6, 0]}
-                          barSize={12}
+                          name="Correlated detections"
+                          stackId="coverage"
+                          fill={CHART_COLORS.success}
+                          radius={[0, 0, 0, 0]}
+                          barSize={11}
+                        />
+                        <Bar
+                          dataKey="correlation_gap"
+                          name="Correlation gap"
+                          stackId="coverage"
+                          fill={CHART_COLORS.failed}
+                          radius={[0, 2, 2, 0]}
+                          barSize={11}
                         />
                       </BarChart>
                     </ResponsiveContainer>
@@ -799,13 +969,13 @@ export default function DetectionQualityPage() {
                 )}
               </div>
 
-              <div className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
+              <div className="rounded-sm border border-slate-800 bg-slate-900 p-3 shadow-sm">
                 <div className="mb-2 flex items-center justify-between">
                   <h2 className="text-sm font-semibold">
                     Scenario quality breakdown
                   </h2>
 
-                  <span className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-400">
+                  <span className="rounded-sm border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-400">
                     {scenarioRows.length} scenario(s)
                   </span>
                 </div>
@@ -847,7 +1017,7 @@ export default function DetectionQualityPage() {
                           </td>
                           <td className="px-2 py-1.5">
                             <span
-                              className={`rounded-md border px-1.5 py-0.5 text-[11px] ${
+                              className={`${TABLE_BADGE_BASE} ${
                                 toneClasses(toneForScore(row.max_risk)).badge
                               }`}
                             >
@@ -873,7 +1043,7 @@ export default function DetectionQualityPage() {
               </div>
             </section>
 
-            <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
+            <section className="rounded-sm border border-slate-800 bg-slate-900 p-3 shadow-sm">
               <div className="mb-2 flex items-center justify-between gap-3">
                 <div>
                   <h2 className="text-sm font-semibold">
@@ -884,7 +1054,7 @@ export default function DetectionQualityPage() {
                   </p>
                 </div>
 
-                <span className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-400">
+                <span className="rounded-sm border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-400">
                   Showing {Math.min(syntheticIncidents.length, 25)}
                 </span>
               </div>
@@ -929,11 +1099,17 @@ export default function DetectionQualityPage() {
                           {shortText(incident.rule, 120)}
                         </td>
                         <td className="px-2 py-1.5 text-slate-300">
-                          {incident.recommended_priority ?? "-"}
+                          <span
+                            className={`${TABLE_BADGE_BASE} ${
+                              toneClasses(toneForPriority(incident.recommended_priority)).badge
+                            }`}
+                          >
+                            {incident.recommended_priority ?? "UNKNOWN"}
+                          </span>
                         </td>
                         <td className="px-2 py-1.5">
                           <span
-                            className={`rounded-md border px-1.5 py-0.5 text-[11px] ${
+                            className={`${TABLE_BADGE_BASE} ${
                               toneClasses(
                                 toneForScore(incident.risk_score ?? 0)
                               ).badge
@@ -970,6 +1146,115 @@ export default function DetectionQualityPage() {
         )}
       </div>
     </main>
+  );
+}
+
+function DetectionQualityBrief({
+  summary,
+  nextAction,
+  qualityScore,
+  totalSynthetic,
+  weakestScenario,
+  items,
+}: {
+  summary: string;
+  nextAction: string;
+  qualityScore: number;
+  totalSynthetic: number;
+  weakestScenario: ScenarioSummary | null;
+  items: BriefItem[];
+}) {
+  const scoreTone = toneForCoverage(qualityScore, totalSynthetic > 0);
+  const weakestQuality = weakestScenario ? scenarioQualityScore(weakestScenario) : 0;
+
+  return (
+    <section className="rounded-sm border border-slate-800 bg-slate-900 p-3 shadow-sm">
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div>
+          <div className="mb-1 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wide text-violet-300">
+            <Brain className="h-3.5 w-3.5" />
+            Detection quality brief
+          </div>
+          <h2 className="text-sm font-semibold">Synthetic validation posture</h2>
+          <p className="mt-1 max-w-4xl text-xs leading-5 text-slate-400">
+            {summary}
+          </p>
+
+          <div className="mt-2 grid gap-1.5 sm:grid-cols-3">
+            {items.map((item) => (
+              <div
+                key={item.label}
+                className="rounded-sm border border-slate-800 bg-slate-950 px-2 py-1.5"
+              >
+                <div className="truncate text-[10px] uppercase tracking-wide text-slate-500">
+                  {item.label}
+                </div>
+                <div className="mt-1 flex items-center justify-between gap-2">
+                  <span className="text-sm font-semibold text-slate-100">
+                    {item.value}
+                  </span>
+                  <span
+                    className={`h-2 w-2 shrink-0 rounded-full ${toneDotClass(item.tone)}`}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid gap-1.5 sm:grid-cols-3 xl:grid-cols-1">
+          <BriefFact
+            label="Quality score"
+            value={`${qualityScore}%`}
+            tone={scoreTone}
+          />
+          <BriefFact
+            label="Weakest scenario"
+            value={
+              weakestScenario
+                ? `${scenarioLabel(weakestScenario.scenario)} · ${weakestQuality}%`
+                : "Not available"
+            }
+            tone={weakestScenario ? toneForCoverage(weakestQuality, true) : "neutral"}
+          />
+          <div className="rounded-sm border border-slate-800 bg-slate-950 px-2 py-1.5">
+            <div className="text-[10px] uppercase tracking-wide text-slate-500">
+              Recommended next action
+            </div>
+            <div className="mt-1 text-[11px] leading-4 text-slate-300">
+              {nextAction}
+            </div>
+            <div className="mt-1 text-[10px] uppercase tracking-wide text-slate-600">
+              Human validation required
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function BriefFact({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: Tone;
+}) {
+  return (
+    <div className="rounded-sm border border-slate-800 bg-slate-950 px-2 py-1.5">
+      <div className="text-[10px] uppercase tracking-wide text-slate-500">
+        {label}
+      </div>
+      <div
+        className={`mt-1 truncate text-sm font-semibold ${toneClasses(tone).text}`}
+        title={value}
+      >
+        {value}
+      </div>
+    </div>
   );
 }
 
