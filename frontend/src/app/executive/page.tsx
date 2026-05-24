@@ -84,8 +84,14 @@ type ExecutiveSummary = {
 
 type Tone = "success" | "warning" | "danger" | "primary" | "neutral" | "executive";
 
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8008";
+type ExposureCategory = "Incidents" | "Cases" | "Priority";
+
+type ExposureRow = {
+  category: ExposureCategory;
+  label: string;
+  value: number;
+  total: number;
+};
 
 function formatTimestamp(value: string | null | undefined) {
   if (!value) return "-";
@@ -113,13 +119,13 @@ function shortTimestamp(value: string | null | undefined) {
   const formatted = formatTimestamp(value);
   if (formatted === "-") return "-";
 
-  return formatted.replace(", ", " · ");
+  return formatted.replace(", ", " - ");
 }
 
 function shortText(value: string | null | undefined, max = 96) {
   if (!value) return "-";
   if (value.length <= max) return value;
-  return `${value.slice(0, max - 1)}…`;
+  return `${value.slice(0, max - 1)}...`;
 }
 
 function toneForRisk(score: number | null | undefined): Tone {
@@ -132,15 +138,17 @@ function toneForRisk(score: number | null | undefined): Tone {
 }
 
 function toneForStatus(status: string | null | undefined): Tone {
-  const value = status ?? "OK";
+  const value = (status ?? "OK").toUpperCase();
 
   if (value === "CRITICAL" || value === "ESCALATED") return "danger";
   if (value === "ATTENTION" || value === "HIGH") return "warning";
-  if (value === "MEDIUM" || value === "TRIAGED") return "primary";
-  if (value === "CLOSED") return "success";
+  if (value === "MEDIUM" || value === "TRIAGED" || value === "INVESTIGATING") {
+    return "primary";
+  }
+  if (value === "CLOSED" || value === "RESOLVED" || value === "OK") return "success";
   if (value === "FALSE_POSITIVE") return "executive";
 
-  return "success";
+  return "neutral";
 }
 
 function statusMessage(status: ExecutiveStatus) {
@@ -151,39 +159,39 @@ function statusMessage(status: ExecutiveStatus) {
 }
 
 function toneClasses(tone: Tone) {
-  const classes: Record<Tone, { card: string; badge: string; text: string; bar: string }> = {
+  const classes: Record<Tone, { panel: string; badge: string; text: string; bar: string }> = {
     success: {
-      card: "border-emerald-900/70 bg-emerald-950/20",
+      panel: "border-emerald-900/70 bg-emerald-950/20",
       badge: "border-emerald-700 bg-emerald-950 text-emerald-200",
       text: "text-emerald-300",
       bar: "bg-emerald-400",
     },
     warning: {
-      card: "border-orange-900/70 bg-orange-950/20",
+      panel: "border-orange-900/70 bg-orange-950/20",
       badge: "border-orange-700 bg-orange-950 text-orange-200",
       text: "text-orange-300",
       bar: "bg-orange-400",
     },
     danger: {
-      card: "border-red-900/70 bg-red-950/25",
+      panel: "border-red-900/70 bg-red-950/25",
       badge: "border-red-800 bg-red-950 text-red-200",
       text: "text-red-300",
       bar: "bg-red-400",
     },
     primary: {
-      card: "border-cyan-900/70 bg-cyan-950/20",
+      panel: "border-cyan-900/70 bg-cyan-950/20",
       badge: "border-cyan-700 bg-cyan-950 text-cyan-200",
       text: "text-cyan-300",
       bar: "bg-cyan-400",
     },
     neutral: {
-      card: "border-slate-800 bg-slate-900",
+      panel: "border-slate-800 bg-slate-900",
       badge: "border-slate-700 bg-slate-950 text-slate-300",
       text: "text-slate-300",
       bar: "bg-slate-400",
     },
     executive: {
-      card: "border-violet-900/70 bg-violet-950/20",
+      panel: "border-violet-900/70 bg-violet-950/20",
       badge: "border-violet-700 bg-violet-950 text-violet-200",
       text: "text-violet-300",
       bar: "bg-violet-400",
@@ -191,6 +199,32 @@ function toneClasses(tone: Tone) {
   };
 
   return classes[tone];
+}
+
+function formatPercent(value: number, total: number) {
+  if (total <= 0) return "0%";
+  return `${Math.round((value / total) * 100)}%`;
+}
+
+function progressWidth(value: number, total: number) {
+  if (value <= 0 || total <= 0) return 0;
+  return Math.max(6, Math.min(100, Math.round((value / total) * 100)));
+}
+
+function summarizeExposure(summary: ExecutiveSummary["summary"]) {
+  if (summary.escalated_cases > 0 || summary.escalated_incidents > 0) {
+    return "Executive review queue is active.";
+  }
+
+  if (summary.high_or_critical_incidents > 0 || summary.critical_cases > 0) {
+    return "High-risk exposure requires management visibility.";
+  }
+
+  if (summary.open_cases > 0 || summary.open_incidents > 0) {
+    return "Operational backlog is present but not currently escalated.";
+  }
+
+  return "No active executive risk pressure detected.";
 }
 
 async function fetchExecutiveSummary(): Promise<ExecutiveSummary> {
@@ -254,9 +288,31 @@ export default function ExecutivePage() {
     );
   }, [data]);
 
-  const totalDistributionItems = useMemo(() => {
-    const allRows = [...incidentStatusRows, ...caseStatusRows, ...priorityRows];
-    return Math.max(...allRows.map(([, value]) => value), 1);
+  const exposureRows = useMemo<ExposureRow[]>(() => {
+    const incidentTotal = incidentStatusRows.reduce((sum, [, value]) => sum + value, 0);
+    const caseTotal = caseStatusRows.reduce((sum, [, value]) => sum + value, 0);
+    const priorityTotal = priorityRows.reduce((sum, [, value]) => sum + value, 0);
+
+    return [
+      ...incidentStatusRows.map(([label, value]) => ({
+        category: "Incidents" as const,
+        label,
+        value,
+        total: incidentTotal,
+      })),
+      ...caseStatusRows.map(([label, value]) => ({
+        category: "Cases" as const,
+        label,
+        value,
+        total: caseTotal,
+      })),
+      ...priorityRows.map(([label, value]) => ({
+        category: "Priority" as const,
+        label,
+        value,
+        total: priorityTotal,
+      })),
+    ];
   }, [incidentStatusRows, caseStatusRows, priorityRows]);
 
   const postureTone: Tone =
@@ -266,384 +322,94 @@ export default function ExecutivePage() {
         ? "warning"
         : "success";
 
+  const correlationCoverage = data
+    ? Math.round(
+        ((data.summary.correlated_incidents || 0) /
+          Math.max(data.summary.total_incidents || 0, 1)) *
+          100
+      )
+    : 0;
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto max-w-[1600px] px-4 py-4">
         <AppNavigation />
 
-        <header className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <header className="mb-3 flex flex-col gap-3 border-b border-slate-800 pb-3 md:flex-row md:items-start md:justify-between">
           <div>
             <Link
               href="/"
               className="mb-2 inline-flex items-center gap-1.5 text-xs text-cyan-300 hover:text-cyan-200"
             >
-              ← Dashboard
+              Dashboard
             </Link>
 
             <div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-cyan-300">
               <BarChart3 className="h-3.5 w-3.5" />
-              Executive Summary
+              Executive Command Record
             </div>
 
             <h1 className="text-xl font-semibold tracking-tight">
-              Executive Dashboard
+              SOC Executive Dashboard
             </h1>
 
             <p className="mt-1 max-w-4xl text-xs leading-5 text-slate-500">
-              Compact management view of SOC posture, open risk, case backlog,
-              correlation coverage and recommended operational focus.
+              Decision-first view of SOC posture, management pressure, exposure
+              distribution, active work queues and AI case analysis.
             </p>
           </div>
 
-          <button
-            onClick={loadExecutiveSummary}
-            className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 text-xs text-slate-200 shadow-sm hover:bg-slate-800"
-          >
-            <RefreshCw
-              className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`}
-            />
-            Refresh
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-800 bg-slate-900 px-2.5 text-[11px] text-slate-400">
+              <Clock className="h-3.5 w-3.5 text-slate-500" />
+              Auto-refresh 30s
+            </span>
+            <button
+              onClick={loadExecutiveSummary}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-700 bg-slate-900 px-3 text-xs text-slate-200 shadow-sm hover:bg-slate-800"
+            >
+              <RefreshCw
+                className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`}
+              />
+              Refresh
+            </button>
+          </div>
         </header>
 
         {error && (
-          <div className="mb-3 rounded-lg border border-red-800 bg-red-950/60 p-3 text-xs text-red-200">
+          <div className="mb-3 rounded-md border border-red-800 bg-red-950/60 p-3 text-xs text-red-200">
             API error: {error}
           </div>
         )}
 
         {loading ? (
-          <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 text-xs text-slate-300">
+          <section className="rounded-md border border-slate-800 bg-slate-900 p-3 text-xs text-slate-300">
             Loading executive summary...
           </section>
         ) : data ? (
           <div className="space-y-3">
-            <section className="grid gap-2 lg:grid-cols-[360px_1fr]">
-              <div className={`rounded-lg border p-3 shadow-sm ${toneClasses(postureTone).card}`}>
-                <div className="mb-2 flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
-                      Overall SOC posture
-                    </div>
-                    <div className="mt-1 flex items-center gap-2">
-                      <div className={toneClasses(postureTone).text}>
-                        {data.status === "CRITICAL" ? (
-                          <AlertTriangle className="h-4 w-4" />
-                        ) : data.status === "ATTENTION" ? (
-                          <ShieldAlert className="h-4 w-4" />
-                        ) : (
-                          <CheckCircle2 className="h-4 w-4" />
-                        )}
-                      </div>
-                      <div className="text-xl font-semibold leading-7 text-slate-100">
-                        {data.status}
-                      </div>
-                    </div>
-                  </div>
+            <ExecutivePulseBar
+              data={data}
+              tone={postureTone}
+              correlationCoverage={correlationCoverage}
+            />
 
-                  <span className={`shrink-0 rounded-md border px-2 py-1 text-[11px] ${toneClasses(postureTone).badge}`}>
-                    {statusMessage(data.status)}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2 text-[11px] text-slate-500">
-                  <MiniStat label="Open cases" value={data.summary.open_cases} />
-                  <MiniStat label="Critical cases" value={data.summary.critical_cases} />
-                  <MiniStat label="Max risk" value={data.summary.max_risk_score} />
-                </div>
-              </div>
-
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                <ExecutiveMetric
-                  title="Open incidents"
-                  value={data.summary.open_incidents}
-                  subtitle={`${data.summary.total_incidents} total`}
-                  tone={data.summary.open_incidents > 0 ? "primary" : "success"}
-                  icon={<AlertTriangle className="h-4 w-4" />}
-                />
-                <ExecutiveMetric
-                  title="High / Critical"
-                  value={data.summary.high_or_critical_incidents}
-                  subtitle="Incident exposure"
-                  tone={data.summary.high_or_critical_incidents > 0 ? "warning" : "success"}
-                  icon={<ShieldAlert className="h-4 w-4" />}
-                />
-                <ExecutiveMetric
-                  title="Open cases"
-                  value={data.summary.open_cases}
-                  subtitle={`${data.summary.total_cases} total`}
-                  tone={data.summary.open_cases > 0 ? "primary" : "success"}
-                  icon={<Briefcase className="h-4 w-4" />}
-                />
-                <ExecutiveMetric
-                  title="Max risk"
-                  value={data.summary.max_risk_score}
-                  subtitle={`Avg ${data.summary.average_risk_score}`}
-                  tone={toneForRisk(data.summary.max_risk_score)}
-                  icon={<TrendingUp className="h-4 w-4" />}
-                />
-              </div>
+            <section className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_420px]">
+              <ManagementActionQueue data={data} />
+              <LatestAiAnalysis analysis={data.latest_case_analysis} />
             </section>
 
-            <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-              <ExecutiveMetric
-                title="Total incidents"
-                value={data.summary.total_incidents}
-                subtitle="All observed"
-                tone="neutral"
-                icon={<BarChart3 className="h-4 w-4" />}
+            <section className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_420px]">
+              <ExposureMatrix rows={exposureRows} />
+              <OperationalHotspots
+                hosts={data.top_hosts}
+                correlationTypes={data.top_correlation_types}
               />
-              <ExecutiveMetric
-                title="Correlated"
-                value={data.summary.correlated_incidents}
-                subtitle="AI correlation"
-                tone="executive"
-                icon={<TrendingUp className="h-4 w-4" />}
-              />
-              <ExecutiveMetric
-                title="Escalated incidents"
-                value={data.summary.escalated_incidents}
-                subtitle="Needs review"
-                tone={data.summary.escalated_incidents > 0 ? "danger" : "success"}
-                icon={<AlertTriangle className="h-4 w-4" />}
-              />
-              <ExecutiveMetric
-                title="Escalated cases"
-                value={data.summary.escalated_cases}
-                subtitle="Management queue"
-                tone={data.summary.escalated_cases > 0 ? "danger" : "success"}
-                icon={<Briefcase className="h-4 w-4" />}
-              />
-            </section>
-
-            <section className="grid items-stretch gap-3 xl:grid-cols-4">
-              <DistributionCard
-                title="Incident status"
-                rows={incidentStatusRows}
-                maxValue={totalDistributionItems}
-              />
-
-              <DistributionCard
-                title="Case status"
-                rows={caseStatusRows}
-                maxValue={totalDistributionItems}
-              />
-
-              <DistributionCard
-                title="Priority"
-                rows={priorityRows}
-                maxValue={totalDistributionItems}
-              />
-
-              <div className="flex h-full flex-col rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <div>
-                    <h2 className="text-sm font-semibold">
-                      Recommended operational focus
-                    </h2>
-                    <p className="mt-0.5 text-[11px] text-slate-500">
-                      Executive-level focus points.
-                    </p>
-                  </div>
-
-                  <span className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-400">
-                    {data.recommendations.length}
-                  </span>
-                </div>
-
-                {data.recommendations.length === 0 ? (
-                  <div className="rounded-md border border-slate-800 bg-slate-950 p-2 text-xs text-slate-500">
-                    No recommendations available.
-                  </div>
-                ) : (
-                  <div className="space-y-1.5">
-                    {data.recommendations.slice(0, 4).map((item, index) => (
-                      <div
-                        key={`${item}-${index}`}
-                        className="rounded-md border border-slate-800 bg-slate-950 px-2.5 py-1.5 text-xs leading-5 text-slate-300"
-                        title={item}
-                      >
-                        <div className="mb-0.5 text-[10px] uppercase tracking-wide text-cyan-300">
-                          Focus #{index + 1}
-                        </div>
-                        <div className="line-clamp-2">{item}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
             </section>
 
             <section className="grid gap-3 xl:grid-cols-2">
-              <CompactListCard title="Top risk hosts">
-                {data.top_hosts.length === 0 ? (
-                  <EmptyState label="No host data available." />
-                ) : (
-                  data.top_hosts.slice(0, 8).map((host) => (
-                    <div
-                      key={host.agent ?? "unknown"}
-                      className="flex items-center justify-between gap-3 rounded-md border border-slate-800 bg-slate-950 px-2.5 py-1.5"
-                    >
-                      <div className="min-w-0">
-                        <div className="truncate text-xs font-medium text-slate-200">
-                          {host.agent ?? "unknown"}
-                        </div>
-                        <div className="text-[11px] text-slate-500">
-                          {host.count} incident(s) · avg {host.average_risk}
-                        </div>
-                      </div>
-
-                      <span className={`shrink-0 rounded-md border px-2 py-0.5 text-[11px] ${toneClasses(toneForRisk(host.max_risk)).badge}`}>
-                        max {host.max_risk}
-                      </span>
-                    </div>
-                  ))
-                )}
-              </CompactListCard>
-
-              <CompactListCard title="Top correlation types">
-                {data.top_correlation_types.length === 0 ? (
-                  <EmptyState label="No correlation data available." />
-                ) : (
-                  data.top_correlation_types.slice(0, 8).map((item) => (
-                    <div
-                      key={item.correlation_type ?? "unknown"}
-                      className="flex items-center justify-between gap-3 rounded-md border border-slate-800 bg-slate-950 px-2.5 py-1.5"
-                    >
-                      <div
-                        className="min-w-0 truncate text-xs text-slate-300"
-                        title={item.correlation_type ?? "unknown"}
-                      >
-                        {item.correlation_type ?? "unknown"}
-                      </div>
-
-                      <span className="shrink-0 rounded-md border border-slate-700 bg-slate-900 px-2 py-0.5 text-[11px] text-slate-300">
-                        {item.count}
-                      </span>
-                    </div>
-                  ))
-                )}
-              </CompactListCard>
-            </section>
-
-            <section className="grid gap-3 xl:grid-cols-2">
-              <CompactTableCard title="Latest cases" count={data.latest_cases.length}>
-                {data.latest_cases.length === 0 ? (
-                  <EmptyTable colSpan={5} label="No cases available." />
-                ) : (
-                  <table className="min-w-full text-left text-xs">
-                    <thead className="border-b border-slate-800 text-[10px] uppercase tracking-wide text-slate-500">
-                      <tr>
-                        <th className="px-2 py-1.5">Case</th>
-                        <th className="px-2 py-1.5">Status</th>
-                        <th className="px-2 py-1.5">Severity</th>
-                        <th className="px-2 py-1.5">Risk</th>
-                        <th className="px-2 py-1.5">Updated</th>
-                      </tr>
-                    </thead>
-
-                    <tbody className="divide-y divide-slate-800/80">
-                      {data.latest_cases.slice(0, 10).map((item) => (
-                        <tr key={item.id} className="hover:bg-slate-800/40">
-                          <td className="max-w-md truncate px-2 py-1.5">
-                            <Link
-                              href={`/cases/${item.id}`}
-                              className="text-cyan-300 hover:text-cyan-200"
-                              title={item.title}
-                            >
-                              #{item.id} {shortText(item.title, 70)}
-                            </Link>
-                          </td>
-
-                          <td className="px-2 py-1.5">
-                            <Badge tone={toneForStatus(item.status)}>
-                              {item.status ?? "OPEN"}
-                            </Badge>
-                          </td>
-
-                          <td className="px-2 py-1.5">
-                            <Badge tone={toneForStatus(item.severity)}>
-                              {item.severity ?? "LOW"}
-                            </Badge>
-                          </td>
-
-                          <td className="px-2 py-1.5 text-slate-300">
-                            {item.risk_score ?? 0}
-                          </td>
-
-                          <td className="whitespace-nowrap px-2 py-1.5 text-slate-400">
-                            {shortTimestamp(item.updated_at)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </CompactTableCard>
-
-              <CompactTableCard
-                title="Latest high-risk incidents"
-                count={data.latest_high_risk_incidents.length}
-              >
-                {data.latest_high_risk_incidents.length === 0 ? (
-                  <EmptyTable colSpan={6} label="No high-risk incidents available." />
-                ) : (
-                  <table className="min-w-full text-left text-xs">
-                    <thead className="border-b border-slate-800 text-[10px] uppercase tracking-wide text-slate-500">
-                      <tr>
-                        <th className="px-2 py-1.5">ID</th>
-                        <th className="px-2 py-1.5">Time</th>
-                        <th className="px-2 py-1.5">Host</th>
-                        <th className="px-2 py-1.5">Rule</th>
-                        <th className="px-2 py-1.5">Risk</th>
-                        <th className="px-2 py-1.5">Priority</th>
-                      </tr>
-                    </thead>
-
-                    <tbody className="divide-y divide-slate-800/80">
-                      {data.latest_high_risk_incidents.slice(0, 10).map((incident) => (
-                        <tr key={incident.id} className="hover:bg-slate-800/40">
-                          <td className="px-2 py-1.5">
-                            <Link
-                              href={`/incidents/${incident.id}`}
-                              className="text-cyan-300 hover:text-cyan-200"
-                            >
-                              #{incident.id}
-                            </Link>
-                          </td>
-
-                          <td className="whitespace-nowrap px-2 py-1.5 text-slate-400">
-                            {shortTimestamp(
-                              incident.timestamp_local ?? incident.timestamp
-                            )}
-                          </td>
-
-                          <td className="max-w-[120px] truncate px-2 py-1.5 text-slate-300">
-                            {incident.agent ?? "unknown"}
-                          </td>
-
-                          <td
-                            className="max-w-md truncate px-2 py-1.5 text-slate-300"
-                            title={incident.rule ?? "-"}
-                          >
-                            {shortText(incident.rule, 86)}
-                          </td>
-
-                          <td className="px-2 py-1.5">
-                            <Badge tone={toneForRisk(incident.risk_score)}>
-                              {incident.risk_score ?? 0}
-                            </Badge>
-                          </td>
-
-                          <td className="px-2 py-1.5 text-slate-400">
-                            {incident.recommended_priority ?? "-"}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </CompactTableCard>
+              <CasesQueue cases={data.latest_cases} />
+              <HighRiskIncidentQueue incidents={data.latest_high_risk_incidents} />
             </section>
           </div>
         ) : null}
@@ -652,122 +418,580 @@ export default function ExecutivePage() {
   );
 }
 
-function MiniStat({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="rounded-md border border-slate-800 bg-slate-950 px-2 py-1.5">
-      <div className="text-[10px] uppercase tracking-wide text-slate-500">
-        {label}
-      </div>
-      <div className="truncate text-xs font-semibold text-slate-200">
-        {value}
-      </div>
-    </div>
-  );
-}
-
-function ExecutiveMetric({
-  title,
-  value,
-  subtitle,
+function ExecutivePulseBar({
+  data,
   tone,
-  icon,
+  correlationCoverage,
 }: {
-  title: string;
-  value: string | number;
-  subtitle: string;
+  data: ExecutiveSummary;
   tone: Tone;
-  icon: ReactNode;
+  correlationCoverage: number;
 }) {
   const classes = toneClasses(tone);
+  const summary = data.summary;
+  const signals = [
+    {
+      title: "Open exposure",
+      value: summary.open_incidents + summary.open_cases,
+      meta: `${summary.open_incidents} inc / ${summary.open_cases} cases`,
+      tone: summary.open_incidents + summary.open_cases > 0 ? "primary" : "success",
+      icon: <AlertTriangle className="h-3.5 w-3.5" />,
+    },
+    {
+      title: "Critical pressure",
+      value: summary.critical_incidents + summary.critical_cases,
+      meta: `${summary.high_or_critical_incidents} high+`,
+      tone:
+        summary.critical_incidents + summary.critical_cases > 0
+          ? "danger"
+          : summary.high_or_critical_incidents > 0
+            ? "warning"
+            : "success",
+      icon: <ShieldAlert className="h-3.5 w-3.5" />,
+    },
+    {
+      title: "Escalation load",
+      value: summary.escalated_incidents + summary.escalated_cases,
+      meta: `${summary.escalated_incidents} inc / ${summary.escalated_cases} cases`,
+      tone:
+        summary.escalated_incidents + summary.escalated_cases > 0
+          ? "danger"
+          : "success",
+      icon: <Briefcase className="h-3.5 w-3.5" />,
+    },
+    {
+      title: "Correlation",
+      value: `${correlationCoverage}%`,
+      meta: `${summary.correlated_incidents} linked`,
+      tone: correlationCoverage >= 60 ? "executive" : "neutral",
+      icon: <TrendingUp className="h-3.5 w-3.5" />,
+    },
+    {
+      title: "Risk ceiling",
+      value: summary.max_risk_score,
+      meta: `avg ${summary.average_risk_score}`,
+      tone: toneForRisk(summary.max_risk_score),
+      icon: <BarChart3 className="h-3.5 w-3.5" />,
+    },
+  ] satisfies Array<{
+    title: string;
+    value: string | number;
+    meta: string;
+    tone: Tone;
+    icon: ReactNode;
+  }>;
 
   return (
-    <div className={`rounded-lg border px-3 py-2 shadow-sm ${classes.card}`}>
-      <div className="flex items-center justify-between gap-2">
-        <div className="min-w-0">
-          <div className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
-            {title}
+    <section className="rounded-lg border border-slate-800 bg-slate-900 p-2 shadow-sm">
+      <div className="grid gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800 md:grid-cols-2 xl:grid-cols-[1.35fr_repeat(5,minmax(0,1fr))]">
+        <div className="min-w-0 bg-slate-950 px-2.5 py-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="truncate text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+              SOC posture
+            </div>
+            <span className="truncate text-[10px] text-slate-500" title={statusMessage(data.status)}>
+              {statusMessage(data.status)}
+            </span>
           </div>
-          <div className="mt-0.5 text-lg font-semibold leading-6 text-slate-100">
-            {value}
+
+          <div className="mt-0.5 flex items-center gap-1.5">
+            <span className={classes.text}>
+              {data.status === "CRITICAL" ? (
+                <AlertTriangle className="h-3.5 w-3.5" />
+              ) : data.status === "ATTENTION" ? (
+                <ShieldAlert className="h-3.5 w-3.5" />
+              ) : (
+                <CheckCircle2 className="h-3.5 w-3.5" />
+              )}
+            </span>
+            <div className="truncate text-sm font-semibold leading-5 text-slate-100">
+              {data.status}
+            </div>
           </div>
-          <div className="truncate text-[11px] text-slate-500">{subtitle}</div>
+
+          <div className="mt-0.5 truncate text-[11px] text-slate-400" title={summarizeExposure(summary)}>
+            {summarizeExposure(summary)}
+          </div>
         </div>
 
-        <div className={`shrink-0 rounded-md bg-slate-950 p-1.5 ${classes.text}`}>
-          {icon}
-        </div>
+        {signals.map((signal) => (
+          <PulseMetric key={signal.title} {...signal} />
+        ))}
       </div>
-    </div>
+    </section>
   );
 }
 
-function DistributionCard({
-  title,
-  rows,
-  maxValue,
-}: {
-  title: string;
-  rows: Array<[string, number]>;
-  maxValue: number;
-}) {
-  return (
-    <div className="flex h-full flex-col rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold">{title}</h2>
-        <span className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-400">
-          {rows.length}
-        </span>
-      </div>
+function ManagementActionQueue({ data }: { data: ExecutiveSummary }) {
+  const recommendations = data.recommendations.slice(0, 5);
 
-      {rows.length === 0 ? (
-        <EmptyState label="No data available." />
+  return (
+    <Panel
+      title="Management action queue"
+      description="Executive focus ordered by current exposure and operating pressure."
+      count={data.recommendations.length}
+      icon={<ShieldAlert className="h-3.5 w-3.5" />}
+    >
+      {recommendations.length === 0 ? (
+        <EmptyState label="No recommendations available." />
       ) : (
-        <div className="space-y-1.5">
-          {rows.slice(0, 5).map(([label, value]) => {
-            const width = Math.max(8, Math.round((value / maxValue) * 100));
-            const tone = toneForStatus(label);
-            const classes = toneClasses(tone);
+        <div className="divide-y divide-slate-800 overflow-hidden rounded-md border border-slate-800">
+          {recommendations.map((item, index) => {
+            const action = classifyRecommendation(item, data.summary, index);
 
             return (
-              <div key={label} className="rounded-md border border-slate-800 bg-slate-950 px-2 py-1.5">
-                <div className="mb-1 flex items-center justify-between gap-2">
-                  <span className="truncate text-xs text-slate-300">{label}</span>
-                  <span className="text-[11px] text-slate-500">{value}</span>
+              <div
+                key={`${item}-${index}`}
+                className="grid gap-2 bg-slate-950 px-2.5 py-2 md:grid-cols-[130px_minmax(0,1fr)_120px]"
+              >
+                <div className="flex items-center gap-2">
+                  <Badge tone={action.tone}>{action.label}</Badge>
                 </div>
-                <div className="h-1.5 rounded-full bg-slate-800">
-                  <div
-                    className={`h-1.5 rounded-full ${classes.bar}`}
-                    style={{ width: `${width}%` }}
-                  />
+                <div className="min-w-0 text-xs leading-5 text-slate-300" title={item}>
+                  <span className="line-clamp-2">{item}</span>
+                </div>
+                <div className="text-right text-[11px] text-slate-500">
+                  {action.metric}
                 </div>
               </div>
             );
           })}
         </div>
       )}
+    </Panel>
+  );
+}
+
+function LatestAiAnalysis({
+  analysis,
+}: {
+  analysis: ExecutiveSummary["latest_case_analysis"];
+}) {
+  return (
+    <Panel
+      title="Latest AI case analysis"
+      description="Most recent model-assisted case recommendation."
+      icon={<TrendingUp className="h-3.5 w-3.5" />}
+    >
+      {!analysis ? (
+        <EmptyState label="No AI case analysis available." />
+      ) : (
+        <div className="grid gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800">
+          <CompactField
+            label="Case"
+            value={
+              <Link
+                href={`/cases/${analysis.case_id}`}
+                className="text-cyan-300 hover:text-cyan-200"
+              >
+                #{analysis.case_id}
+              </Link>
+            }
+          />
+          <CompactField label="Model" value={analysis.model ?? "-"} />
+          <CompactField
+            label="Recommended status"
+            value={<Badge tone={toneForStatus(analysis.recommended_status)}>{analysis.recommended_status ?? "-"}</Badge>}
+          />
+          <CompactField
+            label="Recommended severity"
+            value={<Badge tone={toneForStatus(analysis.recommended_severity)}>{analysis.recommended_severity ?? "-"}</Badge>}
+          />
+          <CompactField label="Created" value={shortTimestamp(analysis.created_at)} />
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function ExposureMatrix({ rows }: { rows: ExposureRow[] }) {
+  const visibleRows = rows.slice(0, 14);
+
+  return (
+    <Panel
+      title="Exposure matrix"
+      description="Unified distribution across incident state, case state and priority."
+      count={rows.length}
+      icon={<BarChart3 className="h-3.5 w-3.5" />}
+    >
+      {visibleRows.length === 0 ? (
+        <EmptyState label="No distribution data available." />
+      ) : (
+        <div className="overflow-x-auto rounded-md border border-slate-800">
+          <table className="min-w-full text-left text-xs">
+            <thead className="border-b border-slate-800 bg-slate-950 text-[10px] uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="px-2 py-1.5">Category</th>
+                <th className="px-2 py-1.5">State</th>
+                <th className="px-2 py-1.5 text-right">Count</th>
+                <th className="px-2 py-1.5 text-right">Share</th>
+                <th className="px-2 py-1.5">Distribution</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/80 bg-slate-950">
+              {visibleRows.map((row) => {
+                const tone = toneForStatus(row.label);
+                const width = progressWidth(row.value, row.total);
+
+                return (
+                  <tr key={`${row.category}-${row.label}`} className="hover:bg-slate-900">
+                    <td className="whitespace-nowrap px-2 py-2 text-slate-500">
+                      {row.category}
+                    </td>
+                    <td className="px-2 py-2">
+                      <Badge tone={tone}>{row.label}</Badge>
+                    </td>
+                    <td className="px-2 py-2 text-right tabular-nums text-slate-200">
+                      {row.value}
+                    </td>
+                    <td className="px-2 py-2 text-right tabular-nums text-slate-400">
+                      {formatPercent(row.value, row.total)}
+                    </td>
+                    <td className="min-w-36 px-2 py-2">
+                      <div className="h-1.5 rounded-full bg-slate-800">
+                        <div
+                          className={`h-1.5 rounded-full ${toneClasses(tone).bar}`}
+                          style={{ width: `${width}%` }}
+                        />
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function OperationalHotspots({
+  hosts,
+  correlationTypes,
+}: {
+  hosts: ExecutiveSummary["top_hosts"];
+  correlationTypes: ExecutiveSummary["top_correlation_types"];
+}) {
+  return (
+    <Panel
+      title="Operational hotspots"
+      description="Most concentrated risk sources and correlation patterns."
+      icon={<Server className="h-3.5 w-3.5" />}
+    >
+      <div className="grid gap-3">
+        <DenseList title="Top risk hosts" count={hosts.length}>
+          {hosts.length === 0 ? (
+            <EmptyState label="No host data available." />
+          ) : (
+            hosts.slice(0, 6).map((host) => (
+              <ConsoleRow
+                key={host.agent ?? "unknown"}
+                title={host.agent ?? "unknown"}
+                meta={`${host.count} incidents / avg ${host.average_risk}`}
+                value={`max ${host.max_risk}`}
+                tone={toneForRisk(host.max_risk)}
+              />
+            ))
+          )}
+        </DenseList>
+
+        <DenseList title="Top correlation types" count={correlationTypes.length}>
+          {correlationTypes.length === 0 ? (
+            <EmptyState label="No correlation data available." />
+          ) : (
+            correlationTypes.slice(0, 6).map((item) => (
+              <ConsoleRow
+                key={item.correlation_type ?? "unknown"}
+                title={item.correlation_type ?? "unknown"}
+                meta="Correlation pattern"
+                value={item.count}
+                tone="executive"
+              />
+            ))
+          )}
+        </DenseList>
+      </div>
+    </Panel>
+  );
+}
+
+function CasesQueue({ cases }: { cases: ExecutiveSummary["latest_cases"] }) {
+  return (
+    <Panel
+      title="Cases requiring attention"
+      description="Most recent case records visible to management."
+      count={cases.length}
+      icon={<Briefcase className="h-3.5 w-3.5" />}
+    >
+      {cases.length === 0 ? (
+        <EmptyTable colSpan={6} label="No cases available." />
+      ) : (
+        <div className="overflow-x-auto rounded-md border border-slate-800">
+          <table className="min-w-full text-left text-xs">
+            <thead className="border-b border-slate-800 bg-slate-950 text-[10px] uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="px-2 py-1.5">Case</th>
+                <th className="px-2 py-1.5">Status</th>
+                <th className="px-2 py-1.5">Severity</th>
+                <th className="px-2 py-1.5">Host</th>
+                <th className="px-2 py-1.5 text-right">Risk</th>
+                <th className="px-2 py-1.5">Updated</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/80 bg-slate-950">
+              {cases.slice(0, 10).map((item) => (
+                <tr key={item.id} className="hover:bg-slate-900">
+                  <td className="max-w-md truncate px-2 py-2">
+                    <Link
+                      href={`/cases/${item.id}`}
+                      className="text-cyan-300 hover:text-cyan-200"
+                      title={item.title}
+                    >
+                      #{item.id} {shortText(item.title, 64)}
+                    </Link>
+                  </td>
+                  <td className="px-2 py-2">
+                    <Badge tone={toneForStatus(item.status)}>{item.status ?? "OPEN"}</Badge>
+                  </td>
+                  <td className="px-2 py-2">
+                    <Badge tone={toneForStatus(item.severity)}>{item.severity ?? "LOW"}</Badge>
+                  </td>
+                  <td className="max-w-[120px] truncate px-2 py-2 text-slate-400">
+                    {item.agent ?? "unknown"}
+                  </td>
+                  <td className="px-2 py-2 text-right tabular-nums text-slate-300">
+                    {item.risk_score ?? 0}
+                  </td>
+                  <td className="whitespace-nowrap px-2 py-2 text-slate-400">
+                    {shortTimestamp(item.updated_at)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function HighRiskIncidentQueue({
+  incidents,
+}: {
+  incidents: ExecutiveSummary["latest_high_risk_incidents"];
+}) {
+  return (
+    <Panel
+      title="High-risk incident queue"
+      description="Recent incident exposure sorted by executive relevance."
+      count={incidents.length}
+      icon={<AlertTriangle className="h-3.5 w-3.5" />}
+    >
+      {incidents.length === 0 ? (
+        <EmptyTable colSpan={6} label="No high-risk incidents available." />
+      ) : (
+        <div className="overflow-x-auto rounded-md border border-slate-800">
+          <table className="min-w-full text-left text-xs">
+            <thead className="border-b border-slate-800 bg-slate-950 text-[10px] uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="px-2 py-1.5">Incident</th>
+                <th className="px-2 py-1.5">Time</th>
+                <th className="px-2 py-1.5">Host</th>
+                <th className="px-2 py-1.5">Rule</th>
+                <th className="px-2 py-1.5 text-right">Risk</th>
+                <th className="px-2 py-1.5">Priority</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/80 bg-slate-950">
+              {incidents.slice(0, 10).map((incident) => (
+                <tr key={incident.id} className="hover:bg-slate-900">
+                  <td className="px-2 py-2">
+                    <Link
+                      href={`/incidents/${incident.id}`}
+                      className="text-cyan-300 hover:text-cyan-200"
+                    >
+                      #{incident.id}
+                    </Link>
+                  </td>
+                  <td className="whitespace-nowrap px-2 py-2 text-slate-400">
+                    {shortTimestamp(incident.timestamp_local ?? incident.timestamp)}
+                  </td>
+                  <td className="max-w-[120px] truncate px-2 py-2 text-slate-400">
+                    {incident.agent ?? "unknown"}
+                  </td>
+                  <td
+                    className="max-w-md truncate px-2 py-2 text-slate-300"
+                    title={incident.rule ?? "-"}
+                  >
+                    {shortText(incident.rule, 80)}
+                  </td>
+                  <td className="px-2 py-2 text-right">
+                    <Badge tone={toneForRisk(incident.risk_score)}>
+                      {incident.risk_score ?? 0}
+                    </Badge>
+                  </td>
+                  <td className="px-2 py-2 text-slate-400">
+                    {incident.recommended_priority ?? "-"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function classifyRecommendation(
+  item: string,
+  summary: ExecutiveSummary["summary"],
+  index: number
+): { label: string; metric: string; tone: Tone } {
+  const text = item.toLowerCase();
+
+  if (text.includes("escalat") || summary.escalated_cases + summary.escalated_incidents > 0) {
+    return {
+      label: "Escalation",
+      metric: `${summary.escalated_cases + summary.escalated_incidents} active`,
+      tone: "danger",
+    };
+  }
+
+  if (text.includes("critical") || text.includes("high")) {
+    return {
+      label: "Risk",
+      metric: `${summary.high_or_critical_incidents} high/critical`,
+      tone: "warning",
+    };
+  }
+
+  if (text.includes("case")) {
+    return {
+      label: "Cases",
+      metric: `${summary.open_cases} open`,
+      tone: "primary",
+    };
+  }
+
+  if (text.includes("correlat")) {
+    return {
+      label: "Correlation",
+      metric: `${summary.correlated_incidents} linked`,
+      tone: "executive",
+    };
+  }
+
+  return {
+    label: index === 0 ? "Primary" : "Focus",
+    metric: `${summary.open_incidents} open incidents`,
+    tone: index === 0 ? "primary" : "neutral",
+  };
+}
+
+function PulseMetric({
+  title,
+  value,
+  meta,
+  tone,
+  icon,
+}: {
+  title: string;
+  value: string | number;
+  meta: string;
+  tone: Tone;
+  icon: ReactNode;
+}) {
+  const classes = toneClasses(tone);
+
+  return (
+    <div className="min-w-0 bg-slate-950 px-2.5 py-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="truncate text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+          {title}
+        </div>
+        <div className={`shrink-0 ${classes.text}`}>{icon}</div>
+      </div>
+
+      <div className="mt-0.5 flex min-w-0 items-baseline justify-between gap-2">
+        <div className="truncate text-sm font-semibold leading-5 text-slate-100">
+          {value}
+        </div>
+        <div className="truncate text-right text-[10px] text-slate-500" title={meta}>
+          {meta}
+        </div>
+      </div>
+
+      <div className="mt-1 h-0.5 rounded-full bg-slate-800">
+        <div className={`h-0.5 rounded-full ${classes.bar}`} />
+      </div>
     </div>
   );
 }
 
-function CompactListCard({
+function Panel({
   title,
+  description,
+  count,
+  icon,
   children,
 }: {
   title: string;
+  description?: string;
+  count?: number;
+  icon?: ReactNode;
   children: ReactNode;
 }) {
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold">{title}</h2>
+    <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
+      <div className="mb-2 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            {icon && <div className="text-cyan-300">{icon}</div>}
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-200">
+              {title}
+            </h2>
+          </div>
+          {description && (
+            <p className="mt-0.5 text-[11px] leading-4 text-slate-500">
+              {description}
+            </p>
+          )}
+        </div>
+
+        {typeof count === "number" && (
+          <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-md border border-slate-700 bg-slate-950 px-2 text-[10px] leading-none text-slate-400">
+            {count}
+          </span>
+        )}
       </div>
 
-      <div className="space-y-1.5">{children}</div>
+      {children}
+    </section>
+  );
+}
+
+function CompactField({
+  label,
+  value,
+}: {
+  label: string;
+  value: ReactNode;
+}) {
+  return (
+    <div className="min-w-0 bg-slate-950 px-2.5 py-2">
+      <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
+        {label}
+      </div>
+      <div className="mt-0.5 truncate text-xs font-semibold text-slate-200">
+        {value}
+      </div>
     </div>
   );
 }
 
-function CompactTableCard({
+function DenseList({
   title,
   count,
   children,
@@ -777,22 +1001,47 @@ function CompactTableCard({
   children: ReactNode;
 }) {
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold">{title}</h2>
-        <span className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-400">
-          {count}
-        </span>
+    <div>
+      <div className="mb-1.5 flex items-center justify-between gap-2 border-b border-slate-800 pb-1.5">
+        <h3 className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+          {title}
+        </h3>
+        <span className="text-[10px] tabular-nums text-slate-500">{count}</span>
       </div>
+      <div className="space-y-1.5">{children}</div>
+    </div>
+  );
+}
 
-      <div className="overflow-x-auto">{children}</div>
+function ConsoleRow({
+  title,
+  meta,
+  value,
+  tone,
+}: {
+  title: string;
+  meta: string;
+  value: string | number;
+  tone: Tone;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-md border border-slate-800 bg-slate-950 px-2.5 py-1.5">
+      <div className="min-w-0">
+        <div className="truncate text-xs font-medium text-slate-200" title={title}>
+          {title}
+        </div>
+        <div className="truncate text-[11px] text-slate-500">{meta}</div>
+      </div>
+      <Badge tone={tone}>{value}</Badge>
     </div>
   );
 }
 
 function Badge({ tone, children }: { tone: Tone; children: ReactNode }) {
   return (
-    <span className={`rounded-md border px-1.5 py-0.5 text-[11px] ${toneClasses(tone).badge}`}>
+    <span
+      className={`inline-flex h-5 items-center justify-center rounded-md border px-2 text-[10px] font-medium leading-none ${toneClasses(tone).badge}`}
+    >
       {children}
     </span>
   );
@@ -808,14 +1057,16 @@ function EmptyState({ label }: { label: string }) {
 
 function EmptyTable({ colSpan, label }: { colSpan: number; label: string }) {
   return (
-    <table className="min-w-full text-left text-xs">
-      <tbody>
-        <tr>
-          <td colSpan={colSpan} className="px-2 py-4 text-center text-slate-500">
-            {label}
-          </td>
-        </tr>
-      </tbody>
-    </table>
+    <div className="overflow-hidden rounded-md border border-slate-800">
+      <table className="min-w-full text-left text-xs">
+        <tbody>
+          <tr>
+            <td colSpan={colSpan} className="bg-slate-950 px-2 py-4 text-center text-slate-500">
+              {label}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   );
 }
