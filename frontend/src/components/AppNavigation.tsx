@@ -10,6 +10,7 @@ import {
   HeartPulse,
   LayoutDashboard,
   LogOut,
+  Network,
   Shield,
   ShieldAlert,
   ShieldCheck,
@@ -64,6 +65,12 @@ const NAV_ITEMS: NavItem[] = [
     href: "/detection-quality",
     label: "Detection Quality",
     icon: <Shield className="h-3.5 w-3.5" strokeWidth={1.75} />,
+    match: "prefix",
+  },
+  {
+    href: "/network-events",
+    label: "Network Activity",
+    icon: <Network className="h-3.5 w-3.5" strokeWidth={1.75} />,
     match: "prefix",
   },
   {
