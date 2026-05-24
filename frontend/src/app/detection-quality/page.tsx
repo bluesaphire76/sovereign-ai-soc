@@ -2,7 +2,7 @@
 
 import { authFetch, fetchCurrentUser, getStoredUser, type AuthUser } from "@/lib/auth";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import AppNavigation from "../../components/AppNavigation";
 import {
@@ -99,6 +99,18 @@ type SyntheticRunResponse = {
   }>;
 };
 
+type DetectionQualityActionGuidance = {
+  source: string;
+  model: string | null;
+  generated_at: string | null;
+  error_type: string | null;
+  cache_hit?: boolean;
+  cached_at?: string | null;
+  how_to_execute: string[];
+  validation_notes: string;
+  recommended_action?: string | null;
+};
+
 const KNOWN_SCENARIOS = [
   "ssh_bruteforce",
   "privilege_escalation",
@@ -160,6 +172,41 @@ async function runSyntheticTest(payload: {
   created_by: string;
 }): Promise<SyntheticRunResponse> {
   const response = await authFetch(`/synthetic-tests/run`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    let detail = `API error ${response.status}`;
+
+    try {
+      const body = await response.json();
+      detail = body?.detail?.message ?? body?.detail ?? detail;
+    } catch {
+      // keep default error
+    }
+
+    throw new Error(String(detail));
+  }
+
+  return response.json();
+}
+
+async function fetchDetectionQualityActionGuidance(payload: {
+  summary: string;
+  recommended_action: string;
+  quality_score: number;
+  total_synthetic: number;
+  scenario_name?: string | null;
+  force_refresh?: boolean;
+  weakest_scenario: Record<string, unknown> | null;
+  signals: Array<Record<string, unknown>>;
+  gaps: Record<string, unknown>;
+}): Promise<DetectionQualityActionGuidance> {
+  const response = await authFetch(`/detection-quality/action-guidance`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -420,6 +467,13 @@ export default function DetectionQualityPage() {
   const [syntheticResult, setSyntheticResult] = useState<SyntheticRunResponse | null>(null);
   const [syntheticError, setSyntheticError] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [actionGuidanceByKey, setActionGuidanceByKey] =
+    useState<Record<string, DetectionQualityActionGuidance>>({});
+  const [guidanceLoadingByKey, setGuidanceLoadingByKey] =
+    useState<Record<string, boolean>>({});
+  const [guidanceErrorByKey, setGuidanceErrorByKey] =
+    useState<Record<string, string>>({});
+  const guidanceInFlightRef = useRef<Record<string, boolean>>({});
 
   const canOperate =
     currentUser?.role === "ADMIN" || currentUser?.role === "ANALYST";
@@ -658,6 +712,124 @@ export default function DetectionQualityPage() {
         ? `Prioritize ${dominantGapLabel} review across ${dominantGapCount} loaded synthetic signal(s).`
         : "Validate the latest synthetic incidents with a human analyst and document tuning evidence before release.";
 
+  const guidanceScenarioName =
+    weakestScenario?.scenario ?? "overall_detection_quality";
+  const buildGuidanceKey = useCallback(
+    (scenarioName: string, recommendedAction: string) =>
+      `${scenarioName}::${recommendedAction}`,
+    []
+  );
+  const guidanceKey = buildGuidanceKey(
+    guidanceScenarioName,
+    detectionBriefNextAction
+  );
+  const currentActionGuidance = actionGuidanceByKey[guidanceKey] ?? null;
+  const currentGuidanceLoading = Boolean(guidanceLoadingByKey[guidanceKey]);
+  const currentGuidanceError = guidanceErrorByKey[guidanceKey] ?? null;
+
+  const generateActionGuidance = useCallback(async () => {
+    if (actionGuidanceByKey[guidanceKey]) return;
+    if (guidanceLoadingByKey[guidanceKey]) return;
+    if (guidanceInFlightRef.current[guidanceKey]) return;
+
+    const weakestScenarioPayload = weakestScenario
+      ? {
+          scenario: weakestScenario.scenario,
+          incidents: weakestScenario.incidents,
+          correlated: weakestScenario.correlated,
+          high_or_critical: weakestScenario.high_or_critical,
+          mitre_tagged: weakestScenario.mitre_tagged,
+          avg_risk: weakestScenario.avg_risk,
+          max_risk: weakestScenario.max_risk,
+          quality_score: scenarioQualityScore(weakestScenario),
+        }
+      : null;
+
+    guidanceInFlightRef.current[guidanceKey] = true;
+    setGuidanceLoadingByKey((previous) => ({
+      ...previous,
+      [guidanceKey]: true,
+    }));
+    setGuidanceErrorByKey((previous) => {
+      const next = { ...previous };
+      delete next[guidanceKey];
+      return next;
+    });
+
+    try {
+      const response = await fetchDetectionQualityActionGuidance({
+        summary: detectionBriefSummary,
+        recommended_action: detectionBriefNextAction,
+        quality_score: detectionQualityScore,
+        total_synthetic: totalSynthetic,
+        scenario_name: guidanceScenarioName,
+        weakest_scenario: weakestScenarioPayload,
+        signals: [
+          {
+            label: "Correlation coverage",
+            value: pct(correlatedSynthetic, totalSynthetic),
+            covered: correlatedSynthetic,
+            total: totalSynthetic,
+          },
+          {
+            label: "Priority validation",
+            value: pct(highOrCriticalSynthetic, totalSynthetic),
+            covered: highOrCriticalSynthetic,
+            total: totalSynthetic,
+          },
+          {
+            label: "MITRE coverage",
+            value: pct(mitreTaggedSynthetic, totalSynthetic),
+            covered: mitreTaggedSynthetic,
+            total: totalSynthetic,
+          },
+        ],
+        gaps: {
+          correlation: correlationGap,
+          priority_assignment: priorityGap,
+          mitre_mapping: mitreGap,
+          dominant_gap: dominantGapLabel,
+          dominant_gap_count: dominantGapCount,
+        },
+      });
+
+      setActionGuidanceByKey((previous) => ({
+        ...previous,
+        [guidanceKey]: response,
+      }));
+    } catch (err) {
+      setGuidanceErrorByKey((previous) => ({
+        ...previous,
+        [guidanceKey]:
+          err instanceof Error ? err.message : "Unable to generate LLM guidance",
+      }));
+    } finally {
+      guidanceInFlightRef.current[guidanceKey] = false;
+      setGuidanceLoadingByKey((previous) => ({
+        ...previous,
+        [guidanceKey]: false,
+      }));
+    }
+  }, [
+    actionGuidanceByKey,
+    guidanceLoadingByKey,
+    guidanceKey,
+    guidanceScenarioName,
+    detectionBriefSummary,
+    detectionBriefNextAction,
+    detectionQualityScore,
+    totalSynthetic,
+    correlatedSynthetic,
+    highOrCriticalSynthetic,
+    mitreTaggedSynthetic,
+    correlationGap,
+    priorityGap,
+    mitreGap,
+    dominantGapLabel,
+    dominantGapCount,
+    weakestScenario,
+  ]);
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto max-w-[1600px] px-4 py-4">
@@ -862,6 +1034,10 @@ export default function DetectionQualityPage() {
               totalSynthetic={totalSynthetic}
               weakestScenario={weakestScenario}
               items={detectionBriefItems}
+              actionGuidance={currentActionGuidance}
+              guidanceLoading={currentGuidanceLoading}
+              guidanceError={currentGuidanceError}
+              onGenerateGuidance={generateActionGuidance}
             />
 
             <section className="grid gap-2 xl:grid-cols-[440px_1fr]">
@@ -1156,6 +1332,10 @@ function DetectionQualityBrief({
   totalSynthetic,
   weakestScenario,
   items,
+  actionGuidance,
+  guidanceLoading,
+  guidanceError,
+  onGenerateGuidance,
 }: {
   summary: string;
   nextAction: string;
@@ -1163,6 +1343,10 @@ function DetectionQualityBrief({
   totalSynthetic: number;
   weakestScenario: ScenarioSummary | null;
   items: BriefItem[];
+  actionGuidance: DetectionQualityActionGuidance | null;
+  guidanceLoading: boolean;
+  guidanceError: string | null;
+  onGenerateGuidance: () => void;
 }) {
   const scoreTone = toneForCoverage(qualityScore, totalSynthetic > 0);
   const weakestQuality = weakestScenario ? scenarioQualityScore(weakestScenario) : 0;
@@ -1227,6 +1411,58 @@ function DetectionQualityBrief({
             <div className="mt-1 text-[10px] uppercase tracking-wide text-slate-600">
               Human validation required
             </div>
+          </div>
+          <div className="rounded-sm border border-violet-900/70 bg-violet-950/20 px-2 py-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-[10px] uppercase tracking-wide text-violet-300">
+                How to execute
+              </div>
+              {actionGuidance ? (
+                <span className="rounded-sm border border-violet-800 bg-violet-950 px-1.5 py-0.5 text-[10px] leading-none text-violet-200">
+                  {actionGuidance.source === "local_ai" ? "LLM" : "Fallback"}
+                  {actionGuidance.cache_hit ? " cache" : ""}
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onGenerateGuidance}
+                  disabled={guidanceLoading}
+                  className="rounded-sm border border-violet-800 bg-violet-950 px-2 py-1 text-[10px] font-medium leading-none text-violet-200 hover:bg-violet-900 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {guidanceLoading ? "Generating..." : "How to execute"}
+                </button>
+              )}
+            </div>
+
+            {guidanceLoading ? (
+              <div className="mt-1 text-[11px] leading-4 text-slate-400">
+                Generating LLM execution guidance...
+              </div>
+            ) : guidanceError ? (
+              <div className="mt-1 text-[11px] leading-4 text-orange-200">
+                LLM guidance unavailable: {guidanceError}
+              </div>
+            ) : actionGuidance ? (
+              <>
+                <ol className="mt-1 space-y-1 text-[11px] leading-4 text-slate-300">
+                  {actionGuidance.how_to_execute.map((step, index) => (
+                    <li key={`${step}-${index}`} className="flex gap-1.5">
+                      <span className="mt-0.5 h-4 min-w-4 rounded-sm border border-violet-800 bg-violet-950 text-center text-[10px] leading-4 text-violet-200">
+                        {index + 1}
+                      </span>
+                      <span>{step}</span>
+                    </li>
+                  ))}
+                </ol>
+                <div className="mt-1 border-t border-violet-900/50 pt-1 text-[10px] leading-4 text-slate-500">
+                  {actionGuidance.validation_notes}
+                </div>
+              </>
+            ) : (
+              <div className="mt-1 text-[11px] leading-4 text-slate-500">
+                Click How to execute to generate LLM execution guidance for this recommended action.
+              </div>
+            )}
           </div>
         </div>
       </div>
