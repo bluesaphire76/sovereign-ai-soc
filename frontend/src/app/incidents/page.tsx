@@ -156,24 +156,28 @@ function Counter({
   helper: string;
   tone?: Tone;
 }) {
-  const accentClass: Record<Tone, string> = {
-    neutral: "border-l-slate-700",
-    success: "border-l-emerald-500",
-    warning: "border-l-orange-500",
-    danger: "border-l-red-500",
-    cyan: "border-l-cyan-500",
+  const cardClass: Record<Tone, string> = {
+    neutral: "border-slate-800 bg-slate-900 text-slate-100",
+    success: "border-emerald-900 bg-emerald-950/30 text-emerald-100",
+    warning: "border-orange-900 bg-orange-950/30 text-orange-100",
+    danger: "border-red-900 bg-red-950/30 text-red-100",
+    cyan: "border-cyan-900 bg-cyan-950/30 text-cyan-100",
   };
 
   return (
-    <div className={`border-r border-slate-800 border-l-2 px-3 py-1.5 last:border-r-0 ${accentClass[tone]}`}>
-      <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-        {label}
-      </div>
-      <div className="mt-0.5 font-mono text-lg font-semibold leading-5 tabular-nums text-slate-100">
-        {value}
-      </div>
-      <div className="mt-0.5 truncate text-[10px] leading-3 text-slate-500">
-        {helper}
+    <div
+      className={`flex min-h-[58px] items-center justify-between gap-3 rounded-sm border px-2.5 py-2 shadow-sm ${cardClass[tone]}`}
+    >
+      <div className="min-w-0">
+        <div className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
+          {label}
+        </div>
+        <div className="mt-0.5 flex min-w-0 items-baseline gap-2">
+          <span className="text-xl font-semibold leading-6">{value}</span>
+          <span className="min-w-0 truncate text-[11px] leading-4 text-slate-500">
+            {helper}
+          </span>
+        </div>
       </div>
     </div>
   );
@@ -432,7 +436,7 @@ export default function IncidentsPage() {
             </div>
           </header>
 
-          <section className="grid border-b border-slate-800 bg-slate-950 md:grid-cols-5">
+          <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-5">
             <Counter label="Visible incidents" value={total} helper="Matching current filters" tone="cyan" />
             <Counter label="High attention" value={highRiskCount} helper="Risk score 60+ on this page" tone={highRiskCount > 0 ? "warning" : "success"} />
             <Counter label="Active lifecycle" value={activeLifecycleCount} helper="Investigating, contained or legacy escalated" tone={activeLifecycleCount > 0 ? "warning" : "success"} />

@@ -275,7 +275,7 @@ export default function AdminSecurityAuditPage() {
 
         {isAdmin && (
           <div className="space-y-3">
-            <section className="grid gap-3 md:grid-cols-4">
+            <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
               <MetricCard
                 label="Total matching events"
                 value={data?.total ?? 0}
@@ -559,14 +559,18 @@ function MetricCard({
   description: string;
 }) {
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
-      <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
-        {label}
+    <div className="flex min-h-[58px] items-center justify-between gap-3 rounded-sm border border-slate-800 bg-slate-900 px-2.5 py-2 text-slate-100 shadow-sm">
+      <div className="min-w-0">
+        <div className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
+          {label}
+        </div>
+        <div className="mt-0.5 flex min-w-0 items-baseline gap-2">
+          <span className="text-xl font-semibold leading-6">{value}</span>
+          <span className="min-w-0 truncate text-[11px] leading-4 text-slate-500">
+            {description}
+          </span>
+        </div>
       </div>
-      <div className="mt-1 text-2xl font-semibold tracking-tight text-slate-100">
-        {value}
-      </div>
-      <div className="mt-1 text-[11px] text-slate-500">{description}</div>
     </div>
   );
 }
