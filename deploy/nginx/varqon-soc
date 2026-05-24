@@ -91,7 +91,7 @@ server {
     location /_next/static/ {
         include /etc/nginx/snippets/ai-soc-security-headers-hsts.conf;
 
-        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        add_header Cache-Control "public, max-age=0, must-revalidate" always;
 
         proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;

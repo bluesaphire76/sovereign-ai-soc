@@ -3,7 +3,7 @@
 import { downloadBackendFile } from "@/lib/download";
 import { authFetch } from "@/lib/auth";
 
-import { useEffect, useMemo, useState } from "react";
+import { Component, useEffect, useMemo, useState, type ErrorInfo, type ReactNode } from "react";
 import Link from "next/link";
 import AppNavigation from "../../../components/AppNavigation";
 import { fetchCurrentUser, getStoredUser, type AuthUser } from "../../../lib/auth";
@@ -893,6 +893,63 @@ function CasePlainTextAnalysis({ value }: { value: string }) {
           <p className="text-sm leading-6 text-slate-300">{line}</p>
         </div>
       ))}
+    </div>
+  );
+}
+
+type CaseAiAnalysisBoundaryProps = {
+  children: ReactNode;
+  fallback: ReactNode;
+  resetKey: string | number | null;
+};
+
+type CaseAiAnalysisBoundaryState = {
+  hasError: boolean;
+};
+
+class CaseAiAnalysisBoundary extends Component<
+  CaseAiAnalysisBoundaryProps,
+  CaseAiAnalysisBoundaryState
+> {
+  state: CaseAiAnalysisBoundaryState = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidUpdate(previousProps: CaseAiAnalysisBoundaryProps) {
+    if (previousProps.resetKey !== this.props.resetKey && this.state.hasError) {
+      this.setState({ hasError: false });
+    }
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error("Case AI analysis render failed", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback;
+    }
+
+    return this.props.children;
+  }
+}
+
+function CaseAiAnalysisFallback({ analysis }: { analysis: string }) {
+  return (
+    <div className="space-y-3 rounded-xl border border-orange-800 bg-orange-950/20 p-4">
+      <div>
+        <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-orange-300">
+          AI analysis fallback
+        </div>
+        <p className="mt-2 text-sm leading-6 text-slate-300">
+          The structured AI analysis could not be rendered safely. The original analyst-facing output is available below.
+        </p>
+      </div>
+      <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-lg border border-slate-800 bg-slate-950 p-3 text-xs leading-5 text-slate-400">
+        {analysis || "No AI analysis available."}
+      </pre>
     </div>
   );
 }
@@ -3141,7 +3198,12 @@ export default function CaseDetailPage() {
                     {caseAnalysis.created_by ?? "llm"}
                   </div>
 
-                  <EnterpriseCaseAiAnalysis caseAnalysis={caseAnalysis} />
+                  <CaseAiAnalysisBoundary
+                    resetKey={caseAnalysis.id}
+                    fallback={<CaseAiAnalysisFallback analysis={caseAnalysis.analysis} />}
+                  >
+                    <EnterpriseCaseAiAnalysis caseAnalysis={caseAnalysis} />
+                  </CaseAiAnalysisBoundary>
                 </div>
               )}
             </section>
