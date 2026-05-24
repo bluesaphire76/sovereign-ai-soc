@@ -1004,9 +1004,14 @@ function EnterpriseCaseAiAnalysis({
   );
 }
 
+function reportId(value: string | number) {
+  return String(value).padStart(6, "0");
+}
+
 export default function CaseDetailPage() {
   const params = useParams();
   const caseId = String(params.id);
+  const caseReportId = reportId(caseId);
 
   const [caseData, setCaseData] = useState<IncidentCase | null>(null);
   const [incidents, setIncidents] = useState<CaseIncident[]>([]);
@@ -2022,6 +2027,7 @@ export default function CaseDetailPage() {
                   title="Executive PDF"
                   description="Board-ready PDF with executive summary, risk, actions and closure readiness."
                   href={`/reports/cases/${caseId}/executive-pdf`}
+                  fallbackFilename={`case-${caseReportId}-executive-ai-soc-report.pdf`}
                   format="PDF"
                   tone="executive"
                 />
@@ -2030,6 +2036,7 @@ export default function CaseDetailPage() {
                   title="Analyst Evidence Pack"
                   description="Detailed evidence package with raw alerts, action plan, audit trail and closure evidence."
                   href={`/reports/cases/${caseId}/evidence-pack?format=markdown`}
+                  fallbackFilename={`case-${caseReportId}-evidence-pack.md`}
                   format="MD"
                   tone="evidence"
                 />
@@ -2038,6 +2045,7 @@ export default function CaseDetailPage() {
                   title="Markdown Case Report"
                   description="Readable case report suitable for review, notes, ticketing systems and documentation."
                   href={`/reports/cases/${caseId}?format=markdown`}
+                  fallbackFilename={`case-${caseReportId}-enterprise-report.md`}
                   format="MD"
                   tone="standard"
                 />
@@ -2046,6 +2054,7 @@ export default function CaseDetailPage() {
                   title="JSON Case Payload"
                   description="Structured export for automation, integrations, testing or downstream processing."
                   href={`/reports/cases/${caseId}?format=json`}
+                  fallbackFilename={`case-${caseReportId}-enterprise-report.json`}
                   format="JSON"
                   tone="json"
                 />
@@ -3748,12 +3757,14 @@ function ReportDownloadCard({
   title,
   description,
   href,
+  fallbackFilename,
   format,
   tone,
 }: {
   title: string;
   description: string;
   href: string;
+  fallbackFilename: string;
   format: string;
   tone: "executive" | "evidence" | "standard" | "json";
 }) {
@@ -3794,7 +3805,7 @@ function ReportDownloadCard({
         <button
           type="button"
           onClick={() =>
-            downloadBackendFile(href).catch((error) => alert(error.message))
+            downloadBackendFile(href, fallbackFilename).catch((error) => alert(error.message))
           }
           className={`inline-flex w-full items-center justify-center gap-2 rounded-md border px-3 py-1.5 text-xs font-medium shadow-sm ${buttonClass}`}
         >

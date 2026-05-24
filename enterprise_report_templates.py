@@ -1,18 +1,35 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
+
+
+NOT_AVAILABLE = "Not available"
+AI_SECTION_HEADINGS = {
+    "executive summary",
+    "summary",
+    "risk assessment",
+    "risk rationale",
+    "key evidence",
+    "soc hypothesis",
+    "open gaps",
+    "recommended immediate actions",
+    "recommended actions",
+    "suggested remediation",
+    "operational recommendation",
+}
 
 
 def _format_value(value: Any) -> str:
     if value is None or value == "":
-        return "-"
+        return NOT_AVAILABLE
 
     if isinstance(value, bool):
         return "Yes" if value else "No"
 
     if isinstance(value, (dict, list)):
-        return json.dumps(value, ensure_ascii=False)
+        return json.dumps(value, ensure_ascii=False, default=str)
 
     return str(value)
 
@@ -34,19 +51,42 @@ def _table(headers: list[str], rows: list[list[Any]]) -> str:
 
 
 def _json_block(value: Any) -> str:
-    if value is None:
-        value = None
-
     return "```json\n" + json.dumps(value, ensure_ascii=False, indent=2, default=str) + "\n```"
 
 
-def _text_block(value: Any, fallback: str = "Not documented.") -> str:
-    text = _format_value(value)
-
-    if text == "-":
+def _text_block(value: Any, fallback: str = NOT_AVAILABLE) -> str:
+    if value is None or value == "":
         return fallback
 
-    return text
+    if isinstance(value, (dict, list)):
+        return _json_block(value)
+
+    text = str(value).strip()
+    return text or fallback
+
+
+def _plain_text(value: Any, fallback: str = NOT_AVAILABLE) -> str:
+    if value is None or value == "":
+        return fallback
+
+    if isinstance(value, (dict, list)):
+        return fallback
+
+    text = str(value).strip()
+    return text or fallback
+
+
+def _first_available(*values: Any, fallback: str = NOT_AVAILABLE) -> str:
+    for value in values:
+        if value is None or value == "":
+            continue
+
+        if isinstance(value, str) and not value.strip():
+            continue
+
+        return _plain_text(value, fallback=fallback)
+
+    return fallback
 
 
 def _ai_line(ai_text: str | None, label: str) -> str | None:
@@ -56,11 +96,58 @@ def _ai_line(ai_text: str | None, label: str) -> str | None:
     needle = label.lower()
 
     for raw_line in ai_text.splitlines():
-        line = raw_line.strip()
+        line = raw_line.strip().strip("-* ")
         if needle in line.lower() and ":" in line:
             return line.split(":", 1)[1].strip()
 
     return None
+
+
+def _clean_heading(value: str) -> str:
+    cleaned = value.strip().strip("#").strip()
+    cleaned = cleaned.replace("**", "").replace("__", "")
+    cleaned = re.sub(r"^\d+[.)]\s*", "", cleaned)
+    return cleaned.strip().rstrip(":")
+
+
+def _ai_section(ai_text: str | None, labels: list[str]) -> str | None:
+    if not ai_text:
+        return None
+
+    targets = [label.lower() for label in labels]
+    collected: list[str] = []
+    active = False
+
+    for raw_line in ai_text.splitlines():
+        line = raw_line.rstrip()
+        heading = _clean_heading(line).lower()
+        is_heading = bool(
+            heading
+            and (
+                raw_line.lstrip().startswith("#")
+                or re.match(r"^\s*(?:\*\*)?\d+[.)]\s+", raw_line)
+                or heading in AI_SECTION_HEADINGS
+                or heading in targets
+            )
+        )
+
+        if any(heading.startswith(target) for target in targets):
+            active = True
+            remainder = _clean_heading(line)
+            if ":" in remainder:
+                remainder = remainder.split(":", 1)[1].strip()
+                if remainder:
+                    collected.append(remainder)
+            continue
+
+        if active and is_heading:
+            break
+
+        if active:
+            collected.append(line)
+
+    text = "\n".join(collected).strip()
+    return text or None
 
 
 def _compact_correlation_summary(summary: Any, max_related_events: int = 10) -> Any:
@@ -79,17 +166,19 @@ def _compact_correlation_summary(summary: Any, max_related_events: int = 10) -> 
     return compact
 
 
-def _risk_review_note(current: str | None, reviewed: str | None) -> str:
-    current_value = (current or "").upper()
-    reviewed_value = (reviewed or "").upper()
+def _risk_band(score: Any) -> str:
+    try:
+        value = int(score or 0)
+    except (TypeError, ValueError):
+        return NOT_AVAILABLE
 
-    if not current_value or not reviewed_value or current_value == reviewed_value:
-        return "No severity review discrepancy detected."
-
-    return (
-        "Severity review differs from the current case severity. "
-        "Analyst validation is required before external distribution."
-    )
+    if value >= 80:
+        return "Critical"
+    if value >= 60:
+        return "High"
+    if value >= 40:
+        return "Medium"
+    return "Low"
 
 
 def _status_decision(status: str | None) -> str:
@@ -105,6 +194,62 @@ def _status_decision(status: str | None) -> str:
         return "Human review and follow-up remain required."
 
     return "Workflow status requires analyst review."
+
+
+def _risk_review_note(current: str | None, reviewed: str | None) -> str:
+    current_value = (current or "").upper()
+    reviewed_value = (reviewed or "").upper()
+
+    if not current_value or not reviewed_value or current_value == reviewed_value:
+        return "No severity review discrepancy detected."
+
+    return (
+        "Severity review differs from the current case severity. "
+        "Analyst validation is required before external distribution."
+    )
+
+
+def _correlation_state(incident: dict[str, Any]) -> str:
+    if incident.get("correlated"):
+        return (
+            "Correlated"
+            f" ({_format_value(incident.get('correlation_type'))}, "
+            f"score {_format_value(incident.get('correlation_score'))})"
+        )
+
+    return "Not correlated"
+
+
+def _related_evidence_summary(correlation_summary: Any) -> str:
+    if not isinstance(correlation_summary, dict):
+        return NOT_AVAILABLE
+
+    details = correlation_summary.get("related_event_details")
+    if isinstance(details, list) and details:
+        return f"{len(details)} related event(s) available in the technical appendix."
+
+    related_count = correlation_summary.get("related_event_count")
+    if related_count:
+        return f"{related_count} related event(s) referenced by correlation metadata."
+
+    return "No related event details available."
+
+
+def _metadata_summary(value: Any) -> str:
+    if not value:
+        return NOT_AVAILABLE
+
+    if isinstance(value, dict):
+        for key in ("technique", "techniques", "tactic", "tactics", "id", "name"):
+            item = value.get(key)
+            if item:
+                return _format_value(item)
+        return f"Metadata object with {len(value)} field(s)."
+
+    if isinstance(value, list):
+        return f"{len(value)} metadata item(s)."
+
+    return str(value)
 
 
 def _append_audit_trail(lines: list[str], audit_events: list[dict[str, Any]], title: str) -> None:
@@ -125,13 +270,14 @@ def _append_audit_trail(lines: list[str], audit_events: list[dict[str, Any]], ti
                 event.get("new_value"),
                 event.get("created_by"),
                 event.get("created_at"),
+                event.get("comment"),
             ]
         )
 
     lines.extend(
         [
             _table(
-                ["ID", "Type", "Old value", "New value", "Actor", "Timestamp"],
+                ["ID", "Type", "Old value", "New value", "Actor", "Timestamp", "Comment"],
                 rows,
             ),
             "",
@@ -160,98 +306,215 @@ def _append_notes(lines: list[str], notes: list[dict[str, Any]]) -> None:
         )
 
 
+def _append_evidence_used(lines: list[str], evidence_used: list[dict[str, Any]]) -> None:
+    lines.extend(["### Evidence Used", ""])
+
+    if not evidence_used:
+        lines.extend(["No structured evidence list available.", ""])
+        return
+
+    for item in evidence_used:
+        lines.append(
+            "- "
+            f"**{_format_value(item.get('label'))}:** "
+            f"{_format_value(item.get('description'))} "
+            f"(count: {_format_value(item.get('count'))})"
+        )
+
+    lines.append("")
+
+
+def _append_hypotheses(lines: list[str], hypotheses: list[dict[str, Any]]) -> None:
+    lines.extend(["### Investigation Hypotheses", ""])
+
+    if not hypotheses:
+        lines.extend(["No investigation hypotheses available.", ""])
+        return
+
+    for item in hypotheses:
+        lines.append(
+            "- "
+            f"**{_format_value(item.get('label'))} "
+            f"({_format_value(item.get('likelihood'))}):** "
+            f"{_format_value(item.get('rationale'))}"
+        )
+
+    lines.append("")
+
+
+def _append_recommended_actions(lines: list[str], actions: list[dict[str, Any]]) -> None:
+    lines.extend(["### Recommended Checks / Actions", ""])
+
+    if not actions:
+        lines.extend(["No structured recommended actions available.", ""])
+        return
+
+    for index, item in enumerate(actions, start=1):
+        approval = (
+            "human approval required"
+            if item.get("requires_approval") or item.get("requires_human_approval")
+            else "no approval flag provided"
+        )
+        lines.append(
+            f"{index}. **{_format_value(item.get('action') or item.get('title'))}** - "
+            f"Impact: {_format_value(item.get('impact'))}; {approval}."
+        )
+
+    lines.append("")
+
+
+def _incident_brief(payload: dict[str, Any]) -> dict[str, Any]:
+    ai_brief = payload.get("ai_brief")
+    if not isinstance(ai_brief, dict):
+        return {}
+
+    brief = ai_brief.get("brief")
+    if isinstance(brief, dict):
+        return brief
+
+    return {}
+
+
 def build_enterprise_incident_markdown(payload: dict[str, Any]) -> str:
     incident = payload["incident"]
     ai_analysis = incident.get("ai_analysis")
+    brief = _incident_brief(payload)
     correlation_summary = incident.get("correlation_summary")
     compact_correlation = _compact_correlation_summary(correlation_summary)
 
-    risk_normalization = {}
-    if isinstance(correlation_summary, dict):
-        risk_normalization = correlation_summary.get("risk_normalization") or {}
+    executive_summary = _first_available(
+        brief.get("executive_summary"),
+        brief.get("situation_summary"),
+        _ai_line(ai_analysis, "short executive summary"),
+        _ai_line(ai_analysis, "executive summary"),
+        fallback="No executive summary available.",
+    )
 
-    executive_ai_summary = _ai_line(ai_analysis, "short executive summary")
-    recommended_checks = _ai_line(ai_analysis, "recommended checks")
-    suggested_remediation = _ai_line(ai_analysis, "suggested remediation")
-    business_risk = _ai_line(ai_analysis, "business risk")
+    risk_rationale = _first_available(
+        brief.get("risk_rationale"),
+        _ai_line(ai_analysis, "risk rationale"),
+        _ai_line(ai_analysis, "business risk"),
+        fallback="No risk rationale available.",
+    )
+
+    recommended_actions = brief.get("recommended_actions") or []
+    if not recommended_actions:
+        recommended_checks = _ai_line(ai_analysis, "recommended checks")
+        suggested_remediation = _ai_line(ai_analysis, "suggested remediation")
+        for value in (recommended_checks, suggested_remediation):
+            if value:
+                recommended_actions.append(
+                    {
+                        "action": value,
+                        "impact": NOT_AVAILABLE,
+                        "requires_approval": True,
+                    }
+                )
 
     lines: list[str] = [
-        f"# Enterprise Incident Report #{incident['id']}",
+        "# Incident Report",
+        "",
+        f"Incident ID: **{incident['id']}**",
         "",
         f"Generated at: **{payload['generated_at']}**",
         "",
-        "## 1. Executive Snapshot",
+        "## Executive Summary",
+        "",
+        executive_summary,
+        "",
+        "## Incident Overview",
         "",
         _table(
             ["Field", "Value"],
             [
+                ["Incident ID", incident.get("id")],
+                ["Severity / risk score", f"{_risk_band(incident.get('risk_score'))} / {_format_value(incident.get('risk_score'))}"],
                 ["Status", incident.get("status")],
-                ["Host", incident.get("agent")],
-                ["Rule", incident.get("rule")],
-                ["Risk score", incident.get("risk_score")],
+                ["Host / agent", incident.get("agent")],
+                ["First seen", incident.get("timestamp")],
+                ["Generated at", payload.get("generated_at")],
+                ["Correlation state", _correlation_state(incident)],
                 ["Recommended priority", incident.get("recommended_priority")],
-                ["Correlation score", incident.get("correlation_score")],
-                ["Correlation type", incident.get("correlation_type")],
-                ["Workflow decision", _status_decision(incident.get("status"))],
             ],
         ),
         "",
-        "## 2. Business Impact & Triage Assessment",
-        "",
-        f"- **Business risk:** {_format_value(business_risk)}",
-        f"- **Executive summary:** {_format_value(executive_ai_summary)}",
-        f"- **Current triage state:** {_status_decision(incident.get('status'))}",
-        f"- **Escalation reason:** {_format_value(incident.get('escalation_reason'))}",
-        "",
-        "## 3. Recommended Analyst Actions",
-        "",
-        f"1. **Validate the event:** {_format_value(recommended_checks)}",
-        f"2. **Apply remediation or acceptance decision:** {_format_value(suggested_remediation)}",
-        "3. **Document the human decision:** confirm whether the event is authorized, operational noise, or a security-relevant signal.",
-        "4. **Update workflow status:** close, triage, or escalate based on evidence and business impact.",
-        "",
-        "## 4. Technical Incident Details",
+        "## AI Analysis / Incident AI Brief",
         "",
         _table(
             ["Field", "Value"],
             [
-                ["Timestamp", incident.get("timestamp")],
-                ["Wazuh document ID", incident.get("wazuh_doc_id")],
-                ["Wazuh level", incident.get("level")],
-                ["Correlated", incident.get("correlated")],
-                ["Risk policy", risk_normalization.get("policy")],
-                ["Risk cap", risk_normalization.get("cap")],
-                ["Raw score before cap", risk_normalization.get("raw_score_before_cap")],
-                ["Matched attack chains", risk_normalization.get("matched_chain_count")],
+                ["Brief source", (payload.get("ai_brief") or {}).get("source")],
+                ["Situation summary", brief.get("situation_summary")],
+                ["Risk rationale", risk_rationale],
+                ["Confidence", brief.get("confidence")],
+                ["Impact", brief.get("impact")],
+                ["Likelihood", brief.get("likelihood")],
+                ["Human validation required", brief.get("human_validation_required", True)],
             ],
         ),
         "",
-        "## 5. AI-Assisted Analysis",
-        "",
-        _text_block(ai_analysis, "No AI analysis available."),
-        "",
-        "## 6. MITRE ATT&CK Mapping",
-        "",
-        _json_block(incident.get("mitre")),
-        "",
-        "## 7. Risk & Correlation Rationale",
-        "",
-        _json_block(compact_correlation),
-        "",
-        "## 8. Attack Chain Assessment",
-        "",
-        _json_block(incident.get("attack_chain")),
+        "### Confidence / Limitations",
         "",
     ]
+
+    limitations = brief.get("limitations") or []
+    if limitations:
+        lines.extend([f"- {item}" for item in limitations])
+        lines.append("")
+    else:
+        lines.extend(["No explicit limitations available.", ""])
+
+    _append_evidence_used(lines, brief.get("evidence_used") or [])
+    _append_hypotheses(lines, brief.get("investigation_hypotheses") or [])
+    _append_recommended_actions(lines, recommended_actions)
+
+    lines.extend(
+        [
+            "### Original AI Analysis",
+            "",
+            _text_block(ai_analysis, "No original incident AI analysis available."),
+            "",
+            "## Evidence Overview",
+            "",
+            _table(
+                ["Field", "Value"],
+                [
+                    ["Wazuh rule", incident.get("rule")],
+                    ["Wazuh level", incident.get("level")],
+                    ["MITRE / attack chain", _metadata_summary(incident.get("mitre"))],
+                    ["Attack chain metadata", _metadata_summary(incident.get("attack_chain"))],
+                    ["Correlation score", incident.get("correlation_score")],
+                    ["Correlation type", incident.get("correlation_type")],
+                    ["Escalation reason", incident.get("escalation_reason")],
+                    ["Related evidence", _related_evidence_summary(correlation_summary)],
+                ],
+            ),
+            "",
+        ]
+    )
 
     _append_notes(lines, payload.get("notes", []))
     _append_audit_trail(lines, payload.get("audit_trail", []), "Audit Trail")
 
     lines.extend(
         [
-            "## Appendix A — Raw Alert Evidence",
+            "## Technical Appendix",
+            "",
+            "### Raw Alert",
             "",
             _json_block(incident.get("raw_alert")),
+            "",
+            "### Correlation JSON",
+            "",
+            _json_block(compact_correlation),
+            "",
+            "### MITRE Metadata",
+            "",
+            _json_block(incident.get("mitre")),
+            "",
+            "### Attack Chain Metadata",
+            "",
+            _json_block(incident.get("attack_chain")),
             "",
         ]
     )
@@ -259,60 +522,142 @@ def build_enterprise_incident_markdown(payload: dict[str, Any]) -> str:
     return "\n".join(lines).strip() + "\n"
 
 
+def _case_summary(case: dict[str, Any]) -> str:
+    summary = case.get("summary")
+    if isinstance(summary, str) and summary.strip():
+        return summary.strip()
+
+    return "Structured case summary is available in the Technical Appendix."
+
+
+def _case_action_rows(actions: list[dict[str, Any]], statuses: set[str]) -> list[list[Any]]:
+    rows = []
+
+    for action in actions:
+        if (action.get("status") or "").upper() not in statuses:
+            continue
+
+        rows.append(
+            [
+                action.get("id"),
+                action.get("title"),
+                action.get("status"),
+                action.get("priority"),
+                action.get("created_by"),
+                action.get("due_at"),
+                action.get("completed_at"),
+            ]
+        )
+
+    return rows
+
+
+def _append_action_table(
+    lines: list[str],
+    title: str,
+    rows: list[list[Any]],
+    fallback: str,
+) -> None:
+    lines.extend([f"### {title}", ""])
+
+    if not rows:
+        lines.extend([fallback, ""])
+        return
+
+    lines.extend(
+        [
+            _table(
+                ["ID", "Action", "Status", "Priority", "Owner", "Due at", "Completed at"],
+                rows,
+            ),
+            "",
+        ]
+    )
+
+
 def build_enterprise_case_markdown(payload: dict[str, Any]) -> str:
     case = payload["case"]
     analysis = payload.get("case_ai_analysis") or {}
+    analysis_text = analysis.get("analysis")
     actions = payload.get("case_actions", [])
     incidents = payload.get("incidents", [])
     readiness = payload.get("case_closure_readiness") or {}
     checklist = payload.get("case_closure_checklist") or {}
 
-    open_actions = [
-        action
-        for action in actions
-        if (action.get("status") or "").upper() in {"OPEN", "IN_PROGRESS"}
-    ]
+    open_action_rows = _case_action_rows(actions, {"OPEN", "IN_PROGRESS"})
+    completed_action_rows = _case_action_rows(actions, {"DONE", "CANCELLED"})
+    blocking_items = readiness.get("blocking_items") or readiness.get("missing_items") or []
+    closure_ready = "READY" if readiness.get("ready_to_close") else "BLOCKED"
+    approval_state = "Approved" if checklist.get("closure_approved") else "Not approved"
 
-    blocking_items = readiness.get("blocking_items") or []
+    executive_summary = (
+        f"Case #{case['id']} is currently {_format_value(case.get('status'))} "
+        f"with {_format_value(case.get('severity'))} severity, "
+        f"{_format_value(case.get('risk_score'))} risk score and {len(incidents)} linked incident(s). "
+        f"Closure readiness is {closure_ready}. {_status_decision(case.get('status'))}"
+    )
 
     lines: list[str] = [
-        f"# Enterprise Investigation Case Report #{case['id']}",
+        "# Case Report",
+        "",
+        f"Case ID: **{case['id']}**",
         "",
         f"Generated at: **{payload['generated_at']}**",
         "",
-        "## 1. Executive Snapshot",
+        "## Executive Case Summary",
+        "",
+        executive_summary,
+        "",
+        _case_summary(case),
+        "",
+        "## Case Overview",
         "",
         _table(
             ["Field", "Value"],
             [
+                ["Case ID", case.get("id")],
                 ["Title", case.get("title")],
-                ["Status", case.get("status")],
                 ["Severity", case.get("severity")],
-                ["Severity review", case.get("severity_review")],
-                ["Risk score", case.get("risk_score")],
-                ["Owner", case.get("owner")],
-                ["Host", case.get("agent")],
+                ["Status", case.get("status")],
+                ["Owner / assignee", f"{_format_value(case.get('owner'))} / {_format_value(case.get('assignee'))}"],
+                ["SLA target", case.get("sla_due_at")],
                 ["SLA status", case.get("sla_status")],
-                ["Linked incidents", len(incidents)],
-                ["Open / in-progress actions", len(open_actions)],
-                ["Closure readiness", "READY" if readiness.get("ready_to_close") else "BLOCKED"],
+                ["Closure readiness", closure_ready],
             ],
         ),
         "",
-        "## 2. Management Assessment",
-        "",
-        f"- **Workflow decision:** {_status_decision(case.get('status'))}",
-        f"- **Severity governance:** {_risk_review_note(case.get('severity'), case.get('severity_review'))}",
-        f"- **Closure readiness:** {'Ready for closure review.' if readiness.get('ready_to_close') else 'Closure is blocked pending mandatory evidence and decision fields.'}",
-        f"- **SLA posture:** {_format_value(case.get('sla_status'))}",
-        "",
-        "## 3. Case Narrative",
-        "",
-        _text_block(case.get("summary"), "No case summary available."),
-        "",
-        "## 4. AI Case Analysis",
+        "## Linked Incidents",
         "",
     ]
+
+    if incidents:
+        incident_rows = []
+        for incident in incidents:
+            incident_rows.append(
+                [
+                    incident.get("id"),
+                    _risk_band(incident.get("risk_score")),
+                    incident.get("risk_score"),
+                    incident.get("status"),
+                    incident.get("agent"),
+                    incident.get("rule"),
+                    incident.get("correlation_score"),
+                ]
+            )
+
+        lines.extend(
+            [
+                _table(
+                    ["ID", "Severity", "Risk", "Status", "Host", "Rule", "Correlation"],
+                    incident_rows,
+                ),
+                "",
+            ]
+        )
+    else:
+        lines.extend(["No linked incidents available.", ""])
+
+    lines.extend(["## AI Case Analysis", ""])
 
     if analysis:
         lines.extend(
@@ -322,52 +667,84 @@ def build_enterprise_case_markdown(payload: dict[str, Any]) -> str:
                     [
                         ["Recommended severity", analysis.get("recommended_severity")],
                         ["Recommended status", analysis.get("recommended_status")],
-                        ["Confidence", analysis.get("confidence")],
+                        ["Model", analysis.get("model")],
+                        ["Created by", analysis.get("created_by")],
                         ["Created at", analysis.get("created_at")],
                     ],
                 ),
                 "",
-                _text_block(analysis.get("analysis"), "No AI case analysis text available."),
+                "### Summary",
+                "",
+                _text_block(
+                    _ai_section(analysis_text, ["Executive summary", "Summary"]),
+                    "No AI summary section available.",
+                ),
+                "",
+                "### Risk Rationale",
+                "",
+                _text_block(
+                    _ai_section(analysis_text, ["Risk assessment", "Risk rationale"]),
+                    "No AI risk rationale section available.",
+                ),
+                "",
+                "### Recommended Actions",
+                "",
+                _text_block(
+                    _ai_section(
+                        analysis_text,
+                        [
+                            "Recommended immediate actions",
+                            "Suggested remediation",
+                            "Operational recommendation",
+                        ],
+                    ),
+                    "No AI recommended actions section available.",
+                ),
+                "",
+                "### Open Gaps",
+                "",
+                _text_block(
+                    _ai_section(analysis_text, ["SOC hypothesis", "Open gaps"]),
+                    "No AI open gaps section available.",
+                ),
+                "",
+                "### Human Decision Points",
+                "",
+                f"- **Workflow decision:** {_status_decision(case.get('status'))}",
+                f"- **Severity governance:** {_risk_review_note(case.get('severity'), case.get('severity_review'))}",
+                f"- **Closure readiness:** {closure_ready}",
+                f"- **Approval state:** {approval_state}",
+                "",
+                "### Full AI Analysis",
+                "",
+                _text_block(analysis_text, "No AI case analysis text available."),
                 "",
             ]
         )
     else:
         lines.extend(["No case AI analysis available.", ""])
 
-    lines.extend(["## 5. Action Plan & Ownership", ""])
+    lines.extend(["## Action Plan", ""])
+    _append_action_table(
+        lines,
+        "Open Actions",
+        open_action_rows,
+        "No open or in-progress actions available.",
+    )
+    _append_action_table(
+        lines,
+        "Completed Actions",
+        completed_action_rows,
+        "No completed or cancelled actions available.",
+    )
 
-    if actions:
-        action_rows = []
-        for action in actions:
-            action_rows.append(
-                [
-                    action.get("id"),
-                    action.get("title"),
-                    action.get("status"),
-                    action.get("priority"),
-                    action.get("owner"),
-                    action.get("due_at"),
-                ]
-            )
-
+    if not actions:
         lines.extend(
             [
-                _table(
-                    ["ID", "Action", "Status", "Priority", "Owner", "Due at"],
-                    action_rows,
-                ),
-                "",
-            ]
-        )
-    else:
-        lines.extend(
-            [
-                "No case actions available.",
-                "",
                 "Recommended minimum follow-up:",
                 "",
                 "1. Confirm business ownership for the affected asset.",
-                "2. Validate whether the linked incident represents authorized operational activity or a security-relevant signal.",
+                "2. Validate whether linked incidents represent authorized activity or a security-relevant signal.",
                 "3. Document evidence reviewed, root cause, residual risk and closure decision.",
                 "4. Close or escalate the case only after human review.",
                 "",
@@ -376,13 +753,17 @@ def build_enterprise_case_markdown(payload: dict[str, Any]) -> str:
 
     lines.extend(
         [
-            "## 6. Closure Readiness & Governance",
+            "## Closure Governance",
             "",
             _table(
                 ["Field", "Value"],
                 [
-                    ["Ready to close", readiness.get("ready_to_close")],
+                    ["Closure readiness", closure_ready],
                     ["Open action count", readiness.get("open_action_count")],
+                    ["Closure checklist", "Available" if checklist else "Not available"],
+                    ["Approval state", approval_state],
+                    ["Approved by", checklist.get("closure_approved_by")],
+                    ["Approved at", checklist.get("closure_approved_at")],
                     ["Closure decision", checklist.get("closure_decision")],
                     ["Final severity", checklist.get("final_severity")],
                     ["Reviewed by", checklist.get("reviewed_by")],
@@ -395,81 +776,56 @@ def build_enterprise_case_markdown(payload: dict[str, Any]) -> str:
     )
 
     if blocking_items:
-        lines.extend(["### Blocking Items", ""])
+        lines.extend(["### Remaining Blockers", ""])
         lines.extend([f"- {item}" for item in blocking_items])
         lines.append("")
+    else:
+        lines.extend(["No closure blockers reported by the readiness check.", ""])
 
     lines.extend(
         [
-            "## 7. Linked Incident Overview",
+            "## Notes and Audit",
+            "",
+            "### Analyst Notes",
+            "",
+            _text_block(checklist.get("evidence_reviewed"), "No standalone case notes available."),
             "",
         ]
     )
 
-    if incidents:
-        incident_rows = []
-        for incident in incidents:
-            incident_rows.append(
-                [
-                    incident.get("id"),
-                    incident.get("status"),
-                    incident.get("timestamp"),
-                    incident.get("agent"),
-                    incident.get("rule"),
-                    incident.get("risk_score"),
-                    incident.get("recommended_priority"),
-                    incident.get("correlation_score"),
-                ]
-            )
-
-        lines.extend(
-            [
-                _table(
-                    [
-                        "ID",
-                        "Status",
-                        "Timestamp",
-                        "Host",
-                        "Rule",
-                        "Risk",
-                        "Priority",
-                        "Correlation",
-                    ],
-                    incident_rows,
-                ),
-                "",
-            ]
-        )
-    else:
-        lines.extend(["No linked incidents available.", ""])
-
-    _append_audit_trail(lines, payload.get("case_audit_trail", []), "8. Case Workflow Audit Trail")
+    _append_audit_trail(lines, payload.get("case_audit_trail", []), "Audit Trail")
 
     lines.extend(
         [
-            "## Appendix A — Closure Checklist Details",
+            "## Technical Appendix",
             "",
-            "### Root Cause / Conclusion",
+            "### Case Summary Payload",
+            "",
+            _json_block(case.get("summary")),
+            "",
+            "### Closure Checklist Details",
+            "",
+            "#### Root Cause / Conclusion",
             "",
             _text_block(checklist.get("root_cause"), "Not documented."),
             "",
-            "### Evidence Reviewed",
+            "#### Evidence Reviewed",
             "",
             _text_block(checklist.get("evidence_reviewed"), "Not documented."),
             "",
-            "### Actions Summary",
+            "#### Actions Summary",
             "",
             _text_block(checklist.get("actions_summary"), "Not documented."),
             "",
-            "### Closure Reason",
+            "#### Closure Reason",
             "",
             _text_block(checklist.get("closure_reason"), "Not documented."),
             "",
-            "### Residual Risk",
+            "#### Residual Risk",
             "",
             _text_block(checklist.get("residual_risk"), "Not documented."),
             "",
-            "## Appendix B — Linked Incident Evidence",
+            "### Linked Incident Technical Evidence",
             "",
         ]
     )
@@ -482,7 +838,7 @@ def build_enterprise_case_markdown(payload: dict[str, Any]) -> str:
 
         lines.extend(
             [
-                f"### Incident #{incident.get('id')}",
+                f"#### Incident #{incident.get('id')}",
                 "",
                 _table(
                     ["Field", "Value"],
@@ -499,15 +855,15 @@ def build_enterprise_case_markdown(payload: dict[str, Any]) -> str:
                     ],
                 ),
                 "",
-                "#### AI Analysis",
+                "##### Incident AI Analysis",
                 "",
                 _text_block(incident.get("ai_analysis"), "No incident AI analysis available."),
                 "",
-                "#### MITRE ATT&CK",
+                "##### MITRE Metadata",
                 "",
                 _json_block(incident.get("mitre")),
                 "",
-                "#### Compact Correlation Summary",
+                "##### Correlation Summary",
                 "",
                 _json_block(compact_correlation),
                 "",

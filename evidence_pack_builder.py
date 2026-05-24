@@ -11,6 +11,7 @@ from models import (
     Incident,
     IncidentCase,
 )
+from report_naming import case_evidence_pack_filename
 
 
 def now_label() -> str:
@@ -28,10 +29,61 @@ def safe_json(value):
 
 
 def format_value(value):
-    if value is None:
-        return "-"
+    if value is None or value == "":
+        return "Not available"
+
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False, default=str)
 
     return str(value)
+
+
+def json_block(value) -> str:
+    return "```json\n" + json.dumps(value, ensure_ascii=False, indent=2, default=str) + "\n```"
+
+
+def escape_table(value) -> str:
+    return format_value(value).replace("|", "\\|").replace("\n", "<br/>")
+
+
+def table(headers: list[str], rows: list[list[object]]) -> str:
+    lines = [
+        "| " + " | ".join(headers) + " |",
+        "| " + " | ".join(["---"] * len(headers)) + " |",
+    ]
+
+    for row in rows:
+        lines.append("| " + " | ".join(escape_table(item) for item in row) + " |")
+
+    return "\n".join(lines)
+
+
+def compact_correlation_summary(summary, max_related_events: int = 8):
+    if not isinstance(summary, dict):
+        return summary
+
+    compact = dict(summary)
+    details = compact.get("related_event_details")
+
+    if isinstance(details, list) and len(details) > max_related_events:
+        compact["related_event_details_sample"] = details[:max_related_events]
+        compact["related_event_details_total"] = len(details)
+        compact["related_event_details_truncated"] = True
+        compact.pop("related_event_details", None)
+
+    return compact
+
+
+def short_text(value, max_chars: int = 280) -> str:
+    text = format_value(value).replace("\n", " ").strip()
+
+    if len(text) <= max_chars:
+        return text
+
+    return text[: max_chars - 3].rstrip() + "..."
 
 
 def safe_isoformat(value):
@@ -80,6 +132,9 @@ def serialize_closure_checklist(row: CaseClosureChecklist | None) -> dict | None
         "closure_decision": row.closure_decision,
         "final_severity": row.final_severity,
         "residual_risk": row.residual_risk,
+        "closure_approved": row.closure_approved,
+        "closure_approved_by": row.closure_approved_by,
+        "closure_approved_at": safe_isoformat(row.closure_approved_at),
         "reviewed_by": row.reviewed_by,
         "reviewed_at": safe_isoformat(row.reviewed_at),
         "created_at": safe_isoformat(row.created_at),
@@ -189,6 +244,7 @@ def build_case_evidence_payload(db, case_id: int) -> dict:
             "status": case.status,
             "severity": case.severity,
             "owner": case.owner,
+            "assignee": case.assignee,
             "agent": case.agent,
             "correlation_type": case.correlation_type,
             "risk_score": case.risk_score,
@@ -284,128 +340,174 @@ def evidence_payload_to_markdown(payload: dict) -> str:
         if action.get("status") in {"OPEN", "IN_PROGRESS"}
     ]
 
+    completed_actions = [
+        action
+        for action in actions
+        if action.get("status") in {"DONE", "CANCELLED"}
+    ]
+
+    timeline_events = []
+
+    for incident in incidents:
+        timeline_events.append(
+            {
+                "time": incident.get("timestamp"),
+                "type": "Incident",
+                "source": "Wazuh",
+                "detail": (
+                    f"Incident #{incident.get('id')}: {format_value(incident.get('rule'))} "
+                    f"on {format_value(incident.get('agent'))}"
+                ),
+            }
+        )
+
+    for action in actions:
+        timeline_events.append(
+            {
+                "time": action.get("created_at"),
+                "type": "Action",
+                "source": "Case workflow",
+                "detail": (
+                    f"Action #{action.get('id')}: {format_value(action.get('title'))} "
+                    f"({format_value(action.get('status'))})"
+                ),
+            }
+        )
+
+    for event in audit_trail:
+        timeline_events.append(
+            {
+                "time": event.get("created_at"),
+                "type": "Audit",
+                "source": "Case audit",
+                "detail": (
+                    f"{format_value(event.get('event_type'))}: "
+                    f"{format_value(event.get('old_value'))} -> {format_value(event.get('new_value'))}"
+                ),
+            }
+        )
+
+    timeline_events.sort(key=lambda item: format_value(item.get("time")))
+
     lines = [
-        f"# Analyst Evidence Pack — Case #{case['id']}",
+        "# Analyst Evidence Pack",
+        "",
+        f"Case ID: **{case['id']}**",
         "",
         f"Generated at: **{payload['generated_at']}**",
         "",
-        "## Evidence Pack Summary",
+        "## Evidence Summary",
         "",
-        f"- **Case title:** {format_value(case['title'])}",
-        f"- **Case status:** {format_value(case['status'])}",
-        f"- **Severity:** {format_value(case['severity'])}",
-        f"- **Risk score:** {format_value(case['risk_score'])}",
-        f"- **Owner:** {format_value(case['owner'])}",
-        f"- **Host:** {format_value(case['agent'])}",
-        f"- **Correlation type:** {format_value(case['correlation_type'])}",
-        f"- **Linked incidents:** {len(incidents)}",
-        f"- **Actions:** {len(actions)}",
-        f"- **Open / in-progress actions:** {len(open_actions)}",
-        f"- **Closure readiness:** {'READY' if readiness.get('ready_to_close') else 'BLOCKED'}",
-        "",
-        "## Closure Readiness",
-        "",
-        f"- **Ready to close:** {format_value(readiness.get('ready_to_close'))}",
-        f"- **Open action count:** {format_value(readiness.get('open_action_count'))}",
+        table(
+            ["Field", "Value"],
+            [
+                ["Case title", case.get("title")],
+                ["Case status", case.get("status")],
+                ["Severity", case.get("severity")],
+                ["Risk score", case.get("risk_score")],
+                ["Owner / assignee", f"{format_value(case.get('owner'))} / {format_value(case.get('assignee'))}"],
+                ["Host", case.get("agent")],
+                ["Correlation type", case.get("correlation_type")],
+                ["Linked incidents", len(incidents)],
+                ["Open / in-progress actions", len(open_actions)],
+                ["Closure readiness", "READY" if readiness.get("ready_to_close") else "BLOCKED"],
+                ["SLA target", case.get("sla_due_at")],
+                ["SLA status", case.get("sla_status")],
+            ],
+        ),
         "",
     ]
 
     missing_items = readiness.get("missing_items", [])
 
     if missing_items:
-        lines.extend(
-            [
-                "### Blocking Items",
-                "",
-            ]
-        )
-
-        for item in missing_items:
-            lines.append(f"- {item}")
-
+        lines.extend(["### Closure Blockers", ""])
+        lines.extend([f"- {item}" for item in missing_items])
         lines.append("")
     else:
-        lines.extend(
-            [
-                "No blocking items found.",
-                "",
-            ]
-        )
+        lines.extend(["No closure blockers reported by the readiness check.", ""])
 
     lines.extend(
         [
-            "## Case Metadata",
-            "",
-            f"- **Group key:** {format_value(case['group_key'])}",
-            f"- **SLA due at:** {format_value(case['sla_due_at'])}",
-            f"- **SLA status:** {format_value(case['sla_status'])}",
-            f"- **Status reason:** {format_value(case['status_reason'])}",
-            f"- **Last reviewed by:** {format_value(case['last_reviewed_by'])}",
-            f"- **Last reviewed at:** {format_value(case['last_reviewed_at'])}",
-            f"- **Created by:** {format_value(case['created_by'])}",
-            f"- **Created at:** {format_value(case['created_at'])}",
-            f"- **Updated at:** {format_value(case['updated_at'])}",
-            "",
-            "## Case Summary",
-            "",
-            "```json",
-            json.dumps(case["summary"], ensure_ascii=False, indent=2),
-            "```",
-            "",
-            "## Case AI Analysis",
+            "## Timeline / Relevant Events",
             "",
         ]
     )
 
+    if timeline_events:
+        lines.extend(
+            [
+                table(
+                    ["Time", "Type", "Source", "Detail"],
+                    [
+                        [
+                            event.get("time"),
+                            event.get("type"),
+                            event.get("source"),
+                            event.get("detail"),
+                        ]
+                        for event in timeline_events
+                    ],
+                ),
+                "",
+            ]
+        )
+    else:
+        lines.extend(["No relevant timeline events available.", ""])
+
+    lines.extend(["## AI Reasoning", ""])
+
     if analysis:
         lines.extend(
             [
-                f"- **Model:** {format_value(analysis['model'])}",
-                f"- **Recommended status:** {format_value(analysis['recommended_status'])}",
-                f"- **Recommended severity:** {format_value(analysis['recommended_severity'])}",
-                f"- **Generated at:** {format_value(analysis['created_at'])}",
+                table(
+                    ["Field", "Value"],
+                    [
+                        ["Model", analysis.get("model")],
+                        ["Recommended status", analysis.get("recommended_status")],
+                        ["Recommended severity", analysis.get("recommended_severity")],
+                        ["Generated at", analysis.get("created_at")],
+                    ],
+                ),
                 "",
-                analysis["analysis"] or "No analysis text available.",
+                analysis.get("analysis") or "No analysis text available.",
                 "",
             ]
         )
     else:
         lines.extend(["No case AI analysis available.", ""])
 
-    lines.extend(
+    incident_ai_rows = [
         [
-            "## Action Plan Evidence",
-            "",
+            incident.get("id"),
+            incident.get("risk_score"),
+            incident.get("recommended_priority"),
+            short_text(incident.get("ai_analysis") or "No incident AI analysis available."),
         ]
-    )
+        for incident in incidents[:12]
+    ]
 
-    if actions:
-        for action in actions:
+    if incident_ai_rows:
+        lines.extend(
+            [
+                "### Incident AI Highlights",
+                "",
+                table(["Incident", "Risk", "Priority", "AI analysis"], incident_ai_rows),
+                "",
+            ]
+        )
+
+        if len(incidents) > 12:
             lines.extend(
                 [
-                    f"### Action #{action['id']} — {format_value(action['title'])}",
-                    "",
-                    f"- **Status:** {format_value(action['status'])}",
-                    f"- **Priority:** {format_value(action['priority'])}",
-                    f"- **Category:** {format_value(action['category'])}",
-                    f"- **Due at:** {format_value(action['due_at'])}",
-                    f"- **Completed at:** {format_value(action['completed_at'])}",
-                    f"- **Created by:** {format_value(action['created_by'])}",
-                    f"- **Created at:** {format_value(action['created_at'])}",
-                    f"- **Updated at:** {format_value(action['updated_at'])}",
-                    "",
-                    "#### Description",
-                    "",
-                    action["description"] or "No description available.",
+                    f"Only the first 12 incident AI highlights are shown here. Full incident evidence remains in the Technical Appendix. Total linked incidents: {len(incidents)}.",
                     "",
                 ]
             )
-    else:
-        lines.extend(["No actions available.", ""])
 
     lines.extend(
         [
-            "## Closure Checklist Evidence",
+            "## Analyst Notes",
             "",
         ]
     )
@@ -413,11 +515,6 @@ def evidence_payload_to_markdown(payload: dict) -> str:
     if checklist:
         lines.extend(
             [
-                f"- **Closure decision:** {format_value(checklist.get('closure_decision'))}",
-                f"- **Final severity:** {format_value(checklist.get('final_severity'))}",
-                f"- **Reviewed by:** {format_value(checklist.get('reviewed_by'))}",
-                f"- **Reviewed at:** {format_value(checklist.get('reviewed_at'))}",
-                "",
                 "### Root Cause / Conclusion",
                 "",
                 checklist.get("root_cause") or "Not documented.",
@@ -430,22 +527,109 @@ def evidence_payload_to_markdown(payload: dict) -> str:
                 "",
                 checklist.get("actions_summary") or "Not documented.",
                 "",
-                "### Closure Reason",
+                "### Closure Decision",
                 "",
-                checklist.get("closure_reason") or "Not documented.",
-                "",
-                "### Residual Risk",
-                "",
-                checklist.get("residual_risk") or "Not documented.",
+                table(
+                    ["Field", "Value"],
+                    [
+                        ["Closure decision", checklist.get("closure_decision")],
+                        ["Final severity", checklist.get("final_severity")],
+                        ["Closure approved", checklist.get("closure_approved")],
+                        ["Approved by", checklist.get("closure_approved_by")],
+                        ["Approved at", checklist.get("closure_approved_at")],
+                        ["Closure reason", checklist.get("closure_reason")],
+                        ["Residual risk", checklist.get("residual_risk")],
+                        ["Reviewed by", checklist.get("reviewed_by")],
+                        ["Reviewed at", checklist.get("reviewed_at")],
+                    ],
+                ),
                 "",
             ]
         )
     else:
-        lines.extend(["No closure checklist available.", ""])
+        lines.extend(["No closure checklist or standalone analyst notes available.", ""])
+
+    lines.extend(["### Action Evidence", ""])
+
+    if actions:
+        lines.extend(
+            [
+                table(
+                    ["ID", "Action", "Status", "Priority", "Due at", "Completed at", "Created by"],
+                    [
+                        [
+                            action.get("id"),
+                            action.get("title"),
+                            action.get("status"),
+                            action.get("priority"),
+                            action.get("due_at"),
+                            action.get("completed_at"),
+                            action.get("created_by"),
+                        ]
+                        for action in actions
+                    ],
+                ),
+                "",
+                f"Open actions: **{len(open_actions)}**. Completed or cancelled actions: **{len(completed_actions)}**.",
+                "",
+            ]
+        )
+    else:
+        lines.extend(["No actions available.", ""])
 
     lines.extend(
         [
-            "## Linked Incident Evidence",
+            "## Audit Trail",
+            "",
+        ]
+    )
+
+    if audit_trail:
+        lines.extend(
+            [
+                table(
+                    ["ID", "Type", "Old value", "New value", "Actor", "Timestamp", "Comment"],
+                    [
+                        [
+                            event.get("id"),
+                            event.get("event_type"),
+                            event.get("old_value"),
+                            event.get("new_value"),
+                            event.get("created_by"),
+                            event.get("created_at"),
+                            event.get("comment"),
+                        ]
+                        for event in audit_trail
+                    ],
+                ),
+                "",
+            ]
+        )
+    else:
+        lines.extend(["No audit events available.", ""])
+
+    lines.extend(
+        [
+            "## Technical Appendix",
+            "",
+            "### Case Metadata",
+            "",
+            table(
+                ["Field", "Value"],
+                [
+                    ["Group key", case.get("group_key")],
+                    ["Status reason", case.get("status_reason")],
+                    ["Last reviewed by", case.get("last_reviewed_by")],
+                    ["Last reviewed at", case.get("last_reviewed_at")],
+                    ["Created by", case.get("created_by")],
+                    ["Created at", case.get("created_at")],
+                    ["Updated at", case.get("updated_at")],
+                ],
+            ),
+            "",
+            "### Case Summary Payload",
+            "",
+            json_block(case.get("summary")),
             "",
         ]
     )
@@ -454,84 +638,52 @@ def evidence_payload_to_markdown(payload: dict) -> str:
         for incident in incidents:
             lines.extend(
                 [
-                    f"### Incident #{incident['id']}",
+                    f"### Incident #{incident['id']} Technical Evidence",
                     "",
-                    f"- **Status:** {format_value(incident['status'])}",
-                    f"- **Timestamp:** {format_value(incident['timestamp'])}",
-                    f"- **Host:** {format_value(incident['agent'])}",
-                    f"- **Rule:** {format_value(incident['rule'])}",
-                    f"- **Level:** {format_value(incident['level'])}",
-                    f"- **Risk score:** {format_value(incident['risk_score'])}",
-                    f"- **Recommended priority:** {format_value(incident['recommended_priority'])}",
-                    f"- **Correlated:** {format_value(incident['correlated'])}",
-                    f"- **Correlation score:** {format_value(incident['correlation_score'])}",
-                    f"- **Correlation type:** {format_value(incident['correlation_type'])}",
-                    f"- **Escalation reason:** {format_value(incident['escalation_reason'])}",
-                    f"- **Wazuh document ID:** {format_value(incident['wazuh_doc_id'])}",
-                    "",
-                    "#### MITRE ATT&CK",
-                    "",
-                    "```json",
-                    json.dumps(incident["mitre"], ensure_ascii=False, indent=2),
-                    "```",
-                    "",
-                    "#### Attack Chain",
-                    "",
-                    "```json",
-                    json.dumps(incident["attack_chain"], ensure_ascii=False, indent=2),
-                    "```",
-                    "",
-                    "#### Correlation Summary",
-                    "",
-                    "```json",
-                    json.dumps(
-                        incident["correlation_summary"],
-                        ensure_ascii=False,
-                        indent=2,
+                    table(
+                        ["Field", "Value"],
+                        [
+                            ["Status", incident.get("status")],
+                            ["Timestamp", incident.get("timestamp")],
+                            ["Host", incident.get("agent")],
+                            ["Rule", incident.get("rule")],
+                            ["Level", incident.get("level")],
+                            ["Risk score", incident.get("risk_score")],
+                            ["Recommended priority", incident.get("recommended_priority")],
+                            ["Correlated", incident.get("correlated")],
+                            ["Correlation score", incident.get("correlation_score")],
+                            ["Correlation type", incident.get("correlation_type")],
+                            ["Escalation reason", incident.get("escalation_reason")],
+                            ["Wazuh document ID", incident.get("wazuh_doc_id")],
+                        ],
                     ),
-                    "```",
-                    "",
-                    "#### Incident AI Analysis",
-                    "",
-                    incident["ai_analysis"] or "No incident AI analysis available.",
                     "",
                     "#### Raw Wazuh Alert",
                     "",
-                    "```json",
-                    json.dumps(incident["raw_alert"], ensure_ascii=False, indent=2),
-                    "```",
+                    json_block(incident.get("raw_alert")),
+                    "",
+                    "#### Incident AI Analysis",
+                    "",
+                    incident.get("ai_analysis") or "No incident AI analysis available.",
+                    "",
+                    "#### Correlation Summary",
+                    "",
+                    json_block(compact_correlation_summary(incident.get("correlation_summary"))),
+                    "",
+                    "#### MITRE / Metadata",
+                    "",
+                    json_block(incident.get("mitre")),
+                    "",
+                    "#### Attack Chain",
+                    "",
+                    json_block(incident.get("attack_chain")),
                     "",
                 ]
             )
     else:
-        lines.extend(["No linked incidents available.", ""])
+        lines.extend(["No linked incident technical evidence available.", ""])
 
-    lines.extend(
-        [
-            "## Case Audit Trail",
-            "",
-        ]
-    )
-
-    if audit_trail:
-        for event in audit_trail:
-            lines.extend(
-                [
-                    f"### Audit Event #{event['id']}",
-                    "",
-                    f"- **Type:** {format_value(event['event_type'])}",
-                    f"- **Old value:** {format_value(event['old_value'])}",
-                    f"- **New value:** {format_value(event['new_value'])}",
-                    f"- **Created by:** {format_value(event['created_by'])}",
-                    f"- **Created at:** {format_value(event['created_at'])}",
-                    f"- **Comment:** {format_value(event['comment'])}",
-                    "",
-                ]
-            )
-    else:
-        lines.extend(["No audit events available.", ""])
-
-    return "\n".join(lines)
+    return "\n".join(lines).strip() + "\n"
 
 
 def build_case_evidence_pack(case_id: int) -> dict:
@@ -540,7 +692,7 @@ def build_case_evidence_pack(case_id: int) -> dict:
     try:
         payload = build_case_evidence_payload(db, case_id)
         markdown = evidence_payload_to_markdown(payload)
-        filename = f"case_{case_id}_evidence_pack.md"
+        filename = case_evidence_pack_filename(case_id)
 
         return {
             "filename": filename,

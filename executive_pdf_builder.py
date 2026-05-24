@@ -20,6 +20,7 @@ from reportlab.platypus import (
 
 from database import SessionLocal
 from report_builder import build_case_payload, format_value
+from report_naming import case_executive_pdf_filename
 
 
 BRAND_DARK = colors.HexColor("#0f172a")
@@ -582,13 +583,13 @@ def build_executive_pdf_bytes(payload: dict) -> bytes:
         leftMargin=2 * cm,
         topMargin=1.8 * cm,
         bottomMargin=1.8 * cm,
-        title=f"Executive Case Report #{case['id']}",
+        title=f"Executive AI SOC Case Report #{case['id']}",
         author="Sovereign AI SOC",
     )
 
     story = []
 
-    story.append(Paragraph(f"Executive Case Report #{case['id']}", styles["title"]))
+    story.append(Paragraph(f"Executive AI SOC Case Report #{case['id']}", styles["title"]))
     story.append(
         Paragraph(
             f"{p(case.get('title'))}<br/>Generated at: {p(payload.get('generated_at'))}",
@@ -713,7 +714,7 @@ def build_case_executive_pdf(case_id: int) -> dict:
         pdf_bytes = build_executive_pdf_bytes(payload)
 
         return {
-            "filename": f"case_{case_id}_executive_report.pdf",
+            "filename": case_executive_pdf_filename(case_id),
             "pdf": pdf_bytes,
             "payload": payload,
         }
