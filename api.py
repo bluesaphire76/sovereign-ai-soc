@@ -429,6 +429,9 @@ RBAC_RULES: list[tuple[str, str, set[str]]] = [
     ("GET", r"^/cases/\d+/incidents$", ALL_ROLES),
     ("GET", r"^/cases/\d+/analysis$", ALL_ROLES),
     ("POST", r"^/cases/\d+/analysis$", OPERATOR_ROLES),
+    ("GET", r"^/network-events$", ALL_ROLES),
+    ("GET", r"^/network-events/recent$", ALL_ROLES),
+    ("GET", r"^/network-events/summary$", ALL_ROLES),
 ]
 
 
