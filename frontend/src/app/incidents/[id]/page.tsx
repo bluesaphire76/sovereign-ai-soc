@@ -1481,10 +1481,15 @@ function EvidenceBlock({
   );
 }
 
+function reportId(value: string | number) {
+  return String(value).padStart(6, "0");
+}
+
 export default function IncidentDetailPage() {
   const params = useParams();
   const router = useRouter();
   const incidentId = String(params.id);
+  const incidentReportId = reportId(incidentId);
 
   const [incident, setIncident] = useState<IncidentDetail | null>(null);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
@@ -1694,7 +1699,7 @@ export default function IncidentDetailPage() {
               onClick={() =>
                 downloadBackendFile(
                   `/reports/incidents/${incidentId}?format=markdown`,
-                  `incident-${incidentId}-report.md`
+                  `incident-${incidentReportId}-enterprise-report.md`
                 ).catch((error) => alert(error.message))
               }
             >
@@ -1706,7 +1711,7 @@ export default function IncidentDetailPage() {
               onClick={() =>
                 downloadBackendFile(
                   `/reports/incidents/${incidentId}?format=json`,
-                  `incident-${incidentId}-report.json`
+                  `incident-${incidentReportId}-enterprise-report.json`
                 ).catch((error) => alert(error.message))
               }
             >

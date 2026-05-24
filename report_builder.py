@@ -17,6 +17,10 @@ from models import (
     IncidentCase,
     IncidentNote,
 )
+from report_naming import (
+    case_enterprise_report_filename,
+    incident_enterprise_report_filename,
+)
 
 
 def safe_json(value):
@@ -61,6 +65,15 @@ def now_label():
     return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
+def incident_ai_brief_preview(incident_id: int) -> dict | None:
+    try:
+        from incident_ai_brief import build_ai_brief_preview
+
+        return build_ai_brief_preview(incident_id)
+    except Exception:
+        return None
+
+
 def calculate_case_sla_status(case: IncidentCase) -> str:
     status = (case.status or "OPEN").upper()
 
@@ -97,6 +110,11 @@ def serialize_case_closure_checklist(row: CaseClosureChecklist | None) -> dict |
         "closure_decision": row.closure_decision,
         "final_severity": row.final_severity,
         "residual_risk": row.residual_risk,
+        "closure_approved": row.closure_approved,
+        "closure_approved_by": row.closure_approved_by,
+        "closure_approved_at": row.closure_approved_at.isoformat()
+        if row.closure_approved_at
+        else None,
         "reviewed_by": row.reviewed_by,
         "reviewed_at": row.reviewed_at.isoformat() if row.reviewed_at else None,
         "created_at": row.created_at.isoformat() if row.created_at else None,
@@ -191,6 +209,7 @@ def build_incident_payload(db, incident_id: int):
             "ai_analysis": incident.ai_analysis,
             "raw_alert": safe_json(incident.raw_alert),
         },
+        "ai_brief": incident_ai_brief_preview(incident_id),
         "notes": [
             {
                 "id": row.id,
@@ -225,7 +244,7 @@ def build_incident_report(incident_id: int):
     try:
         payload = build_incident_payload(db, incident_id)
         markdown = incident_payload_to_markdown(payload)
-        filename = f"incident_{incident_id}_report.md"
+        filename = incident_enterprise_report_filename(incident_id)
 
         return {
             "filename": filename,
@@ -301,6 +320,7 @@ def build_case_payload(db, case_id: int):
             "risk_score": case.risk_score,
             "summary": safe_json(case.summary),
             "owner": case.owner,
+            "assignee": case.assignee,
             "sla_due_at": case.sla_due_at.isoformat() if case.sla_due_at else None,
             "sla_status": calculate_case_sla_status(case),
             "severity_review": case.severity_review,
@@ -393,7 +413,7 @@ def build_case_report(case_id: int):
     try:
         payload = build_case_payload(db, case_id)
         markdown = case_payload_to_markdown(payload)
-        filename = f"case_{case_id}_report.md"
+        filename = case_enterprise_report_filename(case_id)
 
         return {
             "filename": filename,
