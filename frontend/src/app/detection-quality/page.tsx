@@ -40,7 +40,7 @@ type Incident = {
   recommended_priority: string | null;
   mitre_ids?: string[] | string | null;
   mitre_techniques?: string[] | string | null;
-  raw_alert?: Record<string, unknown> | null;
+  raw_alert?: Record<string, unknown> | string | null;
 };
 
 type IncidentsResponse = {
@@ -55,7 +55,7 @@ type ScenarioSummary = {
   scenario: string;
   incidents: number;
   correlated: number;
-  high_or_critical: number;
+  priority_validated: number;
   mitre_tagged: number;
   max_risk: number;
   avg_risk: number;
@@ -115,6 +115,11 @@ const KNOWN_SCENARIOS = [
   "ssh_bruteforce",
   "privilege_escalation",
   "malware_indicator",
+  "suspicious_package_activity",
+  "noisy_operational_baseline",
+  "false_positive",
+  "real_incident",
+  "case_ready",
 ];
 
 const CHART_COLORS = {
@@ -382,9 +387,62 @@ function extractMitreIds(incident: Incident): string[] {
   return Array.from(new Set(values.filter(Boolean)));
 }
 
+function extractExpectedPriority(incident: Incident): string | null {
+  const rawAlert = incident.raw_alert;
+
+  if (rawAlert && typeof rawAlert === "object" && !Array.isArray(rawAlert)) {
+    const data = rawAlert.data;
+
+    if (data && typeof data === "object" && !Array.isArray(data)) {
+      const value = (data as Record<string, unknown>).expected_priority;
+
+      if (typeof value === "string" && value.trim()) {
+        return value.trim().toUpperCase();
+      }
+    }
+  }
+
+  if (typeof rawAlert === "string") {
+    try {
+      const parsed = JSON.parse(rawAlert);
+
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const data = (parsed as Record<string, unknown>).data;
+
+        if (data && typeof data === "object" && !Array.isArray(data)) {
+          const value = (data as Record<string, unknown>).expected_priority;
+
+          if (typeof value === "string" && value.trim()) {
+            return value.trim().toUpperCase();
+          }
+        }
+      }
+    } catch {
+      // fall back to regex extraction below
+    }
+  }
+
+  const match = safeStringify(rawAlert).match(
+    /"expected_priority"\s*:\s*"([^"]+)"/i
+  );
+
+  return match?.[1]?.trim().toUpperCase() ?? null;
+}
+
 function priorityIsHighOrCritical(priority: string | null | undefined): boolean {
   const value = (priority ?? "").toUpperCase();
   return value === "HIGH" || value === "CRITICAL";
+}
+
+function priorityMatchesSyntheticExpectation(incident: Incident): boolean {
+  const expectedPriority = extractExpectedPriority(incident);
+  const actualPriority = (incident.recommended_priority ?? "").toUpperCase();
+
+  if (expectedPriority) {
+    return actualPriority === expectedPriority;
+  }
+
+  return priorityIsHighOrCritical(actualPriority);
 }
 
 function toneForPriority(priority: string | null | undefined): Tone {
@@ -422,7 +480,7 @@ function scenarioQualityScore(row: ScenarioSummary) {
 
   return Math.round(
     (pct(row.correlated, row.incidents) +
-      pct(row.high_or_critical, row.incidents) +
+      pct(row.priority_validated, row.incidents) +
       pct(row.mitre_tagged, row.incidents)) /
       3
   );
@@ -431,7 +489,7 @@ function scenarioQualityScore(row: ScenarioSummary) {
 function scenarioGapCount(row: ScenarioSummary) {
   return (
     Math.max(row.incidents - row.correlated, 0) +
-    Math.max(row.incidents - row.high_or_critical, 0) +
+    Math.max(row.incidents - row.priority_validated, 0) +
     Math.max(row.incidents - row.mitre_tagged, 0)
   );
 }
@@ -640,8 +698,8 @@ export default function DetectionQualityPage() {
     (incident) => incident.correlated
   ).length;
 
-  const highOrCriticalSynthetic = syntheticIncidents.filter((incident) =>
-    priorityIsHighOrCritical(incident.recommended_priority)
+  const priorityValidatedSynthetic = syntheticIncidents.filter((incident) =>
+    priorityMatchesSyntheticExpectation(incident)
   ).length;
 
   const mitreTaggedSynthetic = syntheticIncidents.filter(
@@ -667,14 +725,14 @@ export default function DetectionQualityPage() {
     if (!totalSynthetic) return 0;
 
     const correlationScore = pct(correlatedSynthetic, totalSynthetic);
-    const priorityScore = pct(highOrCriticalSynthetic, totalSynthetic);
+    const priorityScore = pct(priorityValidatedSynthetic, totalSynthetic);
     const mitreScore = pct(mitreTaggedSynthetic, totalSynthetic);
 
     return Math.round((correlationScore + priorityScore + mitreScore) / 3);
   }, [
     totalSynthetic,
     correlatedSynthetic,
-    highOrCriticalSynthetic,
+    priorityValidatedSynthetic,
     mitreTaggedSynthetic,
   ]);
 
@@ -698,8 +756,8 @@ export default function DetectionQualityPage() {
           incidents: incidents.length,
           correlated: incidents.filter((incident) => incident.correlated)
             .length,
-          high_or_critical: incidents.filter((incident) =>
-            priorityIsHighOrCritical(incident.recommended_priority)
+          priority_validated: incidents.filter((incident) =>
+            priorityMatchesSyntheticExpectation(incident)
           ).length,
           mitre_tagged: incidents.filter(
             (incident) => extractMitreIds(incident).length > 0
@@ -724,7 +782,7 @@ export default function DetectionQualityPage() {
   }, [scenarioRows]);
 
   const correlationGap = Math.max(totalSynthetic - correlatedSynthetic, 0);
-  const priorityGap = Math.max(totalSynthetic - highOrCriticalSynthetic, 0);
+  const priorityGap = Math.max(totalSynthetic - priorityValidatedSynthetic, 0);
   const mitreGap = Math.max(totalSynthetic - mitreTaggedSynthetic, 0);
   const weakestScenario = useMemo(() => {
     if (scenarioRows.length === 0) return null;
@@ -749,8 +807,8 @@ export default function DetectionQualityPage() {
     },
     {
       label: "Priority validation",
-      value: `${pct(highOrCriticalSynthetic, totalSynthetic)}%`,
-      tone: toneForCoverage(pct(highOrCriticalSynthetic, totalSynthetic), totalSynthetic > 0),
+      value: `${pct(priorityValidatedSynthetic, totalSynthetic)}%`,
+      tone: toneForCoverage(pct(priorityValidatedSynthetic, totalSynthetic), totalSynthetic > 0),
     },
     {
       label: "MITRE coverage",
@@ -798,7 +856,7 @@ export default function DetectionQualityPage() {
           scenario: weakestScenario.scenario,
           incidents: weakestScenario.incidents,
           correlated: weakestScenario.correlated,
-          high_or_critical: weakestScenario.high_or_critical,
+          priority_validated: weakestScenario.priority_validated,
           mitre_tagged: weakestScenario.mitre_tagged,
           avg_risk: weakestScenario.avg_risk,
           max_risk: weakestScenario.max_risk,
@@ -834,8 +892,8 @@ export default function DetectionQualityPage() {
           },
           {
             label: "Priority validation",
-            value: pct(highOrCriticalSynthetic, totalSynthetic),
-            covered: highOrCriticalSynthetic,
+            value: pct(priorityValidatedSynthetic, totalSynthetic),
+            covered: priorityValidatedSynthetic,
             total: totalSynthetic,
           },
           {
@@ -885,7 +943,7 @@ export default function DetectionQualityPage() {
     detectionQualityScore,
     totalSynthetic,
     correlatedSynthetic,
-    highOrCriticalSynthetic,
+    priorityValidatedSynthetic,
     mitreTaggedSynthetic,
     correlationGap,
     priorityGap,
@@ -1068,11 +1126,11 @@ export default function DetectionQualityPage() {
               />
 
               <QualityMetric
-                title="High/Critical"
-                value={`${pct(highOrCriticalSynthetic, totalSynthetic)}%`}
-                subtitle={`${highOrCriticalSynthetic}/${totalSynthetic}`}
+                title="Priority valid"
+                value={`${pct(priorityValidatedSynthetic, totalSynthetic)}%`}
+                subtitle={`${priorityValidatedSynthetic}/${totalSynthetic}`}
                 icon={<AlertTriangle className="h-3.5 w-3.5" />}
-                tone={toneForCoverage(pct(highOrCriticalSynthetic, totalSynthetic), totalSynthetic > 0)}
+                tone={toneForCoverage(pct(priorityValidatedSynthetic, totalSynthetic), totalSynthetic > 0)}
               />
 
               <QualityMetric
@@ -1228,7 +1286,7 @@ export default function DetectionQualityPage() {
                         <th className="px-2 py-1.5">Scenario</th>
                         <th className="px-2 py-1.5">Inc</th>
                         <th className="px-2 py-1.5">Corr</th>
-                        <th className="px-2 py-1.5">High</th>
+                        <th className="px-2 py-1.5">Prio</th>
                         <th className="px-2 py-1.5">MITRE</th>
                         <th className="px-2 py-1.5">Avg</th>
                         <th className="px-2 py-1.5">Max</th>
@@ -1248,7 +1306,7 @@ export default function DetectionQualityPage() {
                             {pct(row.correlated, row.incidents)}%
                           </td>
                           <td className="px-2 py-1.5 text-slate-300">
-                            {pct(row.high_or_critical, row.incidents)}%
+                            {pct(row.priority_validated, row.incidents)}%
                           </td>
                           <td className="px-2 py-1.5 text-slate-300">
                             {pct(row.mitre_tagged, row.incidents)}%
