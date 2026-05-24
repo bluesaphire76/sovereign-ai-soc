@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
@@ -17,6 +18,26 @@ def as_int(value):
         return None
 
 
+def event_fingerprint(event: dict) -> str:
+    material = {
+        "timestamp": event.get("timestamp"),
+        "event_type": event.get("event_type"),
+        "flow_id": event.get("flow_id"),
+        "src_ip": event.get("src_ip"),
+        "src_port": event.get("src_port"),
+        "dest_ip": event.get("dest_ip"),
+        "dest_port": event.get("dest_port"),
+        "proto": event.get("proto"),
+        "app_proto": event.get("app_proto"),
+        "http": event.get("http"),
+        "tls": event.get("tls"),
+        "dns": event.get("dns"),
+        "alert": event.get("alert"),
+    }
+    payload = json.dumps(material, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def extract_fields(event):
     event_type = event.get("event_type")
     http = event.get("http") or {}
@@ -27,6 +48,7 @@ def extract_fields(event):
     hostname = http.get("hostname") or tls.get("sni") or dns.get("rrname")
 
     return {
+        "event_fingerprint": event_fingerprint(event),
         "event_type": event_type,
         "event_timestamp": event.get("timestamp"),
         "flow_id": str(event.get("flow_id")) if event.get("flow_id") is not None else None,
@@ -50,18 +72,19 @@ def extract_fields(event):
 
 INSERT_SQL = text("""
 INSERT INTO network_events (
-    source, event_type, event_timestamp, flow_id,
+    source, event_fingerprint, event_type, event_timestamp, flow_id,
     src_ip, src_port, dest_ip, dest_port,
     proto, app_proto, hostname, url, http_method,
     http_user_agent, tls_sni, alert_signature,
     alert_category, alert_severity, raw_event
 ) VALUES (
-    'suricata', :event_type, :event_timestamp, :flow_id,
+    'suricata', :event_fingerprint, :event_type, :event_timestamp, :flow_id,
     :src_ip, :src_port, :dest_ip, :dest_port,
     :proto, :app_proto, :hostname, :url, :http_method,
     :http_user_agent, :tls_sni, :alert_signature,
     :alert_category, :alert_severity, CAST(:raw_event AS JSONB)
 )
+ON CONFLICT (event_fingerprint) WHERE event_fingerprint IS NOT NULL DO NOTHING
 """)
 
 
@@ -69,6 +92,7 @@ def ingest(path: Path, limit: int | None, dry_run: bool) -> dict:
     stats = {
         "seen": 0,
         "inserted": 0,
+        "duplicates": 0,
         "skipped_invalid_json": 0,
         "skipped_unsupported_type": 0,
     }
@@ -107,8 +131,11 @@ def ingest(path: Path, limit: int | None, dry_run: bool) -> dict:
 
     with engine.begin() as conn:
         for row in rows:
-            conn.execute(INSERT_SQL, row)
-            stats["inserted"] += 1
+            result = conn.execute(INSERT_SQL, row)
+            if result.rowcount == 1:
+                stats["inserted"] += 1
+            else:
+                stats["duplicates"] += 1
 
     return stats
 
