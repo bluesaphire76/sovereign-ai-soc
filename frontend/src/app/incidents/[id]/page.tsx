@@ -99,6 +99,18 @@ type CorrelationSummary = {
   }>;
 };
 
+type CorrelationTimelineEvent = {
+  id?: number;
+  timestamp?: string | null;
+  agent?: string | null;
+  rule?: string | null;
+  level?: number | null;
+  risk_score?: number | null;
+  status?: string | null;
+  correlation_score?: number | null;
+  relationship: "current" | "related";
+};
+
 type Tone = "success" | "warning" | "danger" | "primary" | "neutral" | "executive";
 
 type IncidentAiAssessmentInput = {
@@ -258,6 +270,76 @@ function parseCorrelationSummary(
   } catch {
     return null;
   }
+}
+
+function parseMitreTags(value: string | null | undefined): string[] {
+  if (!value) return [];
+
+  const collect = (input: unknown): string[] => {
+    if (!input) return [];
+
+    if (Array.isArray(input)) {
+      return input.flatMap(collect);
+    }
+
+    if (typeof input === "object") {
+      return Object.values(input as Record<string, unknown>).flatMap(collect);
+    }
+
+    const text = String(input).trim();
+    if (!text || text === "[]" || text === "{}") return [];
+
+    try {
+      return collect(JSON.parse(text));
+    } catch {
+      return text.toUpperCase().match(/T\d{4}(?:\.\d{3})?/g) ?? [];
+    }
+  };
+
+  return Array.from(new Set(collect(value)));
+}
+
+function formatCorrelationLabel(value: string | null | undefined) {
+  if (!value) return "-";
+
+  return value
+    .replaceAll("_", " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function correlationReason(
+  incident: IncidentDetail,
+  summary: CorrelationSummary | null,
+  matchedAttackChains: NonNullable<CorrelationSummary["matched_attack_chains"]>,
+  matchedPatterns: Array<[string, { keywords?: string[]; weight?: number }]>
+) {
+  if (incident.escalation_reason) return incident.escalation_reason;
+
+  const chainReason = matchedAttackChains.find((chain) => chain.reason)?.reason;
+  if (chainReason) return chainReason;
+
+  const pattern = matchedPatterns[0];
+  if (pattern) {
+    const [name, details] = pattern;
+    const keywords = details.keywords?.slice(0, 4).join(", ");
+
+    return `Matched ${formatCorrelationLabel(name)} pattern${
+      keywords ? ` using ${keywords}` : ""
+    }.`;
+  }
+
+  if (summary?.related_events) {
+    return `${summary.related_events} related event(s) were found in the correlation window.`;
+  }
+
+  if (incident.correlation_type || incident.attack_chain) {
+    return "Incident was enriched with correlation metadata, but no structured explanation is available.";
+  }
+
+  return "No structured correlation decision data is available for this incident.";
 }
 
 function formatTimestamp(value: string | null | undefined) {
@@ -1320,82 +1402,246 @@ function InvestigationConsole({
 }
 
 function CorrelationConsole({
+  incident,
   parsedCorrelationSummary,
   matchedPatterns,
   matchedAttackChains,
   relatedCorrelationEvents,
 }: {
+  incident: IncidentDetail;
   parsedCorrelationSummary: CorrelationSummary | null;
   matchedPatterns: Array<[string, { keywords?: string[]; weight?: number }]>;
   matchedAttackChains: NonNullable<CorrelationSummary["matched_attack_chains"]>;
   relatedCorrelationEvents: NonNullable<CorrelationSummary["related_event_details"]>;
 }) {
-  if (!parsedCorrelationSummary) {
-    return <EmptyState label="No structured correlation explanation available yet." />;
-  }
+  const mitreTags = parseMitreTags(incident.mitre);
+  const finalScore =
+    parsedCorrelationSummary?.final_correlation_score ??
+    incident.correlation_score ??
+    0;
+  const relatedCount =
+    parsedCorrelationSummary?.related_events ?? relatedCorrelationEvents.length;
+  const whyIncident = correlationReason(
+    incident,
+    parsedCorrelationSummary,
+    matchedAttackChains,
+    matchedPatterns
+  );
+  const timelineEvents: CorrelationTimelineEvent[] = [
+    {
+      id: incident.id,
+      timestamp: incident.timestamp,
+      agent: incident.agent,
+      rule: incident.rule,
+      level: incident.level,
+      risk_score: incident.risk_score,
+      status: incident.status,
+      correlation_score: incident.correlation_score,
+      relationship: "current" as const,
+    },
+    ...relatedCorrelationEvents.map((event) => ({
+      ...event,
+      relationship: "related" as const,
+    })),
+  ]
+    .sort((a, b) => {
+      const aTime = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+      const bTime = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+      return aTime - bTime;
+    })
+    .slice(0, 8);
+  const hasStructuredCorrelation = Boolean(parsedCorrelationSummary);
 
   return (
-    <div className="space-y-3">
-      <div className="grid gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800 sm:grid-cols-2 lg:grid-cols-4">
-        <DenseField label="Base score" value={parsedCorrelationSummary.base_score ?? 0} />
-        <DenseField label="Pattern score" value={parsedCorrelationSummary.pattern_score ?? 0} />
-        <DenseField label="Volume score" value={parsedCorrelationSummary.volume_score ?? 0} />
-        <DenseField label="Chain bonus" value={parsedCorrelationSummary.chain_bonus ?? 0} />
+    <div className="space-y-2.5">
+      <div className="rounded-md border border-slate-800 bg-slate-950 px-3 py-2">
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-cyan-300">
+              Why this became an incident
+            </div>
+            <p className="mt-1 text-xs leading-5 text-slate-300">
+              {whyIncident}
+            </p>
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-1.5">
+            <Badge tone={toneForRisk(finalScore)}>Score {finalScore}</Badge>
+            <Badge tone={incident.correlated ? "executive" : "neutral"}>
+              {incident.correlated ? "Correlated" : "Single signal"}
+            </Badge>
+          </div>
+        </div>
       </div>
 
-      <div className="grid gap-3 xl:grid-cols-3">
-        <DenseList title="Matched patterns" emptyLabel="No security patterns matched.">
-          {matchedPatterns.map(([name, pattern]) => (
-            <div key={name} className="grid gap-2 border-b border-slate-800 px-2.5 py-2 last:border-b-0">
-              <div className="flex items-center justify-between gap-2">
-                <div className="truncate text-xs font-semibold text-cyan-300">{name}</div>
-                <span className="min-w-10 text-right text-[11px] text-slate-500">
-                  w {pattern.weight ?? 0}
-                </span>
-              </div>
-              <div className="line-clamp-2 text-[11px] text-slate-400">
-                {(pattern.keywords ?? []).join(", ")}
-              </div>
-            </div>
-          ))}
-        </DenseList>
+      <div className="grid gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800 sm:grid-cols-2 xl:grid-cols-5">
+        <DenseField label="Correlation type" value={formatCorrelationLabel(incident.correlation_type)} />
+        <DenseField label="Attack chain" value={incident.attack_chain ?? "-"} />
+        <DenseField label="MITRE" value={mitreTags.length ? mitreTags.join(", ") : "-"} />
+        <DenseField label="Related events" value={relatedCount} />
+        <DenseField label="Decision score" value={finalScore} />
+      </div>
 
-        <DenseList title="Attack chains" emptyLabel="No multi-step attack chain matched.">
-          {matchedAttackChains.map((chain, index) => (
-            <div key={`${chain.name ?? "chain"}-${index}`} className="border-b border-slate-800 px-2.5 py-2 last:border-b-0">
-              <div className="flex items-center justify-between gap-2">
-                <div className="truncate text-xs font-semibold text-cyan-300">
-                  {chain.name ?? "Unnamed chain"}
+      {!hasStructuredCorrelation && (
+        <EmptyState label="No structured correlation payload is available yet. Showing incident-level correlation metadata only." />
+      )}
+
+      <div className="grid gap-2 xl:grid-cols-[1.05fr_0.95fr]">
+        <div className="rounded-md border border-slate-800 bg-slate-950">
+          <div className="border-b border-slate-800 bg-slate-900/70 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-300">
+            Event timeline
+          </div>
+          <div className="divide-y divide-slate-800">
+            {timelineEvents.length === 0 ? (
+              <div className="p-2">
+                <EmptyState label="No timeline events available." />
+              </div>
+            ) : (
+              timelineEvents.map((event, index) => (
+                <div key={`${event.relationship}-${event.id ?? index}`} className="grid grid-cols-[82px_1fr] gap-2 px-2.5 py-2">
+                  <div className="text-[10px] leading-4 text-slate-500">
+                    {event.relationship === "current" ? "Current" : "Related"}
+                    <div className="mt-0.5 h-full border-l border-slate-800 pl-2 text-slate-600">
+                      {index + 1}
+                    </div>
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      {event.id ? (
+                        <Link
+                          href={`/incidents/${event.id}`}
+                          className="text-xs font-semibold text-cyan-300 hover:text-cyan-200"
+                        >
+                          Incident #{event.id}
+                        </Link>
+                      ) : (
+                        <span className="text-xs font-semibold text-slate-200">
+                          Related signal
+                        </span>
+                      )}
+                      <span className="shrink-0 text-[10px] text-slate-500">
+                        risk {event.risk_score ?? 0}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 text-[10px] uppercase tracking-wide text-slate-500">
+                      {shortTimestamp(event.timestamp)}
+                    </div>
+                    <div className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-slate-300">
+                      {event.rule ?? "-"}
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      <span className="rounded-sm border border-slate-700 bg-slate-900 px-1.5 py-0.5 text-[10px] leading-none text-slate-400">
+                        {event.agent ?? "unknown host"}
+                      </span>
+                      <span className="rounded-sm border border-slate-700 bg-slate-900 px-1.5 py-0.5 text-[10px] leading-none text-slate-400">
+                        level {event.level ?? "-"}
+                      </span>
+                      <span className="rounded-sm border border-slate-700 bg-slate-900 px-1.5 py-0.5 text-[10px] leading-none text-slate-400">
+                        corr {event.correlation_score ?? 0}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-                <span className="min-w-8 text-right text-[11px] text-slate-500">
-                  +{chain.score_bonus ?? 0}
-                </span>
-              </div>
-              <div className="mt-0.5 line-clamp-2 text-[11px] text-slate-400">
-                {chain.reason ?? "No explanation available."}
-              </div>
-            </div>
-          ))}
-        </DenseList>
+              ))
+            )}
+          </div>
+        </div>
 
-        <DenseList title="Related events" emptyLabel="No related events available.">
-          {relatedCorrelationEvents.slice(0, 8).map((event) => (
-            <div key={event.id} className="border-b border-slate-800 px-2.5 py-2 last:border-b-0">
-              <div className="flex items-center justify-between gap-2">
-                <Link href={`/incidents/${event.id}`} className="text-xs font-semibold text-cyan-300 hover:text-cyan-200">
-                  #{event.id}
-                </Link>
-                <span className="min-w-12 text-right text-[11px] text-slate-500">
-                  risk {event.risk_score ?? 0}
-                </span>
+        <div className="grid gap-2">
+          <DenseList title="Matched patterns" emptyLabel="No security patterns matched.">
+            {matchedPatterns.slice(0, 6).map(([name, pattern]) => (
+              <div key={name} className="grid gap-1.5 border-b border-slate-800 px-2.5 py-2 last:border-b-0">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="truncate text-xs font-semibold text-cyan-300">
+                    {formatCorrelationLabel(name)}
+                  </div>
+                  <span className="min-w-10 text-right text-[11px] text-slate-500">
+                    w {pattern.weight ?? 0}
+                  </span>
+                </div>
+                <div className="line-clamp-2 text-[11px] leading-4 text-slate-400">
+                  {(pattern.keywords ?? []).join(", ") || "No keywords recorded."}
+                </div>
               </div>
-              <div className="mt-0.5 truncate text-[11px] text-slate-400">
-                {event.rule ?? "-"}
+            ))}
+          </DenseList>
+
+          <DenseList title="Attack chain evidence" emptyLabel="No multi-step attack chain matched.">
+            {matchedAttackChains.slice(0, 4).map((chain, index) => (
+              <div key={`${chain.name ?? "chain"}-${index}`} className="border-b border-slate-800 px-2.5 py-2 last:border-b-0">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="truncate text-xs font-semibold text-cyan-300">
+                    {chain.name ?? "Unnamed chain"}
+                  </div>
+                  <span className="min-w-8 text-right text-[11px] text-slate-500">
+                    +{chain.score_bonus ?? 0}
+                  </span>
+                </div>
+                <div className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-slate-400">
+                  {chain.reason ?? "No explanation available."}
+                </div>
+                {chain.correlation_type && (
+                  <div className="mt-1 text-[10px] uppercase tracking-wide text-slate-600">
+                    {formatCorrelationLabel(chain.correlation_type)}
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
-        </DenseList>
+            ))}
+          </DenseList>
+        </div>
       </div>
+
+      <div className="rounded-md border border-slate-800 bg-slate-950">
+        <div className="border-b border-slate-800 bg-slate-900/70 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-300">
+          Related alerts / incidents
+        </div>
+        {relatedCorrelationEvents.length === 0 ? (
+          <div className="p-2">
+            <EmptyState label="No related alerts or incidents were recorded in the correlation summary." />
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-800">
+            {relatedCorrelationEvents.slice(0, 8).map((event, index) => (
+              <div key={`${event.id ?? "related"}-${index}`} className="grid gap-2 px-2.5 py-2 md:grid-cols-[90px_1fr_80px_80px] md:items-center">
+                {event.id ? (
+                  <Link
+                    href={`/incidents/${event.id}`}
+                    className="text-xs font-semibold text-cyan-300 hover:text-cyan-200"
+                  >
+                    #{event.id}
+                  </Link>
+                ) : (
+                  <span className="text-xs font-semibold text-slate-400">
+                    related
+                  </span>
+                )}
+                <div className="min-w-0">
+                  <div className="truncate text-xs text-slate-300">
+                    {event.rule ?? "-"}
+                  </div>
+                  <div className="mt-0.5 truncate text-[10px] text-slate-500">
+                    {event.agent ?? "unknown host"} · {shortTimestamp(event.timestamp)}
+                  </div>
+                </div>
+                <div className="text-[11px] text-slate-400">
+                  risk {event.risk_score ?? 0}
+                </div>
+                <div className="text-[11px] text-slate-400">
+                  corr {event.correlation_score ?? 0}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {hasStructuredCorrelation && (
+        <div className="grid gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800 sm:grid-cols-2 lg:grid-cols-4">
+          <DenseField label="Base score" value={parsedCorrelationSummary?.base_score ?? 0} />
+          <DenseField label="Pattern score" value={parsedCorrelationSummary?.pattern_score ?? 0} />
+          <DenseField label="Volume score" value={parsedCorrelationSummary?.volume_score ?? 0} />
+          <DenseField label="Chain bonus" value={parsedCorrelationSummary?.chain_bonus ?? 0} />
+        </div>
+      )}
     </div>
   );
 }
@@ -1829,6 +2075,7 @@ export default function IncidentDetailPage() {
               icon={<Brain className="h-3.5 w-3.5" />}
             >
               <CorrelationConsole
+                incident={incident}
                 parsedCorrelationSummary={parsedCorrelationSummary}
                 matchedPatterns={matchedPatterns}
                 matchedAttackChains={matchedAttackChains}
