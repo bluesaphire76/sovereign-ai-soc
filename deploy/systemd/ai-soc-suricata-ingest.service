@@ -1,0 +1,20 @@
+[Unit]
+Description=AI SOC Suricata EVE ingest worker
+After=network-online.target docker.service postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lele
+Group=lele
+WorkingDirectory=/home/lele/lab/ai-soc-assistant
+Environment=PYTHONPATH=/home/lele/lab/ai-soc-assistant
+EnvironmentFile=-/home/lele/lab/ai-soc-assistant/.env
+ExecStart=/home/lele/lab/ai-soc-assistant/.venv/bin/python workers/suricata_ingest_worker.py --path deploy/suricata/logs/eve.json --batch-size 500 --interval-seconds 15
+Restart=always
+RestartSec=10
+Nice=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
