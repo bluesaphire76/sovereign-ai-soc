@@ -50,6 +50,43 @@ type ExecutiveSummary = {
     correlation_type: string | null;
     count: number;
   }>;
+  decision_brief?: {
+    decision: string;
+    reason: string;
+    next_action: string;
+  };
+  sla_posture?: {
+    status: string;
+    open_cases: number;
+    cases_with_sla: number;
+    on_track: number;
+    due_soon: number;
+    overdue: number;
+    missing_sla: number;
+    coverage_percent: number;
+  };
+  ai_triage_contribution?: {
+    incident_ai_analyzed: number;
+    total_incidents: number;
+    incident_coverage_percent: number;
+    case_ai_analyzed: number;
+    total_cases: number;
+    case_coverage_percent: number;
+    total_case_analyses: number;
+    overall_coverage_percent: number;
+    latest_analysis_at: string | null;
+  };
+  noise_reduction?: {
+    raw_events: number;
+    security_alerts: number;
+    incidents_created: number;
+    incident_created_alerts: number;
+    observed_only_alerts: number;
+    event_aggregates: number;
+    duplicate_events_collapsed: number;
+    incident_creation_rate_percent: number;
+    reduction_percent: number;
+  };
   latest_cases: Array<{
     id: number;
     title: string;
@@ -140,6 +177,7 @@ function toneForRisk(score: number | null | undefined): Tone {
 function toneForStatus(status: string | null | undefined): Tone {
   const value = (status ?? "OK").toUpperCase();
 
+  if (value === "BREACHED") return "danger";
   if (value === "CRITICAL" || value === "ESCALATED") return "danger";
   if (value === "ATTENTION" || value === "HIGH") return "warning";
   if (value === "MEDIUM" || value === "TRIAGED" || value === "INVESTIGATING") {
@@ -147,6 +185,16 @@ function toneForStatus(status: string | null | undefined): Tone {
   }
   if (value === "CLOSED" || value === "RESOLVED" || value === "OK") return "success";
   if (value === "FALSE_POSITIVE") return "executive";
+
+  return "neutral";
+}
+
+function toneForDecision(decision: string | null | undefined): Tone {
+  const value = (decision ?? "MONITOR").toUpperCase();
+
+  if (value === "ESCALATE") return "danger";
+  if (value === "REVIEW") return "warning";
+  if (value === "MONITOR") return "success";
 
   return "neutral";
 }
@@ -394,17 +442,34 @@ export default function ExecutivePage() {
               correlationCoverage={correlationCoverage}
             />
 
-            <section className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_420px]">
-              <ManagementActionQueue data={data} />
-              <LatestAiAnalysis analysis={data.latest_case_analysis} />
+            <section className="grid gap-px xl:grid-cols-[1.35fr_repeat(5,minmax(0,1fr))]">
+              <div className="xl:col-span-4">
+                <ExecutiveDecisionBrief data={data} />
+              </div>
+              <div className="xl:col-span-2">
+                <OperatingAssurance data={data} />
+              </div>
             </section>
 
-            <section className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_420px]">
-              <ExposureMatrix rows={exposureRows} />
-              <OperationalHotspots
-                hosts={data.top_hosts}
-                correlationTypes={data.top_correlation_types}
-              />
+            <section className="grid gap-px xl:grid-cols-[1.35fr_repeat(5,minmax(0,1fr))]">
+              <div className="xl:col-span-4">
+                <ManagementActionQueue data={data} />
+              </div>
+              <div className="xl:col-span-2">
+                <LatestAiAnalysis analysis={data.latest_case_analysis} />
+              </div>
+            </section>
+
+            <section className="grid gap-px xl:grid-cols-[1.35fr_repeat(5,minmax(0,1fr))]">
+              <div className="xl:col-span-4">
+                <ExposureMatrix rows={exposureRows} />
+              </div>
+              <div className="xl:col-span-2">
+                <OperationalHotspots
+                  hosts={data.top_hosts}
+                  correlationTypes={data.top_correlation_types}
+                />
+              </div>
             </section>
 
             <section className="grid gap-3 xl:grid-cols-2">
@@ -519,6 +584,115 @@ function ExecutivePulseBar({
         ))}
       </div>
     </section>
+  );
+}
+
+function ExecutiveDecisionBrief({ data }: { data: ExecutiveSummary }) {
+  const fallbackDecision =
+    data.status === "CRITICAL"
+      ? "Escalate"
+      : data.status === "ATTENTION"
+        ? "Review"
+        : "Monitor";
+  const brief = data.decision_brief ?? {
+    decision: fallbackDecision,
+    reason: summarizeExposure(data.summary),
+    next_action: data.recommendations[0] ?? "Continue monitoring SOC posture.",
+  };
+  const tone = toneForDecision(brief.decision);
+
+  return (
+    <Panel
+      title="Executive decision brief"
+      description="Management-ready decision, reason and next action."
+      icon={<CheckCircle2 className="h-3.5 w-3.5" />}
+    >
+      <div className="grid gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800 xl:grid-cols-[160px_minmax(0,1fr)_minmax(0,1fr)]">
+        <BriefCell label="Decision">
+          <Badge tone={tone}>{brief.decision}</Badge>
+        </BriefCell>
+        <BriefCell label="Reason">{brief.reason}</BriefCell>
+        <BriefCell label="Next action">{brief.next_action}</BriefCell>
+      </div>
+    </Panel>
+  );
+}
+
+function OperatingAssurance({ data }: { data: ExecutiveSummary }) {
+  const summary = data.summary;
+  const sla = data.sla_posture ?? {
+    status: summary.open_cases > 0 ? "UNKNOWN" : "OK",
+    open_cases: summary.open_cases,
+    cases_with_sla: 0,
+    on_track: 0,
+    due_soon: 0,
+    overdue: 0,
+    missing_sla: summary.open_cases,
+    coverage_percent: 0,
+  };
+  const ai = data.ai_triage_contribution ?? {
+    incident_ai_analyzed: 0,
+    total_incidents: summary.total_incidents,
+    incident_coverage_percent: 0,
+    case_ai_analyzed: data.latest_case_analysis ? 1 : 0,
+    total_cases: summary.total_cases,
+    case_coverage_percent: 0,
+    total_case_analyses: data.latest_case_analysis ? 1 : 0,
+    overall_coverage_percent: 0,
+    latest_analysis_at: data.latest_case_analysis?.created_at ?? null,
+  };
+  const noise = data.noise_reduction ?? {
+    raw_events: 0,
+    security_alerts: 0,
+    incidents_created: summary.total_incidents,
+    incident_created_alerts: 0,
+    observed_only_alerts: 0,
+    event_aggregates: 0,
+    duplicate_events_collapsed: 0,
+    incident_creation_rate_percent: 0,
+    reduction_percent: 0,
+  };
+  const aiTone: Tone =
+    ai.overall_coverage_percent >= 70
+      ? "success"
+      : ai.overall_coverage_percent >= 40
+        ? "primary"
+        : "neutral";
+  const noiseTone: Tone =
+    noise.reduction_percent >= 50 || noise.duplicate_events_collapsed > 0
+      ? "executive"
+      : "neutral";
+
+  return (
+    <Panel
+      title="Operating assurance"
+      description="SLA, AI assistance and noise reduction posture."
+      icon={<Server className="h-3.5 w-3.5" />}
+    >
+      <div className="divide-y divide-slate-800 overflow-hidden rounded-md border border-slate-800 bg-slate-950">
+        <AssuranceRow
+          title="SLA posture"
+          tone={toneForStatus(sla.status)}
+          value={sla.status}
+          detail={`${sla.overdue} overdue / ${sla.due_soon} due soon`}
+          meta={`${sla.coverage_percent}% covered / ${sla.missing_sla} missing`}
+        />
+        <AssuranceRow
+          title="AI triage contribution"
+          tone={aiTone}
+          value={`${ai.overall_coverage_percent}%`}
+          detail={`${ai.incident_ai_analyzed}/${ai.total_incidents} incidents, ${ai.case_ai_analyzed}/${ai.total_cases} cases`}
+          meta={`${ai.total_case_analyses} case analyses`}
+        />
+        <AssuranceRow
+          title="Noise reduction / dedup"
+          tone={noiseTone}
+          value={`${noise.reduction_percent}%`}
+          detail={`${noise.duplicate_events_collapsed} duplicate events collapsed`}
+          meta={`${noise.observed_only_alerts} observed-only alerts`}
+        />
+      </div>
+    </Panel>
   );
 }
 
@@ -930,6 +1104,58 @@ function PulseMetric({
   );
 }
 
+function BriefCell({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="min-w-0 bg-slate-950 px-2.5 py-2">
+      <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
+        {label}
+      </div>
+      <div className="mt-1 line-clamp-2 text-xs leading-5 text-slate-200">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function AssuranceRow({
+  title,
+  value,
+  detail,
+  meta,
+  tone,
+}: {
+  title: string;
+  value: string;
+  detail: string;
+  meta: string;
+  tone: Tone;
+}) {
+  return (
+    <div className="grid gap-2 px-2.5 py-2 md:grid-cols-[150px_72px_minmax(0,1fr)]">
+      <div className="truncate text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+        {title}
+      </div>
+      <div className="flex md:justify-end">
+        <Badge tone={tone}>{value}</Badge>
+      </div>
+      <div className="min-w-0 text-xs text-slate-300">
+        <div className="truncate" title={detail}>
+          {detail}
+        </div>
+        <div className="truncate text-[11px] text-slate-500" title={meta}>
+          {meta}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Panel({
   title,
   description,
@@ -944,7 +1170,7 @@ function Panel({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
+    <section className="h-full rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
       <div className="mb-2 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
