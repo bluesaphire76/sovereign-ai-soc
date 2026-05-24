@@ -2,14 +2,13 @@
 
 import { authFetch } from "@/lib/auth";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Activity,
   AlertTriangle,
   Brain,
   Briefcase,
-  CheckCircle2,
   Clock,
   Database,
   RefreshCw,
@@ -22,6 +21,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -116,8 +116,13 @@ type ChartRow = {
   color: string;
 };
 
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8008";
+type EnterpriseTone =
+  | "neutral"
+  | "primary"
+  | "success"
+  | "warning"
+  | "danger"
+  | "executive";
 
 const STATUS_OPTIONS = [
   "ALL",
@@ -146,9 +151,33 @@ const ACTIVE_CASE_STATUSES = new Set([
 
 const TERMINAL_CASE_STATUSES = new Set(["CLOSED", "FALSE_POSITIVE"]);
 
-const CHART_GRID = "#334155";
-const CHART_AXIS = "#64748b";
-const CHART_TICK = "#cbd5e1";
+const CHART_COLORS = {
+  critical: "#ef4444",
+  high: "#f97316",
+  medium: "#f59e0b",
+  low: "#10b981",
+  primary: "#22d3ee",
+  secondary: "#60a5fa",
+  ai: "#a78bfa",
+  muted: "#64748b",
+  grid: "rgba(148, 163, 184, 0.14)",
+  axis: "#94a3b8",
+  panel: "#020617",
+  tooltip: "#0f172a",
+  border: "#334155",
+  text: "#e2e8f0",
+  cursor: "rgba(15, 23, 42, 0.42)",
+};
+
+const STATUS_CHART_COLORS: Record<string, string> = {
+  NEW: CHART_COLORS.primary,
+  OPEN: CHART_COLORS.primary,
+  TRIAGED: CHART_COLORS.secondary,
+  INVESTIGATING: CHART_COLORS.secondary,
+  ESCALATED: CHART_COLORS.critical,
+  CLOSED: CHART_COLORS.low,
+  FALSE_POSITIVE: CHART_COLORS.muted,
+};
 
 function riskLabel(score: number | null | undefined) {
   const value = score ?? 0;
@@ -159,7 +188,7 @@ function riskLabel(score: number | null | undefined) {
   return "Low";
 }
 
-function riskTone(score: number | null | undefined) {
+function riskTone(score: number | null | undefined): EnterpriseTone {
   const value = score ?? 0;
 
   if (value >= 80) return "danger";
@@ -168,10 +197,11 @@ function riskTone(score: number | null | undefined) {
   return "success";
 }
 
-function statusTone(status: string | null | undefined) {
+function statusTone(status: string | null | undefined): EnterpriseTone {
   const value = status ?? "NEW";
 
   if (value === "ESCALATED") return "danger";
+  if (value === "NEW" || value === "OPEN") return "primary";
   if (value === "TRIAGED" || value === "INVESTIGATING") return "primary";
   if (value === "CLOSED") return "success";
   if (value === "FALSE_POSITIVE") return "executive";
@@ -179,22 +209,24 @@ function statusTone(status: string | null | undefined) {
   return "neutral";
 }
 
-function severityTone(severity: string | null | undefined) {
+function severityTone(severity: string | null | undefined): EnterpriseTone {
   const value = (severity ?? "LOW").toUpperCase();
 
   if (value === "CRITICAL") return "danger";
   if (value === "HIGH") return "warning";
-  if (value === "MEDIUM") return "primary";
+  if (value === "MEDIUM") return "warning";
 
-  return "neutral";
+  return "success";
 }
 
-function slaTone(slaStatus: string | null | undefined) {
+function slaTone(slaStatus: string | null | undefined): EnterpriseTone {
   const value = (slaStatus ?? "UNKNOWN").toUpperCase();
 
   if (value === "BREACHED") return "danger";
   if (value === "AT_RISK") return "warning";
-  if (value === "OK") return "success";
+  if (value === "OK" || value === "WITHIN_SLA" || value === "COMPLETED") {
+    return "success";
+  }
 
   return "neutral";
 }
@@ -226,20 +258,17 @@ function shortTitle(value: string | null | undefined, maxLength = 88) {
   return `${value.slice(0, maxLength - 1)}…`;
 }
 
-function ChartBarShape(props: any) {
-  const { x, y, width, height, payload } = props;
+function compactAxisLabel(value: string | number) {
+  const label = String(value).replaceAll("_", " ");
 
-  return (
-    <rect
-      x={x}
-      y={y}
-      width={width}
-      height={height}
-      rx={6}
-      ry={6}
-      fill={payload.color}
-    />
-  );
+  const labels: Record<string, string> = {
+    "SLA breached": "SLA",
+    "Open actions": "Actions",
+    INVESTIGATING: "Investig.",
+    "FALSE POSITIVE": "False pos.",
+  };
+
+  return labels[label] ?? label;
 }
 
 async function fetchJson<T>(path: string): Promise<T> {
@@ -279,8 +308,8 @@ export default function Home() {
   const [hostFilter, setHostFilter] = useState("");
   const [searchFilter, setSearchFilter] = useState("");
 
-  const incidents = incidentsData?.items ?? [];
-  const cases = casesData?.items ?? [];
+  const incidents = useMemo(() => incidentsData?.items ?? [], [incidentsData?.items]);
+  const cases = useMemo(() => casesData?.items ?? [], [casesData?.items]);
   const totalPages = incidentsData?.total_pages ?? 1;
   const totalIncidents = incidentsData?.total ?? 0;
   const totalCases = casesData?.total ?? 0;
@@ -375,13 +404,18 @@ export default function Home() {
   ]);
 
   useEffect(() => {
-    loadDashboard();
+    const timeoutId = window.setTimeout(() => {
+      void loadDashboard();
+    }, 0);
 
     const interval = window.setInterval(() => {
-      loadDashboard();
+      void loadDashboard();
     }, 30000);
 
-    return () => window.clearInterval(interval);
+    return () => {
+      window.clearTimeout(timeoutId);
+      window.clearInterval(interval);
+    };
   }, [loadDashboard]);
 
   const riskChartData = useMemo<ChartRow[]>(() => {
@@ -391,22 +425,22 @@ export default function Home() {
       {
         name: "Low",
         value: riskDistribution.low_0_30,
-        color: "#10b981",
+        color: CHART_COLORS.low,
       },
       {
         name: "Medium",
         value: riskDistribution.medium_31_60,
-        color: "#f59e0b",
+        color: CHART_COLORS.medium,
       },
       {
         name: "High",
         value: riskDistribution.high_61_80,
-        color: "#f97316",
+        color: CHART_COLORS.high,
       },
       {
         name: "Critical",
         value: riskDistribution.critical_81_100,
-        color: "#ef4444",
+        color: CHART_COLORS.critical,
       },
     ];
   }, [riskDistribution]);
@@ -452,20 +486,11 @@ export default function Home() {
       counts.set(status, (counts.get(status) ?? 0) + 1);
     }
 
-    const colors: Record<string, string> = {
-      OPEN: "#22d3ee",
-      TRIAGED: "#60a5fa",
-      INVESTIGATING: "#a78bfa",
-      ESCALATED: "#ef4444",
-      CLOSED: "#34d399",
-      FALSE_POSITIVE: "#c084fc",
-    };
-
     return Array.from(counts.entries())
       .map(([name, value]) => ({
         name,
         value,
-        color: colors[name] ?? "#94a3b8",
+        color: STATUS_CHART_COLORS[name] ?? CHART_COLORS.muted,
       }))
       .sort((a, b) => b.value - a.value);
   }, [cases]);
@@ -475,22 +500,22 @@ export default function Home() {
       {
         name: "SLA breached",
         value: caseMetrics.slaBreached,
-        color: "#ef4444",
+        color: CHART_COLORS.critical,
       },
       {
         name: "Open actions",
         value: caseMetrics.openActions,
-        color: "#f97316",
+        color: CHART_COLORS.high,
       },
       {
         name: "Needs AI",
         value: caseMetrics.needsAi,
-        color: "#22d3ee",
+        color: CHART_COLORS.ai,
       },
       {
         name: "Ready",
         value: caseMetrics.readyToClose,
-        color: "#34d399",
+        color: CHART_COLORS.low,
       },
     ];
   }, [caseMetrics]);
@@ -555,7 +580,7 @@ export default function Home() {
         />
 
         {error && (
-          <div className="mb-2 rounded-xl border border-red-800 bg-red-950/60 p-3 text-xs text-red-200">
+          <div className="mb-2 rounded-sm border border-red-800 bg-red-950/60 p-2.5 text-xs text-red-200">
             API error: {error}
           </div>
         )}
@@ -635,118 +660,25 @@ export default function Home() {
               <EnterpriseChartCard
                 title="Incident Risk Distribution"
                 description="Current incident distribution by calculated risk band."
-                height="h-40"
+                height="h-36"
               >
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={riskChartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
-                    <XAxis
-                      dataKey="name"
-                      tick={{ fill: CHART_TICK, fontSize: 10 }}
-                      axisLine={{ stroke: CHART_AXIS }}
-                      tickLine={{ stroke: CHART_AXIS }}
-                    />
-                    <YAxis
-                      allowDecimals={false}
-                      tick={{ fill: CHART_TICK, fontSize: 10 }}
-                      axisLine={{ stroke: CHART_AXIS }}
-                      tickLine={{ stroke: CHART_AXIS }}
-                    />
-                    <Tooltip
-                      cursor={{ fill: "rgba(15, 23, 42, 0.6)" }}
-                      contentStyle={{
-                        backgroundColor: "#020617",
-                        border: "1px solid #334155",
-                        borderRadius: "10px",
-                        color: "#e2e8f0",
-                      }}
-                      labelStyle={{ color: "#67e8f9" }}
-                    />
-                    <Bar
-                      dataKey="value"
-                      name="Incidents"
-                      shape={(props) => <ChartBarShape {...props} />}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
+                <DashboardBarChart data={riskChartData} valueLabel="Incidents" />
               </EnterpriseChartCard>
 
               <EnterpriseChartCard
                 title="Case Status Distribution"
                 description="Investigation cases grouped by operational status."
-                height="h-40"
+                height="h-36"
               >
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={caseStatusChartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
-                    <XAxis
-                      dataKey="name"
-                      tick={{ fill: CHART_TICK, fontSize: 10 }}
-                      axisLine={{ stroke: CHART_AXIS }}
-                      tickLine={{ stroke: CHART_AXIS }}
-                    />
-                    <YAxis
-                      allowDecimals={false}
-                      tick={{ fill: CHART_TICK, fontSize: 10 }}
-                      axisLine={{ stroke: CHART_AXIS }}
-                      tickLine={{ stroke: CHART_AXIS }}
-                    />
-                    <Tooltip
-                      cursor={{ fill: "rgba(15, 23, 42, 0.6)" }}
-                      contentStyle={{
-                        backgroundColor: "#020617",
-                        border: "1px solid #334155",
-                        borderRadius: "10px",
-                        color: "#e2e8f0",
-                      }}
-                      labelStyle={{ color: "#67e8f9" }}
-                    />
-                    <Bar
-                      dataKey="value"
-                      name="Cases"
-                      shape={(props) => <ChartBarShape {...props} />}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
+                <DashboardBarChart data={caseStatusChartData} valueLabel="Cases" />
               </EnterpriseChartCard>
 
               <EnterpriseChartCard
                 title="Operational Backlog"
                 description="SLA, actions, AI coverage and closure readiness."
-                height="h-40"
+                height="h-36"
               >
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={operationsChartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
-                    <XAxis
-                      dataKey="name"
-                      tick={{ fill: CHART_TICK, fontSize: 10 }}
-                      axisLine={{ stroke: CHART_AXIS }}
-                      tickLine={{ stroke: CHART_AXIS }}
-                    />
-                    <YAxis
-                      allowDecimals={false}
-                      tick={{ fill: CHART_TICK, fontSize: 10 }}
-                      axisLine={{ stroke: CHART_AXIS }}
-                      tickLine={{ stroke: CHART_AXIS }}
-                    />
-                    <Tooltip
-                      cursor={{ fill: "rgba(15, 23, 42, 0.6)" }}
-                      contentStyle={{
-                        backgroundColor: "#020617",
-                        border: "1px solid #334155",
-                        borderRadius: "10px",
-                        color: "#e2e8f0",
-                      }}
-                      labelStyle={{ color: "#67e8f9" }}
-                    />
-                    <Bar
-                      dataKey="value"
-                      name="Cases"
-                      shape={(props) => <ChartBarShape {...props} />}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
+                <DashboardBarChart data={operationsChartData} valueLabel="Cases" />
               </EnterpriseChartCard>
             </section>
 
@@ -800,19 +732,19 @@ export default function Home() {
                             </td>
 
                             <td className="py-1.5 pr-2">
-                              <EnterpriseBadge tone={statusTone(item.status) as any}>
+                              <EnterpriseBadge tone={statusTone(item.status)}>
                                 {item.status ?? "OPEN"}
                               </EnterpriseBadge>
                             </td>
 
                             <td className="py-1.5 pr-2">
-                              <EnterpriseBadge tone={severityTone(effectiveSeverity) as any}>
+                              <EnterpriseBadge tone={severityTone(effectiveSeverity)}>
                                 {effectiveSeverity}
                               </EnterpriseBadge>
                             </td>
 
                             <td className="py-1.5 pr-2">
-                              <EnterpriseBadge tone={slaTone(item.sla_status) as any}>
+                              <EnterpriseBadge tone={slaTone(item.sla_status)}>
                                 {item.sla_status ?? "UNKNOWN"}
                               </EnterpriseBadge>
                             </td>
@@ -856,7 +788,7 @@ export default function Home() {
                   {topHosts.map((host) => (
                     <div
                       key={host.agent ?? "unknown"}
-                      className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-950 px-3 py-2"
+                      className="flex items-center justify-between gap-3 rounded-sm border border-slate-800 bg-slate-950 px-2.5 py-2"
                     >
                       <div className="flex min-w-0 items-center gap-2">
                         <Server className="h-3.5 w-3.5 shrink-0 text-cyan-300" />
@@ -871,7 +803,7 @@ export default function Home() {
                         </div>
                       </div>
 
-                      <EnterpriseBadge tone={riskTone(host.max_risk) as any}>
+                      <EnterpriseBadge tone={riskTone(host.max_risk)}>
                         max {host.max_risk ?? 0}
                       </EnterpriseBadge>
                     </div>
@@ -895,7 +827,7 @@ export default function Home() {
                 </EnterpriseBadge>
               }
             >
-              <div className="mb-2 grid gap-2 rounded-md border border-slate-800 bg-slate-950 p-2 md:grid-cols-4 xl:grid-cols-6">
+              <div className="mb-2 grid gap-2 rounded-sm border border-slate-800 bg-slate-950 p-2 md:grid-cols-4 xl:grid-cols-6">
                 <FilterSelect
                   label="Status"
                   value={statusFilter}
@@ -1039,7 +971,7 @@ export default function Home() {
                         </td>
 
                         <td className="py-1.5 pr-2">
-                          <EnterpriseBadge tone={statusTone(incident.status) as any}>
+                          <EnterpriseBadge tone={statusTone(incident.status)}>
                             {incident.status ?? "NEW"}
                           </EnterpriseBadge>
                         </td>
@@ -1067,14 +999,14 @@ export default function Home() {
                         </td>
 
                         <td className="py-1.5 pr-2">
-                          <EnterpriseBadge tone={riskTone(incident.risk_score) as any}>
+                          <EnterpriseBadge tone={riskTone(incident.risk_score)}>
                             {riskLabel(incident.risk_score)} ·{" "}
                             {incident.risk_score ?? 0}
                           </EnterpriseBadge>
                         </td>
 
                         <td className="py-1.5 pr-2">
-                          <EnterpriseBadge tone={riskTone(incident.risk_score) as any}>
+                          <EnterpriseBadge tone={riskTone(incident.risk_score)}>
                             {incident.recommended_priority ??
                               riskLabel(incident.risk_score)}
                           </EnterpriseBadge>
@@ -1153,6 +1085,68 @@ export default function Home() {
   );
 }
 
+function DashboardBarChart({
+  data,
+  valueLabel,
+}: {
+  data: ChartRow[];
+  valueLabel: string;
+}) {
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <BarChart
+        data={data}
+        barCategoryGap="30%"
+        margin={{ top: 4, right: 6, left: -18, bottom: 0 }}
+      >
+        <CartesianGrid
+          vertical={false}
+          stroke={CHART_COLORS.grid}
+          strokeDasharray="2 4"
+        />
+        <XAxis
+          dataKey="name"
+          tick={{ fill: CHART_COLORS.axis, fontSize: 10 }}
+          axisLine={{ stroke: CHART_COLORS.grid }}
+          tickLine={false}
+          tickFormatter={compactAxisLabel}
+          minTickGap={4}
+        />
+        <YAxis
+          allowDecimals={false}
+          tick={{ fill: CHART_COLORS.axis, fontSize: 10 }}
+          axisLine={false}
+          tickLine={false}
+          width={34}
+        />
+        <Tooltip
+          cursor={{ fill: CHART_COLORS.cursor }}
+          contentStyle={{
+            backgroundColor: CHART_COLORS.tooltip,
+            border: `1px solid ${CHART_COLORS.border}`,
+            borderRadius: "3px",
+            color: CHART_COLORS.text,
+            fontSize: "12px",
+          }}
+          itemStyle={{ color: CHART_COLORS.text }}
+          labelStyle={{ color: CHART_COLORS.primary }}
+          formatter={(value) => [value, valueLabel]}
+        />
+        <Bar
+          dataKey="value"
+          name={valueLabel}
+          radius={[2, 2, 0, 0]}
+          maxBarSize={42}
+        >
+          {data.map((entry) => (
+            <Cell key={entry.name} fill={entry.color} />
+          ))}
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
 function FilterSelect({
   label,
   value,
@@ -1175,7 +1169,7 @@ function FilterSelect({
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="h-8 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 text-xs text-slate-200 outline-none focus:border-cyan-700"
+        className="h-8 w-full rounded-sm border border-slate-700 bg-slate-900 px-2 text-xs text-slate-200 outline-none focus:border-cyan-700"
       >
         {options.map((option, index) => (
           <option key={`${option}-${index}`} value={rawOptions?.[index] ?? option}>
@@ -1211,7 +1205,7 @@ function FilterInput({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="h-8 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 text-xs text-slate-200 outline-none placeholder:text-slate-600 focus:border-cyan-700"
+        className="h-8 w-full rounded-sm border border-slate-700 bg-slate-900 px-2 text-xs text-slate-200 outline-none placeholder:text-slate-600 focus:border-cyan-700"
       />
     </label>
   );
