@@ -1376,6 +1376,7 @@ def list_incidents(
                     "agent": item.agent,
                     "rule": item.rule,
                     "level": item.level,
+                    "mitre": item.mitre,
                     "risk_score": item.risk_score,
                     "correlation_score": item.correlation_score,
                     "correlated": item.correlated,

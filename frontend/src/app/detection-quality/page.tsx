@@ -33,6 +33,7 @@ type Incident = {
   agent: string | null;
   rule: string | null;
   level: number | null;
+  mitre?: string[] | string | Record<string, unknown> | null;
   risk_score: number | null;
   correlation_score: number | null;
   correlated: boolean | null;
@@ -367,18 +368,46 @@ function extractScenario(incident: Incident): string {
 
 function extractMitreIds(incident: Incident): string[] {
   const values: string[] = [];
+  const addMitreValue = (value: unknown) => {
+    if (!value) return;
 
-  if (Array.isArray(incident.mitre_ids)) {
-    values.push(...incident.mitre_ids);
-  } else if (typeof incident.mitre_ids === "string") {
-    values.push(incident.mitre_ids);
-  }
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        addMitreValue(item);
+      }
+      return;
+    }
 
-  if (Array.isArray(incident.mitre_techniques)) {
-    values.push(...incident.mitre_techniques);
-  } else if (typeof incident.mitre_techniques === "string") {
-    values.push(incident.mitre_techniques);
-  }
+    if (typeof value === "object") {
+      for (const item of Object.values(value as Record<string, unknown>)) {
+        addMitreValue(item);
+      }
+      return;
+    }
+
+    const text = String(value).trim();
+    if (!text || text === "[]" || text === "{}") return;
+
+    try {
+      addMitreValue(JSON.parse(text));
+      return;
+    } catch {
+      // Keep parsing as plain text below.
+    }
+
+    const matches = text.toUpperCase().match(/T\d{4}(?:\.\d{3})?/g);
+    if (matches?.length) {
+      values.push(...matches);
+      return;
+    }
+
+    values.push(text);
+  };
+
+  addMitreValue(incident.mitre);
+
+  addMitreValue(incident.mitre_ids);
+  addMitreValue(incident.mitre_techniques);
 
   const text = incidentText(incident).toUpperCase();
   const matches = text.match(/T\d{4}(?:\.\d{3})?/g) ?? [];
