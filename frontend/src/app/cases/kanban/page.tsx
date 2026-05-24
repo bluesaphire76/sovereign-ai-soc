@@ -467,7 +467,7 @@ export default function CaseKanbanPage() {
           </section>
         ) : (
           <div className="space-y-3">
-            <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+            <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-5">
               <MetricTile title="Visible cases" value={metrics.total} tone="primary" />
               <MetricTile
                 title="SLA breached"
@@ -569,11 +569,13 @@ function MetricTile({
   const classes = toneClasses(tone);
 
   return (
-    <div className={`rounded-lg border px-3 py-2 shadow-sm ${classes.card}`}>
+    <div
+      className={`flex min-h-[58px] items-center justify-between gap-3 rounded-sm border px-2.5 py-2 shadow-sm ${classes.card}`}
+    >
       <div className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
         {title}
       </div>
-      <div className="mt-0.5 text-lg font-semibold leading-6 text-slate-100">
+      <div className="text-xl font-semibold leading-6 text-slate-100">
         {value}
       </div>
     </div>

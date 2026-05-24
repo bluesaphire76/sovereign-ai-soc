@@ -547,20 +547,23 @@ function ExecutivePulseBar({
   }>;
 
   return (
-    <section className="rounded-lg border border-slate-800 bg-slate-900 p-2 shadow-sm">
-      <div className="grid gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800 md:grid-cols-2 xl:grid-cols-[1.35fr_repeat(5,minmax(0,1fr))]">
-        <div className="min-w-0 bg-slate-950 px-2.5 py-2">
-          <div className="flex items-center justify-between gap-2">
-            <div className="truncate text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+    <section className="rounded-sm border border-slate-800 bg-slate-900 p-2 shadow-sm">
+      <div className="grid gap-1.5 md:grid-cols-2 xl:grid-cols-[1.35fr_repeat(5,minmax(0,1fr))]">
+        <div className={`flex min-h-[58px] items-center justify-between gap-3 rounded-sm border px-2.5 py-2 shadow-sm ${classes.panel}`}>
+          <div className="min-w-0">
+            <div className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
               SOC posture
             </div>
-            <span className="truncate text-[10px] text-slate-500" title={statusMessage(data.status)}>
-              {statusMessage(data.status)}
-            </span>
+            <div className="mt-0.5 flex min-w-0 items-baseline gap-2">
+              <span className="truncate text-xl font-semibold leading-6 text-slate-100">
+                {data.status}
+              </span>
+              <span className="min-w-0 truncate text-[11px] leading-4 text-slate-400" title={statusMessage(data.status)}>
+                {statusMessage(data.status)}
+              </span>
+            </div>
           </div>
-
-          <div className="mt-0.5 flex items-center gap-1.5">
-            <span className={classes.text}>
+          <div className={`shrink-0 rounded-sm bg-slate-950 p-1.5 ${classes.text}`}>
               {data.status === "CRITICAL" ? (
                 <AlertTriangle className="h-3.5 w-3.5" />
               ) : data.status === "ATTENTION" ? (
@@ -568,14 +571,6 @@ function ExecutivePulseBar({
               ) : (
                 <CheckCircle2 className="h-3.5 w-3.5" />
               )}
-            </span>
-            <div className="truncate text-sm font-semibold leading-5 text-slate-100">
-              {data.status}
-            </div>
-          </div>
-
-          <div className="mt-0.5 truncate text-[11px] text-slate-400" title={summarizeExposure(summary)}>
-            {summarizeExposure(summary)}
           </div>
         </div>
 
@@ -1080,25 +1075,24 @@ function PulseMetric({
   const classes = toneClasses(tone);
 
   return (
-    <div className="min-w-0 bg-slate-950 px-2.5 py-2">
-      <div className="flex items-center justify-between gap-2">
-        <div className="truncate text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+    <div
+      className={`flex min-h-[58px] items-center justify-between gap-3 rounded-sm border px-2.5 py-2 shadow-sm ${classes.panel}`}
+    >
+      <div className="min-w-0">
+        <div className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
           {title}
         </div>
-        <div className={`shrink-0 ${classes.text}`}>{icon}</div>
-      </div>
-
-      <div className="mt-0.5 flex min-w-0 items-baseline justify-between gap-2">
-        <div className="truncate text-sm font-semibold leading-5 text-slate-100">
-          {value}
-        </div>
-        <div className="truncate text-right text-[10px] text-slate-500" title={meta}>
-          {meta}
+        <div className="mt-0.5 flex min-w-0 items-baseline gap-2">
+          <span className="text-xl font-semibold leading-6 text-slate-100">
+            {value}
+          </span>
+          <span className="min-w-0 truncate text-[11px] leading-4 text-slate-500" title={meta}>
+            {meta}
+          </span>
         </div>
       </div>
-
-      <div className="mt-1 h-0.5 rounded-full bg-slate-800">
-        <div className={`h-0.5 rounded-full ${classes.bar}`} />
+      <div className={`shrink-0 rounded-sm bg-slate-950 p-1.5 ${classes.text}`}>
+        {icon}
       </div>
     </div>
   );

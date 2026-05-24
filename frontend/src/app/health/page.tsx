@@ -104,10 +104,10 @@ function statusClasses(status: HealthStatus) {
 }
 
 function statusIcon(status: HealthStatus) {
-  if (status === "OK") return <CheckCircle2 className="h-4 w-4" />;
-  if (status === "WARN") return <AlertTriangle className="h-4 w-4" />;
-  if (status === "ERROR") return <XCircle className="h-4 w-4" />;
-  return <Activity className="h-4 w-4" />;
+  if (status === "OK") return <CheckCircle2 className="h-3.5 w-3.5" />;
+  if (status === "WARN") return <AlertTriangle className="h-3.5 w-3.5" />;
+  if (status === "ERROR") return <XCircle className="h-3.5 w-3.5" />;
+  return <Activity className="h-3.5 w-3.5" />;
 }
 
 function componentIcon(component: string) {
@@ -357,7 +357,7 @@ export default function HealthPage() {
           </section>
         ) : (
           <div className="space-y-3">
-            <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
+            <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-6">
               <StatusTile
                 title="Overall"
                 value={overallStatus}
@@ -370,7 +370,7 @@ export default function HealthPage() {
                 title="Components"
                 value={healthCounts.total}
                 subtitle={`${healthCounts.ok} OK · ${healthCounts.warn} WARN · ${healthCounts.error} ERR`}
-                icon={<Server className="h-4 w-4" />}
+                icon={<Server className="h-3.5 w-3.5" />}
                 tone={healthCounts.error > 0 ? "ERROR" : healthCounts.warn > 0 ? "WARN" : "OK"}
               />
 
@@ -378,7 +378,7 @@ export default function HealthPage() {
                 title="Avg latency"
                 value={`${healthCounts.avgLatency} ms`}
                 subtitle="Component checks"
-                icon={<Clock className="h-4 w-4" />}
+                icon={<Clock className="h-3.5 w-3.5" />}
                 tone={healthCounts.avgLatency > 500 ? "WARN" : "OK"}
               />
 
@@ -386,7 +386,7 @@ export default function HealthPage() {
                 title="Checked"
                 value={formatTimestamp(health?.checked_at).split(",")[1]?.trim() ?? "-"}
                 subtitle={formatTimestamp(health?.checked_at).split(",")[0] ?? "-"}
-                icon={<Activity className="h-4 w-4" />}
+                icon={<Activity className="h-3.5 w-3.5" />}
                 tone="neutral"
               />
 
@@ -394,7 +394,7 @@ export default function HealthPage() {
                 title="Latest incident"
                 value={health?.latest_incident ? `#${health.latest_incident.id}` : "-"}
                 subtitle={health?.latest_incident?.agent ?? "No incident"}
-                icon={<Shield className="h-4 w-4" />}
+                icon={<Shield className="h-3.5 w-3.5" />}
                 tone={(health?.latest_incident?.risk_score ?? 0) >= 60 ? "WARN" : "neutral"}
               />
 
@@ -402,7 +402,7 @@ export default function HealthPage() {
                 title="Latest risk"
                 value={health?.latest_incident?.risk_score ?? 0}
                 subtitle="Last incident risk"
-                icon={<AlertTriangle className="h-4 w-4" />}
+                icon={<AlertTriangle className="h-3.5 w-3.5" />}
                 tone={(health?.latest_incident?.risk_score ?? 0) >= 80 ? "ERROR" : (health?.latest_incident?.risk_score ?? 0) >= 60 ? "WARN" : "OK"}
               />
             </section>
@@ -451,7 +451,7 @@ export default function HealthPage() {
 
             <WorkerIngestMetricsPanel components={sortedComponents} />
 
-            <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
+            <section className="rounded-sm border border-slate-800 bg-slate-900 p-3 shadow-sm">
               <div className="mb-2 flex items-center justify-between gap-3">
                 <div>
                   <h2 className="text-sm font-semibold">Components</h2>
@@ -460,7 +460,7 @@ export default function HealthPage() {
                   </p>
                 </div>
 
-                <span className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-400">
+                <span className="rounded-sm border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-400">
                   Auto refresh 30s
                 </span>
               </div>
@@ -571,7 +571,7 @@ function WorkerIngestMetricsPanel({
         </div>
       </div>
 
-      <div className="mb-3 grid gap-2 lg:grid-cols-3">
+      <div className="mb-3 grid gap-1.5 lg:grid-cols-3">
         <ExecutiveMetric
           label="Ingest mode"
           value={ingestMode}
@@ -664,21 +664,23 @@ function ExecutiveMetric({
   const status = statusClasses(tone);
 
   return (
-    <div className={`rounded-lg border px-3 py-2.5 ${status.card}`}>
-      <div className="mb-1 flex items-center justify-between gap-2">
-        <div className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
+    <div
+      className={`flex min-h-[46px] items-center justify-between gap-2 rounded-sm border px-2 py-1.5 shadow-sm ${status.card}`}
+    >
+      <div className="min-w-0">
+        <div className="truncate text-[9px] font-medium uppercase tracking-wide text-slate-500">
           {label}
         </div>
-        <div className={`h-2 w-2 rounded-full ${status.dot}`} />
+        <div className="mt-0.5 flex min-w-0 items-baseline gap-1.5">
+          <span className="text-base font-semibold leading-5 text-slate-100">
+            {value}
+          </span>
+          <span className="min-w-0 truncate text-[10px] leading-3 text-slate-500">
+            {subtitle}
+          </span>
+        </div>
       </div>
-
-      <div className="truncate text-xl font-semibold leading-6 text-slate-100">
-        {value}
-      </div>
-
-      <div className="mt-0.5 truncate text-[11px] text-slate-500">
-        {subtitle}
-      </div>
+      <div className={`h-1.5 w-1.5 shrink-0 rounded-full ${status.dot}`} />
     </div>
   );
 }
@@ -763,18 +765,25 @@ function StatusTile({
   const status = statusClasses(tone);
 
   return (
-    <div className={`rounded-lg border px-3 py-2 shadow-sm ${status.card}`}>
-      <div className="mb-1.5 flex items-center justify-between gap-2">
-        <div className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
+    <div
+      className={`flex min-h-[46px] items-center justify-between gap-2 rounded-sm border px-2 py-1.5 shadow-sm ${status.card}`}
+    >
+      <div className="min-w-0">
+        <div className="truncate text-[9px] font-medium uppercase tracking-wide text-slate-500">
           {title}
         </div>
-        <div className={status.text}>{icon}</div>
+        <div className="mt-0.5 flex min-w-0 items-baseline gap-1.5">
+          <span className="text-base font-semibold leading-5 text-slate-100">
+            {value}
+          </span>
+          <span className="min-w-0 truncate text-[10px] leading-3 text-slate-500">
+            {subtitle}
+          </span>
+        </div>
       </div>
-
-      <div className="truncate text-lg font-semibold leading-6 text-slate-100">
-        {value}
+      <div className={`shrink-0 rounded-sm bg-slate-950 p-1 ${status.text}`}>
+        {icon}
       </div>
-      <div className="truncate text-[11px] text-slate-500">{subtitle}</div>
     </div>
   );
 }
@@ -783,10 +792,10 @@ function ComponentTile({ item }: { item: HealthComponent }) {
   const status = statusClasses(item.status);
 
   return (
-    <article className={`rounded-lg border p-2.5 shadow-sm ${status.card}`}>
+    <article className={`rounded-sm border p-2.5 shadow-sm ${status.card}`}>
       <div className="mb-2 flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
-          <div className={`shrink-0 rounded-md bg-slate-950 p-1.5 ${status.text}`}>
+          <div className={`shrink-0 rounded-sm bg-slate-950 p-1.5 ${status.text}`}>
             {componentIcon(item.component)}
           </div>
 
@@ -800,7 +809,7 @@ function ComponentTile({ item }: { item: HealthComponent }) {
           </div>
         </div>
 
-        <span className={`shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-medium ${status.badge}`}>
+        <span className={`shrink-0 rounded-sm border px-1.5 py-0.5 text-[10px] font-medium ${status.badge}`}>
           {item.status}
         </span>
       </div>
@@ -812,7 +821,7 @@ function ComponentTile({ item }: { item: HealthComponent }) {
         {item.message}
       </div>
 
-      <details className="mt-2 rounded-md border border-slate-800 bg-slate-950 px-2 py-1">
+      <details className="mt-2 rounded-sm border border-slate-800 bg-slate-950 px-2 py-1">
         <summary className="cursor-pointer text-[11px] text-slate-500 hover:text-slate-300">
           Details
         </summary>

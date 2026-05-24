@@ -667,12 +667,12 @@ export default function DetectionQualityPage() {
             </section>
             ) : null}
 
-            <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+            <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-5">
               <QualityMetric
                 title="Synthetic incidents"
                 value={totalSynthetic}
                 subtitle={`${incidentsData?.total ?? 0} matching loaded`}
-                icon={<ShieldCheck className="h-4 w-4" />}
+                icon={<ShieldCheck className="h-3.5 w-3.5" />}
                 tone="primary"
               />
 
@@ -680,7 +680,7 @@ export default function DetectionQualityPage() {
                 title="Correlated"
                 value={`${pct(correlatedSynthetic, totalSynthetic)}%`}
                 subtitle={`${correlatedSynthetic}/${totalSynthetic}`}
-                icon={<Brain className="h-4 w-4" />}
+                icon={<Brain className="h-3.5 w-3.5" />}
                 tone={
                   correlatedSynthetic === totalSynthetic && totalSynthetic > 0
                     ? "success"
@@ -692,7 +692,7 @@ export default function DetectionQualityPage() {
                 title="High/Critical"
                 value={`${pct(highOrCriticalSynthetic, totalSynthetic)}%`}
                 subtitle={`${highOrCriticalSynthetic}/${totalSynthetic}`}
-                icon={<AlertTriangle className="h-4 w-4" />}
+                icon={<AlertTriangle className="h-3.5 w-3.5" />}
                 tone={highOrCriticalSynthetic > 0 ? "warning" : "neutral"}
               />
 
@@ -700,7 +700,7 @@ export default function DetectionQualityPage() {
                 title="MITRE signal"
                 value={`${pct(mitreTaggedSynthetic, totalSynthetic)}%`}
                 subtitle={`${mitreTaggedSynthetic}/${totalSynthetic}`}
-                icon={<Target className="h-4 w-4" />}
+                icon={<Target className="h-3.5 w-3.5" />}
                 tone={
                   mitreTaggedSynthetic === totalSynthetic && totalSynthetic > 0
                     ? "success"
@@ -712,7 +712,7 @@ export default function DetectionQualityPage() {
                 title="Quality score"
                 value={`${detectionQualityScore}%`}
                 subtitle="Correlation + priority + MITRE"
-                icon={<CheckCircle2 className="h-4 w-4" />}
+                icon={<CheckCircle2 className="h-3.5 w-3.5" />}
                 tone={toneForScore(detectionQualityScore)}
               />
             </section>
@@ -989,22 +989,26 @@ function QualityMetric({
   const classes = toneClasses(tone);
 
   return (
-    <div className={`rounded-lg border px-3 py-2 shadow-sm ${classes.card}`}>
-      <div className="flex items-center justify-between gap-2">
+    <div
+      className={`flex min-h-[58px] items-center justify-between gap-3 rounded-sm border px-2.5 py-2 shadow-sm ${classes.card}`}
+    >
         <div className="min-w-0">
           <div className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
             {title}
           </div>
-          <div className="mt-0.5 text-lg font-semibold leading-6 text-slate-100">
-            {value}
+          <div className="mt-0.5 flex min-w-0 items-baseline gap-2">
+            <span className="text-xl font-semibold leading-6 text-slate-100">
+              {value}
+            </span>
+            <span className="min-w-0 truncate text-[11px] leading-4 text-slate-500">
+              {subtitle}
+            </span>
           </div>
-          <div className="truncate text-[11px] text-slate-500">{subtitle}</div>
         </div>
 
-        <div className={`shrink-0 rounded-md bg-slate-950 p-1.5 ${classes.text}`}>
+        <div className={`shrink-0 rounded-sm bg-slate-950 p-1.5 ${classes.text}`}>
           {icon}
         </div>
-      </div>
     </div>
   );
 }
