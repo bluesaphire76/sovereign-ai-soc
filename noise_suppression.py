@@ -116,6 +116,21 @@ def _safe_sudo_command(command: str | None) -> bool:
     )
 
 
+
+def _is_vulnerability_package_finding(rule_id: str, rule_description: str) -> bool:
+    """Identify Wazuh package vulnerability findings.
+
+    These are useful vulnerability-management telemetry, but they should not
+    create one SOC incident per CVE/package finding.
+    """
+
+    normalized_description = rule_description.lower().strip()
+
+    if rule_id in {"23504", "23505", "23506"}:
+        return "cve-" in normalized_description and " affects " in normalized_description
+
+    return False
+
 def evaluate_noise_suppression(
     alert: dict,
     aggregation_result: dict | None = None,
@@ -148,6 +163,22 @@ def evaluate_noise_suppression(
 
     if not NOISE_SUPPRESSION_ENABLED:
         base["reasons"].append("noise suppression disabled")
+        return base
+
+    if _is_vulnerability_package_finding(rule_id, rule_description):
+        base.update(
+            {
+                "should_suppress": True,
+                "decision": "SUPPRESSED_NOISE",
+                "policy_id": "wazuh_vulnerability_package_finding",
+                "reasons": [
+                    "Wazuh package vulnerability finding suppressed from incident creation.",
+                    "Vulnerability/package findings remain available as raw/security telemetry.",
+                    "These findings should be handled through vulnerability management or aggregated reporting, not one SOC incident per CVE.",
+                ],
+                "category": "vulnerability_management_context",
+            }
+        )
         return base
 
     if level > NOISE_SUPPRESSION_MAX_LEVEL:
