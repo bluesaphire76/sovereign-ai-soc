@@ -22,6 +22,17 @@ OPERATIONAL_ACTION_CATEGORIES = {
     RecommendedActionCategory.DETECTION_TUNING,
 }
 
+UNQUALIFIED_CERTAINTY_TERMS = (
+    "definitely",
+    "certainly",
+    "without doubt",
+    "proves",
+    "proven",
+    "root cause is",
+    "confirmed compromise",
+    "confirmed malicious",
+)
+
 
 class InvestigationValidationIssue(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -45,6 +56,14 @@ def _issue(code: str, message: str, path: str, blocking: bool = True) -> Investi
     )
 
 
+def contains_unqualified_certainty(value: str | None) -> bool:
+    if not value:
+        return False
+
+    normalized = value.lower()
+    return any(term in normalized for term in UNQUALIFIED_CERTAINTY_TERMS)
+
+
 def validate_hypothesis(
     hypothesis: InvestigationHypothesis,
     *,
@@ -57,6 +76,15 @@ def validate_hypothesis(
             _issue(
                 "HYPOTHESIS_REQUIRES_EVIDENCE_OR_GAP",
                 "Hypotheses must include supporting evidence or explicitly document missing evidence.",
+                path,
+            )
+        )
+
+    if contains_unqualified_certainty(hypothesis.statement) and not hypothesis.supporting_evidence:
+        issues.append(
+            _issue(
+                "UNSUPPORTED_CERTAINTY_LANGUAGE",
+                "Hypotheses must avoid certainty language unless directly supported by evidence.",
                 path,
             )
         )
@@ -86,6 +114,18 @@ def validate_finding(
             _issue(
                 "UNSUPPORTED_FINDING_CLAIM",
                 "Unsupported factual claims must not be promoted as investigation findings.",
+                path,
+            )
+        )
+
+    if (
+        contains_unqualified_certainty(finding.description)
+        and finding.claim_classification != InvestigationClaimClassification.EVIDENCE_BACKED
+    ):
+        issues.append(
+            _issue(
+                "UNSUPPORTED_CERTAINTY_LANGUAGE",
+                "Findings must avoid certainty language unless classified as evidence-backed.",
                 path,
             )
         )
