@@ -440,6 +440,234 @@ def load_network_evidence_summary(
 
 
 
+
+def dns_context_empty(reason: str = "not_available") -> dict[str, Any]:
+    return {
+        "available": False,
+        "reason": reason,
+        "source": "dns_events",
+        "matching_logic": "same host/client IP and selected time window only",
+        "causal_correlation_inferred": False,
+        "window_minutes": 120,
+        "matched_agents": [],
+        "matched_client_ips": [],
+        "summary": {
+            "total": 0,
+            "unique_domains": 0,
+            "query_types": [],
+            "top_domains": [],
+        },
+        "items": [],
+        "limitations": [
+            "DNS context is matched by host/client IP and selected time window only.",
+            "DNS context does not imply causal correlation with the incident.",
+            "For operational incidents such as Wazuh agent stopped, DNS context should be treated as surrounding host activity, not root cause evidence.",
+        ],
+    }
+
+
+def normalize_dns_context_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row.get("id"),
+        "event_timestamp": safe_text(row.get("event_timestamp")),
+        "agent_name": row.get("agent_name"),
+        "agent_ip": row.get("agent_ip"),
+        "client_ip": row.get("client_ip"),
+        "resolver_ip": row.get("resolver_ip"),
+        "query_name": row.get("query_name"),
+        "query_type": row.get("query_type"),
+        "query_status": row.get("query_status"),
+        "collector": row.get("collector"),
+        "source": row.get("source"),
+    }
+
+
+def load_dns_context_summary(
+    incident_payload: dict[str, Any],
+    window_minutes: int = 120,
+    limit: int = 25,
+) -> dict[str, Any]:
+    """Best-effort DNS context enrichment for the AI brief.
+
+    DNS context is matched by host/client IP and time window only.
+    It must not be treated as causal incident evidence.
+    """
+
+    try:
+        incident_ts = normalize_timestamp_utc(incident_payload.get("timestamp"))
+
+        if not incident_ts:
+            return dns_context_empty("incident_timestamp_unavailable")
+
+        raw_alert = incident_payload.get("raw_alert") or {}
+        if not isinstance(raw_alert, dict):
+            raw_alert = {}
+
+        candidate_agents: set[str] = set()
+        candidate_ips: set[str] = set()
+
+        if incident_payload.get("agent"):
+            candidate_agents.add(str(incident_payload["agent"]).strip())
+
+        for key_path in [("agent", "name"), ("host", "name")]:
+            current: Any = raw_alert
+            for key in key_path:
+                if not isinstance(current, dict):
+                    current = None
+                    break
+                current = current.get(key)
+            if current:
+                candidate_agents.add(str(current).strip())
+
+        for key_path in [
+            ("agent", "ip"),
+            ("data", "srcip"),
+            ("data", "dstip"),
+            ("data", "src_ip"),
+            ("data", "dst_ip"),
+        ]:
+            current: Any = raw_alert
+            for key in key_path:
+                if not isinstance(current, dict):
+                    current = None
+                    break
+                current = current.get(key)
+            if current:
+                candidate_ips.add(str(current).strip())
+
+        entities = incident_payload.get("extracted_entities") or {}
+        for ip in entities.get("ips") or []:
+            candidate_ips.add(str(ip).strip())
+
+        candidate_agents = {value for value in candidate_agents if value and value != "-"}
+        candidate_ips = {value for value in candidate_ips if value and value != "-"}
+
+        if not candidate_agents and not candidate_ips:
+            return dns_context_empty("no_agent_or_client_ip_candidates")
+
+        start_ts = incident_ts - timedelta(minutes=window_minutes)
+        end_ts = incident_ts + timedelta(minutes=window_minutes)
+
+        match_clauses: list[str] = []
+        params: dict[str, Any] = {"start_ts": start_ts, "end_ts": end_ts, "limit": limit}
+
+        for index, agent in enumerate(sorted(candidate_agents)[:20]):
+            key = f"agent_{index}"
+            params[key] = agent
+            match_clauses.append(f"agent_name = :{key}")
+
+        for index, ip in enumerate(sorted(candidate_ips)[:20]):
+            key = f"ip_{index}"
+            params[key] = ip
+            match_clauses.append(f"client_ip = :{key}")
+
+        if not match_clauses:
+            return dns_context_empty("no_valid_match_candidates")
+
+        where_clause = (
+            "event_timestamp BETWEEN :start_ts AND :end_ts "
+            "AND (" + " OR ".join(match_clauses) + ")"
+        )
+
+        with SessionLocal() as db:
+            rows = (
+                db.execute(
+                    text(f"""
+                        SELECT
+                            id,
+                            source,
+                            event_timestamp,
+                            agent_name,
+                            agent_ip,
+                            client_ip,
+                            resolver_ip,
+                            query_name,
+                            query_type,
+                            query_status,
+                            collector
+                        FROM dns_events
+                        WHERE {where_clause}
+                        ORDER BY event_timestamp DESC NULLS LAST, id DESC
+                        LIMIT :limit
+                    """),
+                    params,
+                )
+                .mappings()
+                .all()
+            )
+
+            query_types = (
+                db.execute(
+                    text(f"""
+                        SELECT query_type, count(*) AS count
+                        FROM dns_events
+                        WHERE {where_clause}
+                        GROUP BY query_type
+                        ORDER BY count DESC
+                        LIMIT 10
+                    """),
+                    params,
+                )
+                .mappings()
+                .all()
+            )
+
+            top_domains = (
+                db.execute(
+                    text(f"""
+                        SELECT query_name, count(*) AS count
+                        FROM dns_events
+                        WHERE {where_clause}
+                          AND query_name IS NOT NULL
+                        GROUP BY query_name
+                        ORDER BY count DESC
+                        LIMIT 10
+                    """),
+                    params,
+                )
+                .mappings()
+                .all()
+            )
+
+            unique_domains = db.execute(
+                text(f"""
+                    SELECT count(DISTINCT query_name)
+                    FROM dns_events
+                    WHERE {where_clause}
+                """),
+                params,
+            ).scalar()
+
+        items = [normalize_dns_context_row(dict(row)) for row in rows]
+        total = len(items)
+
+        return {
+            "available": total > 0,
+            "reason": "matched_dns_context" if total else "no_contextual_dns_events_found",
+            "source": "dns_events",
+            "matching_logic": "same host/client IP and selected time window only",
+            "causal_correlation_inferred": False,
+            "window_minutes": window_minutes,
+            "matched_agents": sorted(candidate_agents),
+            "matched_client_ips": sorted(candidate_ips),
+            "summary": {
+                "total": total,
+                "unique_domains": unique_domains or 0,
+                "query_types": [dict(row) for row in query_types],
+                "top_domains": [dict(row) for row in top_domains],
+            },
+            "items": items,
+            "limitations": [
+                "DNS context is matched by host/client IP and selected time window only.",
+                "DNS context does not imply causal correlation with the incident.",
+                "For operational incidents such as Wazuh agent stopped, DNS context should be treated as surrounding host activity, not root cause evidence.",
+            ],
+        }
+
+    except Exception:
+        return {**dns_context_empty("dns_context_lookup_failed"), "lookup_error_handled": True}
+
+
 def build_prompt(
     incident_payload: dict[str, Any],
     security_context: list[dict[str, Any]],
@@ -551,6 +779,10 @@ Network evidence guidance:
 - If incident_data.network_evidence.available is true, explicitly mention the Suricata evidence in evidence_used and evidence_overview.
 - If Suricata alert events are present, include them as high-fidelity supporting evidence, but do not automatically escalate without Wazuh/correlation support.
 - If only flow/http/tls/dns events are present, treat them as investigation context, not proof of compromise.
+- If incident_data.dns_context.available is true, treat DNS telemetry as contextual host activity matched by host/client IP and selected time window only.
+- Do not claim DNS activity caused, triggered, or is causally correlated with the incident unless explicit detection evidence supports that conclusion.
+- For operational incidents such as Wazuh agent stopped, describe DNS context as surrounding host network activity, not root cause evidence.
+- If DNS context is unavailable or empty, state that DNS context did not add host/time-window observations.
 - If network evidence is unavailable or empty, state that network telemetry did not add related evidence in the selected window.
 - Keep all recommendations human-approved and read-only.
 
@@ -969,7 +1201,7 @@ def deterministic_brief(incident_payload: dict[str, Any], reason: str) -> dict[s
                 "requires_approval": True,
             },
             {
-                "action": "Review related Suricata network evidence for matching IPs, hostnames, HTTP/TLS/DNS activity and IDS alerts",
+                "action": "Review related Suricata network evidence for matching IPs, hostnames, HTTP/TLS activity and IDS alerts",
                 "impact": "Medium" if network_total else "Low",
                 "requires_approval": True,
             },
@@ -987,6 +1219,132 @@ def deterministic_brief(incident_payload: dict[str, Any], reason: str) -> dict[s
     }
 
 
+
+def append_unique_dict(items: list[dict[str, Any]], key: str, value: str, item: dict[str, Any]) -> None:
+    if any(existing.get(key) == value for existing in items if isinstance(existing, dict)):
+        return
+
+    items.append(item)
+
+
+def enrich_brief_with_dns_context(
+    brief: dict[str, Any],
+    incident_payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Add DNS context to both deterministic preview and generated AI brief.
+
+    DNS context is host/time-window context only. It must not be presented as
+    causal evidence unless another explicit detection source supports that.
+    """
+
+    dns_context = incident_payload.get("dns_context") or {}
+    dns_summary = dns_context.get("summary") or {}
+
+    try:
+        dns_total = int(dns_summary.get("total") or 0)
+    except (TypeError, ValueError):
+        dns_total = 0
+
+    try:
+        unique_domains = int(dns_summary.get("unique_domains") or 0)
+    except (TypeError, ValueError):
+        unique_domains = 0
+
+    available = bool(dns_context.get("available")) and dns_total > 0
+    window_minutes = dns_context.get("window_minutes", 120)
+
+    evidence_used = brief.setdefault("evidence_used", [])
+    evidence_overview = brief.setdefault("evidence_overview", [])
+    attack_progression = brief.setdefault("attack_progression", [])
+    recommended_actions = brief.setdefault("recommended_actions", [])
+
+    if available:
+        top_domains = dns_summary.get("top_domains") or []
+        domain_names = [
+            str(item.get("query_name"))
+            for item in top_domains
+            if isinstance(item, dict) and item.get("query_name")
+        ][:5]
+
+        domain_text = ", ".join(domain_names) if domain_names else "no dominant domain listed"
+
+        append_unique_dict(
+            evidence_used,
+            "label",
+            "Endpoint DNS context",
+            {
+                "label": "Endpoint DNS context",
+                "count": dns_total,
+                "description": (
+                    f"{dns_total} DNS observation(s) were found for the same host/client IP "
+                    f"in the ±{window_minutes} minute window, across {unique_domains} unique domain(s). "
+                    f"Top observed domains: {domain_text}. This is contextual host telemetry only "
+                    "and does not imply causal correlation with the incident."
+                ),
+            },
+        )
+
+        append_unique_dict(
+            evidence_overview,
+            "source",
+            "Endpoint DNS context",
+            {
+                "time": safe_text(incident_payload.get("timestamp_local")),
+                "description": (
+                    f"DNS context shows host activity near the incident time: {dns_total} DNS "
+                    f"observation(s), {unique_domains} unique queried domain(s). This helps describe "
+                    "surrounding host network activity but does not explain or prove the incident cause."
+                ),
+                "source": "Endpoint DNS context",
+                "verification": "Context only",
+            },
+        )
+
+        append_unique_dict(
+            attack_progression,
+            "source",
+            "Endpoint DNS context",
+            {
+                "time": safe_text(incident_payload.get("timestamp_local")),
+                "description": (
+                    f"Endpoint DNS context was observed in the selected window. It is matched by "
+                    "host/client IP and time only; no causal relationship is inferred."
+                ),
+                "source": "Endpoint DNS context",
+                "verification": "Context only",
+            },
+        )
+
+    else:
+        append_unique_dict(
+            evidence_used,
+            "label",
+            "Endpoint DNS context",
+            {
+                "label": "Endpoint DNS context",
+                "count": 0,
+                "description": (
+                    "No contextual DNS telemetry was found for the same host/client IP in the selected "
+                    "time window, or DNS context was unavailable. No causal DNS relationship is inferred."
+                ),
+            },
+        )
+
+    append_unique_dict(
+        recommended_actions,
+        "action",
+        "Review DNS context as host/time-window telemetry only; do not infer causal correlation without supporting evidence",
+        {
+            "action": "Review DNS context as host/time-window telemetry only; do not infer causal correlation without supporting evidence",
+            "owner": "SOC analyst",
+            "impact": "Low" if available else "Informational",
+            "requires_approval": True,
+        },
+    )
+
+    return brief
+
+
 def load_incident_payload(db, incident_id: int) -> dict[str, Any]:
     incident = db.query(Incident).filter(Incident.id == incident_id).first()
 
@@ -995,6 +1353,7 @@ def load_incident_payload(db, incident_id: int) -> dict[str, Any]:
 
     payload = serialize_incident(incident)
     payload["network_evidence"] = load_network_evidence_summary(payload)
+    payload["dns_context"] = load_dns_context_summary(payload)
 
     return payload
 
@@ -1008,6 +1367,7 @@ def build_ai_brief_preview(incident_id: int) -> dict[str, Any]:
             incident_payload,
             "this GET endpoint returns a deterministic preview; use POST to generate the local AI brief",
         )
+        brief = enrich_brief_with_dns_context(brief, incident_payload)
 
         return {
             "incident_id": incident_id,
@@ -1095,6 +1455,7 @@ def generate_ai_brief(incident_id: int) -> dict[str, Any]:
             )
 
         brief = normalize_brief(parsed, incident_payload.get("extracted_entities") or {})
+        brief = enrich_brief_with_dns_context(brief, incident_payload)
 
         audit = IncidentAudit(
             incident_id=incident_id,
