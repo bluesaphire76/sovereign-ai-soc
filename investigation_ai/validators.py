@@ -80,6 +80,27 @@ def validate_hypothesis(
             )
         )
 
+    if hypothesis.claim_classification == InvestigationClaimClassification.UNSUPPORTED:
+        issues.append(
+            _issue(
+                "UNSUPPORTED_HYPOTHESIS_CLAIM",
+                "Unsupported factual claims must not be promoted as investigation hypotheses.",
+                path,
+            )
+        )
+
+    if (
+        hypothesis.claim_classification == InvestigationClaimClassification.EVIDENCE_BACKED
+        and not hypothesis.supporting_evidence
+    ):
+        issues.append(
+            _issue(
+                "EVIDENCE_BACKED_HYPOTHESIS_WITHOUT_EVIDENCE",
+                "Evidence-backed hypotheses must reference supporting evidence.",
+                path,
+            )
+        )
+
     if contains_unqualified_certainty(hypothesis.statement) and not hypothesis.supporting_evidence:
         issues.append(
             _issue(

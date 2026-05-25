@@ -144,6 +144,7 @@ class ConfidenceAssessment(InvestigationBaseModel):
     negative_signals: list[str] = Field(default_factory=list)
     missing_evidence: list[str] = Field(default_factory=list)
     contradictory_evidence: list[str] = Field(default_factory=list)
+    scoring_factors: list[str] = Field(default_factory=list)
 
     @field_validator("score", mode="before")
     @classmethod
@@ -170,6 +171,9 @@ class InvestigationHypothesis(InvestigationBaseModel):
     title: str
     statement: str
     status: InvestigationHypothesisStatus = InvestigationHypothesisStatus.ACTIVE
+    claim_classification: InvestigationClaimClassification = (
+        InvestigationClaimClassification.INFERRED
+    )
     confidence: ConfidenceAssessment = Field(default_factory=ConfidenceAssessment)
     supporting_evidence: list[EvidenceReference] = Field(default_factory=list)
     missing_evidence: list[str] = Field(default_factory=list)

@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .adapters import InvestigationContext, evidence_references_from_context, mitre_techniques_from_context
+from .adapters import InvestigationContext, mitre_techniques_from_context
+from .evidence import normalize_evidence_references
 
 
 INVESTIGATION_SYSTEM_PROMPT = """You are a structured SOC investigation engine.
@@ -27,7 +28,7 @@ def _trim_text(value: Any, limit: int = 2400) -> str:
 def build_investigation_prompt(context: InvestigationContext) -> str:
     evidence = [
         item.model_dump(mode="json", exclude_none=True)
-        for item in evidence_references_from_context(context)
+        for item in normalize_evidence_references(context)
     ]
     mitre_techniques = mitre_techniques_from_context(context)
 
@@ -61,10 +62,12 @@ def build_investigation_prompt(context: InvestigationContext) -> str:
                     "negative_signals": [],
                     "missing_evidence": [],
                     "contradictory_evidence": [],
+                    "scoring_factors": [],
                 },
                 "supporting_evidence": [],
                 "missing_evidence": [],
                 "contradicting_evidence": [],
+                "claim_classification": "INFERRED",
                 "rationale": "Explain support and uncertainty.",
                 "related_mitre_techniques": [],
             }
@@ -76,7 +79,7 @@ def build_investigation_prompt(context: InvestigationContext) -> str:
                 "title": "Finding title",
                 "description": "Finding description.",
                 "claim_classification": "INFERRED",
-                "confidence": {"score": 0, "level": "LOW"},
+                "confidence": {"score": 0, "level": "LOW", "scoring_factors": []},
                 "evidence": [],
                 "business_impact": None,
                 "technical_impact": None,
@@ -121,6 +124,7 @@ def build_investigation_prompt(context: InvestigationContext) -> str:
             "negative_signals": [],
             "missing_evidence": [],
             "contradictory_evidence": [],
+            "scoring_factors": [],
         },
         "limitations": [],
         "next_investigation_steps": [],

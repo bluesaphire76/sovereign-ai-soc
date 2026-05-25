@@ -10,17 +10,16 @@ from llm_output import is_invalid_llm_output, sanitize_llm_output
 
 from .adapters import (
     InvestigationContext,
-    evidence_references_from_context,
     mitre_techniques_from_context,
     normalize_investigation_context,
     safe_text,
 )
+from .confidence import calculate_confidence, calculate_hypothesis_confidence
+from .evidence import evidence_ids, normalize_evidence_references, strongest_evidence
 from .factory import create_fallback_investigation_brief
 from .models import (
-    ConfidenceAssessment,
     InvestigationBrief,
     InvestigationClaimClassification,
-    InvestigationConfidenceLevel,
     InvestigationFinding,
     InvestigationFindingType,
     InvestigationHypothesis,
@@ -34,6 +33,12 @@ from .models import (
     RecommendedCheckPriority,
 )
 from .prompts import INVESTIGATION_SYSTEM_PROMPT, build_investigation_prompt
+from .reasoning import (
+    ReasoningAssessment,
+    analyze_reasoning_context,
+    build_hypothesis_rationale,
+    classify_hypothesis_claim,
+)
 from .validators import (
     action_implies_operational_change,
     assert_valid_investigation_brief,
@@ -71,10 +76,6 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("LLM output JSON root must be an object.")
     return payload
-
-
-def _limited_list(values: Sequence[Any], limit: int = 4) -> list[Any]:
-    return list(values[:limit])
 
 
 def _correlation_value(context: InvestigationContext, key: str) -> Any:
@@ -121,58 +122,6 @@ def _host_label(context: InvestigationContext) -> str:
     )
 
 
-def _confidence_from_context(context: InvestigationContext) -> ConfidenceAssessment:
-    score = 15
-    positive_signals: list[str] = []
-    missing_evidence: list[str] = []
-
-    if context.incident:
-        score += 15
-        positive_signals.append("Primary incident record is available.")
-    else:
-        missing_evidence.append("Primary incident record")
-
-    if context.raw_events:
-        score += min(15, len(context.raw_events) * 5)
-        positive_signals.append("Raw event context is available.")
-    else:
-        missing_evidence.append("Raw event context")
-
-    if context.security_alerts:
-        score += min(15, len(context.security_alerts) * 5)
-        positive_signals.append("Normalized security alert context is available.")
-    else:
-        missing_evidence.append("Normalized security alert context")
-
-    correlation_score = _correlation_score(context)
-    if context.correlation_summary or correlation_score:
-        score += 20 if correlation_score >= 60 else 10
-        positive_signals.append("Correlation context is available.")
-    else:
-        missing_evidence.append("Correlation context")
-
-    mitre_techniques = mitre_techniques_from_context(context)
-    if mitre_techniques:
-        score += 10
-        positive_signals.append("MITRE mapping is available.")
-    else:
-        missing_evidence.append("MITRE mapping")
-
-    if context.timeline:
-        score += 10
-        positive_signals.append("Timeline context is available.")
-    else:
-        missing_evidence.append("Timeline context")
-
-    return ConfidenceAssessment(
-        score=min(85, score),
-        level=InvestigationConfidenceLevel.UNKNOWN,
-        rationale="Confidence is based on available incident, evidence, correlation and timeline context.",
-        positive_signals=positive_signals,
-        missing_evidence=missing_evidence,
-    )
-
-
 def _risk_assessment(context: InvestigationContext) -> str:
     risk = _risk_score(context)
     correlation = _correlation_score(context)
@@ -203,7 +152,12 @@ def _summary_from_context(context: InvestigationContext) -> str:
     return f"{summary} The brief is structured for analyst review and does not execute remediation."
 
 
-def _build_limitations(context: InvestigationContext, fallback_reason: str | None = None) -> list[InvestigationLimitation]:
+def _build_limitations(
+    context: InvestigationContext,
+    *,
+    reasoning: ReasoningAssessment | None = None,
+    fallback_reason: str | None = None,
+) -> list[InvestigationLimitation]:
     limitations: list[InvestigationLimitation] = []
 
     if fallback_reason:
@@ -238,6 +192,17 @@ def _build_limitations(context: InvestigationContext, fallback_reason: str | Non
             )
         )
 
+    if reasoning and reasoning.contradictory_evidence:
+        limitations.append(
+            InvestigationLimitation(
+                limitation_id="investigation-contradictory-signals",
+                description="Contradictory or dampening evidence was detected.",
+                impact="Confidence is reduced until the contradiction is reviewed by an analyst.",
+                missing_data=[],
+                suggested_resolution="Review contradiction references before confirming the hypothesis.",
+            )
+        )
+
     return limitations
 
 
@@ -248,19 +213,29 @@ def _build_deterministic_brief(
     session_id: str,
     fallback_reason: str | None = None,
 ) -> InvestigationBrief:
-    evidence = evidence_references_from_context(context)
-    confidence = _confidence_from_context(context)
+    evidence = normalize_evidence_references(context)
+    reasoning = analyze_reasoning_context(context, evidence)
+    confidence = calculate_confidence(
+        context=context,
+        supporting_evidence=evidence,
+        missing_evidence=reasoning.missing_evidence,
+        contradictory_evidence=reasoning.contradictory_evidence,
+        negative_signals=reasoning.negative_signals,
+    )
     mitre_techniques = mitre_techniques_from_context(context)
-    primary_evidence = _limited_list(evidence, 5)
-    missing_evidence = [
-        item
-        for item in (
-            "raw event payload" if not context.raw_events else None,
-            "security alert normalization" if not context.security_alerts else None,
-            "correlation timeline" if not context.timeline else None,
-        )
-        if item
-    ]
+    primary_evidence = strongest_evidence(evidence, limit=5)
+    missing_evidence = reasoning.missing_evidence or ["Additional evidence required to confirm the hypothesis."]
+    primary_confidence = calculate_hypothesis_confidence(
+        context=context,
+        supporting_evidence=primary_evidence,
+        missing_evidence=missing_evidence,
+        contradictory_evidence=reasoning.contradictory_evidence,
+    )
+    primary_claim_classification = classify_hypothesis_claim(
+        primary_evidence,
+        missing_evidence,
+        reasoning.contradictory_evidence,
+    )
 
     hypotheses = [
         InvestigationHypothesis(
@@ -271,10 +246,16 @@ def _build_deterministic_brief(
                 "that should be validated against available telemetry."
             ),
             status=InvestigationHypothesisStatus.ACTIVE,
-            confidence=confidence,
+            claim_classification=primary_claim_classification,
+            confidence=primary_confidence,
             supporting_evidence=primary_evidence,
             missing_evidence=missing_evidence,
-            rationale="This hypothesis is based on the primary incident record and any attached normalized evidence.",
+            contradicting_evidence=reasoning.contradictory_evidence,
+            rationale=build_hypothesis_rationale(
+                supporting_evidence=primary_evidence,
+                missing_evidence=missing_evidence,
+                contradictory_evidence=reasoning.contradictory_evidence,
+            ),
             related_mitre_techniques=mitre_techniques,
         )
     ]
@@ -290,6 +271,17 @@ def _build_deterministic_brief(
             correlation_missing_evidence.append("structured correlation summary")
         if not context.timeline:
             correlation_missing_evidence.append("full related event timeline")
+        correlation_confidence = calculate_hypothesis_confidence(
+            context=context,
+            supporting_evidence=correlation_evidence,
+            missing_evidence=correlation_missing_evidence,
+            contradictory_evidence=reasoning.contradictory_evidence,
+        )
+        correlation_claim_classification = classify_hypothesis_claim(
+            correlation_evidence,
+            correlation_missing_evidence,
+            reasoning.contradictory_evidence,
+        )
 
         hypotheses.append(
             InvestigationHypothesis(
@@ -300,10 +292,16 @@ def _build_deterministic_brief(
                     "with related signals before prioritization is finalized."
                 ),
                 status=InvestigationHypothesisStatus.ACTIVE,
-                confidence=confidence,
+                claim_classification=correlation_claim_classification,
+                confidence=correlation_confidence,
                 supporting_evidence=correlation_evidence,
                 missing_evidence=correlation_missing_evidence,
-                rationale="Correlation context is decision support and requires analyst validation.",
+                contradicting_evidence=reasoning.contradictory_evidence,
+                rationale=build_hypothesis_rationale(
+                    supporting_evidence=correlation_evidence,
+                    missing_evidence=correlation_missing_evidence,
+                    contradictory_evidence=reasoning.contradictory_evidence,
+                ),
                 related_mitre_techniques=mitre_techniques,
             )
         )
@@ -314,14 +312,19 @@ def _build_deterministic_brief(
             finding_type=InvestigationFindingType.INDICATOR,
             title="Primary incident record is available",
             description=f"The incident record references {_rule_label(context)} on {_host_label(context)}.",
-            claim_classification=InvestigationClaimClassification.EVIDENCE_BACKED if evidence else InvestigationClaimClassification.INFERRED,
-            confidence=confidence,
+            claim_classification=InvestigationClaimClassification.EVIDENCE_BACKED if primary_evidence else InvestigationClaimClassification.INFERRED,
+            confidence=primary_confidence,
             evidence=primary_evidence,
             technical_impact="The source signal should be validated against host, alert and timeline context.",
         )
     ]
 
     if mitre_techniques:
+        mitre_evidence = [
+            item
+            for item in evidence
+            if item.evidence_type.value == "MITRE_METADATA"
+        ]
         findings.append(
             InvestigationFinding(
                 finding_id="finding-mitre-context",
@@ -329,17 +332,13 @@ def _build_deterministic_brief(
                 title="MITRE mapping is available",
                 description="The incident includes MITRE ATT&CK context for analyst-oriented behavior review.",
                 claim_classification=InvestigationClaimClassification.INFERRED,
-                confidence=ConfidenceAssessment(
-                    score=min(confidence.score, 65),
-                    level=InvestigationConfidenceLevel.UNKNOWN,
-                    rationale="MITRE mapping provides behavioral context but does not prove intent by itself.",
-                    positive_signals=mitre_techniques,
+                confidence=calculate_hypothesis_confidence(
+                    context=context,
+                    supporting_evidence=mitre_evidence,
+                    missing_evidence=["direct technique execution evidence"],
+                    contradictory_evidence=reasoning.contradictory_evidence,
                 ),
-                evidence=[
-                    item
-                    for item in evidence
-                    if item.evidence_type.value == "MITRE_METADATA"
-                ],
+                evidence=mitre_evidence,
                 technical_impact="MITRE context can guide evidence review and recommended checks.",
             )
         )
@@ -380,10 +379,17 @@ def _build_deterministic_brief(
             expected_impact="Improves auditability and handoff quality.",
             risk="Low. No operational remediation is executed by this action.",
             related_hypothesis_ids=[hypothesis.hypothesis_id for hypothesis in hypotheses],
-            related_evidence_ids=[item.evidence_id for item in primary_evidence],
+            related_evidence_ids=evidence_ids(primary_evidence),
             execution_supported=False,
         )
     ]
+    next_steps = [
+        "Validate source alert details and affected entity context.",
+        "Review supporting and contradictory evidence before selecting response actions.",
+        "Keep remediation decisions human-approved and auditable.",
+    ]
+    if reasoning.missing_evidence:
+        next_steps.append("Collect missing evidence: " + ", ".join(reasoning.missing_evidence[:5]) + ".")
 
     brief = InvestigationBrief(
         incident_id=incident_id,
@@ -397,12 +403,12 @@ def _build_deterministic_brief(
         recommended_actions=recommended_actions,
         evidence_used=evidence,
         confidence=confidence,
-        limitations=_build_limitations(context, fallback_reason=fallback_reason),
-        next_investigation_steps=[
-            "Validate source alert details and affected entity context.",
-            "Review supporting and contradictory evidence before selecting response actions.",
-            "Keep remediation decisions human-approved and auditable.",
-        ],
+        limitations=_build_limitations(
+            context,
+            reasoning=reasoning,
+            fallback_reason=fallback_reason,
+        ),
+        next_investigation_steps=next_steps,
     )
     assert_valid_investigation_brief(brief)
     return brief
@@ -453,7 +459,12 @@ def _add_limitation(
     )
 
 
-def _enforce_claim_governance(brief: InvestigationBrief) -> InvestigationBrief:
+def _enforce_claim_governance(
+    brief: InvestigationBrief,
+    *,
+    context: InvestigationContext,
+    reasoning: ReasoningAssessment,
+) -> InvestigationBrief:
     brief.summary = _soften_certainty_language(brief.summary) or brief.summary
     brief.risk_assessment = _soften_certainty_language(brief.risk_assessment)
 
@@ -461,6 +472,11 @@ def _enforce_claim_governance(brief: InvestigationBrief) -> InvestigationBrief:
 
     for hypothesis in brief.hypotheses:
         hypothesis.statement = _soften_certainty_language(hypothesis.statement) or hypothesis.statement
+        original_unsupported = hypothesis.claim_classification == InvestigationClaimClassification.UNSUPPORTED
+        if original_unsupported:
+            hypothesis.claim_classification = InvestigationClaimClassification.SPECULATIVE
+            unsupported_count += 1
+
         for evidence in hypothesis.supporting_evidence:
             if evidence.claim_classification == InvestigationClaimClassification.UNSUPPORTED:
                 evidence.claim_classification = InvestigationClaimClassification.SPECULATIVE
@@ -471,8 +487,21 @@ def _enforce_claim_governance(brief: InvestigationBrief) -> InvestigationBrief:
                 "Additional supporting evidence is required before this hypothesis can be treated as evidence-backed."
             )
 
+        if hypothesis.claim_classification == InvestigationClaimClassification.EVIDENCE_BACKED and not hypothesis.supporting_evidence:
+            hypothesis.claim_classification = InvestigationClaimClassification.INFERRED
+            unsupported_count += 1
+
+        hypothesis.confidence = calculate_hypothesis_confidence(
+            context=context,
+            supporting_evidence=hypothesis.supporting_evidence,
+            missing_evidence=hypothesis.missing_evidence,
+            contradictory_evidence=hypothesis.contradicting_evidence or reasoning.contradictory_evidence,
+            unsupported_claim_count=1 if original_unsupported else 0,
+        )
+
     for finding in brief.findings:
         finding.description = _soften_certainty_language(finding.description) or finding.description
+        original_unsupported = finding.claim_classification == InvestigationClaimClassification.UNSUPPORTED
         if finding.claim_classification == InvestigationClaimClassification.UNSUPPORTED:
             finding.claim_classification = InvestigationClaimClassification.SPECULATIVE
             unsupported_count += 1
@@ -483,6 +512,14 @@ def _enforce_claim_governance(brief: InvestigationBrief) -> InvestigationBrief:
         ):
             finding.claim_classification = InvestigationClaimClassification.INFERRED
             unsupported_count += 1
+
+        finding.confidence = calculate_hypothesis_confidence(
+            context=context,
+            supporting_evidence=finding.evidence,
+            missing_evidence=[] if finding.evidence else ["direct supporting evidence"],
+            contradictory_evidence=reasoning.contradictory_evidence,
+            unsupported_claim_count=1 if original_unsupported else 0,
+        )
 
     for evidence in brief.evidence_used:
         if evidence.claim_classification == InvestigationClaimClassification.UNSUPPORTED:
@@ -527,6 +564,15 @@ def _enforce_claim_governance(brief: InvestigationBrief) -> InvestigationBrief:
             suggested_resolution="Attach direct evidence or mark the claims as not supported.",
         )
 
+    brief.confidence = calculate_confidence(
+        context=context,
+        supporting_evidence=brief.evidence_used,
+        missing_evidence=reasoning.missing_evidence,
+        contradictory_evidence=reasoning.contradictory_evidence,
+        negative_signals=reasoning.negative_signals,
+        unsupported_claim_count=unsupported_count,
+    )
+
     return brief
 
 
@@ -537,6 +583,8 @@ def _brief_from_llm_payload(
     incident_id: int,
     session_id: str,
 ) -> InvestigationBrief:
+    evidence = normalize_evidence_references(context)
+    reasoning = analyze_reasoning_context(context, evidence)
     allowed_fields = set(InvestigationBrief.model_fields)
     filtered = {key: value for key, value in payload.items() if key in allowed_fields}
     filtered["incident_id"] = incident_id
@@ -544,16 +592,26 @@ def _brief_from_llm_payload(
     filtered.setdefault("status", InvestigationSessionStatus.READY_FOR_ANALYST)
     filtered.setdefault(
         "evidence_used",
-        [
-            item.model_dump(mode="json", exclude_none=True)
-            for item in evidence_references_from_context(context)
-        ],
+        [item.model_dump(mode="json", exclude_none=True) for item in evidence],
     )
-    filtered.setdefault("confidence", _confidence_from_context(context).model_dump(mode="json"))
+    filtered.setdefault(
+        "confidence",
+        calculate_confidence(
+            context=context,
+            supporting_evidence=evidence,
+            missing_evidence=reasoning.missing_evidence,
+            contradictory_evidence=reasoning.contradictory_evidence,
+            negative_signals=reasoning.negative_signals,
+        ).model_dump(mode="json"),
+    )
     filtered.setdefault("next_investigation_steps", ["Review the structured brief with an analyst before response decisions."])
 
     brief = InvestigationBrief(**filtered)
-    return _enforce_claim_governance(brief)
+    return _enforce_claim_governance(
+        brief,
+        context=context,
+        reasoning=reasoning,
+    )
 
 
 def _validate_generated_brief(brief: InvestigationBrief) -> None:
