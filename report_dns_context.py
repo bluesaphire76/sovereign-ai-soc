@@ -742,4 +742,3 @@ def append_case_dns_context_markdown(
         )
 
     return markdown.rstrip() + "\n\n" + "\n".join(lines)
-
