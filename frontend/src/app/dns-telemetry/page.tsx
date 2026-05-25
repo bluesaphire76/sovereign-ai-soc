@@ -266,7 +266,7 @@ export default function DnsTelemetryPage() {
           </div>
         ) : (
           <>
-            <section className="mb-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+            <section className="mb-3 grid gap-1.5 md:grid-cols-2 xl:grid-cols-4">
               <DnsMetric
                 title="DNS events"
                 value={summary?.total ?? 0}
@@ -509,9 +509,19 @@ function DnsMetric({
       className={`flex min-h-[58px] items-center justify-between gap-3 rounded-sm border px-2.5 py-2 shadow-sm ${dnsMetricToneClasses[tone]}`}
     >
       <div className="min-w-0">
-        <p className="text-[10px] uppercase tracking-wide text-slate-500">{title}</p>
-        <div className="mt-1 truncate text-base font-semibold text-slate-100">{value}</div>
-        <p className="mt-0.5 truncate text-[10px] text-slate-500">{subtitle}</p>
+        <div className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
+          {title}
+        </div>
+        <div className="mt-0.5 flex min-w-0 items-baseline gap-2">
+          <span className="truncate text-xl font-semibold leading-6 text-slate-100">
+            {value}
+          </span>
+          {subtitle && (
+            <span className="min-w-0 truncate text-[11px] leading-4 text-slate-500">
+              {subtitle}
+            </span>
+          )}
+        </div>
       </div>
       <div className={`shrink-0 rounded-sm p-1.5 ${dnsMetricIconClasses[tone]}`}>{icon}</div>
     </div>
