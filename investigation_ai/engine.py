@@ -23,6 +23,12 @@ from .expansion import (
     run_single_enrichment_pass,
 )
 from .factory import create_fallback_investigation_brief
+from .intelligence import (
+    HistoricalInvestigationContext,
+    SimilarityAnalysisLimits,
+    build_historical_investigation_context,
+    enrich_brief_with_historical_context,
+)
 from .models import (
     EvidenceReference,
     InvestigationBrief,
@@ -79,6 +85,7 @@ def _persist_brief_if_requested(
     enrichment_pass_count: int = 0,
     fallback_used: bool | None = None,
     expansion: InvestigationEvidenceExpansion | None = None,
+    historical_context: HistoricalInvestigationContext | None = None,
 ) -> None:
     if persistence_session is None:
         return
@@ -94,6 +101,7 @@ def _persist_brief_if_requested(
         enrichment_pass_count=enrichment_pass_count,
         fallback_used=fallback_used,
         expansion=expansion,
+        historical_context=historical_context,
     )
     if not result.success:
         logger.warning(
@@ -108,6 +116,29 @@ def _brief_incident_id(context: InvestigationContext, incident_id: int | None) -
     if context.incident_id is not None:
         return context.incident_id
     return 0
+
+
+def _apply_historical_context_if_requested(
+    brief: InvestigationBrief,
+    *,
+    context: InvestigationContext,
+    enabled: bool = False,
+    historical_contexts: Sequence[InvestigationContext] | None = None,
+    historical_briefs: Sequence[InvestigationBrief] | None = None,
+    similarity_limits: SimilarityAnalysisLimits | None = None,
+) -> tuple[InvestigationBrief, HistoricalInvestigationContext | None]:
+    if not enabled:
+        return brief, None
+
+    historical_context = build_historical_investigation_context(
+        current_context=context,
+        historical_contexts=historical_contexts,
+        current_brief=brief,
+        historical_briefs=historical_briefs,
+        limits=similarity_limits,
+    )
+    enriched = enrich_brief_with_historical_context(brief, historical_context)
+    return enriched, historical_context
 
 
 def _extract_json_object(text: str) -> dict[str, Any]:
@@ -723,6 +754,10 @@ def generate_investigation_brief(
     persistence_session: Any | None = None,
     generated_by: str = "system",
     parent_session_id: str | None = None,
+    enable_cross_incident_intelligence: bool = False,
+    historical_contexts: Sequence[InvestigationContext] | None = None,
+    historical_briefs: Sequence[InvestigationBrief] | None = None,
+    similarity_limits: SimilarityAnalysisLimits | None = None,
 ) -> InvestigationBrief:
     if context is None:
         context = normalize_investigation_context(
@@ -774,6 +809,14 @@ def generate_investigation_brief(
                     extra_evidence=expansion_result.retrieved_evidence,
                     expansion=expansion_result.expansion,
                 )
+                refined, historical_context = _apply_historical_context_if_requested(
+                    refined,
+                    context=context,
+                    enabled=enable_cross_incident_intelligence,
+                    historical_contexts=historical_contexts,
+                    historical_briefs=historical_briefs,
+                    similarity_limits=similarity_limits,
+                )
                 logger.info(
                     "investigation_generation_completed",
                     extra={
@@ -791,9 +834,18 @@ def generate_investigation_brief(
                     enrichment_pass_count=1,
                     fallback_used=False,
                     expansion=expansion_result.expansion,
+                    historical_context=historical_context,
                 )
                 return refined
 
+        brief, historical_context = _apply_historical_context_if_requested(
+            brief,
+            context=context,
+            enabled=enable_cross_incident_intelligence,
+            historical_contexts=historical_contexts,
+            historical_briefs=historical_briefs,
+            similarity_limits=similarity_limits,
+        )
         logger.info(
             "investigation_generation_completed",
             extra={"incident_id": resolved_incident_id, "mode": "deterministic"},
@@ -806,6 +858,7 @@ def generate_investigation_brief(
             parent_session_id=parent_session_id,
             enrichment_pass_count=0,
             fallback_used=False,
+            historical_context=historical_context,
         )
         return brief
 
@@ -825,6 +878,14 @@ def generate_investigation_brief(
             incident_id=resolved_incident_id,
             session_id=resolved_session_id,
         )
+        brief, historical_context = _apply_historical_context_if_requested(
+            brief,
+            context=context,
+            enabled=enable_cross_incident_intelligence,
+            historical_contexts=historical_contexts,
+            historical_briefs=historical_briefs,
+            similarity_limits=similarity_limits,
+        )
         _validate_generated_brief(brief)
         logger.info(
             "investigation_generation_completed",
@@ -838,6 +899,7 @@ def generate_investigation_brief(
             parent_session_id=parent_session_id,
             enrichment_pass_count=0,
             fallback_used=False,
+            historical_context=historical_context,
         )
         return brief
 
@@ -854,6 +916,14 @@ def generate_investigation_brief(
                 session_id=resolved_session_id,
                 fallback_reason=reason,
             )
+            brief, historical_context = _apply_historical_context_if_requested(
+                brief,
+                context=context,
+                enabled=enable_cross_incident_intelligence,
+                historical_contexts=historical_contexts,
+                historical_briefs=historical_briefs,
+                similarity_limits=similarity_limits,
+            )
             logger.info(
                 "investigation_generation_completed",
                 extra={"incident_id": resolved_incident_id, "mode": "fallback"},
@@ -866,6 +936,7 @@ def generate_investigation_brief(
                 parent_session_id=parent_session_id,
                 enrichment_pass_count=0,
                 fallback_used=True,
+                historical_context=historical_context,
             )
             return brief
         except Exception:
@@ -878,6 +949,14 @@ def generate_investigation_brief(
                 session_id=resolved_session_id,
                 reason=reason,
             )
+            brief, historical_context = _apply_historical_context_if_requested(
+                brief,
+                context=context,
+                enabled=enable_cross_incident_intelligence,
+                historical_contexts=historical_contexts,
+                historical_briefs=historical_briefs,
+                similarity_limits=similarity_limits,
+            )
             _persist_brief_if_requested(
                 brief,
                 persistence_session=persistence_session,
@@ -886,5 +965,6 @@ def generate_investigation_brief(
                 parent_session_id=parent_session_id,
                 enrichment_pass_count=0,
                 fallback_used=True,
+                historical_context=historical_context,
             )
             return brief
