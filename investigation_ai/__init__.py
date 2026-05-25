@@ -45,6 +45,15 @@ from .models import (
     RecommendedCheck,
     RecommendedCheckPriority,
 )
+from .persistence import (
+    InvestigationPersistenceResult,
+    InvestigationPersistenceStore,
+    InvestigationSessionHistoryItem,
+    InvestigationSnapshotSummary,
+    deserialize_investigation_brief,
+    safe_persist_investigation_brief,
+    serialize_investigation_brief,
+)
 from .prompts import INVESTIGATION_SYSTEM_PROMPT, build_investigation_prompt
 from .reasoning import (
     ReasoningAssessment,
@@ -95,8 +104,12 @@ __all__ = [
     "InvestigationHypothesis",
     "InvestigationHypothesisStatus",
     "InvestigationLimitation",
+    "InvestigationPersistenceResult",
+    "InvestigationPersistenceStore",
     "InvestigationSession",
+    "InvestigationSessionHistoryItem",
     "InvestigationSessionStatus",
+    "InvestigationSnapshotSummary",
     "InvestigationValidationIssue",
     "InvestigationLlmClient",
     "InvestigationRetrievalContext",
@@ -126,6 +139,7 @@ __all__ = [
     "create_empty_investigation_brief",
     "create_fallback_investigation_brief",
     "detect_contradictions",
+    "deserialize_investigation_brief",
     "evidence_by_type",
     "evidence_references_from_context",
     "execute_retrieval_request",
@@ -141,6 +155,8 @@ __all__ = [
     "prioritize_retrieval_requests",
     "run_bounded_retrieval",
     "run_single_enrichment_pass",
+    "safe_persist_investigation_brief",
+    "serialize_investigation_brief",
     "validate_investigation_brief",
     "validate_investigation_session",
     "validate_recommended_action",
