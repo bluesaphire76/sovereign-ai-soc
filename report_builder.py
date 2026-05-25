@@ -27,6 +27,12 @@ from report_network_evidence import (
     attach_case_network_evidence,
     attach_incident_network_evidence,
 )
+from report_dns_context import (
+    append_case_dns_context_markdown,
+    append_incident_dns_context_markdown,
+    attach_case_dns_context,
+    attach_incident_dns_context,
+)
 
 
 def safe_json(value):
@@ -250,10 +256,12 @@ def build_incident_report(incident_id: int):
     try:
         payload = build_incident_payload(db, incident_id)
         attach_incident_network_evidence(payload)
+        attach_incident_dns_context(payload)
         markdown = append_incident_network_evidence_markdown(
             incident_payload_to_markdown(payload),
             payload,
         )
+        markdown = append_incident_dns_context_markdown(markdown, payload)
         filename = incident_enterprise_report_filename(incident_id)
 
         return {
@@ -423,10 +431,12 @@ def build_case_report(case_id: int):
     try:
         payload = build_case_payload(db, case_id)
         attach_case_network_evidence(payload)
+        attach_case_dns_context(payload)
         markdown = append_case_network_evidence_markdown(
             case_payload_to_markdown(payload),
             payload,
         )
+        markdown = append_case_dns_context_markdown(markdown, payload)
         filename = case_enterprise_report_filename(case_id)
 
         return {

@@ -13,7 +13,12 @@ from ai_triage_hardening import call_ollama_chat
 from database import SessionLocal
 from llm_output import is_invalid_llm_output, sanitize_llm_output
 from models import Incident, IncidentAudit, utc_now
-from timezone_utils import APP_TIMEZONE, format_timestamp_local, normalize_timestamp_utc
+from timezone_utils import (
+    APP_TIMEZONE,
+    format_timestamp_local,
+    normalize_timestamp_utc,
+    parse_timestamp_to_utc,
+)
 
 try:
     from rag_retriever import retrieve_security_context
@@ -301,7 +306,7 @@ def load_network_evidence_summary(
     This function is read-only. Any failure must not block AI brief generation.
     """
     try:
-        incident_ts = normalize_timestamp_utc(incident_payload.get("timestamp"))
+        incident_ts = parse_timestamp_to_utc(incident_payload.get("timestamp"))
 
         if not incident_ts:
             return network_evidence_empty("incident_timestamp_unavailable")
@@ -494,7 +499,7 @@ def load_dns_context_summary(
     """
 
     try:
-        incident_ts = normalize_timestamp_utc(incident_payload.get("timestamp"))
+        incident_ts = parse_timestamp_to_utc(incident_payload.get("timestamp"))
 
         if not incident_ts:
             return dns_context_empty("incident_timestamp_unavailable")
@@ -572,7 +577,7 @@ def load_dns_context_summary(
         with SessionLocal() as db:
             rows = (
                 db.execute(
-                    text(f"""
+                    sql_text(f"""
                         SELECT
                             id,
                             source,
@@ -598,7 +603,7 @@ def load_dns_context_summary(
 
             query_types = (
                 db.execute(
-                    text(f"""
+                    sql_text(f"""
                         SELECT query_type, count(*) AS count
                         FROM dns_events
                         WHERE {where_clause}
@@ -614,7 +619,7 @@ def load_dns_context_summary(
 
             top_domains = (
                 db.execute(
-                    text(f"""
+                    sql_text(f"""
                         SELECT query_name, count(*) AS count
                         FROM dns_events
                         WHERE {where_clause}
@@ -630,7 +635,7 @@ def load_dns_context_summary(
             )
 
             unique_domains = db.execute(
-                text(f"""
+                sql_text(f"""
                     SELECT count(DISTINCT query_name)
                     FROM dns_events
                     WHERE {where_clause}
@@ -664,8 +669,12 @@ def load_dns_context_summary(
             ],
         }
 
-    except Exception:
-        return {**dns_context_empty("dns_context_lookup_failed"), "lookup_error_handled": True}
+    except Exception as exc:
+        return {
+            **dns_context_empty("dns_context_lookup_failed"),
+            "lookup_error_handled": True,
+            "error_type": type(exc).__name__,
+        }
 
 
 def build_prompt(

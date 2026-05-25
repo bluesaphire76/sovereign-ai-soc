@@ -20,6 +20,7 @@ from reportlab.platypus import (
 
 from database import SessionLocal
 from report_builder import build_case_payload, format_value
+from report_dns_context import DNS_CONTEXT_LIMITATION, attach_case_dns_context
 from report_naming import case_executive_pdf_filename
 
 
@@ -399,6 +400,33 @@ def build_key_value_table(rows: list[tuple[str, object]], styles):
     return table
 
 
+def build_dns_context_summary_table(payload: dict, styles):
+    summary = payload.get("dns_context_summary") or {}
+    total_observations = int(summary.get("total_dns_observations") or 0)
+    incidents_with_context = int(summary.get("incidents_with_dns_context") or 0)
+    available = total_observations > 0
+
+    return build_key_value_table(
+        [
+            ("DNS context available", "Yes" if available else "No"),
+            ("Incidents checked", summary.get("incidents_checked", 0)),
+            ("Incidents with DNS context", incidents_with_context),
+            ("Total DNS observations", total_observations),
+            (
+                "Executive interpretation",
+                (
+                    "Observed DNS activity for affected host in the selected time window."
+                    if available
+                    else "No contextual DNS telemetry was found for linked incidents in the selected time window."
+                ),
+            ),
+            ("Causal relationship inferred", "No"),
+            ("Limitation", DNS_CONTEXT_LIMITATION),
+        ],
+        styles,
+    )
+
+
 def build_metric_cards(case, readiness, actions, incidents, styles):
     status = case.get("status")
     severity = case.get("severity")
@@ -621,6 +649,9 @@ def build_executive_pdf_bytes(payload: dict) -> bytes:
         )
     )
 
+    story.append(Paragraph("DNS Context", styles["section"]))
+    story.append(build_dns_context_summary_table(payload, styles))
+
     missing_items = readiness.get("missing_items", [])
 
     story.append(Paragraph("Closure Decision", styles["section"]))
@@ -711,6 +742,7 @@ def build_case_executive_pdf(case_id: int) -> dict:
 
     try:
         payload = build_case_payload(db, case_id)
+        attach_case_dns_context(payload)
         pdf_bytes = build_executive_pdf_bytes(payload)
 
         return {

@@ -12,6 +12,7 @@ from models import (
     IncidentCase,
 )
 from report_naming import case_evidence_pack_filename
+from report_dns_context import attach_case_dns_context, append_case_dns_context_markdown
 from report_network_evidence import attach_case_network_evidence, append_case_network_evidence_markdown
 
 
@@ -693,10 +694,12 @@ def build_case_evidence_pack(case_id: int) -> dict:
     try:
         payload = build_case_evidence_payload(db, case_id)
         attach_case_network_evidence(payload)
+        attach_case_dns_context(payload)
         markdown = append_case_network_evidence_markdown(
             evidence_payload_to_markdown(payload),
             payload,
         )
+        markdown = append_case_dns_context_markdown(markdown, payload, technical=True)
         filename = case_evidence_pack_filename(case_id)
 
         return {
