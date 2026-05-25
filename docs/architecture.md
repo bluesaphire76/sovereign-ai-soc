@@ -4,27 +4,9 @@ Sovereign AI SOC uses a local-first architecture with a Next.js frontend, FastAP
 
 ## System Overview
 
-```mermaid
-flowchart LR
-  browser["Browser"] --> frontend["Next.js Frontend"]
-  frontend --> api["FastAPI Backend"]
-  api --> db["PostgreSQL"]
-  api --> reports["Local Reports / Evidence Packs"]
-  api --> ai["Ollama / Local LLM"]
+![High-level architecture](assets/architecture/high-level-architecture.svg)
 
-  wazuh_agents["Wazuh Agents"] --> wazuh["Wazuh Manager / Indexer"]
-  wazuh --> ingest["AI SOC Ingestion"]
-  suricata["Suricata IDS"] --> network_ingest["Suricata EVE Ingest"]
-  dns["DNS Collector / Wazuh DNS Rule"] --> dns_ingest["DNS Normalization"]
-
-  ingest --> db
-  network_ingest --> db
-  dns_ingest --> db
-  db --> api
-  analyst["Analyst / Human-in-the-loop"] --> browser
-```
-
-Full source diagram: [high-level-architecture.mmd](diagrams/high-level-architecture.mmd).
+Editable Mermaid source: [high-level-architecture.mmd](diagrams/high-level-architecture.mmd).
 
 ## Components
 
@@ -82,6 +64,12 @@ The local AI runtime supports:
 
 AI does not decide access control, mutate lifecycle state by itself, or execute response actions. See [AI Capabilities](ai-capabilities.md).
 
+## Local-first Sovereignty View
+
+![Local-first sovereignty architecture](assets/architecture/local-first-sovereignty-architecture.svg)
+
+Editable Mermaid source: [local-first-sovereignty-architecture.mmd](diagrams/local-first-sovereignty-architecture.mmd).
+
 ## Deployment Model
 
 The repository includes deployment artifacts for:
@@ -94,7 +82,9 @@ The repository includes deployment artifacts for:
 - PostgreSQL lab runtime.
 - Ollama local runtime.
 
-See [Deployment Guide](deployment-guide.md) and [deployment-architecture.mmd](diagrams/deployment-architecture.mmd).
+![Deployment architecture](assets/architecture/deployment-architecture.svg)
+
+See [Deployment Guide](deployment-guide.md). Editable Mermaid source: [deployment-architecture.mmd](diagrams/deployment-architecture.mmd).
 
 ## Human-in-the-loop Boundaries
 

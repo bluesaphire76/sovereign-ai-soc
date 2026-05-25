@@ -105,24 +105,9 @@ The core runtime is local:
 
 No mandatory external AI provider is required for the core product flow.
 
-```mermaid
-flowchart LR
-  analyst["Analyst / Human-in-the-loop"] --> frontend["Next.js Frontend"]
-  frontend --> api["FastAPI API"]
-  api --> postgres["PostgreSQL"]
-  wazuh["Wazuh Agents / Manager"] --> ingest["AI SOC Ingestion"]
-  suricata["Suricata IDS"] --> ingest
-  ingest --> raw["Raw Events"]
-  raw --> alerts["Security Alerts"]
-  alerts --> correlate["Dedup / Suppression / Correlation"]
-  correlate --> incidents["Incidents"]
-  incidents --> cases["Cases"]
-  incidents --> reports["Reports / Evidence Packs"]
-  api --> ollama["Local Ollama Runtime"]
-  ollama --> api
-```
+![High-level architecture](docs/assets/architecture/high-level-architecture.svg)
 
-More complete diagrams are available in [Architecture](docs/architecture.md) and [docs/diagrams](docs/diagrams).
+More complete diagrams are available in [Architecture](docs/architecture.md), with editable Mermaid sources in [docs/diagrams](docs/diagrams).
 
 ## Demo Flow
 

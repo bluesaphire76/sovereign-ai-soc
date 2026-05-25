@@ -4,6 +4,10 @@ Sovereign AI SOC uses AI as a multi-stage decision support capability across inc
 
 AI is not limited to triage. It helps interpret evidence, explain correlation, draft next actions, generate execution guidance and enrich reports while preserving human control.
 
+![AI capabilities flow](assets/architecture/ai-capabilities-flow.svg)
+
+Editable Mermaid source: [ai-capabilities-flow.mmd](diagrams/ai-capabilities-flow.mmd).
+
 ## 1. Overview
 
 The AI layer is designed around evidence-based support:

@@ -2,6 +2,10 @@
 
 Sovereign AI SOC is intended for local lab and production-style demo deployments. The repository includes Nginx, systemd and collector artifacts that support that model.
 
+![Deployment architecture](assets/architecture/deployment-architecture.svg)
+
+Editable Mermaid source: [deployment-architecture.mmd](diagrams/deployment-architecture.mmd).
+
 ## Runtime Components
 
 | Component | Typical role |
@@ -15,7 +19,7 @@ Sovereign AI SOC is intended for local lab and production-style demo deployments
 | Ollama | Local AI runtime. |
 | systemd workers | API, frontend and ingestion process management. |
 
-Source diagram: [deployment-architecture.mmd](diagrams/deployment-architecture.mmd).
+The SVG above is committed so the architecture remains visible in Markdown viewers that do not render Mermaid directly.
 
 ## Configuration
 
