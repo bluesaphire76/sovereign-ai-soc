@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime
+from ipaddress import ip_address
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Query
@@ -9,8 +12,168 @@ from sqlalchemy import text
 
 from database import engine
 
+try:
+    import geoip2.database
+    from geoip2.errors import AddressNotFoundError
+except ImportError:  # optional local GeoIP enrichment
+    geoip2 = None
+    AddressNotFoundError = Exception
+
 
 router = APIRouter(prefix="/network-events", tags=["network-events"])
+
+GEOIP_COUNTRY_DB_PATH = Path(
+    os.getenv(
+        "AI_SOC_GEOIP_COUNTRY_DB",
+        "/home/lele/lab/ai-soc-assistant/data/geoip/GeoLite2-Country.mmdb",
+    )
+)
+_GEOIP_COUNTRY_READER = None
+
+
+def get_geoip_country_reader():
+    global _GEOIP_COUNTRY_READER
+
+    if geoip2 is None:
+        return None
+
+    if not GEOIP_COUNTRY_DB_PATH.exists():
+        return None
+
+    if _GEOIP_COUNTRY_READER is None:
+        _GEOIP_COUNTRY_READER = geoip2.database.Reader(str(GEOIP_COUNTRY_DB_PATH))
+
+    return _GEOIP_COUNTRY_READER
+
+
+
+
+def classify_destination_ip(value: str | None) -> dict[str, Any]:
+    """Return conservative local-only destination IP context.
+
+    This intentionally does not perform online GeoIP lookups. Public IP country
+    is reported as Unknown unless a local GeoIP database is introduced later.
+    """
+
+    if not value:
+        return {
+            "country": "Unknown",
+            "country_code": "UNKNOWN",
+            "country_source": "not_available",
+            "ip_scope": "unknown",
+        }
+
+    try:
+        parsed = ip_address(value)
+    except ValueError:
+        return {
+            "country": "Unknown",
+            "country_code": "UNKNOWN",
+            "country_source": "invalid_ip",
+            "ip_scope": "invalid",
+        }
+
+    if parsed.is_loopback:
+        return {
+            "country": "Loopback",
+            "country_code": "LOOPBACK",
+            "country_source": "local_ip_classification",
+            "ip_scope": "loopback",
+        }
+
+    if parsed.is_private:
+        return {
+            "country": "Private / Local network",
+            "country_code": "PRIVATE",
+            "country_source": "local_ip_classification",
+            "ip_scope": "private",
+        }
+
+    if parsed.is_link_local:
+        return {
+            "country": "Link-local",
+            "country_code": "LINK_LOCAL",
+            "country_source": "local_ip_classification",
+            "ip_scope": "link_local",
+        }
+
+    if parsed.is_multicast:
+        return {
+            "country": "Multicast",
+            "country_code": "MULTICAST",
+            "country_source": "local_ip_classification",
+            "ip_scope": "multicast",
+        }
+
+    if parsed.is_reserved:
+        return {
+            "country": "Reserved",
+            "country_code": "RESERVED",
+            "country_source": "local_ip_classification",
+            "ip_scope": "reserved",
+        }
+
+    reader = get_geoip_country_reader()
+    if reader is not None:
+        try:
+            response = reader.country(value)
+            country = response.country.name or "Unknown"
+            country_code = response.country.iso_code or "UNKNOWN"
+
+            return {
+                "country": country,
+                "country_code": country_code,
+                "country_source": "GeoLite2-Country",
+                "ip_scope": "public",
+            }
+        except AddressNotFoundError:
+            return {
+                "country": "Unknown",
+                "country_code": "UNKNOWN",
+                "country_source": "geoip_address_not_found",
+                "ip_scope": "public",
+            }
+        except Exception:
+            return {
+                "country": "Unknown",
+                "country_code": "UNKNOWN",
+                "country_source": "geoip_lookup_failed",
+                "ip_scope": "public",
+            }
+
+    return {
+        "country": "Unknown",
+        "country_code": "UNKNOWN",
+        "country_source": "geoip_database_not_configured",
+        "ip_scope": "public",
+    }
+
+
+def build_resolver_context(
+    dest_ip: str | None,
+    resolver_rows: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Return DNS resolver context without implying DNS resolution causality."""
+
+    if not dest_ip or dest_ip not in resolver_rows:
+        return {
+            "is_observed_resolver": False,
+            "label": "not observed as DNS resolver",
+            "resolver_ip": None,
+            "dns_event_count": 0,
+            "latest_dns_event_timestamp": None,
+        }
+
+    row = resolver_rows[dest_ip]
+
+    return {
+        "is_observed_resolver": True,
+        "label": "observed DNS resolver",
+        "resolver_ip": dest_ip,
+        "dns_event_count": row.get("dns_event_count") or 0,
+        "latest_dns_event_timestamp": row.get("latest_dns_event_timestamp"),
+    }
+
 
 
 class NetworkEventItem(BaseModel):
@@ -148,7 +311,7 @@ def network_events_summary() -> NetworkEventsSummary:
             ORDER BY count DESC
         """)).mappings().all()
 
-        top_destinations = conn.execute(text("""
+        top_destination_rows = conn.execute(text("""
             SELECT dest_ip, count(*)::int AS count
             FROM network_events
             WHERE dest_ip IS NOT NULL
@@ -156,6 +319,41 @@ def network_events_summary() -> NetworkEventsSummary:
             ORDER BY count DESC
             LIMIT 10
         """)).mappings().all()
+
+        destination_ips = [
+            row["dest_ip"]
+            for row in top_destination_rows
+            if row.get("dest_ip")
+        ]
+
+        resolver_context_rows: dict[str, dict[str, Any]] = {}
+        if destination_ips:
+            resolver_context_rows = {
+                row["resolver_ip"]: dict(row)
+                for row in conn.execute(
+                    text("""
+                        SELECT
+                            resolver_ip,
+                            count(*)::int AS dns_event_count,
+                            max(event_timestamp) AS latest_dns_event_timestamp
+                        FROM dns_events
+                        WHERE resolver_ip = ANY(:destination_ips)
+                        GROUP BY resolver_ip
+                    """),
+                    {"destination_ips": destination_ips},
+                ).mappings().all()
+                if row.get("resolver_ip")
+            }
+
+        top_destinations = []
+        for row in top_destination_rows:
+            item = dict(row)
+            item.update(classify_destination_ip(item.get("dest_ip")))
+            item["resolver_context"] = build_resolver_context(
+                item.get("dest_ip"),
+                resolver_context_rows,
+            )
+            top_destinations.append(item)
 
         top_hostnames = conn.execute(text("""
             SELECT hostname, count(*)::int AS count
@@ -176,7 +374,7 @@ def network_events_summary() -> NetworkEventsSummary:
     return NetworkEventsSummary(
         total=total,
         by_event_type=[dict(row) for row in by_event_type],
-        top_destinations=[dict(row) for row in top_destinations],
+        top_destinations=top_destinations,
         top_hostnames=[dict(row) for row in top_hostnames],
         latest_event_timestamp=latest["latest_event_timestamp"],
         latest_insert_timestamp=latest["latest_insert_timestamp"],
