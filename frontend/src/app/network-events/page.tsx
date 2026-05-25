@@ -50,10 +50,28 @@ type NetworkEventsResponse = {
   items: NetworkEventItem[];
 };
 
+type ResolverContext = {
+  is_observed_resolver: boolean;
+  label: string;
+  resolver_ip: string | null;
+  dns_event_count: number;
+  latest_dns_event_timestamp: string | null;
+};
+
+type TopDestinationItem = {
+  dest_ip: string;
+  count: number;
+  country?: string | null;
+  country_code?: string | null;
+  country_source?: string | null;
+  ip_scope?: string | null;
+  resolver_context?: ResolverContext | null;
+};
+
 type NetworkEventsSummary = {
   total: number;
   by_event_type: Array<{ event_type: string; count: number }>;
-  top_destinations: Array<{ dest_ip: string; count: number }>;
+  top_destinations: TopDestinationItem[];
   top_hostnames: Array<{ hostname: string; count: number }>;
   latest_event_timestamp: string | null;
   latest_insert_timestamp: string | null;
@@ -361,7 +379,7 @@ export default function NetworkEventsPage() {
         <section className="mt-3 grid gap-3 xl:grid-cols-2">
           <RankedPanel title="Top destinations" emptyText="No destination IPs observed yet.">
             {topDestinations.map((item) => (
-              <RankedRow key={item.dest_ip} label={item.dest_ip} value={item.count} />
+              <DestinationRankedRow key={item.dest_ip} item={item} />
             ))}
           </RankedPanel>
 
@@ -460,6 +478,45 @@ export default function NetworkEventsPage() {
     </main>
   );
 }
+
+
+function DestinationRankedRow({ item }: { item: TopDestinationItem }) {
+  const resolverContext = item.resolver_context;
+  const resolverObserved = Boolean(resolverContext?.is_observed_resolver);
+  const country = compactValue(item.country ?? "Unknown");
+  const resolverLabel = resolverObserved ? "observed resolver" : "not observed";
+
+  return (
+    <div className="rounded-sm border border-slate-800 bg-slate-950/80 px-3 py-2">
+      <div className="flex items-center justify-between gap-3">
+        <span className="truncate font-mono text-[11px] text-slate-300">{compactValue(item.dest_ip)}</span>
+        <span className={COUNT_BADGE_BASE}>{item.count}</span>
+      </div>
+
+      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] leading-4 text-slate-500">
+        <span>
+          Country: <span className="text-slate-400">{country}</span>
+        </span>
+        <span className="text-slate-700">·</span>
+        <span>
+          Resolver context:{" "}
+          <span className={resolverObserved ? "text-cyan-300" : "text-slate-400"}>
+            {resolverLabel}
+          </span>
+        </span>
+        {resolverObserved && resolverContext?.dns_event_count ? (
+          <>
+            <span className="text-slate-700">·</span>
+            <span>
+              DNS events: <span className="text-slate-400">{resolverContext.dns_event_count}</span>
+            </span>
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 
 function NetworkMetric({
   title,
