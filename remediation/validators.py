@@ -12,6 +12,8 @@ from .models import (
     RollbackAvailability,
 )
 from .risk import FORBIDDEN_ACTION_TYPES
+from .approvals import RemediationApprovalRecord, RemediationApprovalStatus, normalize_role
+from .dry_run import RemediationDryRunResult, RemediationDryRunStatus
 
 
 SHELL_OPERATOR_RE = re.compile(r"(\||&&|;|`|\$\(|>\s*[^ ]|<\s*[^ ])")
@@ -106,6 +108,83 @@ def validate_remediation_plan(plan: RemediationPlan) -> RemediationValidationRes
 
     if not plan.evidence_used:
         warnings.append("PLAN_HAS_NO_SUPPORTING_EVIDENCE")
+
+    return RemediationValidationResult(
+        valid=not issues,
+        issues=issues,
+        warnings=warnings,
+    )
+
+
+def validate_approval_record(record: RemediationApprovalRecord) -> RemediationValidationResult:
+    issues: list[str] = []
+    warnings: list[str] = []
+
+    if record.execution_triggered:
+        issues.append("APPROVAL_MUST_NOT_TRIGGER_EXECUTION_IN_STEP_9")
+
+    if not (record.rationale or "").strip():
+        issues.append("APPROVAL_REQUIRES_RATIONALE")
+
+    if (
+        record.status == RemediationApprovalStatus.APPROVED
+        and normalize_role(record.role_at_decision) == "VIEWER"
+    ):
+        issues.append("VIEWER_CANNOT_APPROVE_REMEDIATION")
+
+    if (
+        record.status == RemediationApprovalStatus.APPROVED
+        and record.approval_requirement == RemediationApprovalRequirement.FORBIDDEN_BY_DEFAULT
+    ):
+        issues.append("FORBIDDEN_ACTION_CANNOT_BE_APPROVED")
+
+    if record.status == RemediationApprovalStatus.APPROVED and record.policy_issues:
+        issues.append("APPROVED_RECORD_HAS_POLICY_ISSUES")
+
+    if record.status in {
+        RemediationApprovalStatus.REQUIRES_ADMIN,
+        RemediationApprovalStatus.FORBIDDEN,
+        RemediationApprovalStatus.PENDING_REVIEW,
+    }:
+        warnings.extend(record.policy_issues)
+
+    return RemediationValidationResult(
+        valid=not issues,
+        issues=issues,
+        warnings=warnings,
+    )
+
+
+def validate_dry_run_result(result: RemediationDryRunResult) -> RemediationValidationResult:
+    issues: list[str] = []
+    warnings: list[str] = []
+    finding_statuses = {finding.status for finding in result.findings}
+
+    if result.state_mutated:
+        issues.append("DRY_RUN_MUST_NOT_MUTATE_STATE")
+
+    if result.execution_supported:
+        issues.append("DRY_RUN_MUST_NOT_SUPPORT_EXECUTION_IN_STEP_9")
+
+    if result.status == RemediationDryRunStatus.MISSING_ROLLBACK and (
+        RemediationDryRunStatus.MISSING_ROLLBACK not in finding_statuses
+    ):
+        issues.append("DRY_RUN_MISSING_ROLLBACK_REQUIRES_FINDING")
+
+    if result.status == RemediationDryRunStatus.MISSING_EVIDENCE and (
+        RemediationDryRunStatus.MISSING_EVIDENCE not in finding_statuses
+    ):
+        issues.append("DRY_RUN_MISSING_EVIDENCE_REQUIRES_FINDING")
+
+    if result.status in {
+        RemediationDryRunStatus.FORBIDDEN,
+        RemediationDryRunStatus.BLOCKED_BY_POLICY,
+        RemediationDryRunStatus.MISSING_APPROVAL,
+        RemediationDryRunStatus.MISSING_ROLLBACK,
+        RemediationDryRunStatus.MISSING_EVIDENCE,
+        RemediationDryRunStatus.NOT_SUPPORTED,
+    }:
+        warnings.extend(finding.title for finding in result.findings)
 
     return RemediationValidationResult(
         valid=not issues,

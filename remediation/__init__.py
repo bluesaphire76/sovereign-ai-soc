@@ -19,22 +19,69 @@ from .models import (
     RollbackPlan,
     RollbackStep,
 )
+from .approvals import (
+    RemediationApprovalActor,
+    RemediationApprovalDecision,
+    RemediationApprovalPolicy,
+    RemediationApprovalRecord,
+    RemediationApprovalRequest,
+    RemediationApprovalStatus,
+    RemediationReviewOutcome,
+    approval_policy_for_requirement,
+    create_approval_record,
+    evaluate_action_approval,
+    evaluate_plan_approval,
+)
+from .audit import (
+    RemediationAuditEvent,
+    RemediationAuditEventType,
+    audit_event_from_approval,
+    audit_event_from_dry_run,
+)
+from .dry_run import (
+    RemediationDryRunFinding,
+    RemediationDryRunResult,
+    RemediationDryRunStatus,
+    RemediationDryRunStep,
+    RemediationExecutionReadiness,
+    generate_action_dry_run,
+    generate_plan_dry_run,
+)
 from .planner import create_fallback_remediation_plan, generate_remediation_plan
 from .risk import assess_action_risk, approval_for_action
 from .rollback import build_rollback_plan
-from .validators import validate_remediation_action, validate_remediation_plan
+from .validators import (
+    validate_approval_record,
+    validate_dry_run_result,
+    validate_remediation_action,
+    validate_remediation_plan,
+)
 
 __all__ = [
     "RemediationAction",
     "RemediationActionStatus",
     "RemediationActionType",
+    "RemediationApprovalActor",
+    "RemediationApprovalDecision",
+    "RemediationApprovalPolicy",
+    "RemediationApprovalRecord",
+    "RemediationApprovalRequest",
     "RemediationApprovalRequirement",
+    "RemediationApprovalStatus",
+    "RemediationAuditEvent",
+    "RemediationAuditEventType",
+    "RemediationDryRunFinding",
+    "RemediationDryRunResult",
+    "RemediationDryRunStatus",
+    "RemediationDryRunStep",
+    "RemediationExecutionReadiness",
     "RemediationImpactAssessment",
     "RemediationPlan",
     "RemediationPlanStatus",
     "RemediationPlanningContext",
     "RemediationPostCheck",
     "RemediationPreCheck",
+    "RemediationReviewOutcome",
     "RemediationRiskAssessment",
     "RemediationRiskLevel",
     "RemediationTarget",
@@ -44,11 +91,21 @@ __all__ = [
     "RollbackAvailability",
     "RollbackPlan",
     "RollbackStep",
+    "approval_policy_for_requirement",
     "approval_for_action",
     "assess_action_risk",
+    "audit_event_from_approval",
+    "audit_event_from_dry_run",
     "build_rollback_plan",
+    "create_approval_record",
     "create_fallback_remediation_plan",
+    "evaluate_action_approval",
+    "evaluate_plan_approval",
+    "generate_action_dry_run",
+    "generate_plan_dry_run",
     "generate_remediation_plan",
+    "validate_approval_record",
+    "validate_dry_run_result",
     "validate_remediation_action",
     "validate_remediation_plan",
 ]
