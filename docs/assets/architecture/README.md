@@ -1,10 +1,10 @@
 # Architecture Asset Notes
 
-Mermaid source diagrams live in `docs/diagrams/`.
+Rendered SVG diagrams and editable Mermaid source diagrams are both kept in the repository.
 
-Rendered PNG or SVG exports can be added here later if generated from the Mermaid sources. Do not add hand-made diagrams that diverge from the source files.
+The SVG files are used by Markdown pages so architecture and flow diagrams remain visible in GitHub, IDE previews and documentation viewers that do not render `.mmd` files directly.
 
-Suggested exports:
+Rendered assets:
 
 - `high-level-architecture.svg`
 - `ingestion-correlation-pipeline.svg`
@@ -12,4 +12,12 @@ Suggested exports:
 - `local-first-sovereignty-architecture.svg`
 - `deployment-architecture.svg`
 
-If rendered assets are added, update `README.md` and the relevant docs to reference the real files.
+Editable sources:
+
+- `../../diagrams/high-level-architecture.mmd`
+- `../../diagrams/ingestion-correlation-pipeline.mmd`
+- `../../diagrams/ai-capabilities-flow.mmd`
+- `../../diagrams/local-first-sovereignty-architecture.mmd`
+- `../../diagrams/deployment-architecture.mmd`
+
+When changing a diagram, keep the Mermaid source and SVG rendering aligned.

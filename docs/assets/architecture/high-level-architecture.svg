@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="760" viewBox="0 0 1280 760" role="img" aria-labelledby="title desc">
+  <title id="title">Sovereign AI SOC high-level architecture</title>
+  <desc id="desc">Local-first SOC architecture showing Wazuh, Suricata, DNS telemetry, ingestion, correlation, incidents, cases, reports, PostgreSQL, Ollama and the analyst console.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#22d3ee"/>
+    </marker>
+    <style>
+      .bg { fill: #020617; }
+      .panel { fill: #0f172a; stroke: #334155; stroke-width: 1.2; rx: 10; }
+      .source { fill: #111827; stroke: #64748b; stroke-width: 1.2; rx: 8; }
+      .store { fill: #0b1220; stroke: #60a5fa; stroke-width: 1.2; rx: 8; }
+      .ai { fill: #17112b; stroke: #a78bfa; stroke-width: 1.2; rx: 8; }
+      .workflow { fill: #082f49; stroke: #22d3ee; stroke-width: 1.2; rx: 8; }
+      .report { fill: #052e2b; stroke: #10b981; stroke-width: 1.2; rx: 8; }
+      .title { fill: #e5e7eb; font: 700 28px Arial, sans-serif; }
+      .subtitle { fill: #94a3b8; font: 400 14px Arial, sans-serif; }
+      .label { fill: #e5e7eb; font: 700 15px Arial, sans-serif; }
+      .small { fill: #cbd5e1; font: 400 12px Arial, sans-serif; }
+      .section { fill: #94a3b8; font: 700 12px Arial, sans-serif; letter-spacing: 1px; }
+      .line { stroke: #22d3ee; stroke-width: 1.6; fill: none; marker-end: url(#arrow); opacity: 0.9; }
+      .muted-line { stroke: #64748b; stroke-width: 1.2; fill: none; marker-end: url(#arrow); opacity: 0.8; }
+    </style>
+  </defs>
+  <rect class="bg" width="1280" height="760"/>
+  <text class="title" x="48" y="58">Sovereign AI SOC - High-level Architecture</text>
+  <text class="subtitle" x="48" y="84">Local-first security operations with deterministic correlation and local AI-assisted decision support.</text>
+
+  <text class="section" x="60" y="136">DETECTION SOURCES</text>
+  <rect class="source" x="48" y="154" width="190" height="70"/>
+  <text class="label" x="68" y="184">Wazuh</text>
+  <text class="small" x="68" y="205">Agents / manager / indexer</text>
+  <rect class="source" x="48" y="250" width="190" height="70"/>
+  <text class="label" x="68" y="280">Suricata IDS</text>
+  <text class="small" x="68" y="301">Network EVE telemetry</text>
+  <rect class="source" x="48" y="346" width="190" height="70"/>
+  <text class="label" x="68" y="376">DNS Telemetry</text>
+  <text class="small" x="68" y="397">Host/time-window context</text>
+
+  <text class="section" x="326" y="136">INGESTION AND NORMALIZATION</text>
+  <rect class="panel" x="300" y="154" width="210" height="70"/>
+  <text class="label" x="320" y="184">AI SOC Ingestion</text>
+  <text class="small" x="320" y="205">Source-specific collectors</text>
+  <rect class="store" x="300" y="250" width="210" height="70"/>
+  <text class="label" x="320" y="280">Raw Events</text>
+  <text class="small" x="320" y="301">Retained source context</text>
+  <rect class="store" x="300" y="346" width="210" height="70"/>
+  <text class="label" x="320" y="376">Security Alerts</text>
+  <text class="small" x="320" y="397">Normalized security signals</text>
+
+  <text class="section" x="590" y="136">QUALITY AND CORRELATION</text>
+  <rect class="panel" x="570" y="154" width="220" height="70"/>
+  <text class="label" x="590" y="184">Aggregation / Dedup</text>
+  <text class="small" x="590" y="205">Repeated signal control</text>
+  <rect class="panel" x="570" y="250" width="220" height="70"/>
+  <text class="label" x="590" y="280">Noise Suppression</text>
+  <text class="small" x="590" y="301">Observed or suppressed paths</text>
+  <rect class="workflow" x="570" y="346" width="220" height="70"/>
+  <text class="label" x="590" y="376">Correlation Engine</text>
+  <text class="small" x="590" y="397">Incident creation policy</text>
+
+  <text class="section" x="872" y="136">SOC WORKFLOW</text>
+  <rect class="workflow" x="850" y="154" width="200" height="70"/>
+  <text class="label" x="870" y="184">Incidents</text>
+  <text class="small" x="870" y="205">Lifecycle and evidence</text>
+  <rect class="workflow" x="850" y="250" width="200" height="70"/>
+  <text class="label" x="870" y="280">Cases</text>
+  <text class="small" x="870" y="301">Ownership / SLA / closure</text>
+  <rect class="report" x="850" y="346" width="200" height="70"/>
+  <text class="label" x="870" y="376">Reports</text>
+  <text class="small" x="870" y="397">Evidence packs / PDFs</text>
+
+  <text class="section" x="875" y="492">LOCAL RUNTIME</text>
+  <rect class="panel" x="850" y="510" width="200" height="70"/>
+  <text class="label" x="870" y="540">FastAPI Backend</text>
+  <text class="small" x="870" y="561">RBAC / APIs / exports</text>
+  <rect class="store" x="590" y="510" width="200" height="70"/>
+  <text class="label" x="610" y="540">PostgreSQL</text>
+  <text class="small" x="610" y="561">Operational datastore</text>
+  <rect class="ai" x="590" y="606" width="200" height="70"/>
+  <text class="label" x="610" y="636">Ollama / Local LLM</text>
+  <text class="small" x="610" y="657">AI analysis and guidance</text>
+  <rect class="panel" x="1080" y="510" width="150" height="70"/>
+  <text class="label" x="1100" y="540">Next.js UI</text>
+  <text class="small" x="1100" y="561">SOC console</text>
+  <rect class="report" x="1080" y="606" width="150" height="70"/>
+  <text class="label" x="1100" y="636">Analyst</text>
+  <text class="small" x="1100" y="657">Human control</text>
+
+  <path class="line" d="M238 189 H300"/>
+  <path class="line" d="M238 285 H300"/>
+  <path class="line" d="M238 381 H300"/>
+  <path class="line" d="M405 224 V250"/>
+  <path class="line" d="M405 320 V346"/>
+  <path class="line" d="M510 381 H570"/>
+  <path class="line" d="M680 224 V250"/>
+  <path class="line" d="M680 320 V346"/>
+  <path class="line" d="M790 381 H850"/>
+  <path class="line" d="M950 224 V250"/>
+  <path class="line" d="M950 320 V346"/>
+  <path class="muted-line" d="M950 416 V510"/>
+  <path class="muted-line" d="M850 545 H790"/>
+  <path class="muted-line" d="M790 641 H850"/>
+  <path class="line" d="M1050 545 H1080"/>
+  <path class="line" d="M1155 580 V606"/>
+</svg>

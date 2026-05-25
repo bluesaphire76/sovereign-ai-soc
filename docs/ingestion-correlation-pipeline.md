@@ -2,7 +2,9 @@
 
 The ingestion pipeline is designed to preserve raw security context while preventing noisy or duplicated telemetry from overwhelming the SOC workflow.
 
-Full source diagram: [ingestion-correlation-pipeline.mmd](diagrams/ingestion-correlation-pipeline.mmd).
+![Ingestion and correlation pipeline](assets/architecture/ingestion-correlation-pipeline.svg)
+
+Editable Mermaid source: [ingestion-correlation-pipeline.mmd](diagrams/ingestion-correlation-pipeline.mmd).
 
 ## Core Entities
 

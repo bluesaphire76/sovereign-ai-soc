@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="720" viewBox="0 0 1180 720" role="img" aria-labelledby="title desc">
+  <title id="title">Ingestion and correlation pipeline</title>
+  <desc id="desc">Pipeline from telemetry collection through raw events, alerts, deduplication, suppression, correlation, incident creation, AI analysis and case workflow.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#22d3ee"/>
+    </marker>
+    <style>
+      .bg { fill: #020617; }
+      .box { fill: #0f172a; stroke: #334155; stroke-width: 1.2; rx: 8; }
+      .decision { fill: #1f2937; stroke: #f59e0b; stroke-width: 1.2; }
+      .good { fill: #052e2b; stroke: #10b981; stroke-width: 1.2; rx: 8; }
+      .warn { fill: #2b1d0b; stroke: #f59e0b; stroke-width: 1.2; rx: 8; }
+      .incident { fill: #082f49; stroke: #22d3ee; stroke-width: 1.2; rx: 8; }
+      .ai { fill: #17112b; stroke: #a78bfa; stroke-width: 1.2; rx: 8; }
+      .title { fill: #e5e7eb; font: 700 28px Arial, sans-serif; }
+      .subtitle { fill: #94a3b8; font: 400 14px Arial, sans-serif; }
+      .label { fill: #e5e7eb; font: 700 15px Arial, sans-serif; text-anchor: middle; }
+      .small { fill: #cbd5e1; font: 400 12px Arial, sans-serif; text-anchor: middle; }
+      .edge { stroke: #22d3ee; stroke-width: 1.7; fill: none; marker-end: url(#arrow); }
+      .muted { stroke: #64748b; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+      .note { fill: #94a3b8; font: 700 11px Arial, sans-serif; }
+    </style>
+  </defs>
+  <rect class="bg" width="1180" height="720"/>
+  <text class="title" x="48" y="58">Ingestion and Correlation Pipeline</text>
+  <text class="subtitle" x="48" y="84">Signals are collected, normalized, deduplicated and correlated before incident creation.</text>
+
+  <rect class="box" x="60" y="145" width="170" height="70"/>
+  <text class="label" x="145" y="176">Telemetry</text>
+  <text class="small" x="145" y="198">Wazuh / Suricata / DNS</text>
+  <rect class="box" x="270" y="145" width="170" height="70"/>
+  <text class="label" x="355" y="176">Raw Event</text>
+  <text class="small" x="355" y="198">Source context retained</text>
+  <rect class="box" x="480" y="145" width="170" height="70"/>
+  <text class="label" x="565" y="176">Security Alert</text>
+  <text class="small" x="565" y="198">Normalized signal</text>
+  <rect class="box" x="690" y="145" width="170" height="70"/>
+  <text class="label" x="775" y="176">Aggregation</text>
+  <text class="small" x="775" y="198">Dedup and grouping</text>
+
+  <polygon class="decision" points="965,126 1060,180 965,234 870,180"/>
+  <text class="label" x="965" y="176">Noise</text>
+  <text class="small" x="965" y="198">policy</text>
+
+  <rect class="warn" x="770" y="335" width="180" height="72"/>
+  <text class="label" x="860" y="366">Suppressed</text>
+  <text class="small" x="860" y="388">Retained as context</text>
+  <rect class="good" x="980" y="335" width="160" height="72"/>
+  <text class="label" x="1060" y="366">Observed Only</text>
+  <text class="small" x="1060" y="388">No incident created</text>
+
+  <rect class="incident" x="500" y="335" width="190" height="72"/>
+  <text class="label" x="595" y="366">Correlation</text>
+  <text class="small" x="595" y="388">Candidate evaluation</text>
+  <rect class="incident" x="270" y="335" width="170" height="72"/>
+  <text class="label" x="355" y="366">Incident</text>
+  <text class="small" x="355" y="388">Created by policy</text>
+  <rect class="ai" x="60" y="335" width="170" height="72"/>
+  <text class="label" x="145" y="366">AI Analysis</text>
+  <text class="small" x="145" y="388">Brief and rationale</text>
+
+  <rect class="box" x="270" y="520" width="170" height="72"/>
+  <text class="label" x="355" y="551">Case Workflow</text>
+  <text class="small" x="355" y="573">Owner / SLA / closure</text>
+  <rect class="good" x="500" y="520" width="190" height="72"/>
+  <text class="label" x="595" y="551">Reports</text>
+  <text class="small" x="595" y="573">Evidence packs / PDFs</text>
+
+  <path class="edge" d="M230 180 H270"/>
+  <path class="edge" d="M440 180 H480"/>
+  <path class="edge" d="M650 180 H690"/>
+  <path class="edge" d="M860 180 H870"/>
+  <path class="edge" d="M870 180 C790 250 700 290 615 335"/>
+  <path class="muted" d="M965 234 V335"/>
+  <path class="muted" d="M1015 216 C1095 250 1120 285 1060 335"/>
+  <path class="edge" d="M500 371 H440"/>
+  <path class="edge" d="M270 371 H230"/>
+  <path class="edge" d="M355 407 V520"/>
+  <path class="edge" d="M440 556 H500"/>
+
+  <text class="note" x="710" y="275">Only supported signals become incidents</text>
+  <text class="note" x="60" y="632">AI runs after deterministic policy decisions and supports analyst review.</text>
+</svg>
