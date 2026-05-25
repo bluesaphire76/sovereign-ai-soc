@@ -15,7 +15,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Users,
-} from "lucide-react";
+  Globe2,} from "lucide-react";
 import {
   clearAuthSession,
   fetchCurrentUser,
@@ -72,6 +72,13 @@ const NAV_ITEMS: NavItem[] = [
     label: "Network Activity",
     icon: <Network className="h-3.5 w-3.5" strokeWidth={1.75} />,
     match: "prefix",
+  },
+
+  {
+    href: "/dns-telemetry",
+    label: "DNS Telemetry",
+    icon: <Globe2 className="h-3.5 w-3.5" strokeWidth={1.75} />,
+    match: "exact",
   },
   {
     href: "/health",
