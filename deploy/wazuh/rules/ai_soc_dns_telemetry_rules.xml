@@ -1,0 +1,22 @@
+<group name="ai_soc,dns_telemetry,">
+  <rule id="100510" level="3">
+    <decoded_as>json</decoded_as>
+    <field name="event_type">^ai_soc_dns_query$</field>
+    <description>AI SOC DNS telemetry query: $(query_name)</description>
+    <group>ai_soc,dns_telemetry,</group>
+  </rule>
+
+  <rule id="100511" level="3">
+    <decoded_as>json</decoded_as>
+    <field name="event_type">^ai_soc_dns_collector_started$</field>
+    <description>AI SOC DNS telemetry collector started on $(host)</description>
+    <group>ai_soc,dns_telemetry,</group>
+  </rule>
+
+  <rule id="100512" level="7">
+    <decoded_as>json</decoded_as>
+    <field name="event_type">^ai_soc_dns_collector_error$</field>
+    <description>AI SOC DNS telemetry collector error on $(host)</description>
+    <group>ai_soc,dns_telemetry,</group>
+  </rule>
+</group>
