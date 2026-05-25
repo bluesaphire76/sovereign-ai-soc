@@ -12,6 +12,7 @@ from models import (
     IncidentCase,
 )
 from report_naming import case_evidence_pack_filename
+from report_network_evidence import attach_case_network_evidence, append_case_network_evidence_markdown
 
 
 def now_label() -> str:
@@ -691,7 +692,11 @@ def build_case_evidence_pack(case_id: int) -> dict:
 
     try:
         payload = build_case_evidence_payload(db, case_id)
-        markdown = evidence_payload_to_markdown(payload)
+        attach_case_network_evidence(payload)
+        markdown = append_case_network_evidence_markdown(
+            evidence_payload_to_markdown(payload),
+            payload,
+        )
         filename = case_evidence_pack_filename(case_id)
 
         return {

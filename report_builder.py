@@ -21,6 +21,12 @@ from report_naming import (
     case_enterprise_report_filename,
     incident_enterprise_report_filename,
 )
+from report_network_evidence import (
+    append_case_network_evidence_markdown,
+    append_incident_network_evidence_markdown,
+    attach_case_network_evidence,
+    attach_incident_network_evidence,
+)
 
 
 def safe_json(value):
@@ -243,7 +249,11 @@ def build_incident_report(incident_id: int):
 
     try:
         payload = build_incident_payload(db, incident_id)
-        markdown = incident_payload_to_markdown(payload)
+        attach_incident_network_evidence(payload)
+        markdown = append_incident_network_evidence_markdown(
+            incident_payload_to_markdown(payload),
+            payload,
+        )
         filename = incident_enterprise_report_filename(incident_id)
 
         return {
@@ -412,7 +422,11 @@ def build_case_report(case_id: int):
 
     try:
         payload = build_case_payload(db, case_id)
-        markdown = case_payload_to_markdown(payload)
+        attach_case_network_evidence(payload)
+        markdown = append_case_network_evidence_markdown(
+            case_payload_to_markdown(payload),
+            payload,
+        )
         filename = case_enterprise_report_filename(case_id)
 
         return {
