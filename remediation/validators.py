@@ -14,6 +14,15 @@ from .models import (
 from .risk import FORBIDDEN_ACTION_TYPES
 from .approvals import RemediationApprovalRecord, RemediationApprovalStatus, normalize_role
 from .dry_run import RemediationDryRunResult, RemediationDryRunStatus
+from .execution_audit import RemediationExecutionAuditRecord
+from .readiness import (
+    RemediationExecutionAuditStatus,
+    RemediationExecutionReadinessAssessment,
+)
+from .rollback_readiness import (
+    RemediationRollbackReadiness,
+    RemediationRollbackReadinessStatus,
+)
 
 
 SHELL_OPERATOR_RE = re.compile(r"(\||&&|;|`|\$\(|>\s*[^ ]|<\s*[^ ])")
@@ -185,6 +194,127 @@ def validate_dry_run_result(result: RemediationDryRunResult) -> RemediationValid
         RemediationDryRunStatus.NOT_SUPPORTED,
     }:
         warnings.extend(finding.title for finding in result.findings)
+
+    return RemediationValidationResult(
+        valid=not issues,
+        issues=issues,
+        warnings=warnings,
+    )
+
+
+def validate_rollback_readiness(
+    readiness: RemediationRollbackReadiness,
+) -> RemediationValidationResult:
+    issues: list[str] = []
+    warnings: list[str] = []
+
+    if readiness.status == RemediationRollbackReadinessStatus.READY and readiness.blockers:
+        issues.append("READY_ROLLBACK_MUST_NOT_HAVE_BLOCKERS")
+
+    if readiness.status == RemediationRollbackReadinessStatus.MISSING and not readiness.blockers:
+        issues.append("MISSING_ROLLBACK_REQUIRES_BLOCKER")
+
+    if readiness.status == RemediationRollbackReadinessStatus.BLOCKED and not readiness.blockers:
+        issues.append("BLOCKED_ROLLBACK_REQUIRES_BLOCKER")
+
+    if readiness.rollback_available and readiness.status in {
+        RemediationRollbackReadinessStatus.MISSING,
+        RemediationRollbackReadinessStatus.BLOCKED,
+        RemediationRollbackReadinessStatus.UNKNOWN,
+    }:
+        issues.append("UNAVAILABLE_ROLLBACK_STATUS_CANNOT_BE_AVAILABLE")
+
+    if readiness.status == RemediationRollbackReadinessStatus.PARTIAL:
+        warnings.extend(readiness.limitations)
+
+    return RemediationValidationResult(
+        valid=not issues,
+        issues=issues,
+        warnings=warnings,
+    )
+
+
+def validate_execution_readiness_assessment(
+    assessment: RemediationExecutionReadinessAssessment,
+) -> RemediationValidationResult:
+    issues: list[str] = []
+    warnings: list[str] = []
+    blocker_ids = {blocker.blocker_id for blocker in assessment.blockers}
+
+    if assessment.execution_supported:
+        issues.append("READINESS_MUST_NOT_SUPPORT_EXECUTION_IN_STEP_10")
+
+    if assessment.execution_attempted:
+        issues.append("READINESS_MUST_NOT_ATTEMPT_EXECUTION_IN_STEP_10")
+
+    if (
+        assessment.execution_status
+        == RemediationExecutionAuditStatus.READY_FOR_FUTURE_EXECUTOR
+        and assessment.blockers
+    ):
+        issues.append("READY_FOR_FUTURE_EXECUTOR_MUST_NOT_HAVE_BLOCKERS")
+
+    if (
+        assessment.execution_status
+        == RemediationExecutionAuditStatus.BLOCKED_BY_MISSING_APPROVAL
+        and not any("approval" in blocker_id for blocker_id in blocker_ids)
+    ):
+        issues.append("MISSING_APPROVAL_STATUS_REQUIRES_APPROVAL_BLOCKER")
+
+    if (
+        assessment.execution_status
+        == RemediationExecutionAuditStatus.BLOCKED_BY_MISSING_ROLLBACK
+        and not any("rollback" in blocker_id for blocker_id in blocker_ids)
+    ):
+        issues.append("MISSING_ROLLBACK_STATUS_REQUIRES_ROLLBACK_BLOCKER")
+
+    if (
+        assessment.approval_requirement != RemediationApprovalRequirement.NONE
+        and not assessment.approval_id
+        and assessment.execution_status
+        == RemediationExecutionAuditStatus.READY_FOR_FUTURE_EXECUTOR
+    ):
+        issues.append("READY_ACTION_REQUIRES_APPROVAL_REFERENCE")
+
+    if not assessment.dry_run_id:
+        issues.append("READINESS_REQUIRES_DRY_RUN_REFERENCE")
+
+    if not assessment.rollback_readiness_id:
+        issues.append("READINESS_REQUIRES_ROLLBACK_READINESS_REFERENCE")
+
+    if not assessment.evidence_references:
+        warnings.append("READINESS_HAS_NO_EVIDENCE_REFERENCES")
+
+    return RemediationValidationResult(
+        valid=not issues,
+        issues=issues,
+        warnings=warnings,
+    )
+
+
+def validate_execution_audit_record(
+    record: RemediationExecutionAuditRecord,
+) -> RemediationValidationResult:
+    issues: list[str] = []
+    warnings: list[str] = []
+
+    if record.execution_supported:
+        issues.append("EXECUTION_AUDIT_MUST_NOT_SUPPORT_EXECUTION_IN_STEP_10")
+
+    if record.execution_attempted:
+        issues.append("EXECUTION_AUDIT_MUST_NOT_RECORD_EXECUTION_ATTEMPT_IN_STEP_10")
+
+    if record.execution_status.name in {"SUCCESS", "FAILED"}:
+        issues.append("EXECUTION_AUDIT_MUST_NOT_USE_REAL_EXECUTION_OUTCOMES")
+
+    if not record.chain_of_custody.plan_id or not record.chain_of_custody.action_id:
+        issues.append("CHAIN_OF_CUSTODY_REQUIRES_PLAN_AND_ACTION")
+
+    if not record.chain_of_custody.custody_complete:
+        warnings.extend(record.chain_of_custody.gaps)
+
+    if any("executed" in note.lower() for note in record.audit_notes):
+        issues.append("AUDIT_NOTES_MUST_NOT_IMPLY_EXECUTION_OCCURRED")
 
     return RemediationValidationResult(
         valid=not issues,
