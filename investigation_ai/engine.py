@@ -16,8 +16,15 @@ from .adapters import (
 )
 from .confidence import calculate_confidence, calculate_hypothesis_confidence
 from .evidence import evidence_ids, normalize_evidence_references, strongest_evidence
+from .expansion import (
+    refine_hypothesis_missing_evidence,
+    refine_recommended_checks,
+    resolved_missing_evidence,
+    run_single_enrichment_pass,
+)
 from .factory import create_fallback_investigation_brief
 from .models import (
+    EvidenceReference,
     InvestigationBrief,
     InvestigationClaimClassification,
     InvestigationFinding,
@@ -38,6 +45,12 @@ from .reasoning import (
     analyze_reasoning_context,
     build_hypothesis_rationale,
     classify_hypothesis_claim,
+)
+from .retrieval import (
+    InvestigationEvidenceExpansion,
+    InvestigationRetrievalLimits,
+    RetrievalFetcher,
+    merge_evidence,
 )
 from .validators import (
     action_implies_operational_change,
@@ -156,6 +169,7 @@ def _build_limitations(
     context: InvestigationContext,
     *,
     reasoning: ReasoningAssessment | None = None,
+    expansion: InvestigationEvidenceExpansion | None = None,
     fallback_reason: str | None = None,
 ) -> list[InvestigationLimitation]:
     limitations: list[InvestigationLimitation] = []
@@ -203,6 +217,17 @@ def _build_limitations(
             )
         )
 
+    if expansion and any(result.evidence for result in expansion.results):
+        limitations.append(
+            InvestigationLimitation(
+                limitation_id="investigation-retrieval-enrichment-applied",
+                description="A bounded retrieval enrichment pass added additional evidence.",
+                impact="Retrieved evidence refined the investigation brief but still requires analyst validation.",
+                missing_data=[],
+                suggested_resolution="Review the retrieval audit trail and validate retrieved evidence before response decisions.",
+            )
+        )
+
     return limitations
 
 
@@ -211,20 +236,31 @@ def _build_deterministic_brief(
     *,
     incident_id: int,
     session_id: str,
+    extra_evidence: Sequence[EvidenceReference] | None = None,
+    expansion: InvestigationEvidenceExpansion | None = None,
     fallback_reason: str | None = None,
 ) -> InvestigationBrief:
-    evidence = normalize_evidence_references(context)
+    evidence = merge_evidence(
+        normalize_evidence_references(context),
+        list(extra_evidence or []),
+    )
     reasoning = analyze_reasoning_context(context, evidence)
+    resolved_missing = resolved_missing_evidence(expansion) if expansion else set()
+    reasoning_missing = [
+        item
+        for item in reasoning.missing_evidence
+        if item not in resolved_missing
+    ]
     confidence = calculate_confidence(
         context=context,
         supporting_evidence=evidence,
-        missing_evidence=reasoning.missing_evidence,
+        missing_evidence=reasoning_missing,
         contradictory_evidence=reasoning.contradictory_evidence,
         negative_signals=reasoning.negative_signals,
     )
     mitre_techniques = mitre_techniques_from_context(context)
     primary_evidence = strongest_evidence(evidence, limit=5)
-    missing_evidence = reasoning.missing_evidence or ["Additional evidence required to confirm the hypothesis."]
+    missing_evidence = reasoning_missing or ["Additional evidence required to confirm the hypothesis."]
     primary_confidence = calculate_hypothesis_confidence(
         context=context,
         supporting_evidence=primary_evidence,
@@ -367,6 +403,10 @@ def _build_deterministic_brief(
             requires_human_input=True,
         ),
     ]
+    if expansion:
+        recommended_checks = refine_recommended_checks(recommended_checks, expansion)
+    if expansion:
+        hypotheses = refine_hypothesis_missing_evidence(hypotheses, expansion)
 
     recommended_actions = [
         RecommendedAction(
@@ -388,8 +428,10 @@ def _build_deterministic_brief(
         "Review supporting and contradictory evidence before selecting response actions.",
         "Keep remediation decisions human-approved and auditable.",
     ]
-    if reasoning.missing_evidence:
-        next_steps.append("Collect missing evidence: " + ", ".join(reasoning.missing_evidence[:5]) + ".")
+    if reasoning_missing:
+        next_steps.append("Collect missing evidence: " + ", ".join(reasoning_missing[:5]) + ".")
+    if expansion and any(result.evidence for result in expansion.results):
+        next_steps.append("Review evidence returned by the bounded retrieval enrichment pass.")
 
     brief = InvestigationBrief(
         incident_id=incident_id,
@@ -406,6 +448,7 @@ def _build_deterministic_brief(
         limitations=_build_limitations(
             context,
             reasoning=reasoning,
+            expansion=expansion,
             fallback_reason=fallback_reason,
         ),
         next_investigation_steps=next_steps,
@@ -639,6 +682,11 @@ def generate_investigation_brief(
     llm_client: InvestigationLlmClient | None = None,
     model_name: str | None = None,
     session_id: str | None = None,
+    enable_retrieval_enrichment: bool = False,
+    retrieval_contexts: Sequence[InvestigationContext] | None = None,
+    retrieval_evidence: Sequence[EvidenceReference] | None = None,
+    retrieval_limits: InvestigationRetrievalLimits | None = None,
+    retrieval_fetcher: RetrievalFetcher | None = None,
 ) -> InvestigationBrief:
     if context is None:
         context = normalize_investigation_context(
@@ -672,6 +720,34 @@ def generate_investigation_brief(
             incident_id=resolved_incident_id,
             session_id=resolved_session_id,
         )
+
+        if enable_retrieval_enrichment:
+            expansion_result = run_single_enrichment_pass(
+                context=context,
+                brief=brief,
+                retrieval_contexts=retrieval_contexts,
+                retrieval_evidence=retrieval_evidence,
+                limits=retrieval_limits,
+                fetcher=retrieval_fetcher,
+            )
+            if expansion_result.enrichment_performed:
+                refined = _build_deterministic_brief(
+                    context,
+                    incident_id=resolved_incident_id,
+                    session_id=resolved_session_id,
+                    extra_evidence=expansion_result.retrieved_evidence,
+                    expansion=expansion_result.expansion,
+                )
+                logger.info(
+                    "investigation_generation_completed",
+                    extra={
+                        "incident_id": resolved_incident_id,
+                        "mode": "deterministic_enriched",
+                        "retrieved_evidence_count": len(expansion_result.retrieved_evidence),
+                    },
+                )
+                return refined
+
         logger.info(
             "investigation_generation_completed",
             extra={"incident_id": resolved_incident_id, "mode": "deterministic"},
