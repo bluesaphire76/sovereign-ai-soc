@@ -58,10 +58,13 @@ const COMPONENT_ORDER = [
   "qdrant",
   "wazuh_indexer",
   "wazuh_ingest",
+  "suricata_sensor",
+  "suricata_ingest",
   "event_processing_queue",
   "active_event_sources",
   "latest_raw_event_freshness",
   "latest_security_alert_freshness",
+  "latest_network_event_freshness",
   "latest_incident_freshness",
   "ai_soc_worker",
   "cloudflare_tunnel",
@@ -117,6 +120,7 @@ function componentIcon(component: string) {
   if (component.includes("source")) return <Shield className="h-3.5 w-3.5" />;
   if (component.includes("queue")) return <Clock className="h-3.5 w-3.5" />;
   if (component.includes("freshness")) return <Shield className="h-3.5 w-3.5" />;
+  if (component.includes("suricata")) return <Shield className="h-3.5 w-3.5" />;
   if (component.includes("wazuh")) return <Server className="h-3.5 w-3.5" />;
   if (component.includes("ollama")) return <Cpu className="h-3.5 w-3.5" />;
   if (component.includes("qdrant")) return <Database className="h-3.5 w-3.5" />;
@@ -129,11 +133,14 @@ function componentLabel(component: string) {
     .replace("active_event_sources", "Active event sources")
     .replace("latest_raw_event_freshness", "Latest RAW event freshness")
     .replace("latest_security_alert_freshness", "Latest SEC event freshness")
+    .replace("latest_network_event_freshness", "Latest Network event freshness")
     .replace("latest_incident_freshness", "Latest incident creation freshness")
     .replace("cloudflare_tunnel", "Cloudflare tunnel")
     .replace("ai_soc_worker", "AI SOC worker")
     .replace("wazuh_indexer", "Wazuh indexer")
     .replace("wazuh_ingest", "Wazuh ingest")
+    .replace("suricata_sensor", "Suricata sensor")
+    .replace("suricata_ingest", "Suricata ingest")
     .replace("postgres", "Postgres")
     .replace("ai_runtime", "AI Runtime")
     .replace("ollama", "Ollama")

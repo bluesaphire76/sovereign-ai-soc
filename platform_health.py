@@ -33,6 +33,10 @@ LATEST_INCIDENT_WARN_AFTER_SECONDS = int(os.getenv("LATEST_INCIDENT_WARN_AFTER_S
 LATEST_INCIDENT_ERROR_AFTER_SECONDS = int(os.getenv("LATEST_INCIDENT_ERROR_AFTER_SECONDS", "3600"))
 LATEST_EVENT_RECORD_WARN_AFTER_SECONDS = int(os.getenv("LATEST_EVENT_RECORD_WARN_AFTER_SECONDS", "900"))
 LATEST_EVENT_RECORD_ERROR_AFTER_SECONDS = int(os.getenv("LATEST_EVENT_RECORD_ERROR_AFTER_SECONDS", "3600"))
+SURICATA_CONTAINER_NAME = os.getenv("SURICATA_CONTAINER_NAME", "ai-soc-suricata")
+SURICATA_INGEST_SERVICE = os.getenv("SURICATA_INGEST_SERVICE", "ai-soc-suricata-ingest")
+LATEST_NETWORK_EVENT_WARN_AFTER_SECONDS = int(os.getenv("LATEST_NETWORK_EVENT_WARN_AFTER_SECONDS", "900"))
+LATEST_NETWORK_EVENT_ERROR_AFTER_SECONDS = int(os.getenv("LATEST_NETWORK_EVENT_ERROR_AFTER_SECONDS", "3600"))
 
 
 
@@ -395,6 +399,213 @@ def check_cloudflare_tunnel():
             details={"error": "internal_error"},
         )
 
+
+
+def check_suricata_sensor():
+    started_at = time.perf_counter()
+
+    try:
+        result = subprocess.run(
+            ["docker", "inspect", "-f", "{{.State.Running}}", SURICATA_CONTAINER_NAME],
+            capture_output=True,
+            text=True,
+            timeout=4,
+            check=False,
+        )
+
+        running = result.stdout.strip().lower() == "true"
+
+        if running:
+            return component_result(
+                component="suricata_sensor",
+                status="OK",
+                message="Suricata Docker sensor is running.",
+                started_at=started_at,
+                details={
+                    "container": SURICATA_CONTAINER_NAME,
+                    "running": True,
+                },
+            )
+
+        return component_result(
+            component="suricata_sensor",
+            status="WARN",
+            message="Suricata Docker sensor is not running.",
+            started_at=started_at,
+            details={
+                "container": SURICATA_CONTAINER_NAME,
+                "running": False,
+                "docker_stdout": result.stdout.strip(),
+                "docker_stderr": result.stderr.strip(),
+            },
+        )
+
+    except Exception as exc:
+        return component_result(
+            component="suricata_sensor",
+            status="ERROR",
+            message="Suricata Docker sensor check failed.",
+            started_at=started_at,
+            details={"error": "internal_error", "error_type": type(exc).__name__},
+        )
+
+
+def check_suricata_ingest():
+    started_at = time.perf_counter()
+
+    try:
+        systemd = subprocess.run(
+            ["systemctl", "is-active", SURICATA_INGEST_SERVICE],
+            capture_output=True,
+            text=True,
+            timeout=4,
+            check=False,
+        )
+
+        service_state = systemd.stdout.strip() or systemd.stderr.strip()
+
+        with engine.connect() as connection:
+            state = connection.execute(
+                sql_text("""
+                    select source, file_path, byte_offset, updated_at, details
+                    from suricata_ingest_state
+                    where source = 'suricata'
+                """)
+            ).mappings().fetchone()
+
+        details = {
+            "service": SURICATA_INGEST_SERVICE,
+            "systemd_state": service_state or "unknown",
+            "watermark_present": bool(state),
+        }
+
+        if state:
+            details.update(
+                {
+                    "source": state["source"],
+                    "file_path": state["file_path"],
+                    "byte_offset": state["byte_offset"],
+                    "updated_at": state["updated_at"].isoformat() if state["updated_at"] else None,
+                    "worker_details": parse_json_details(state["details"]),
+                }
+            )
+
+        if systemd.returncode == 0 and service_state == "active":
+            status = "OK" if state else "WARN"
+            message = (
+                "Suricata ingest worker is active and watermark state is available."
+                if state
+                else "Suricata ingest worker is active, but no watermark state is available yet."
+            )
+        else:
+            status = "WARN"
+            message = "Suricata ingest worker service is not active."
+
+        return component_result(
+            component="suricata_ingest",
+            status=status,
+            message=message,
+            started_at=started_at,
+            details=details,
+        )
+
+    except Exception as exc:
+        return component_result(
+            component="suricata_ingest",
+            status="ERROR",
+            message="Suricata ingest worker check failed.",
+            started_at=started_at,
+            details={"error": "internal_error", "error_type": type(exc).__name__},
+        )
+
+
+def check_latest_network_event_freshness():
+    started_at = time.perf_counter()
+
+    try:
+        with engine.connect() as connection:
+            row = connection.execute(
+                sql_text("""
+                    select
+                        id,
+                        event_type,
+                        event_timestamp,
+                        created_at,
+                        src_ip,
+                        dest_ip,
+                        hostname,
+                        app_proto,
+                        alert_signature
+                    from network_events
+                    order by event_timestamp desc nulls last, created_at desc nulls last, id desc
+                    limit 1
+                """)
+            ).mappings().fetchone()
+
+        if not row:
+            return component_result(
+                component="latest_network_event_freshness",
+                status="WARN",
+                message="No Suricata network event is available yet.",
+                started_at=started_at,
+                details={
+                    "warn_after_seconds": LATEST_NETWORK_EVENT_WARN_AFTER_SECONDS,
+                    "error_after_seconds": LATEST_NETWORK_EVENT_ERROR_AFTER_SECONDS,
+                },
+            )
+
+        event_ts = normalize_db_dt(row["event_timestamp"]) or normalize_db_dt(row["created_at"])
+
+        if not event_ts:
+            return component_result(
+                component="latest_network_event_freshness",
+                status="WARN",
+                message="Latest Suricata network event timestamp could not be parsed.",
+                started_at=started_at,
+                details={
+                    "event_id": row["id"],
+                    "event_timestamp": str(row["event_timestamp"]),
+                    "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+                },
+            )
+
+        age_seconds = round((utc_now() - event_ts).total_seconds(), 2)
+
+        status = "OK"
+        if age_seconds > LATEST_NETWORK_EVENT_ERROR_AFTER_SECONDS:
+            status = "ERROR"
+        elif age_seconds > LATEST_NETWORK_EVENT_WARN_AFTER_SECONDS:
+            status = "WARN"
+
+        return component_result(
+            component="latest_network_event_freshness",
+            status=status,
+            message=f"Latest Suricata network event is {age_seconds}s old.",
+            started_at=started_at,
+            details={
+                "event_id": row["id"],
+                "event_type": row["event_type"],
+                "event_timestamp": row["event_timestamp"].isoformat() if row["event_timestamp"] else None,
+                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+                "src_ip": row["src_ip"],
+                "dest_ip": row["dest_ip"],
+                "hostname": row["hostname"],
+                "app_proto": row["app_proto"],
+                "alert_signature": row["alert_signature"],
+                "age_seconds": age_seconds,
+                "warn_after_seconds": LATEST_NETWORK_EVENT_WARN_AFTER_SECONDS,
+                "error_after_seconds": LATEST_NETWORK_EVENT_ERROR_AFTER_SECONDS,
+            },
+        )
+
+    except Exception as exc:
+        return component_result(
+            component="latest_network_event_freshness",
+            status="ERROR",
+            message="Latest Suricata network event freshness check failed.",
+            started_at=started_at,
+            details={"error": "internal_error", "error_type": type(exc).__name__},
+        )
 
 
 def normalize_db_dt(value):
@@ -869,10 +1080,13 @@ def get_platform_health():
         check_ai_runtime(),
         check_wazuh_indexer(),
         check_wazuh_ingest(),
+        check_suricata_sensor(),
+        check_suricata_ingest(),
         check_event_processing_queue(),
         check_active_event_sources(),
         check_latest_raw_event_freshness(),
         check_latest_security_alert_freshness(),
+        check_latest_network_event_freshness(),
         check_latest_incident_freshness(),
         check_qdrant(),
         check_worker(),
