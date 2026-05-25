@@ -321,6 +321,120 @@ class SecurityAuditEvent(Base):
     details_json = Column(Text)
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
 
+
+class InvestigationSessionRecord(Base):
+    __tablename__ = "investigation_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(String, unique=True, index=True, nullable=False)
+    incident_id = Column(Integer, index=True, nullable=False)
+
+    status = Column(String, index=True, nullable=False)
+    generated_by = Column(String, default="system")
+    model_name = Column(String)
+    parent_session_id = Column(String, index=True)
+
+    investigation_version = Column(Integer, default=1, nullable=False)
+    enrichment_pass_count = Column(Integer, default=0, nullable=False)
+    fallback_used = Column(Boolean, default=False, nullable=False)
+
+    confidence_score = Column(Integer)
+    confidence_level = Column(String, index=True)
+
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class InvestigationSnapshotRecord(Base):
+    __tablename__ = "investigation_snapshots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    snapshot_id = Column(String, unique=True, index=True, nullable=False)
+    session_id = Column(String, ForeignKey("investigation_sessions.session_id"), index=True, nullable=False)
+
+    snapshot_type = Column(String, default="BRIEF", index=True, nullable=False)
+    investigation_version = Column(Integer, default=1, nullable=False)
+    investigation_payload = Column(Text, nullable=False)
+
+    evidence_count = Column(Integer, default=0, nullable=False)
+    hypothesis_count = Column(Integer, default=0, nullable=False)
+    recommended_check_count = Column(Integer, default=0, nullable=False)
+    recommended_action_count = Column(Integer, default=0, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class InvestigationHypothesisHistoryRecord(Base):
+    __tablename__ = "investigation_hypothesis_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(String, ForeignKey("investigation_sessions.session_id"), index=True, nullable=False)
+    hypothesis_id = Column(String, index=True, nullable=False)
+
+    investigation_version = Column(Integer, default=1, nullable=False)
+    hypothesis_status = Column(String, index=True)
+    confidence_score = Column(Integer)
+    claim_classification = Column(String, index=True)
+
+    supporting_evidence_count = Column(Integer, default=0, nullable=False)
+    contradictory_evidence_count = Column(Integer, default=0, nullable=False)
+    missing_evidence_count = Column(Integer, default=0, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class InvestigationConfidenceHistoryRecord(Base):
+    __tablename__ = "investigation_confidence_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(String, ForeignKey("investigation_sessions.session_id"), index=True, nullable=False)
+    snapshot_id = Column(String, index=True)
+
+    investigation_version = Column(Integer, default=1, nullable=False)
+    previous_score = Column(Integer)
+    new_score = Column(Integer)
+    previous_level = Column(String)
+    new_level = Column(String, index=True)
+    reason = Column(Text)
+
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class InvestigationRetrievalHistoryRecord(Base):
+    __tablename__ = "investigation_retrieval_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(String, ForeignKey("investigation_sessions.session_id"), index=True, nullable=False)
+
+    investigation_version = Column(Integer, default=1, nullable=False)
+    enrichment_pass = Column(Integer, default=0, nullable=False)
+    request_id = Column(String, index=True)
+    retrieval_type = Column(String, index=True)
+    retrieval_status = Column(String, index=True)
+    duration_ms = Column(Integer, default=0, nullable=False)
+    evidence_count = Column(Integer, default=0, nullable=False)
+    limits_applied_json = Column(Text)
+    failures_json = Column(Text)
+    audit_summary = Column(Text)
+
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class InvestigationFeedbackRecord(Base):
+    __tablename__ = "investigation_feedback"
+
+    id = Column(Integer, primary_key=True, index=True)
+    feedback_id = Column(String, unique=True, index=True, nullable=False)
+    session_id = Column(String, ForeignKey("investigation_sessions.session_id"), index=True, nullable=False)
+
+    analyst = Column(String, index=True)
+    feedback_type = Column(String, index=True, nullable=False)
+    feedback_text = Column(Text)
+    confidence_override = Column(Integer)
+    hypothesis_reference = Column(String, index=True)
+
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+
 class WazuhIngestWatermark(Base):
     __tablename__ = "wazuh_ingest_watermarks"
 
@@ -344,4 +458,3 @@ class WazuhIngestWatermark(Base):
 
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
-

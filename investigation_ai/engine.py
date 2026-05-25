@@ -69,6 +69,39 @@ def _new_session_id() -> str:
     return f"investigation-{uuid4().hex}"
 
 
+def _persist_brief_if_requested(
+    brief: InvestigationBrief,
+    *,
+    persistence_session: Any | None = None,
+    generated_by: str = "system",
+    model_name: str | None = None,
+    parent_session_id: str | None = None,
+    enrichment_pass_count: int = 0,
+    fallback_used: bool | None = None,
+    expansion: InvestigationEvidenceExpansion | None = None,
+) -> None:
+    if persistence_session is None:
+        return
+
+    from .persistence import safe_persist_investigation_brief
+
+    result = safe_persist_investigation_brief(
+        persistence_session,
+        brief,
+        generated_by=generated_by,
+        model_name=model_name,
+        parent_session_id=parent_session_id,
+        enrichment_pass_count=enrichment_pass_count,
+        fallback_used=fallback_used,
+        expansion=expansion,
+    )
+    if not result.success:
+        logger.warning(
+            "investigation_persistence_not_applied",
+            extra={"session_id": brief.session_id, "reason": result.error},
+        )
+
+
 def _brief_incident_id(context: InvestigationContext, incident_id: int | None) -> int:
     if incident_id is not None:
         return incident_id
@@ -687,6 +720,9 @@ def generate_investigation_brief(
     retrieval_evidence: Sequence[EvidenceReference] | None = None,
     retrieval_limits: InvestigationRetrievalLimits | None = None,
     retrieval_fetcher: RetrievalFetcher | None = None,
+    persistence_session: Any | None = None,
+    generated_by: str = "system",
+    parent_session_id: str | None = None,
 ) -> InvestigationBrief:
     if context is None:
         context = normalize_investigation_context(
@@ -746,11 +782,30 @@ def generate_investigation_brief(
                         "retrieved_evidence_count": len(expansion_result.retrieved_evidence),
                     },
                 )
+                _persist_brief_if_requested(
+                    refined,
+                    persistence_session=persistence_session,
+                    generated_by=generated_by,
+                    model_name=model_name,
+                    parent_session_id=parent_session_id,
+                    enrichment_pass_count=1,
+                    fallback_used=False,
+                    expansion=expansion_result.expansion,
+                )
                 return refined
 
         logger.info(
             "investigation_generation_completed",
             extra={"incident_id": resolved_incident_id, "mode": "deterministic"},
+        )
+        _persist_brief_if_requested(
+            brief,
+            persistence_session=persistence_session,
+            generated_by=generated_by,
+            model_name=model_name,
+            parent_session_id=parent_session_id,
+            enrichment_pass_count=0,
+            fallback_used=False,
         )
         return brief
 
@@ -775,6 +830,15 @@ def generate_investigation_brief(
             "investigation_generation_completed",
             extra={"incident_id": resolved_incident_id, "mode": "llm"},
         )
+        _persist_brief_if_requested(
+            brief,
+            persistence_session=persistence_session,
+            generated_by=generated_by,
+            model_name=model_name,
+            parent_session_id=parent_session_id,
+            enrichment_pass_count=0,
+            fallback_used=False,
+        )
         return brief
 
     except Exception as exc:
@@ -794,14 +858,33 @@ def generate_investigation_brief(
                 "investigation_generation_completed",
                 extra={"incident_id": resolved_incident_id, "mode": "fallback"},
             )
+            _persist_brief_if_requested(
+                brief,
+                persistence_session=persistence_session,
+                generated_by=generated_by,
+                model_name=model_name,
+                parent_session_id=parent_session_id,
+                enrichment_pass_count=0,
+                fallback_used=True,
+            )
             return brief
         except Exception:
             logger.warning(
                 "investigation_generation_fallback_minimal",
                 extra={"incident_id": resolved_incident_id},
             )
-            return create_fallback_investigation_brief(
+            brief = create_fallback_investigation_brief(
                 incident_id=resolved_incident_id,
                 session_id=resolved_session_id,
                 reason=reason,
             )
+            _persist_brief_if_requested(
+                brief,
+                persistence_session=persistence_session,
+                generated_by=generated_by,
+                model_name=model_name,
+                parent_session_id=parent_session_id,
+                enrichment_pass_count=0,
+                fallback_used=True,
+            )
+            return brief
