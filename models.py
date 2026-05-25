@@ -420,6 +420,25 @@ class InvestigationRetrievalHistoryRecord(Base):
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
 
 
+class InvestigationSimilarityHistoryRecord(Base):
+    __tablename__ = "investigation_similarity_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(String, ForeignKey("investigation_sessions.session_id"), index=True, nullable=False)
+
+    investigation_version = Column(Integer, default=1, nullable=False)
+    incident_id = Column(Integer, index=True, nullable=False)
+    related_incident_id = Column(Integer, index=True, nullable=False)
+    similarity_score = Column(Integer, default=0, nullable=False)
+    similarity_strength = Column(String, index=True)
+    signals_json = Column(Text)
+    recurring_entities_json = Column(Text)
+    recurring_patterns_json = Column(Text)
+    rationale = Column(Text)
+
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
 class InvestigationFeedbackRecord(Base):
     __tablename__ = "investigation_feedback"
 

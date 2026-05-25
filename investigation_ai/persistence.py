@@ -13,10 +13,12 @@ from models import (
     InvestigationHypothesisHistoryRecord,
     InvestigationRetrievalHistoryRecord,
     InvestigationSessionRecord,
+    InvestigationSimilarityHistoryRecord,
     InvestigationSnapshotRecord,
     utc_now,
 )
 
+from .intelligence import HistoricalInvestigationContext
 from .models import (
     InvestigationBaseModel,
     InvestigationBrief,
@@ -137,6 +139,7 @@ class InvestigationPersistenceStore:
         enrichment_pass_count: int = 0,
         fallback_used: bool | None = None,
         expansion: InvestigationEvidenceExpansion | None = None,
+        historical_context: HistoricalInvestigationContext | None = None,
     ) -> InvestigationPersistenceResult:
         records_written = 0
         session_id = brief.session_id
@@ -236,6 +239,11 @@ class InvestigationPersistenceStore:
                 version=version,
                 enrichment_pass=enrichment_pass_count,
                 expansion=expansion,
+            )
+            records_written += self._persist_similarity_history(
+                session_id=session_id,
+                version=version,
+                historical_context=historical_context,
             )
 
             self.db.commit()
@@ -416,6 +424,66 @@ class InvestigationPersistenceStore:
             .all()
         )
 
+    def _persist_similarity_history(
+        self,
+        *,
+        session_id: str,
+        version: int,
+        historical_context: HistoricalInvestigationContext | None,
+    ) -> int:
+        if historical_context is None or not historical_context.matches:
+            return 0
+
+        records_written = 0
+        recurring_entities = [
+            item.model_dump(mode="json", exclude_none=True)
+            for item in historical_context.recurring_entities
+        ]
+        recurring_patterns = [
+            item.model_dump(mode="json", exclude_none=True)
+            for item in historical_context.recurring_patterns
+        ]
+
+        for match in historical_context.matches:
+            self.db.add(
+                InvestigationSimilarityHistoryRecord(
+                    session_id=session_id,
+                    investigation_version=version,
+                    incident_id=historical_context.incident_id,
+                    related_incident_id=match.incident_id,
+                    similarity_score=match.score.score,
+                    similarity_strength=match.score.strength.value,
+                    signals_json=_json_dumps(
+                        [
+                            signal.model_dump(mode="json", exclude_none=True)
+                            for signal in match.score.signals
+                        ]
+                    ),
+                    recurring_entities_json=_json_dumps(recurring_entities),
+                    recurring_patterns_json=_json_dumps(recurring_patterns),
+                    rationale=match.rationale,
+                )
+            )
+            records_written += 1
+
+        return records_written
+
+    def list_similarity_history(
+        self,
+        *,
+        session_id: str,
+    ) -> list[InvestigationSimilarityHistoryRecord]:
+        return (
+            self.db.query(InvestigationSimilarityHistoryRecord)
+            .filter(InvestigationSimilarityHistoryRecord.session_id == session_id)
+            .order_by(
+                InvestigationSimilarityHistoryRecord.investigation_version.asc(),
+                InvestigationSimilarityHistoryRecord.similarity_score.desc(),
+                InvestigationSimilarityHistoryRecord.id.asc(),
+            )
+            .all()
+        )
+
 
 def safe_persist_investigation_brief(
     db: Any,
@@ -427,6 +495,7 @@ def safe_persist_investigation_brief(
     enrichment_pass_count: int = 0,
     fallback_used: bool | None = None,
     expansion: InvestigationEvidenceExpansion | None = None,
+    historical_context: HistoricalInvestigationContext | None = None,
 ) -> InvestigationPersistenceResult:
     try:
         store = InvestigationPersistenceStore(db)
@@ -438,6 +507,7 @@ def safe_persist_investigation_brief(
             enrichment_pass_count=enrichment_pass_count,
             fallback_used=fallback_used,
             expansion=expansion,
+            historical_context=historical_context,
         )
     except Exception as exc:
         logger.warning(
