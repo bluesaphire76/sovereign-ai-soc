@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="620" viewBox="0 0 1180 620" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="640" viewBox="0 0 1180 640" role="img" aria-labelledby="title desc">
   <title id="title">Local-first sovereignty architecture</title>
-  <desc id="desc">Local browser, frontend, API, PostgreSQL, Ollama, Wazuh, Suricata and reports with no mandatory external AI provider.</desc>
+  <desc id="desc">Browser, frontend, API, PostgreSQL, Ollama, Wazuh, Suricata, DNS, reports and security audit run in the local architecture. External AI is not required for core workflow.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L0,6 L9,3 z" fill="#22d3ee"/>
@@ -8,65 +8,79 @@
     <style>
       .bg { fill: #020617; }
       .boundary { fill: none; stroke: #334155; stroke-width: 1.4; stroke-dasharray: 8 6; rx: 14; }
-      .box { fill: #0f172a; stroke: #334155; stroke-width: 1.2; rx: 8; }
+      .node { fill: #0f172a; stroke: #334155; stroke-width: 1.2; rx: 8; }
       .local { fill: #052e2b; stroke: #10b981; stroke-width: 1.2; rx: 8; }
+      .api { fill: #082f49; stroke: #22d3ee; stroke-width: 1.2; rx: 8; }
       .ai { fill: #17112b; stroke: #a78bfa; stroke-width: 1.2; rx: 8; }
       .external { fill: #1f2937; stroke: #64748b; stroke-width: 1.2; stroke-dasharray: 5 4; rx: 8; }
       .title { fill: #e5e7eb; font: 700 28px Arial, sans-serif; }
       .subtitle { fill: #94a3b8; font: 400 14px Arial, sans-serif; }
-      .label { fill: #e5e7eb; font: 700 15px Arial, sans-serif; text-anchor: middle; }
-      .small { fill: #cbd5e1; font: 400 12px Arial, sans-serif; text-anchor: middle; }
+      .label { fill: #e5e7eb; font: 700 14px Arial, sans-serif; text-anchor: middle; }
+      .small { fill: #cbd5e1; font: 400 11px Arial, sans-serif; text-anchor: middle; }
       .section { fill: #94a3b8; font: 700 12px Arial, sans-serif; letter-spacing: 1px; }
       .edge { stroke: #22d3ee; stroke-width: 1.6; fill: none; marker-end: url(#arrow); }
       .muted { stroke: #64748b; stroke-width: 1.4; fill: none; marker-end: url(#arrow); stroke-dasharray: 5 4; }
     </style>
   </defs>
-  <rect class="bg" width="1180" height="620"/>
-  <text class="title" x="48" y="58">Local-first Sovereignty Architecture</text>
-  <text class="subtitle" x="48" y="84">Core SOC data and AI workflows stay inside the local environment.</text>
+  <rect class="bg" width="1180" height="640"/>
+  <text class="title" x="48" y="54">Local-first Sovereignty Architecture</text>
+  <text class="subtitle" x="48" y="80">Core telemetry, AI analysis, audit and reports remain inside the local environment.</text>
 
-  <rect class="boundary" x="40" y="120" width="870" height="430"/>
-  <text class="section" x="64" y="150">LOCAL RUNTIME BOUNDARY</text>
+  <rect class="boundary" x="40" y="118" width="900" height="448"/>
+  <text class="section" x="64" y="148">LOCAL RUNTIME BOUNDARY</text>
 
-  <rect class="box" x="80" y="210" width="160" height="70"/>
-  <text class="label" x="160" y="240">Browser</text>
-  <text class="small" x="160" y="262">Analyst console</text>
-  <rect class="box" x="300" y="210" width="170" height="70"/>
-  <text class="label" x="385" y="240">Next.js Frontend</text>
-  <text class="small" x="385" y="262">Local UI</text>
-  <rect class="local" x="530" y="210" width="170" height="70"/>
-  <text class="label" x="615" y="240">FastAPI API</text>
-  <text class="small" x="615" y="262">RBAC and workflows</text>
+  <rect class="node" x="80" y="205" width="150" height="62"/>
+  <text class="label" x="155" y="232">Analyst</text>
+  <text class="small" x="155" y="253">Human control</text>
+  <rect class="node" x="280" y="205" width="150" height="62"/>
+  <text class="label" x="355" y="232">Browser</text>
+  <text class="small" x="355" y="253">SOC console</text>
+  <rect class="node" x="480" y="205" width="150" height="62"/>
+  <text class="label" x="555" y="232">Next.js Frontend</text>
+  <text class="small" x="555" y="253">Local UI</text>
+  <rect class="api" x="680" y="205" width="150" height="62"/>
+  <text class="label" x="755" y="232">FastAPI API</text>
+  <text class="small" x="755" y="253">Local workflows</text>
 
-  <rect class="local" x="530" y="350" width="170" height="70"/>
-  <text class="label" x="615" y="380">PostgreSQL</text>
-  <text class="small" x="615" y="402">Local datastore</text>
-  <rect class="ai" x="740" y="210" width="140" height="70"/>
-  <text class="label" x="810" y="240">Ollama</text>
-  <text class="small" x="810" y="262">Local LLM</text>
-  <rect class="local" x="740" y="350" width="140" height="70"/>
-  <text class="label" x="810" y="380">Reports</text>
-  <text class="small" x="810" y="402">Local exports</text>
+  <rect class="local" x="680" y="342" width="150" height="62"/>
+  <text class="label" x="755" y="369">PostgreSQL</text>
+  <text class="small" x="755" y="390">Local datastore</text>
+  <rect class="ai" x="480" y="342" width="150" height="62"/>
+  <text class="label" x="555" y="369">Ollama / LLM</text>
+  <text class="small" x="555" y="390">Local AI runtime</text>
+  <rect class="local" x="280" y="342" width="150" height="62"/>
+  <text class="label" x="355" y="369">Reports</text>
+  <text class="small" x="355" y="390">Local exports</text>
+  <rect class="local" x="680" y="468" width="150" height="62"/>
+  <text class="label" x="755" y="495">Security Audit</text>
+  <text class="small" x="755" y="516">RBAC trail</text>
 
-  <rect class="box" x="80" y="410" width="160" height="70"/>
-  <text class="label" x="160" y="440">Wazuh</text>
-  <text class="small" x="160" y="462">Host signals</text>
-  <rect class="box" x="300" y="410" width="170" height="70"/>
-  <text class="label" x="385" y="440">Suricata / DNS</text>
-  <text class="small" x="385" y="462">Network and context</text>
+  <rect class="node" x="80" y="468" width="150" height="62"/>
+  <text class="label" x="155" y="495">Wazuh</text>
+  <text class="small" x="155" y="516">Local signals</text>
+  <rect class="node" x="280" y="468" width="150" height="62"/>
+  <text class="label" x="355" y="495">Suricata</text>
+  <text class="small" x="355" y="516">Local IDS signals</text>
+  <rect class="node" x="480" y="468" width="150" height="62"/>
+  <text class="label" x="555" y="495">DNS Telemetry</text>
+  <text class="small" x="555" y="516">Local context</text>
 
-  <rect class="external" x="970" y="255" width="160" height="90"/>
-  <text class="label" x="1050" y="288">External AI</text>
-  <text class="small" x="1050" y="310">Not mandatory for</text>
-  <text class="small" x="1050" y="328">core workflow</text>
+  <rect class="external" x="990" y="272" width="150" height="86"/>
+  <text class="label" x="1065" y="300">External AI</text>
+  <text class="small" x="1065" y="321">Not required for</text>
+  <text class="small" x="1065" y="340">core workflow</text>
 
-  <path class="edge" d="M240 245 H300"/>
-  <path class="edge" d="M470 245 H530"/>
-  <path class="edge" d="M700 245 H740"/>
-  <path class="edge" d="M615 280 V350"/>
-  <path class="edge" d="M700 385 H740"/>
-  <path class="edge" d="M240 445 H300"/>
-  <path class="edge" d="M470 445 C505 445 515 395 530 385"/>
-  <path class="edge" d="M160 410 C205 340 470 340 530 245"/>
-  <path class="muted" d="M910 300 H970"/>
+  <path class="edge" d="M230 236 H280"/>
+  <path class="edge" d="M430 236 H480"/>
+  <path class="edge" d="M630 236 H680"/>
+  <path class="edge" d="M755 267 V342"/>
+  <path class="edge" d="M680 236 H650 V373 H630"/>
+  <path class="edge" d="M680 236 H650 V373 H430"/>
+  <path class="edge" d="M755 267 V468"/>
+  <path class="edge" d="M755 468 V404"/>
+
+  <path class="edge" d="M230 499 H650 V236 H680"/>
+  <path class="edge" d="M430 499 H650 V236 H680"/>
+  <path class="edge" d="M630 499 H650 V236 H680"/>
+  <path class="muted" d="M990 315 H850 V236 H830"/>
 </svg>
