@@ -8,7 +8,15 @@ from .adapters import (
     normalize_existing_ai_analysis,
     normalize_investigation_context,
 )
+from .confidence import calculate_confidence, calculate_hypothesis_confidence
 from .engine import InvestigationLlmClient, generate_investigation_brief
+from .evidence import (
+    EvidenceNormalizationResult,
+    evidence_by_type,
+    has_ioc_evidence,
+    normalize_evidence,
+    normalize_evidence_references,
+)
 from .factory import create_empty_investigation_brief, create_fallback_investigation_brief
 from .models import (
     ConfidenceAssessment,
@@ -32,6 +40,13 @@ from .models import (
     RecommendedCheckPriority,
 )
 from .prompts import INVESTIGATION_SYSTEM_PROMPT, build_investigation_prompt
+from .reasoning import (
+    ReasoningAssessment,
+    analyze_reasoning_context,
+    classify_hypothesis_claim,
+    detect_contradictions,
+    identify_missing_evidence,
+)
 from .validators import (
     InvestigationValidationIssue,
     assert_valid_investigation_brief,
@@ -44,6 +59,7 @@ from .validators import (
 
 __all__ = [
     "ConfidenceAssessment",
+    "EvidenceNormalizationResult",
     "EvidenceReference",
     "INVESTIGATION_SYSTEM_PROMPT",
     "InvestigationContext",
@@ -66,16 +82,27 @@ __all__ = [
     "RecommendedActionCategory",
     "RecommendedCheck",
     "RecommendedCheckPriority",
+    "ReasoningAssessment",
+    "analyze_reasoning_context",
     "assert_valid_investigation_brief",
     "build_investigation_prompt",
+    "calculate_confidence",
+    "calculate_hypothesis_confidence",
+    "classify_hypothesis_claim",
     "contains_unqualified_certainty",
     "context_from_command_room_payload",
     "context_from_incident_ai_payload",
     "create_empty_investigation_brief",
     "create_fallback_investigation_brief",
+    "detect_contradictions",
+    "evidence_by_type",
     "evidence_references_from_context",
     "generate_investigation_brief",
+    "has_ioc_evidence",
+    "identify_missing_evidence",
     "normalize_confidence_score",
+    "normalize_evidence",
+    "normalize_evidence_references",
     "normalize_existing_ai_analysis",
     "normalize_investigation_context",
     "validate_investigation_brief",

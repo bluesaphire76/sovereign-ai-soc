@@ -63,7 +63,7 @@ class InvestigationEngineTests(unittest.TestCase):
         self.assertGreaterEqual(len(brief.evidence_used), 3)
         self.assertEqual(validate_investigation_brief(brief), [])
 
-    def test_llm_client_output_can_generate_structured_brief(self):
+    def test_llm_confidence_is_recalculated_deterministically(self):
         def llm_client(_messages):
             return json.dumps(
                 {
@@ -93,8 +93,9 @@ class InvestigationEngineTests(unittest.TestCase):
             llm_client=llm_client,
         )
 
-        self.assertEqual(brief.confidence.score, 100)
-        self.assertEqual(brief.confidence.level, InvestigationConfidenceLevel.HIGH)
+        self.assertLess(brief.confidence.score, 100)
+        self.assertNotEqual(brief.confidence.level, InvestigationConfidenceLevel.HIGH)
+        self.assertTrue(brief.confidence.scoring_factors)
         self.assertEqual(validate_investigation_brief(brief), [])
 
     def test_malformed_llm_output_triggers_deterministic_fallback(self):
