@@ -37,6 +37,9 @@ from .audit import (
     RemediationAuditEventType,
     audit_event_from_approval,
     audit_event_from_dry_run,
+    audit_event_from_execution_audit_record,
+    audit_event_from_readiness_assessment,
+    audit_event_from_rollback_readiness,
 )
 from .dry_run import (
     RemediationDryRunFinding,
@@ -47,14 +50,39 @@ from .dry_run import (
     generate_action_dry_run,
     generate_plan_dry_run,
 )
+from .execution_audit import (
+    RemediationExecutionAuditRecord,
+    RemediationExecutionChainOfCustody,
+    build_chain_of_custody,
+    prepare_execution_audit_record,
+)
 from .planner import create_fallback_remediation_plan, generate_remediation_plan
+from .readiness import (
+    RemediationExecutionAuditStatus,
+    RemediationExecutionBlocker,
+    RemediationExecutionPrecondition,
+    RemediationExecutionReadinessAssessment,
+    assess_action_execution_readiness,
+    assess_plan_execution_readiness,
+)
 from .risk import assess_action_risk, approval_for_action
 from .rollback import build_rollback_plan
+from .rollback_readiness import (
+    RemediationRollbackBlocker,
+    RemediationRollbackReadiness,
+    RemediationRollbackReadinessStatus,
+    RemediationRollbackValidation,
+    assess_action_rollback_readiness,
+    assess_plan_rollback_readiness,
+)
 from .validators import (
     validate_approval_record,
     validate_dry_run_result,
+    validate_execution_audit_record,
+    validate_execution_readiness_assessment,
     validate_remediation_action,
     validate_remediation_plan,
+    validate_rollback_readiness,
 )
 
 __all__ = [
@@ -74,7 +102,13 @@ __all__ = [
     "RemediationDryRunResult",
     "RemediationDryRunStatus",
     "RemediationDryRunStep",
+    "RemediationExecutionAuditRecord",
+    "RemediationExecutionAuditStatus",
+    "RemediationExecutionBlocker",
+    "RemediationExecutionChainOfCustody",
+    "RemediationExecutionPrecondition",
     "RemediationExecutionReadiness",
+    "RemediationExecutionReadinessAssessment",
     "RemediationImpactAssessment",
     "RemediationPlan",
     "RemediationPlanStatus",
@@ -84,6 +118,10 @@ __all__ = [
     "RemediationReviewOutcome",
     "RemediationRiskAssessment",
     "RemediationRiskLevel",
+    "RemediationRollbackBlocker",
+    "RemediationRollbackReadiness",
+    "RemediationRollbackReadinessStatus",
+    "RemediationRollbackValidation",
     "RemediationTarget",
     "RemediationTargetCriticality",
     "RemediationTargetType",
@@ -94,8 +132,16 @@ __all__ = [
     "approval_policy_for_requirement",
     "approval_for_action",
     "assess_action_risk",
+    "assess_action_execution_readiness",
+    "assess_action_rollback_readiness",
+    "assess_plan_execution_readiness",
+    "assess_plan_rollback_readiness",
     "audit_event_from_approval",
     "audit_event_from_dry_run",
+    "audit_event_from_execution_audit_record",
+    "audit_event_from_readiness_assessment",
+    "audit_event_from_rollback_readiness",
+    "build_chain_of_custody",
     "build_rollback_plan",
     "create_approval_record",
     "create_fallback_remediation_plan",
@@ -104,8 +150,12 @@ __all__ = [
     "generate_action_dry_run",
     "generate_plan_dry_run",
     "generate_remediation_plan",
+    "prepare_execution_audit_record",
     "validate_approval_record",
     "validate_dry_run_result",
+    "validate_execution_audit_record",
+    "validate_execution_readiness_assessment",
     "validate_remediation_action",
     "validate_remediation_plan",
+    "validate_rollback_readiness",
 ]
