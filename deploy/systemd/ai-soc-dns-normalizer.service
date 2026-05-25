@@ -1,0 +1,11 @@
+[Unit]
+Description=AI SOC DNS events normalizer
+After=ai-soc-worker.service
+Wants=ai-soc-worker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/lele/lab/ai-soc-assistant
+Environment=PYTHONPATH=/home/lele/lab/ai-soc-assistant
+ExecStart=/home/lele/lab/ai-soc-assistant/.venv/bin/python /home/lele/lab/ai-soc-assistant/scripts/ingest_dns_events_from_wazuh.py --limit 5000
+User=lele
