@@ -6,8 +6,13 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import Link from "next/link";
 import AppNavigation from "../../components/AppNavigation";
 import {
+  EnterpriseButton,
+  EnterpriseSection,
+} from "../../components/enterprise";
+import {
   Activity,
   AlertTriangle,
+  ArrowLeft,
   Database,
   Globe2,
   Network,
@@ -55,6 +60,29 @@ type NetworkEventsSummary = {
 };
 
 const EVENT_TYPES = ["", "alert", "dns", "http", "tls", "flow"];
+const NETWORK_BADGE_BASE =
+  "inline-flex h-5 w-fit items-center whitespace-nowrap rounded-sm border px-1.5 text-[10px] font-medium uppercase leading-none tracking-wide";
+const COUNT_BADGE_BASE =
+  "inline-flex h-5 min-w-8 items-center justify-center rounded-sm border border-slate-700 bg-slate-950 px-2 font-mono text-[10px] font-semibold text-slate-300";
+const CONTROL_CLASS =
+  "h-8 rounded-sm border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-cyan-500";
+type NetworkMetricTone = "neutral" | "primary" | "success" | "warning" | "danger";
+
+const networkMetricToneClasses: Record<NetworkMetricTone, string> = {
+  neutral: "border-slate-800 bg-slate-900 text-slate-100",
+  primary: "border-cyan-900 bg-cyan-950/30 text-cyan-100",
+  success: "border-emerald-900 bg-emerald-950/30 text-emerald-100",
+  warning: "border-orange-900 bg-orange-950/30 text-orange-100",
+  danger: "border-red-900 bg-red-950/30 text-red-100",
+};
+
+const networkMetricIconClasses: Record<NetworkMetricTone, string> = {
+  neutral: "bg-slate-950 text-slate-400",
+  primary: "bg-cyan-950 text-cyan-300",
+  success: "bg-emerald-950 text-emerald-300",
+  warning: "bg-orange-950 text-orange-300",
+  danger: "bg-red-950 text-red-300",
+};
 
 function formatDate(value: string | null) {
   if (!value) return "—";
@@ -181,97 +209,97 @@ export default function NetworkEventsPage() {
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
-      <AppNavigation />
+      <div className="mx-auto max-w-[1600px] px-4 py-4">
+        <AppNavigation />
 
-      <section className="mx-auto flex w-full max-w-7xl flex-col gap-5 px-4 py-6 sm:px-6 lg:px-8">
-        <div className="flex flex-col gap-4 rounded-md border border-slate-800 bg-slate-950/80 p-5 shadow-sm">
-          <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
-            <div>
-              <Link
-                href="/"
-                className="text-xs font-medium uppercase tracking-[0.24em] text-cyan-300 hover:text-cyan-200"
-              >
-                ← Dashboard
-              </Link>
+        <header className="mb-2 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <Link
+              href="/"
+              className="mb-3 inline-flex items-center gap-2 text-sm text-cyan-300 hover:text-cyan-200"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back to dashboard
+            </Link>
 
-              <div className="mt-3 flex items-center gap-3">
-                <div className="rounded-md border border-cyan-900/70 bg-cyan-950/30 p-2 text-cyan-200">
-                  <Network className="h-5 w-5" />
-                </div>
-
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-500">
-                    Network telemetry
-                  </p>
-                  <h1 className="text-2xl font-semibold tracking-tight text-slate-50">
-                    Network Activity
-                  </h1>
-                </div>
-              </div>
-
-              <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">
-                Read-only Suricata telemetry for enterprise investigation context.
-                Events are ingested as network evidence and are not converted into incidents automatically.
-              </p>
+            <div className="mb-2 flex items-center gap-2 text-sm text-cyan-300">
+              <Network className="h-4 w-4" />
+              Network telemetry
             </div>
 
-            <button
+            <h1 className="text-xl font-semibold tracking-tight text-slate-100">
+              Network Activity
+            </h1>
+
+            <p className="mt-2 max-w-3xl text-xs leading-5 text-slate-500">
+              Read-only Suricata telemetry for investigation context. Events are ingested
+              as network evidence and are not converted into incidents automatically.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-1.5">
+            <EnterpriseButton
               onClick={loadData}
               disabled={refreshing}
-              className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-medium text-slate-200 transition hover:border-cyan-700 hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-60"
+              tone="secondary"
+              size="xs"
+              icon={<RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />}
             >
-              <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
               Refresh
-            </button>
+            </EnterpriseButton>
           </div>
-        </div>
+        </header>
 
         {error && (
-          <div className="flex items-start gap-3 rounded-md border border-red-900/70 bg-red-950/30 p-4 text-sm text-red-100">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <div className="mb-3 flex items-start gap-2 rounded-sm border border-red-800 bg-red-950/50 px-3 py-2 text-xs text-red-200">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <div>
               <p className="font-semibold">Unable to load network activity</p>
-              <p className="mt-1 text-red-200/80">{error}</p>
+              <p className="mt-1 text-red-200/80">API error: {error}</p>
             </div>
           </div>
         )}
 
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <MetricCard
+        <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
+          <NetworkMetric
             icon={<Database className="h-4 w-4" />}
-            label="Network events"
+            title="Network events"
             value={summary?.total ?? 0}
-            helper="Persisted Suricata events"
+            subtitle="Persisted Suricata events"
+            tone="primary"
           />
-          <MetricCard
+          <NetworkMetric
             icon={<Activity className="h-4 w-4" />}
-            label="Event types"
+            title="Event types"
             value={byType.length}
-            helper="Alert / DNS / HTTP / TLS / Flow"
+            subtitle="Alert / DNS / HTTP / TLS / Flow"
+            tone="neutral"
           />
-          <MetricCard
+          <NetworkMetric
             icon={<Globe2 className="h-4 w-4" />}
-            label="Top destinations"
+            title="Top destinations"
             value={topDestinations.length}
-            helper="Destination IPs observed"
+            subtitle="Destination IPs observed"
+            tone="neutral"
           />
-          <MetricCard
+          <NetworkMetric
             icon={<Shield className="h-4 w-4" />}
-            label="Latest event"
+            title="Latest event"
             value={summary?.latest_event_timestamp ? "Active" : "No data"}
-            helper={formatDate(summary?.latest_event_timestamp ?? null)}
+            subtitle={formatDate(summary?.latest_event_timestamp ?? null)}
+            tone={summary?.latest_event_timestamp ? "success" : "neutral"}
           />
         </div>
 
-        <section className="grid gap-4 xl:grid-cols-[1.4fr_0.8fr]">
+        <section className="mt-3 grid gap-3 xl:grid-cols-[1.4fr_0.8fr]">
           <Panel title="Network event filters" subtitle="Query network telemetry without changing incident state.">
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              <label className="flex flex-col gap-1.5 text-xs font-medium text-slate-400">
+              <label className="flex flex-col gap-1.5 text-[10px] font-medium uppercase tracking-wide text-slate-500">
                 Event type
                 <select
                   value={eventType}
                   onChange={(event) => setEventType(event.target.value)}
-                  className="rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-700"
+                  className={CONTROL_CLASS}
                 >
                   {EVENT_TYPES.map((type) => (
                     <option key={type || "all"} value={type}>
@@ -287,40 +315,42 @@ export default function NetworkEventsPage() {
             </div>
 
             <div className="mt-4 flex flex-wrap items-center gap-2">
-              <button
+              <EnterpriseButton
                 onClick={loadData}
                 disabled={refreshing}
-                className="inline-flex items-center gap-2 rounded-md border border-cyan-800 bg-cyan-950/40 px-3 py-2 text-sm font-medium text-cyan-100 transition hover:border-cyan-600 disabled:cursor-not-allowed disabled:opacity-60"
+                tone="primary"
+                size="xs"
+                icon={<Search className="h-3.5 w-3.5" />}
               >
-                <Search className="h-4 w-4" />
                 Apply filters
-              </button>
+              </EnterpriseButton>
 
-              <button
+              <EnterpriseButton
                 onClick={() => {
                   setEventType("");
                   setSrcIp("");
                   setDestIp("");
                   setHostname("");
                 }}
-                className="rounded-md border border-slate-800 bg-slate-900 px-3 py-2 text-sm font-medium text-slate-300 transition hover:border-slate-700"
+                tone="ghost"
+                size="xs"
               >
                 Clear
-              </button>
+              </EnterpriseButton>
             </div>
           </Panel>
 
           <Panel title="Telemetry distribution" subtitle="Current event mix from Suricata EVE JSON.">
             <div className="space-y-2">
               {byType.length === 0 ? (
-                <p className="text-sm text-slate-500">No event type summary available.</p>
+                <p className="text-xs text-slate-500">No event type summary available.</p>
               ) : (
                 byType.map((item) => (
-                  <div key={item.event_type} className="flex items-center justify-between rounded-md border border-slate-800 bg-slate-950 px-3 py-2">
-                    <span className={`rounded border px-2 py-0.5 text-xs font-semibold uppercase ${eventTypeClasses(item.event_type)}`}>
+                  <div key={item.event_type} className="flex items-center justify-between rounded-sm border border-slate-800 bg-slate-950/80 px-3 py-2">
+                    <span className={`${NETWORK_BADGE_BASE} ${eventTypeClasses(item.event_type)}`}>
                       {item.event_type}
                     </span>
-                    <span className="font-mono text-sm text-slate-300">{item.count}</span>
+                    <span className={COUNT_BADGE_BASE}>{item.count}</span>
                   </div>
                 ))
               )}
@@ -328,7 +358,7 @@ export default function NetworkEventsPage() {
           </Panel>
         </section>
 
-        <section className="grid gap-4 xl:grid-cols-2">
+        <section className="mt-3 grid gap-3 xl:grid-cols-2">
           <RankedPanel title="Top destinations" emptyText="No destination IPs observed yet.">
             {topDestinations.map((item) => (
               <RankedRow key={item.dest_ip} label={item.dest_ip} value={item.count} />
@@ -342,52 +372,53 @@ export default function NetworkEventsPage() {
           </RankedPanel>
         </section>
 
-        <Panel
-          title="Recent network events"
-          subtitle={
-            loading
-              ? "Loading Suricata telemetry..."
-              : `Showing ${visibleEvents.length} of ${events?.total ?? 0} matching events`
-          }
-        >
-          {visibleEvents.length === 0 ? (
-            <div className="rounded-md border border-dashed border-slate-800 bg-slate-950 p-8 text-center text-sm text-slate-500">
-              No network events match the current filters.
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="border-b border-slate-800 text-xs uppercase tracking-[0.18em] text-slate-500">
+        <div className="mt-3">
+          <Panel
+            title="Recent network events"
+            subtitle={
+              loading
+                ? "Loading Suricata telemetry..."
+                : `Showing ${visibleEvents.length} of ${events?.total ?? 0} matching events`
+            }
+          >
+            {visibleEvents.length === 0 ? (
+              <div className="rounded-sm border border-dashed border-slate-800 bg-slate-950/80 p-6 text-center text-xs text-slate-500">
+                No network events match the current filters.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[1120px] table-fixed text-left text-[12px]">
+                <thead className="border-b border-slate-800 bg-slate-950 text-[10px] uppercase tracking-[0.16em] text-slate-500">
                   <tr>
-                    <th className="py-3 pr-4">Time</th>
-                    <th className="py-3 pr-4">Type</th>
-                    <th className="py-3 pr-4">Source</th>
-                    <th className="py-3 pr-4">Destination</th>
-                    <th className="py-3 pr-4">Host / SNI</th>
-                    <th className="py-3 pr-4">Protocol</th>
-                    <th className="py-3 pr-4">Alert</th>
+                    <th className="w-[170px] px-2 py-2 font-semibold">Time</th>
+                    <th className="w-[90px] px-2 py-2 font-semibold">Type</th>
+                    <th className="w-[160px] px-2 py-2 font-semibold">Source</th>
+                    <th className="w-[160px] px-2 py-2 font-semibold">Destination</th>
+                    <th className="w-[260px] px-2 py-2 font-semibold">Host / SNI</th>
+                    <th className="w-[120px] px-2 py-2 font-semibold">Protocol</th>
+                    <th className="px-2 py-2 font-semibold">Alert</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-900">
                   {visibleEvents.map((item) => (
                     <tr key={item.id} className="align-top text-slate-300 hover:bg-slate-900/50">
-                      <td className="max-w-[190px] py-3 pr-4 text-xs text-slate-400">
+                      <td className="px-2 py-2 font-mono text-[10px] text-slate-500">
                         {formatDate(item.event_timestamp)}
                       </td>
-                      <td className="py-3 pr-4">
-                        <span className={`rounded border px-2 py-0.5 text-xs font-semibold uppercase ${eventTypeClasses(item.event_type)}`}>
+                      <td className="px-2 py-2">
+                        <span className={`${NETWORK_BADGE_BASE} ${eventTypeClasses(item.event_type)}`}>
                           {item.event_type}
                         </span>
                       </td>
-                      <td className="py-3 pr-4 font-mono text-xs">
+                      <td className="px-2 py-2 font-mono text-[11px]">
                         {compactValue(item.src_ip)}
                         {item.src_port ? <span className="text-slate-500">:{item.src_port}</span> : null}
                       </td>
-                      <td className="py-3 pr-4 font-mono text-xs">
+                      <td className="px-2 py-2 font-mono text-[11px]">
                         {compactValue(item.dest_ip)}
                         {item.dest_port ? <span className="text-slate-500">:{item.dest_port}</span> : null}
                       </td>
-                      <td className="max-w-[280px] py-3 pr-4">
+                      <td className="px-2 py-2">
                         <div className="truncate text-slate-200">
                           {compactValue(item.hostname ?? item.tls_sni)}
                         </div>
@@ -398,14 +429,14 @@ export default function NetworkEventsPage() {
                           </div>
                         )}
                       </td>
-                      <td className="py-3 pr-4">
-                        <div className="font-mono text-xs text-slate-300">{compactValue(item.proto)}</div>
+                      <td className="px-2 py-2">
+                        <div className="font-mono text-[11px] text-slate-300">{compactValue(item.proto)}</div>
                         <div className="font-mono text-xs text-slate-500">{compactValue(item.app_proto)}</div>
                       </td>
-                      <td className="max-w-[320px] py-3 pr-4">
+                      <td className="px-2 py-2">
                         {item.alert_signature ? (
                           <div className="space-y-1">
-                            <span className={`inline-flex rounded border px-2 py-0.5 text-xs font-semibold ${alertSeverityClasses(item.alert_severity)}`}>
+                            <span className={`${NETWORK_BADGE_BASE} ${alertSeverityClasses(item.alert_severity)}`}>
                               Severity {item.alert_severity ?? "—"}
                             </span>
                             <p className="text-xs text-slate-300">{item.alert_signature}</p>
@@ -420,34 +451,49 @@ export default function NetworkEventsPage() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
-            </div>
-          )}
-        </Panel>
-      </section>
+                </table>
+              </div>
+            )}
+          </Panel>
+        </div>
+      </div>
     </main>
   );
 }
 
-function MetricCard({
-  icon,
-  label,
+function NetworkMetric({
+  title,
   value,
-  helper,
+  subtitle,
+  tone = "neutral",
+  icon,
 }: {
+  title: string;
+  value: number | string;
+  subtitle?: string;
+  tone?: NetworkMetricTone;
   icon: ReactNode;
-  label: string;
-  value: string | number;
-  helper: string;
 }) {
   return (
-    <div className="rounded-md border border-slate-800 bg-slate-950 p-4 shadow-sm">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</p>
-        <span className="rounded-md border border-slate-800 bg-slate-900 p-1.5 text-cyan-200">{icon}</span>
+    <div
+      className={`flex min-h-[58px] items-center justify-between gap-3 rounded-sm border px-2.5 py-2 shadow-sm ${networkMetricToneClasses[tone]}`}
+    >
+      <div className="min-w-0">
+        <div className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
+          {title}
+        </div>
+        <div className="mt-0.5 flex min-w-0 items-baseline gap-2">
+          <span className="text-xl font-semibold leading-6">{value}</span>
+          {subtitle && (
+            <span className="min-w-0 truncate text-[11px] leading-4 text-slate-500">
+              {subtitle}
+            </span>
+          )}
+        </div>
       </div>
-      <p className="mt-3 text-2xl font-semibold text-slate-50">{value}</p>
-      <p className="mt-1 text-xs text-slate-500">{helper}</p>
+      <div className={`shrink-0 rounded-sm p-1.5 ${networkMetricIconClasses[tone]}`}>
+        {icon}
+      </div>
     </div>
   );
 }
@@ -462,13 +508,9 @@ function Panel({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-md border border-slate-800 bg-slate-950 p-4 shadow-sm">
-      <div className="mb-4">
-        <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-300">{title}</h2>
-        {subtitle && <p className="mt-1 text-sm text-slate-500">{subtitle}</p>}
-      </div>
+    <EnterpriseSection title={title} description={subtitle}>
       {children}
-    </section>
+    </EnterpriseSection>
   );
 }
 
@@ -484,13 +526,13 @@ function TextFilter({
   placeholder: string;
 }) {
   return (
-    <label className="flex flex-col gap-1.5 text-xs font-medium text-slate-400">
+    <label className="flex flex-col gap-1.5 text-[10px] font-medium uppercase tracking-wide text-slate-500">
       {label}
       <input
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition placeholder:text-slate-700 focus:border-cyan-700"
+        className={CONTROL_CLASS}
       />
     </label>
   );
@@ -509,16 +551,16 @@ function RankedPanel({
 
   return (
     <Panel title={title}>
-      {hasChildren ? <div className="space-y-2">{children}</div> : <p className="text-sm text-slate-500">{emptyText}</p>}
+      {hasChildren ? <div className="space-y-2">{children}</div> : <p className="text-xs text-slate-500">{emptyText}</p>}
     </Panel>
   );
 }
 
 function RankedRow({ label, value }: { label: string; value: number }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-md border border-slate-800 bg-slate-950 px-3 py-2">
+    <div className="flex items-center justify-between gap-3 rounded-sm border border-slate-800 bg-slate-950/80 px-3 py-2">
       <span className="truncate font-mono text-xs text-slate-300">{label}</span>
-      <span className="rounded border border-slate-700 bg-slate-900 px-2 py-0.5 font-mono text-xs text-slate-300">
+      <span className={COUNT_BADGE_BASE}>
         {value}
       </span>
     </div>
