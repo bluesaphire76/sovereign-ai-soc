@@ -16,6 +16,7 @@ import {
   FileDown,
   FileText,
   Network,
+  Globe2,
   RefreshCw,
   ShieldAlert,
   Target,
@@ -100,6 +101,40 @@ type IncidentNetworkEvidence = {
     flow: number;
   };
   items: NetworkEvidenceItem[];
+};
+
+type DnsEvidenceItem = {
+  id: number;
+  source: string | null;
+  raw_event_id: number | null;
+  source_event_id: string | null;
+  event_timestamp: string | null;
+  agent_name: string | null;
+  agent_ip: string | null;
+  client_ip: string | null;
+  resolver_ip: string | null;
+  query_name: string | null;
+  query_type: string | null;
+  query_status: string | null;
+  collector: string | null;
+  raw_line: string | null;
+  created_at: string | null;
+};
+
+type IncidentDnsEvidence = {
+  incident_id: number;
+  source: string;
+  available: boolean;
+  reason: string;
+  window_minutes: number;
+  matched_agents: string[];
+  matched_client_ips: string[];
+  summary: {
+    total: number;
+    unique_domains: number;
+    query_types: Array<{ query_type: string | null; count: number }>;
+  };
+  items: DnsEvidenceItem[];
 };
 
 type CorrelationSummary = {
@@ -462,6 +497,19 @@ async function fetchIncidentNetworkEvidence(id: string): Promise<IncidentNetwork
 
   return response.json();
 }
+
+async function fetchIncidentDnsEvidence(id: string): Promise<IncidentDnsEvidence> {
+  const response = await authFetch(`/incidents/${id}/dns-evidence?window_minutes=120&limit=25`, {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to load DNS evidence: ${response.status}`);
+  }
+
+  return response.json();
+}
+
 
 
 
@@ -1908,6 +1956,139 @@ function NetworkEvidencePanel({
 }
 
 
+function formatDnsEvidenceTimestamp(value: string | null) {
+  return formatNetworkEvidenceTimestamp(value);
+}
+
+function queryTypeBadgeClasses(type: string | null) {
+  const value = (type ?? "").toUpperCase();
+
+  if (value === "A") return "border-emerald-800 bg-emerald-950/30 text-emerald-200";
+  if (value === "AAAA") return "border-cyan-800 bg-cyan-950/30 text-cyan-200";
+  if (value === "HTTPS") return "border-violet-800 bg-violet-950/30 text-violet-200";
+  if (value === "CNAME") return "border-blue-800 bg-blue-950/30 text-blue-200";
+  if (value === "TXT") return "border-orange-800 bg-orange-950/30 text-orange-200";
+
+  return "border-slate-700 bg-slate-900 text-slate-300";
+}
+
+function DnsEvidencePanel({
+  evidence,
+}: {
+  evidence: IncidentDnsEvidence | null;
+}) {
+  return (
+    <Panel title="DNS context" icon={<Globe2 className="h-3.5 w-3.5" />}>
+      {!evidence ? (
+        <p className="text-xs leading-5 text-slate-500">
+          Contextual DNS telemetry is not available for this incident.
+        </p>
+      ) : (
+        <div className="space-y-3">
+          <div className="rounded-sm border border-cyan-900/60 bg-cyan-950/20 p-3 text-xs leading-5 text-cyan-100/90">
+            DNS telemetry is matched by host and selected time window only. It provides contextual
+            investigation data and does not imply causal correlation with this incident.
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-3">
+            <DenseField label="DNS observations" value={evidence.summary.total} />
+            <DenseField label="Unique domains" value={evidence.summary.unique_domains} />
+            <DenseField label="Window" value={`±${evidence.window_minutes} min`} />
+          </div>
+
+          <div className="rounded-sm border border-slate-800 bg-slate-950 p-3">
+            <div className="grid gap-3 md:grid-cols-2">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                  Matched agents
+                </p>
+                <p className="mt-1 break-words font-mono text-xs leading-5 text-slate-300">
+                  {evidence.matched_agents.length > 0 ? evidence.matched_agents.join(", ") : "-"}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                  Matched client IPs
+                </p>
+                <p className="mt-1 break-words font-mono text-xs leading-5 text-slate-300">
+                  {evidence.matched_client_ips.length > 0 ? evidence.matched_client_ips.join(", ") : "-"}
+                </p>
+              </div>
+            </div>
+
+            <p className="mt-2 text-[10px] text-slate-500">
+              {evidence.reason.replaceAll("_", " ")}
+            </p>
+          </div>
+
+          {evidence.summary.query_types.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {evidence.summary.query_types.map((item) => (
+                <span
+                  key={item.query_type ?? "unknown"}
+                  className={`inline-flex h-5 items-center gap-1 rounded-sm border px-1.5 text-[10px] font-medium uppercase leading-none tracking-wide ${queryTypeBadgeClasses(item.query_type)}`}
+                >
+                  {item.query_type ?? "UNKNOWN"}
+                  <span className="font-mono text-[10px] opacity-80">{item.count}</span>
+                </span>
+              ))}
+            </div>
+          )}
+
+          {!evidence.available || evidence.items.length === 0 ? (
+            <div className="rounded-sm border border-dashed border-slate-800 bg-slate-950 p-3 text-xs leading-5 text-slate-500">
+              No contextual DNS telemetry was found for this host in the selected time window.
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-sm border border-slate-800">
+              <table className="min-w-full text-left text-xs">
+                <thead className="border-b border-slate-800 bg-slate-950 text-[10px] uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2">Time</th>
+                    <th className="px-3 py-2">Type</th>
+                    <th className="px-3 py-2">Query</th>
+                    <th className="px-3 py-2">Client</th>
+                    <th className="px-3 py-2">Resolver</th>
+                    <th className="px-3 py-2">Source</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-900">
+                  {evidence.items.slice(0, 8).map((item) => (
+                    <tr key={item.id} className="align-top text-slate-300">
+                      <td className="px-3 py-2 text-slate-500">
+                        {formatDnsEvidenceTimestamp(item.event_timestamp)}
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className={`inline-flex h-5 items-center rounded-sm border px-1.5 text-[10px] font-medium uppercase leading-none tracking-wide ${queryTypeBadgeClasses(item.query_type)}`}>
+                          {item.query_type ?? "UNKNOWN"}
+                        </span>
+                      </td>
+                      <td className="max-w-[280px] truncate px-3 py-2 font-mono text-cyan-100">
+                        {item.query_name ?? "-"}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-slate-400">
+                        {item.client_ip ?? item.agent_name ?? "-"}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-slate-400">
+                        {item.resolver_ip ?? "-"}
+                      </td>
+                      <td className="max-w-[180px] truncate px-3 py-2 text-slate-400">
+                        {item.source ?? item.collector ?? "-"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+
 export default function IncidentDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -1918,6 +2099,7 @@ export default function IncidentDetailPage() {
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [notes, setNotes] = useState<IncidentNote[]>([]);
   const [networkEvidence, setNetworkEvidence] = useState<IncidentNetworkEvidence | null>(null);
+  const [dnsEvidence, setDnsEvidence] = useState<IncidentDnsEvidence | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
   const [savingNote, setSavingNote] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -1944,17 +2126,19 @@ export default function IncidentDetailPage() {
     try {
       setRefreshing(true);
       setError(null);
-      const [data, auditData, notesData, networkEvidenceData] = await Promise.all([
+      const [data, auditData, notesData, networkEvidenceData, dnsEvidenceData] = await Promise.all([
         fetchIncident(incidentId),
         fetchIncidentAudit(incidentId),
         fetchIncidentNotes(incidentId),
         fetchIncidentNetworkEvidence(incidentId),
+        fetchIncidentDnsEvidence(incidentId),
       ]);
 
       setIncident(data);
       setAuditEvents(auditData);
       setNotes(notesData);
       setNetworkEvidence(networkEvidenceData);
+      setDnsEvidence(dnsEvidenceData);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
@@ -2279,6 +2463,7 @@ export default function IncidentDetailPage() {
             </section>
 
             <NetworkEvidencePanel evidence={networkEvidence} />
+            <DnsEvidencePanel evidence={dnsEvidence} />
 
             <section className="grid gap-3 xl:grid-cols-2">
               <Panel title="MITRE / Metadata" icon={<Database className="h-3.5 w-3.5" />}>
