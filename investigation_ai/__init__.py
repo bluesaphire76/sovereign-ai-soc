@@ -1,5 +1,14 @@
 """Structured investigation domain models for v0.6 workflows."""
 
+from .adapters import (
+    InvestigationContext,
+    context_from_command_room_payload,
+    context_from_incident_ai_payload,
+    evidence_references_from_context,
+    normalize_existing_ai_analysis,
+    normalize_investigation_context,
+)
+from .engine import InvestigationLlmClient, generate_investigation_brief
 from .factory import create_empty_investigation_brief, create_fallback_investigation_brief
 from .models import (
     ConfidenceAssessment,
@@ -22,9 +31,11 @@ from .models import (
     RecommendedCheck,
     RecommendedCheckPriority,
 )
+from .prompts import INVESTIGATION_SYSTEM_PROMPT, build_investigation_prompt
 from .validators import (
     InvestigationValidationIssue,
     assert_valid_investigation_brief,
+    contains_unqualified_certainty,
     normalize_confidence_score,
     validate_investigation_brief,
     validate_investigation_session,
@@ -34,6 +45,8 @@ from .validators import (
 __all__ = [
     "ConfidenceAssessment",
     "EvidenceReference",
+    "INVESTIGATION_SYSTEM_PROMPT",
+    "InvestigationContext",
     "InvestigationBrief",
     "InvestigationClaimClassification",
     "InvestigationConfidenceLevel",
@@ -47,15 +60,24 @@ __all__ = [
     "InvestigationSession",
     "InvestigationSessionStatus",
     "InvestigationValidationIssue",
+    "InvestigationLlmClient",
     "RecommendedAction",
     "RecommendedActionApprovalRequirement",
     "RecommendedActionCategory",
     "RecommendedCheck",
     "RecommendedCheckPriority",
     "assert_valid_investigation_brief",
+    "build_investigation_prompt",
+    "contains_unqualified_certainty",
+    "context_from_command_room_payload",
+    "context_from_incident_ai_payload",
     "create_empty_investigation_brief",
     "create_fallback_investigation_brief",
+    "evidence_references_from_context",
+    "generate_investigation_brief",
     "normalize_confidence_score",
+    "normalize_existing_ai_analysis",
+    "normalize_investigation_context",
     "validate_investigation_brief",
     "validate_investigation_session",
     "validate_recommended_action",
