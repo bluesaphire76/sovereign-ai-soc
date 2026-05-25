@@ -1,0 +1,24 @@
+flowchart TD
+  source["Wazuh / Suricata / DNS Sources"] --> collect["Collect Telemetry"]
+  collect --> raw["Raw Event"]
+  raw --> normalize["Normalize"]
+  normalize --> alert["Security Alert"]
+  alert --> dedup["Aggregation / Deduplication"]
+  dedup --> suppression{"Noise Suppression Policy"}
+
+  suppression -->|Known noise| suppressed["Suppressed / Retained as Context"]
+  suppression -->|Low value observation| observed["Observed Only"]
+  suppression -->|Candidate signal| candidate["Correlation Candidate"]
+
+  candidate --> correlate{"Correlation-first Evaluation"}
+  correlate -->|Insufficient support| observed
+  correlate -->|Meets incident policy| incident["Incident Created"]
+
+  incident --> ai["AI Analysis When Policy Allows"]
+  ai --> brief["Command Brief / Risk Rationale"]
+  incident --> case_check{"Investigation Needed?"}
+  case_check -->|Yes| case["Case Workflow"]
+  case_check -->|No| monitor["Monitor / Update Lifecycle"]
+
+  case --> reports["Case Report / Evidence Pack"]
+  incident --> reports

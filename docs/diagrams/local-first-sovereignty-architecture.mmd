@@ -1,0 +1,17 @@
+flowchart LR
+  browser["Browser"] --> frontend["Local Next.js Frontend"]
+  frontend --> api["Local FastAPI API"]
+  api --> postgres["Local PostgreSQL"]
+  api --> ollama["Local Ollama / LLM Runtime"]
+  api --> reports["Local Reports / Evidence Packs"]
+
+  wazuh["Local Wazuh Signals"] --> api
+  suricata["Local Suricata Signals"] --> api
+  dns["Local DNS Telemetry"] --> api
+
+  external["External AI Provider"]
+  external -. "Not required for core workflow" .-> api
+
+  analyst["Analyst"] --> browser
+  api --> audit["Security Audit / RBAC"]
+  audit --> postgres

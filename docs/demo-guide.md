@@ -1,0 +1,84 @@
+# Demo Guide
+
+This guide helps present Sovereign AI SOC as a local-first, AI-assisted SOC platform.
+
+## Demo Objective
+
+Show how the platform turns host, network and contextual telemetry into correlated incidents, analyst briefings, case workflow and executive-ready reporting while keeping AI local and human-controlled.
+
+## Prerequisites
+
+- Demo data or live lab telemetry is available.
+- Wazuh and Suricata sources are configured if those screens are part of the demo.
+- Ollama/local AI runtime is reachable.
+- Health page is clean enough for presentation.
+- Browser is using the dark enterprise UI with a desktop-sized viewport.
+- No secrets, tokens or private operational data are visible.
+
+## Recommended Demo Path
+
+1. **Dashboard**: introduce SOC posture, active risk and operational density.
+2. **Executive Dashboard**: show management-ready summary and decision framing.
+3. **Incidents**: explain that not every alert becomes an incident.
+4. **Incident Detail**: open a correlated incident and review the Incident Command Room.
+5. **AI Command Brief**: explain local AI situation summary, risk rationale, evidence and recommended actions.
+6. **Correlation Visualization**: show why the platform created the incident.
+7. **Network/DNS Context**: show Suricata or DNS context where available, emphasizing non-causal DNS wording.
+8. **Detection Quality**: review synthetic scenario coverage and generate an AI suggestion for remediation guidance.
+9. **Cases**: show ownership, SLA, closure readiness and linked incidents.
+10. **Reports**: export an incident report, case report or evidence pack.
+11. **Health**: show runtime observability, worker status and local AI posture.
+12. **Security Audit / Users**: close with RBAC and governance.
+
+## Talking Points
+
+### Local-first AI
+
+- AI analysis runs through a local Ollama runtime.
+- Sensitive security data does not require a mandatory external AI provider.
+- AI outputs are structured for review and fallback behavior keeps workflows resilient.
+
+### Human-in-the-loop
+
+- AI recommends and explains.
+- Analysts validate and act.
+- Incident status, case closure and operational response remain human-controlled.
+
+### Wazuh and Suricata
+
+- Wazuh contributes host and endpoint security context.
+- Suricata contributes network IDS visibility.
+- The product normalizes both into a SOC workflow rather than mixing all events into one flat alert list.
+
+### Correlation-first Incident Creation
+
+- Raw events and alerts are retained.
+- Suppression and aggregation reduce noise.
+- Correlation determines whether a signal deserves an incident.
+- Correlation Visualization explains the decision.
+
+### Reports and Evidence Packs
+
+- Reports are locally generated.
+- Executive reports stay concise.
+- Evidence packs include technical appendix material.
+- DNS context is labeled as contextual telemetry, not root cause evidence.
+
+## Troubleshooting
+
+Before a demo:
+
+```bash
+sudo systemctl status ai-soc-api --no-pager
+sudo systemctl status ai-soc-frontend --no-pager
+```
+
+Check the Health page for:
+
+- API status.
+- Database connectivity.
+- AI runtime.
+- Worker backlog.
+- Wazuh/Suricata/DNS freshness.
+
+If AI is unavailable, use the fallback behavior as a product talking point: deterministic workflows still work and AI outages do not stop incident review.
