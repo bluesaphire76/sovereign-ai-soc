@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 import os
 import re
+from datetime import timedelta
 from typing import Any
 
 from dotenv import load_dotenv
+from sqlalchemy import text as sql_text
 
 from ai_triage_hardening import call_ollama_chat
 from database import SessionLocal
@@ -227,6 +229,217 @@ def build_security_context(incident_payload: dict[str, Any]) -> list[dict[str, A
         return []
 
 
+
+def network_evidence_empty(reason: str = "not_available") -> dict[str, Any]:
+    return {
+        "source": "suricata",
+        "available": False,
+        "reason": reason,
+        "correlation_window_minutes": 120,
+        "matched_ips": [],
+        "matched_hostnames": [],
+        "summary": {
+            "total": 0,
+            "alert": 0,
+            "dns": 0,
+            "http": 0,
+            "tls": 0,
+            "flow": 0,
+        },
+        "items": [],
+    }
+
+
+def network_event_summary(rows: list[dict[str, Any]]) -> dict[str, int]:
+    summary = {
+        "total": len(rows),
+        "alert": 0,
+        "dns": 0,
+        "http": 0,
+        "tls": 0,
+        "flow": 0,
+    }
+
+    for row in rows:
+        event_type = str(row.get("event_type") or "")
+        if event_type in summary:
+            summary[event_type] += 1
+
+    return summary
+
+
+def normalize_network_event_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row.get("id"),
+        "event_type": row.get("event_type"),
+        "event_timestamp": row.get("event_timestamp").isoformat()
+        if row.get("event_timestamp")
+        else None,
+        "src_ip": row.get("src_ip"),
+        "src_port": row.get("src_port"),
+        "dest_ip": row.get("dest_ip"),
+        "dest_port": row.get("dest_port"),
+        "proto": row.get("proto"),
+        "app_proto": row.get("app_proto"),
+        "hostname": row.get("hostname"),
+        "tls_sni": row.get("tls_sni"),
+        "url": row.get("url"),
+        "http_method": row.get("http_method"),
+        "alert_signature": row.get("alert_signature"),
+        "alert_category": row.get("alert_category"),
+        "alert_severity": row.get("alert_severity"),
+    }
+
+
+def load_network_evidence_summary(
+    incident_payload: dict[str, Any],
+    window_minutes: int = 120,
+    limit: int = 12,
+) -> dict[str, Any]:
+    """Best-effort Suricata evidence enrichment for the AI brief.
+
+    This function is read-only. Any failure must not block AI brief generation.
+    """
+    try:
+        incident_ts = normalize_timestamp_utc(incident_payload.get("timestamp"))
+
+        if not incident_ts:
+            return network_evidence_empty("incident_timestamp_unavailable")
+
+        entities = incident_payload.get("extracted_entities") or {}
+        raw_alert = incident_payload.get("raw_alert") or {}
+
+        candidate_ips = {
+            str(value).strip()
+            for value in entities.get("ips", [])
+            if value and str(value).strip()
+        }
+
+        for key_path in [
+            ("agent", "ip"),
+            ("data", "srcip"),
+            ("data", "dstip"),
+            ("data", "src_ip"),
+            ("data", "dst_ip"),
+        ]:
+            current: Any = raw_alert
+
+            for key in key_path:
+                if not isinstance(current, dict):
+                    current = None
+                    break
+
+                current = current.get(key)
+
+            if current:
+                candidate_ips.add(str(current).strip())
+
+        candidate_hostnames = {
+            str(value).strip()
+            for value in entities.get("hosts", [])
+            if value and str(value).strip()
+        }
+
+        if incident_payload.get("agent"):
+            candidate_hostnames.add(str(incident_payload["agent"]).strip())
+
+        candidate_ips = {value for value in candidate_ips if value and value != "-"}
+        candidate_hostnames = {
+            value
+            for value in candidate_hostnames
+            if value
+            and value != "-"
+            and not re.fullmatch(r"(?:\d{1,3}\.){3}\d{1,3}", value)
+        }
+
+        if not candidate_ips and not candidate_hostnames:
+            return network_evidence_empty("no_ip_or_hostname_candidates")
+
+        start_ts = incident_ts - timedelta(minutes=window_minutes)
+        end_ts = incident_ts + timedelta(minutes=window_minutes)
+
+        params: dict[str, Any] = {
+            "start_ts": start_ts,
+            "end_ts": end_ts,
+            "limit": limit,
+        }
+
+        match_clauses: list[str] = []
+
+        for index, ip in enumerate(sorted(candidate_ips)[:30]):
+            key = f"ip_{index}"
+            params[key] = ip
+            match_clauses.append(f"(src_ip = :{key} OR dest_ip = :{key})")
+
+        for index, hostname in enumerate(sorted(candidate_hostnames)[:20]):
+            key = f"host_{index}"
+            params[key] = f"%{hostname}%"
+            match_clauses.append(f"(hostname ILIKE :{key} OR tls_sni ILIKE :{key})")
+
+        if not match_clauses:
+            return network_evidence_empty("no_valid_match_candidates")
+
+        db = SessionLocal()
+
+        try:
+            rows = (
+                db.execute(
+                    sql_text(f"""
+                        SELECT
+                            id,
+                            event_type,
+                            event_timestamp,
+                            src_ip,
+                            src_port,
+                            dest_ip,
+                            dest_port,
+                            proto,
+                            app_proto,
+                            hostname,
+                            tls_sni,
+                            url,
+                            http_method,
+                            alert_signature,
+                            alert_category,
+                            alert_severity
+                        FROM network_events
+                        WHERE event_timestamp BETWEEN :start_ts AND :end_ts
+                          AND ({' OR '.join(match_clauses)})
+                        ORDER BY event_timestamp DESC NULLS LAST, id DESC
+                        LIMIT :limit
+                    """),
+                    params,
+                )
+                .mappings()
+                .all()
+            )
+        finally:
+            db.close()
+
+        item_dicts = [dict(row) for row in rows]
+        summary = network_event_summary(item_dicts)
+
+        return {
+            "source": "suricata",
+            "available": summary["total"] > 0,
+            "reason": "matched_network_telemetry"
+            if summary["total"] > 0
+            else "no_related_network_events_found",
+            "correlation_window_minutes": window_minutes,
+            "matched_ips": sorted(candidate_ips),
+            "matched_hostnames": sorted(candidate_hostnames),
+            "summary": summary,
+            "items": [normalize_network_event_row(row) for row in item_dicts],
+        }
+
+    except Exception as exc:
+        return {
+            **network_evidence_empty("network_evidence_lookup_failed"),
+            "error_type": type(exc).__name__,
+        }
+
+
+
 def build_prompt(
     incident_payload: dict[str, Any],
     security_context: list[dict[str, Any]],
@@ -318,7 +531,7 @@ This output will be used by a human SOC analyst.
 Your goal:
 - Explain what happened.
 - Explain why it matters.
-- Identify evidence used.
+- Identify evidence used, including Wazuh alert data, correlation data and Suricata network evidence when available.
 - Build an attack progression timeline.
 - Extract entities.
 - Suggest analyst checks and response actions.
@@ -333,6 +546,13 @@ Knowledge base context:
 
 Incident data:
 {json.dumps(incident_payload, ensure_ascii=False, indent=2, default=str)}
+
+Network evidence guidance:
+- If incident_data.network_evidence.available is true, explicitly mention the Suricata evidence in evidence_used and evidence_overview.
+- If Suricata alert events are present, include them as high-fidelity supporting evidence, but do not automatically escalate without Wazuh/correlation support.
+- If only flow/http/tls/dns events are present, treat them as investigation context, not proof of compromise.
+- If network evidence is unavailable or empty, state that network telemetry did not add related evidence in the selected window.
+- Keep all recommendations human-approved and read-only.
 
 Return ONLY valid JSON.
 Do not wrap JSON in markdown.
@@ -584,6 +804,10 @@ def deterministic_brief(incident_payload: dict[str, Any], reason: str) -> dict[s
     rule = safe_text(incident_payload.get("rule"))
     correlated = bool(incident_payload.get("correlated"))
     entities = incident_payload.get("extracted_entities") or {}
+    network_evidence = incident_payload.get("network_evidence") or {}
+    network_summary = network_evidence.get("summary") or {}
+    network_total = int(network_summary.get("total") or 0)
+    network_alerts = int(network_summary.get("alert") or 0)
 
     evidence = [
         {
@@ -600,6 +824,17 @@ def deterministic_brief(incident_payload: dict[str, Any], reason: str) -> dict[s
             "label": "Correlation context",
             "count": 1 if correlated else 0,
             "description": "Correlation detected" if correlated else "No explicit correlation attached",
+        },
+        {
+            "label": "Suricata network evidence",
+            "count": network_total,
+            "description": (
+                f"{network_total} related network event(s) found in the ±"
+                f"{network_evidence.get('correlation_window_minutes', 120)} minute window; "
+                f"{network_alerts} IDS alert event(s)."
+                if network_total
+                else "No related Suricata network telemetry found in the selected window."
+            ),
         },
     ]
 
@@ -625,6 +860,19 @@ def deterministic_brief(incident_payload: dict[str, Any], reason: str) -> dict[s
                 "description": safe_text(incident_payload.get("escalation_reason") or "Correlation pattern detected"),
                 "source": "Correlation engine",
                 "verification": "High fidelity",
+            }
+        )
+
+    if network_total:
+        overview.append(
+            {
+                "time": safe_text(incident_payload.get("timestamp_local")),
+                "description": (
+                    f"Suricata observed {network_total} related network event(s), "
+                    f"including {network_alerts} IDS alert event(s), in the selected evidence window."
+                ),
+                "source": "Suricata network telemetry",
+                "verification": "High fidelity" if network_alerts else "Verified",
             }
         )
 
@@ -721,6 +969,11 @@ def deterministic_brief(incident_payload: dict[str, Any], reason: str) -> dict[s
                 "requires_approval": True,
             },
             {
+                "action": "Review related Suricata network evidence for matching IPs, hostnames, HTTP/TLS/DNS activity and IDS alerts",
+                "impact": "Medium" if network_total else "Low",
+                "requires_approval": True,
+            },
+            {
                 "action": "Escalate to case if suspicious activity is confirmed",
                 "impact": "High" if risk_score >= 60 or correlated else "Medium",
                 "requires_approval": True,
@@ -740,7 +993,10 @@ def load_incident_payload(db, incident_id: int) -> dict[str, Any]:
     if not incident:
         raise ValueError(f"Incident {incident_id} not found")
 
-    return serialize_incident(incident)
+    payload = serialize_incident(incident)
+    payload["network_evidence"] = load_network_evidence_summary(payload)
+
+    return payload
 
 
 def build_ai_brief_preview(incident_id: int) -> dict[str, Any]:
