@@ -1,0 +1,34 @@
+flowchart LR
+  analyst["Analyst / Human-in-the-loop"] --> browser["Browser"]
+  browser --> frontend["Next.js Frontend"]
+  frontend --> api["FastAPI Backend"]
+
+  api --> postgres["PostgreSQL"]
+  api --> reports["Reports / Evidence Packs"]
+  api --> ollama["Ollama / Local AI Runtime"]
+  ollama --> api
+
+  wazuh_agents["Wazuh Agents"] --> wazuh["Wazuh Manager / Indexer"]
+  suricata["Suricata IDS"] --> suricata_ingest["Suricata EVE Ingest"]
+  dns_collector["DNS Collector / Wazuh DNS Rule"] --> dns_ingest["DNS Normalization"]
+
+  wazuh --> wazuh_ingest["Wazuh Ingestion"]
+  wazuh_ingest --> raw_events["Raw Events"]
+  suricata_ingest --> network_events["Network Events"]
+  dns_ingest --> dns_events["DNS Events"]
+
+  raw_events --> security_alerts["Security Alerts"]
+  security_alerts --> aggregation["Aggregation / Deduplication"]
+  aggregation --> suppression["Noise Suppression"]
+  suppression --> correlation["Correlation Engine"]
+  correlation --> incidents["Incidents"]
+  incidents --> cases["Cases"]
+  incidents --> reports
+  cases --> reports
+
+  raw_events --> postgres
+  security_alerts --> postgres
+  network_events --> postgres
+  dns_events --> postgres
+  incidents --> postgres
+  cases --> postgres

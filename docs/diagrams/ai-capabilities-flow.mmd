@@ -1,0 +1,25 @@
+flowchart LR
+  evidence["Evidence / Context"] --> incident_ai["Incident AI Analysis"]
+  incident_ai --> command_brief["Local AI Command Brief"]
+  command_brief --> risk["Risk Rationale"]
+  command_brief --> evidence_summary["Evidence Summary"]
+  command_brief --> actions["Recommended Actions"]
+  actions --> how_to["HOW TO EXECUTE Guidance"]
+
+  evidence --> correlation["Correlation Explanation"]
+  evidence --> case_ai["Case AI Analysis"]
+  evidence --> detection_quality["Detection Quality Assistance"]
+
+  case_ai --> case_workflow["Case Workflow Support"]
+  detection_quality --> remediation["AI Remediation Suggestion"]
+  correlation --> reviewer["Incident Reasoning"]
+
+  risk --> reports["Report Enrichment"]
+  evidence_summary --> reports
+  case_workflow --> reports
+  reports --> executive["Executive Insights"]
+
+  how_to --> human["Human Approval / Analyst Control"]
+  remediation --> human
+  reviewer --> human
+  executive --> human

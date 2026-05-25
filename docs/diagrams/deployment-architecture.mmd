@@ -1,0 +1,18 @@
+flowchart LR
+  user["User Browser"] --> nginx["Nginx TLS Reverse Proxy"]
+  nginx --> frontend["ai-soc-frontend / Next.js"]
+  nginx --> api["ai-soc-api / FastAPI"]
+
+  api --> postgres["PostgreSQL"]
+  api --> ollama["Ollama Local AI Runtime"]
+  api --> reports["Local Report Storage"]
+
+  wazuh["Wazuh Manager / Indexer"] --> wazuh_ingest["Wazuh Ingest / API Worker"]
+  wazuh_ingest --> postgres
+  suricata_logs["Suricata eve.json"] --> suricata_worker["ai-soc-suricata-ingest"]
+  suricata_worker --> postgres
+
+  dns_collector["ai-soc-dns-collector"] --> wazuh
+
+  api --> health["Health / Worker Metrics"]
+  frontend --> health

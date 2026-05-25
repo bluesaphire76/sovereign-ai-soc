@@ -1,749 +1,236 @@
 # Sovereign AI SOC
 
-**Sovereign AI SOC** is a local-first Security Operations Center assistant designed to support incident triage, case management, analyst workflow, evidence review, reporting, detection-quality validation, and executive SOC visibility.
+![Release](https://img.shields.io/badge/latest%20tag-v0.4.0-0f172a)
+![v0.5](https://img.shields.io/badge/v0.5-product%20grade%20track-0891b2)
+![License](https://img.shields.io/badge/license-Apache--2.0-2563eb)
+![Python](https://img.shields.io/badge/Python-FastAPI-3776AB)
+![Next.js](https://img.shields.io/badge/Next.js-16-000000)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18.4-336791)
+![Wazuh](https://img.shields.io/badge/Wazuh-endpoint%20monitoring-2563eb)
+![Suricata](https://img.shields.io/badge/Suricata-network%20IDS-b91c1c)
+![Local AI](https://img.shields.io/badge/Local%20AI-Ollama-0f766e)
+![Human-in-the-loop](https://img.shields.io/badge/Human--in--the--loop-by%20design-7c3aed)
 
-The project is built for environments where **data sovereignty**, **local execution**, **transparency**, and **operational control** matter. It is intended as a practical AI-assisted SOC console, not as a black-box managed service.
+Sovereign AI SOC is a local-first AI-powered security operations platform combining Wazuh, Suricata, correlation-first incident detection, local AI analysis, case workflow, executive reporting and human-in-the-loop security operations.
 
----
+It is built as a product-grade prototype for teams that want AI-assisted SOC workflows without making external AI providers a mandatory dependency for sensitive security data.
 
-## Current Status
+## Product Preview
 
-This repository is currently at **Sovereign AI SOC v0.4.0**.
+Real screenshots are not committed yet. The repository includes a capture checklist for producing a clean product preview with demo data:
 
-The v0.4.0 release completes a major operational maturity phase of the project, moving the platform beyond a functional SOC demo toward a more credible local-first security operations assistant.
+- [Screenshot capture checklist](docs/assets/screenshots/README.md)
 
-The current scope includes:
+Recommended future screenshots include the Executive Dashboard, Incidents, Incident Command Room, AI Command Brief, Correlation Visualization, Detection Quality, Case Detail, Case Kanban, Health, Security Audit, Users/RBAC and report exports.
 
-- Enterprise-style SOC dashboard
-- Incident queue and incident detail views
-- Case queue, case detail, and Kanban board
-- AI case analysis and suggested action plans
-- Case workflow management
-- Case closure checklist and closure readiness validation
-- Analyst evidence pack export
-- Enterprise incident and case report templates
-- Executive PDF report generation
-- Executive summary dashboard
-- Detection quality dashboard
-- Synthetic test runner from the GUI
-- Platform health dashboard
-- Worker and ingest metrics rendering
-- AI runtime observability
-- Event aggregation and deduplication
-- Raw events / security alerts / incidents / cases separation
-- Correlation-first ingestion
-- Deterministic noise suppression
-- AI triage timeout and fallback policy
-- Risk normalization and controlled historical backfill
-- DB retention, cleanup, backup and restore documentation
-- Regression and smoke validation script
-- Production/demo hardening documentation
-- Local user management and personal login
-- Admin user management page
-- RBAC-aware frontend authorization
-- Security audit UI for administrators
-- Local HTTPS access through Nginx
-- Cloudflare Access protected demo posture
+## Why Sovereign AI SOC
 
-## Why This Project Exists
+SOC teams need faster interpretation, clearer evidence handling and better decision support. Security data is also sensitive: raw alerts, hostnames, commands, DNS lookups, IDS events and case notes often cannot be sent to external services without policy review.
 
-Traditional SOC tools often create three problems:
+Sovereign AI SOC demonstrates a local-first approach:
 
-1. **Too much raw data**
-2. **Too little operational context**
-3. **Limited analyst workflow support**
-
-Sovereign AI SOC aims to reduce that gap by combining:
-
-- Structured incident ingestion
-- Risk scoring
-- Correlation context
-- Case grouping
-- AI-assisted analysis
-- Human workflow tracking
-- Evidence export
-- Executive visibility
-- Local-first deployment
-
-The goal is not to replace analysts, but to give analysts and SOC leaders a clearer operational console.
-
----
+- Security telemetry stays in the local environment.
+- AI analysis runs through a local Ollama runtime.
+- Deterministic ingestion, suppression and correlation decide what becomes an incident.
+- Analysts remain in control of escalation, response, case closure and reporting.
+- Reports and evidence packs are generated locally for audit and executive communication.
 
 ## Key Capabilities
 
-### Incident Management
-
-The platform provides incident-level visibility with:
-
-- Incident list and filtering
-- Incident detail page
-- Risk score
-- Correlation score
-- Recommended priority
-- MITRE information
-- Raw Wazuh alert evidence
-- Analyst notes
-- Audit trail
-- Markdown and JSON report export
-
----
-
-### Case Management
-
-Incidents can be grouped into investigation cases.
-
-Case functionality includes:
-
-- Case queue
-- Case detail
-- Case Kanban board
-- Case ownership
-- Status management
-- Severity review
-- SLA state
-- Related incidents
-- Case workflow audit
-- Case timeline
-- Case actions
-- AI-generated action suggestions
-- Closure checklist
-- Closure readiness validation
-
----
-
-### AI Case Analysis
-
-The system can generate AI-assisted case analysis with:
-
-- Case summary
-- Risk interpretation
-- Suggested investigation direction
-- Recommended status
-- Recommended severity
-- Analyst-oriented explanation
-
-The AI output is presented as decision support. The analyst remains responsible for review and final decisions.
-
----
-
-### Evidence Packs and Reporting
-
-The platform supports export-oriented workflows, including:
-
-- Analyst evidence pack in Markdown
-- Incident report export
-- Case report export
-- Executive PDF report
-- Structured case metadata
-- Related incidents
-- Case actions
-- Closure readiness
-- AI case analysis
-- Timeline and audit context
-
-This makes the system useful not only for investigation, but also for governance, handover, and management reporting.
-
----
-
-### Executive Dashboard
-
-The Executive dashboard provides a compact management view of SOC posture, including:
-
-- Overall SOC posture
-- Open incidents
-- High and critical incidents
-- Open cases
-- Escalated items
-- Maximum and average risk
-- Recommended operational focus
-- Incident status distribution
-- Case status distribution
-- Priority distribution
-- Top risk hosts
-- Top correlation types
-- Latest cases
-- Latest high-risk incidents
-
----
-
-### Detection Quality Dashboard
-
-The Detection Quality dashboard helps validate detection pipeline effectiveness.
-
-It includes:
-
-- Synthetic incident count
-- Correlation coverage
-- High and critical priority assignment
-- MITRE signal coverage
-- Quality score
-- Scenario coverage chart
-- Scenario quality breakdown
-- Latest synthetic incidents
-
----
-
-### Synthetic Test Runner
-
-The GUI includes a synthetic test runner to generate controlled test incidents.
-
-Supported scenarios include:
-
-- SSH brute force
-- Privilege escalation
-- Malware indicator
-- All scenarios
-
-The runner allows the analyst to configure:
-
-- Scenario
-- Count per scenario
-- Host
-- Created by
-
-Generated synthetic incidents are inserted into the local incident store and immediately appear in the Detection Quality dashboard.
-
-This is useful for validating:
-
-- Detection visibility
-- Correlation logic
-- Priority assignment
-- MITRE tagging
-- Dashboard updates
-- Report generation
-
----
-
-### Platform Health Dashboard
-
-The Health dashboard provides an operational view of the local platform components.
-
-It shows:
-
-- Overall health
-- Components checked
-- Average latency
-- Latest incident
-- Component status tiles
-- Backend/API status
-- Database status
-- Wazuh-related status
-- Worker heartbeat
-- Local AI component status where available
-
----
-
-### User Management and Login
-
-The system includes local user management.
-
-Current functionality includes:
-
-- Personal login
-- Local user table
-- Password hashing with PBKDF2-SHA256
-- Signed local access token
-- Admin user management page
-- Create users
-- Enable or disable users
-- Reset passwords
-- Roles:
-  - `ADMIN`
-  - `ANALYST`
-  - `VIEWER`
-
-The GUI uses the signed-in user for workflow actions such as case ownership and review attribution.
-
-> Note: the current v0.2 implementation protects the GUI and user-management APIs. Full backend API hardening for every existing endpoint should be handled as a dedicated security-hardening step.
-
----
-
-## Architecture
-
-High-level architecture:
-
-```text
-Browser / Analyst GUI
-        |
-        | HTTPS
-        v
-Nginx reverse proxy
-        |
-        v
-Next.js frontend
-        |
-        | REST API
-        v
-FastAPI backend
-        |
-        v
-Local database
-        |
-        +--> Incidents
-        +--> Cases
-        +--> Case actions
-        +--> Case audits
-        +--> Closure checklists
-        +--> AI analyses
-        +--> Users
-        +--> Worker health
-```
-
-The system is designed to run locally and avoid sending sensitive SOC data to external services by default.
-
----
-
-## Technology Stack
-
-### Backend
-
-- Python
-- FastAPI
-- SQLAlchemy
-- Pydantic
-- Local database through SQLAlchemy
-- Local authentication utilities
-- Report builders
-- Case workflow logic
-- Synthetic test generation
-
-### Frontend
-
-- Next.js
-- TypeScript
-- Tailwind CSS
-- Recharts
-- Lucide icons
-- Enterprise-style dashboard pages
-
-### Deployment
-
-- Linux host
-- Systemd services
-- Nginx reverse proxy
-- Local HTTPS endpoint
-
----
-
-## Main Pages
-
-| Page | Purpose |
+| Area | Capability |
 |---|---|
-| `/` | Main SOC dashboard |
-| `/incidents/[id]` | Incident detail and evidence |
-| `/cases` | Case queue |
-| `/cases/[id]` | Case detail and workflow |
-| `/cases/kanban` | Case Kanban board |
-| `/executive` | Executive SOC summary |
-| `/detection-quality` | Detection quality and synthetic tests |
-| `/health` | Platform health |
-| `/login` | User login |
-| `/admin/users` | User management for administrators |
+| Detection sources | Wazuh host/security monitoring, Suricata network IDS visibility and DNS telemetry context |
+| Event model | Separation between raw events, security alerts, incidents and cases |
+| Ingestion quality | Aggregation, deduplication, watermarking, backlog tracking and noise suppression |
+| Incident creation | Correlation-first logic before incident creation, with observed-only and suppressed paths |
+| Incident workflow | Incident detail, lifecycle updates, analyst notes, correlation visualization and evidence context |
+| Case workflow | Ownership, SLA posture, closure readiness, linked incidents, Kanban and case AI analysis |
+| AI workflow | Incident analysis, Command Brief, risk rationale, evidence summaries, recommended actions and HOW TO EXECUTE guidance |
+| Detection engineering | Detection Quality dashboard, synthetic scenarios, coverage posture and AI-generated remediation suggestions |
+| Executive workflow | Executive dashboard, executive insights, decision brief and concise management reporting |
+| Reporting | Incident reports, case reports, evidence packs, executive PDFs and professional export naming |
+| Governance | RBAC for ADMIN, ANALYST and VIEWER, Security Audit, user management and session hardening |
+| Observability | Health dashboard, worker metrics, source freshness, AI runtime health and ingest status |
 
----
+## AI Capabilities
 
-## Repository Structure
+AI is used across the workflow, not only for triage.
 
-Typical key files and folders:
+- Incident AI analysis for situation summaries, risk rationale and evidence interpretation.
+- Structured Local AI Command Brief for analyst-facing decision support.
+- Evidence summaries that connect raw alert context, correlation data, network evidence and DNS context without inventing causality.
+- Recommended actions and remediation guidance, including AI-generated HOW TO EXECUTE steps for detection quality recommendations.
+- Case analysis, open gaps, decision points and workflow support.
+- Correlation explanation to help answer why an event became an incident.
+- Detection Quality assistance for synthetic scenarios, weak coverage areas and next recommended action.
+- Executive insights and report enrichment for management-ready summaries.
+- Runtime observability, timeout handling and deterministic fallback when the local model is unavailable.
 
-```text
-.
-├── api.py
-├── auth_utils.py
-├── models.py
-├── database.py
-├── report_builder.py
-├── evidence_pack_builder.py
-├── executive_pdf_builder.py
-├── case_ai_analysis.py
-├── case_action_suggestions.py
-├── case_timeline.py
-├── platform_health.py
-├── wazuh_ingest_state.py
-├── scripts/
-│   ├── create_users_table.py
-│   └── create_default_admin_user.py
-└── frontend/
-    ├── src/app/
-    │   ├── page.tsx
-    │   ├── login/page.tsx
-    │   ├── admin/users/page.tsx
-    │   ├── cases/page.tsx
-    │   ├── cases/[id]/page.tsx
-    │   ├── cases/kanban/page.tsx
-    │   ├── incidents/[id]/page.tsx
-    │   ├── executive/page.tsx
-    │   ├── detection-quality/page.tsx
-    │   └── health/page.tsx
-    ├── src/components/AppNavigation.tsx
-    └── src/lib/auth.ts
+The platform does not autonomously execute destructive or operational response actions. AI provides interpretation, recommendations and draft guidance; the analyst remains responsible for validation and action.
+
+See [AI Capabilities](docs/ai-capabilities.md) for the full model.
+
+## Detection Sources
+
+Sovereign AI SOC combines host, security and network visibility:
+
+- **Wazuh** provides endpoint/security monitoring, host context, agent state, rules, levels and security findings.
+- **Suricata** provides network IDS visibility through normalized network events.
+- **DNS telemetry** provides endpoint DNS context matched by host/client IP and time window. DNS context is contextual telemetry only and does not imply causal correlation with an incident.
+- **Internal normalization** separates raw events, security alerts, incidents and cases so that each workflow has a clear responsibility.
+
+See [Detection Sources](docs/detection-sources.md).
+
+## Human-in-the-loop by Design
+
+The product is designed for analyst-controlled security operations:
+
+- Deterministic policy determines suppression, correlation and incident creation.
+- AI explains, summarizes and recommends.
+- Analysts decide escalation, ownership, response, closure and reporting.
+- Admin-only areas such as Security Audit and user management remain protected by RBAC.
+- Evidence packs and audit trails preserve accountability.
+
+## Local-first Architecture
+
+The core runtime is local:
+
+- Browser and Next.js frontend.
+- FastAPI backend.
+- PostgreSQL operational datastore.
+- Wazuh and Suricata signal sources.
+- Local Ollama/LLM runtime.
+- Local report and evidence pack generation.
+- Nginx and systemd deployment for production-style demo environments.
+
+No mandatory external AI provider is required for the core product flow.
+
+```mermaid
+flowchart LR
+  analyst["Analyst / Human-in-the-loop"] --> frontend["Next.js Frontend"]
+  frontend --> api["FastAPI API"]
+  api --> postgres["PostgreSQL"]
+  wazuh["Wazuh Agents / Manager"] --> ingest["AI SOC Ingestion"]
+  suricata["Suricata IDS"] --> ingest
+  ingest --> raw["Raw Events"]
+  raw --> alerts["Security Alerts"]
+  alerts --> correlate["Dedup / Suppression / Correlation"]
+  correlate --> incidents["Incidents"]
+  incidents --> cases["Cases"]
+  incidents --> reports["Reports / Evidence Packs"]
+  api --> ollama["Local Ollama Runtime"]
+  ollama --> api
 ```
 
----
+More complete diagrams are available in [Architecture](docs/architecture.md) and [docs/diagrams](docs/diagrams).
 
-## Local Setup
+## Demo Flow
 
-### 1. Clone the repository
+A concise product demo can follow this path:
+
+1. Open the Dashboard or Executive Dashboard to show SOC posture.
+2. Review active incidents, risk distribution and operational health.
+3. Open a correlated incident in the Incident Command Room.
+4. Explain the AI Command Brief, risk rationale, evidence summary and recommended actions.
+5. Inspect Correlation Visualization to show why the platform created the incident.
+6. Review endpoint DNS context or Suricata network evidence where available.
+7. Open Detection Quality and show synthetic scenario coverage plus AI-generated remediation guidance.
+8. Create or open a case, assign ownership, review SLA posture and closure readiness.
+9. Generate an incident report, case report or analyst evidence pack.
+10. Open Health and Security Audit to show operational observability and governance.
+
+See [Demo Guide](docs/demo-guide.md) for presenter talking points.
+
+## Quick Start / Demo Start
+
+The repository is designed for a local lab or product demo environment. Runtime values are configured through `.env`, which must never be committed.
 
 ```bash
 git clone <repository-url>
-cd ai-soc-assistant
+cd <repository-directory>
+
+cp .env.example .env
+# Edit .env with local PostgreSQL, Wazuh, Ollama and authentication values.
 ```
 
----
-
-### 2. Create Python environment
+Create an initial admin user after backend dependencies and database connectivity are available:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+AI_SOC_ADMIN_USERNAME=admin \
+AI_SOC_ADMIN_PASSWORD='<set-a-strong-password>' \
+AI_SOC_ADMIN_DISPLAY_NAME='SOC Administrator' \
+python3 scripts/create_default_admin_user.py
 ```
 
----
-
-### 3. Install frontend dependencies
+Development commands used by the project:
 
 ```bash
+# Backend, from repository root after installing local Python dependencies.
+PYTHONPATH=. .venv/bin/uvicorn api:app --host 127.0.0.1 --port 8008
+
+# Frontend.
 cd frontend
 npm install
-```
-
----
-
-### 4. Configure environment
-
-Recommended environment variables:
-
-```bash
-export AI_SOC_AUTH_SECRET="change-this-secret-before-real-use"
-export AI_SOC_AUTH_TOKEN_TTL_SECONDS="28800"
-export AI_SOC_ADMIN_USERNAME="admin"
-export AI_SOC_ADMIN_PASSWORD="<set-a-strong-password>"
-export AI_SOC_ADMIN_DISPLAY_NAME="SOC Administrator"
-```
-
-Frontend `.env.local` example:
-
-```env
-NEXT_PUBLIC_API_BASE_URL=http://localhost:8008
-```
-
-> Change the default admin password immediately after first login.
-
----
-
-### 5. Initialize user table
-
-```bash
-cd ~/lab/ai-soc-assistant
-
-.venv/bin/python scripts/create_users_table.py
-```
-
----
-
-### 6. Create default admin user
-
-```bash
-AI_SOC_ADMIN_PASSWORD='<set-a-strong-password>' \
-.venv/bin/python scripts/create_default_admin_user.py \
-  --username admin \
-  --display-name "SOC Administrator"
-```
-
----
-
-### 7. Start backend manually
-
-```bash
-cd ~/lab/ai-soc-assistant
-
-.venv/bin/uvicorn api:app --host 0.0.0.0 --port 8008
-```
-
----
-
-### 8. Start frontend manually
-
-```bash
-cd ~/lab/ai-soc-assistant/frontend
-
 npm run build
-npm run start -- -H 0.0.0.0 -p 3000
+npm run start
 ```
 
----
-
-## Systemd Deployment
-
-Example services used in local deployment:
-
-```text
-ai-soc-api.service
-ai-soc-frontend.service
-```
-
-Example frontend service properties:
-
-```text
-WorkingDirectory=/home/lele/lab/ai-soc-assistant/frontend
-Environment="NODE_ENV=production"
-Environment="PORT=3000"
-ExecStart=npm run start -- -H 0.0.0.0 -p 3000
-```
-
-The local HTTPS endpoint can be exposed through Nginx, for example:
-
-```text
-https://localhost:8443
-```
-
----
-
-## Useful Smoke Tests
-
-### Backend health
-
-```bash
-curl -s http://localhost:8008/health | python3 -m json.tool
-```
-
----
-
-### Platform health
-
-```bash
-curl -s http://localhost:8008/platform/health | python3 -m json.tool
-```
-
----
-
-### Login
-
-```bash
-curl -s -X POST "http://localhost:8008/auth/login" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "username": "admin",
-    "password": "<set-a-strong-password>"
-  }' | python3 -m json.tool
-```
-
----
-
-### Authenticated user
-
-```bash
-TOKEN="<PASTE_TOKEN_HERE>"
-
-curl -s "http://localhost:8008/auth/me" \
-  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
-```
-
----
-
-### Synthetic scenarios
-
-```bash
-curl -s "http://localhost:8008/synthetic-tests/scenarios" | python3 -m json.tool
-```
-
----
-
-### Run synthetic test
-
-```bash
-curl -s -X POST "http://localhost:8008/synthetic-tests/run" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "scenario": "ssh_bruteforce",
-    "count": 1,
-    "host": "synthetic-sensor-01",
-    "created_by": "local_analyst"
-  }' | python3 -m json.tool
-```
-
----
-
-### Detection quality search
-
-```bash
-curl -s "http://localhost:8008/incidents?page=1&limit=20&search=SYNTHETIC" \
-  | python3 -m json.tool
-```
-
----
-
-## Build and Validation
-
-Backend compile:
-
-```bash
-cd ~/lab/ai-soc-assistant
-
-.venv/bin/python -m py_compile \
-  api.py \
-  auth_utils.py \
-  models.py \
-  scripts/create_users_table.py \
-  scripts/create_default_admin_user.py
-```
-
-Frontend build:
-
-```bash
-cd ~/lab/ai-soc-assistant/frontend
-
-rm -rf .next
-npm run build
-```
-
-Restart services:
+Production-style demo deployments in this repository use Nginx and systemd service names already documented in `deploy/`:
 
 ```bash
 sudo systemctl restart ai-soc-api
 sudo systemctl restart ai-soc-frontend
+sudo systemctl status ai-soc-api --no-pager
+sudo systemctl status ai-soc-frontend --no-pager
 ```
 
-## Security Notes
+Suricata and DNS telemetry have dedicated deployment artifacts:
 
-This project is currently intended for local-first controlled environments.
+- `deploy/systemd/ai-soc-suricata-ingest.service`
+- `deploy/systemd/ai-soc-dns-collector.service`
+- `deploy/suricata/docker-compose.yml`
 
-Important notes:
+See [Deployment Guide](docs/deployment-guide.md) for a fuller operational view.
 
-- Change `AI_SOC_AUTH_SECRET` before any real use.
-- Use a strong initial admin password and rotate it regularly.
-- Do not expose the system directly to the public Internet.
-- Use HTTPS through a trusted reverse proxy.
-- Restrict network access where possible.
-- Full API-wide authorization enforcement should be implemented as a dedicated hardening step.
-- Audit logs and case workflow attribution should be reviewed before production use.
+## Documentation Index
 
----
+- [Product Overview](docs/product-overview.md)
+- [Architecture](docs/architecture.md)
+- [AI Capabilities](docs/ai-capabilities.md)
+- [Detection Sources](docs/detection-sources.md)
+- [Ingestion and Correlation Pipeline](docs/ingestion-correlation-pipeline.md)
+- [User Guide](docs/user-guide.md)
+- [Admin Guide](docs/admin-guide.md)
+- [Demo Guide](docs/demo-guide.md)
+- [Deployment Guide](docs/deployment-guide.md)
+- [Security Model](docs/security-model.md)
+- [Reporting Guide](docs/reporting-guide.md)
+- [Roadmap](docs/roadmap.md)
+- [Screenshot Checklist](docs/assets/screenshots/README.md)
+- [Architecture Asset Notes](docs/assets/architecture/README.md)
+
+Existing release and validation notes:
+
+- [Release Notes v0.4.0](RELEASE_NOTES_v0.4.0.md)
+- [Release Notes v0.2.0-rc1](RELEASE_NOTES_v0.2.0-rc1.md)
+- [v0.3 Release Notes](docs/v0.3-release-notes.md)
+- [v0.4 Release Checklist](docs/v0.4-release-checklist.md)
+- [v0.5 Demo Scenario Pack](docs/v0.5-demo-scenario-pack.md)
+- [v0.5 Suricata Network Telemetry](docs/v0.5-suricata-network-telemetry.md)
+- [v0.5 DNS Telemetry Pilot](docs/v0.5-dns-telemetry-pilot.md)
 
 ## Roadmap
 
-### v0.3 completed
+| Version | Status | Focus |
+|---|---:|---|
+| v0.2 | Completed | Initial SOC platform, incident views, synthetic scenarios and detection quality foundation |
+| v0.3 | Completed | RBAC, user management, Security Audit, session hardening, Nginx headers and PostgreSQL upgrade |
+| v0.4 | Completed | Ingestion quality, event separation, correlation-first incident creation, noise suppression, AI hardening, reporting and observability |
+| v0.5 | Active product-grade track | Demo scenario pack, enterprise UX, Incident Command Room, case workflow, report/export polish, Suricata, DNS context and correlation visualization |
+| v0.6 | Candidate | Deeper detection engineering workflows, expanded connectors, richer case collaboration and additional reporting automation |
 
-Sovereign AI SOC v0.3 focused on security hardening, RBAC, operational control, enterprise UX and production-like runtime maturity.
-
-Completed v0.3 improvements include:
-
-- API-wide authentication and authorization hardening
-- Role-based access control for `ADMIN`, `ANALYST` and `VIEWER`
-- Frontend authorization alignment with backend session state
-- Admin-only Security Audit UI
-- Security audit logging for privileged and security-relevant actions
-- Token/session robustness and expiry handling
-- Nginx security headers and reverse proxy hardening
-- Secrets and configuration hardening
-- PostgreSQL 18.4 Docker runtime migration
-- Wazuh ingest worker hardening
-- Health observability components
-- Sidebar navigation
-- Enterprise-style Incidents page
-- Improved Case Queue and Case Detail UX
-- Create Case from Incident workflow
-- Admin-only enable/disable user workflow
-
-### Planned next improvements
-
-Planned improvements for future releases include:
-
-- Event aggregation and deduplication before incident creation
-- Correlation-first ingestion to reduce noise from repetitive Wazuh events
-- Better separation between raw events, alerts, incidents and cases
-- More advanced case workflow automation
-- Improved report templates
-- Additional synthetic scenarios
-- More detection quality metrics
-- Optional external identity provider integration
-- More granular admin settings
-- Production-like deployment documentation
-- Backup and restore documentation
-- Database retention and cleanup policies
-- Improved AI model runtime observability
-
----
+See [Roadmap](docs/roadmap.md).
 
 ## License
 
-
-```text
-Apache License 2.0
-```
-
----
-
-## Disclaimer
-
-Sovereign AI SOC is an experimental AI-assisted SOC platform.
-
-It is not a certified SIEM, SOAR, MDR platform, or compliance product. All AI-generated content must be reviewed by qualified security personnel before operational or executive decisions are made.
-
-## v0.3 release status
-
-Sovereign AI SOC v0.3 introduces the security, operational and enterprise UX hardening needed to move the project beyond the initial prototype stage.
-
-Key v0.3 improvements include:
-
-- Role-based access control for `ADMIN`, `ANALYST` and `VIEWER`
-- Admin-only Security Audit UI
-- Security-relevant audit logging
-- Token/session robustness
-- Frontend authorization alignment with `/auth/me`
-- Nginx security headers and runtime binding hardening
-- Secrets and configuration hardening
-- PostgreSQL 18.4 Docker runtime migration
-- Wazuh ingest and worker hardening
-- Health observability components
-- Enterprise-style sidebar navigation
-- Improved Case Queue and Case Detail UX
-- Dedicated Incidents page
-- Create Case from Incident workflow
-- Admin-only enable/disable user workflow
-
-The platform remains local-first and human-in-the-loop: AI supports triage, correlation, investigation summaries and remediation planning, but does not execute security actions automatically.
-
-See:
-
-- `docs/v0.3-release-notes.md`
-- `docs/v0.3-release-checklist.md`
-- `docs/v0.3-final-validation.md`
-
-## v0.4 operational maturity documents
-
-The v0.4 roadmap adds operational hardening around ingestion quality, AI triage robustness, risk governance, reporting, database lifecycle and release validation.
-
-Key v0.4 documents:
-
-- `docs/v0.4-risk-normalization-dry-run.md`
-- `docs/v0.4-db-retention-backup-restore.md`
-- `docs/v0.4-regression-smoke-validation.md`
-- `docs/v0.4-production-demo-hardening.md`
-- `docs/v0.4-release-checklist.md`
-
-## v0.4 release status
-
-Sovereign AI SOC v0.4.0 focuses on operational maturity, ingestion quality, AI triage robustness, risk governance, enterprise reporting, DB lifecycle controls and repeatable release validation.
-
-v0.4.0 introduces:
-
-- event aggregation and deduplication;
-- raw events / security alerts / incidents / cases separation;
-- correlation-first ingestion;
-- deterministic noise suppression;
-- worker and ingest metrics;
-- AI triage timeout/fallback policy;
-- risk normalization and controlled historical backfill;
-- AI runtime observability;
-- enterprise incident/case/executive reports;
-- DB retention and backup/restore documentation;
-- regression/smoke validation;
-- production/demo hardening documentation.
-
-Release notes:
-
-- `RELEASE_NOTES_v0.4.0.md`
-
+Apache License 2.0. See [LICENSE](LICENSE).
