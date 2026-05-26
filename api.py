@@ -13,6 +13,7 @@ from models import Incident, IncidentAudit, IncidentNote, IncidentCase, CaseInci
 from timezone_utils import APP_TIMEZONE, format_timestamp_local, normalize_timestamp_utc
 from wazuh_ingest_state import get_watermark_snapshot
 from auth_utils import create_access_token, decode_access_token, hash_password, verify_password
+from active_users import mark_active_user
 from routers import include_app_routers
 
 from fastapi.middleware.cors import CORSMiddleware
@@ -469,6 +470,7 @@ async def enforce_api_authentication(request: Request, call_next):
 
     try:
         current_user = get_current_user(request.headers.get("authorization"))
+        mark_active_user(current_user)
     except HTTPException as exc:
         return JSONResponse(
             status_code=exc.status_code,

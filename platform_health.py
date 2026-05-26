@@ -14,6 +14,7 @@ from sqlalchemy import text as sql_text
 from database import engine, SessionLocal
 from models import Incident, RawEvent, SecurityAlert, WorkerHeartbeat, utc_now
 from ai_runtime_observability import get_ai_runtime_health_details
+from active_users import get_active_users_snapshot
 from wazuh_ingest_state import get_watermark_snapshot
 
 urllib3.disable_warnings()
@@ -1097,5 +1098,6 @@ def get_platform_health():
         "status": overall_status(components),
         "checked_at": now_iso(),
         "components": components,
+        "active_users": get_active_users_snapshot(),
         "latest_incident": latest_incident_snapshot(),
     }
