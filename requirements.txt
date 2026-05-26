@@ -1,2 +1,3 @@
 reportlab
 geoip2
+prometheus-client
