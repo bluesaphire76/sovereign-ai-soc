@@ -50,7 +50,7 @@ Sovereign AI SOC demonstrates a local-first approach:
 | Executive workflow | Executive dashboard, executive insights, decision brief and concise management reporting |
 | Reporting | Incident reports, case reports, evidence packs, executive PDFs and professional export naming |
 | Governance | RBAC for ADMIN, ANALYST and VIEWER, Security Audit, user management and session hardening |
-| Observability | Health dashboard, worker metrics, source freshness, AI runtime health and ingest status |
+| Observability | Enterprise Health page plus a dedicated Grafana/Prometheus observability layer with historical platform metrics, worker and ingest telemetry, source freshness, AI runtime status, active users, GPU/runtime visibility, SOC pipeline quality, AI triage outcomes and noise reduction insights |
 
 ## AI Capabilities
 
@@ -190,9 +190,11 @@ See [Deployment Guide](docs/deployment-guide.md) for a fuller operational view.
 - [Deployment Guide](docs/deployment-guide.md)
 - [Security Model](docs/security-model.md)
 - [Reporting Guide](docs/reporting-guide.md)
+- [Observability Architecture and Operations Guide](docs/v0.6.0-observability.md)
 - [Roadmap](docs/roadmap.md)
 - [Screenshot Checklist](docs/assets/screenshots/README.md)
 - [Architecture Asset Notes](docs/assets/architecture/README.md)
+
 
 Existing release and validation notes:
 
@@ -219,3 +221,7 @@ See [Roadmap](docs/roadmap.md).
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE).
+
+## Documentation
+
+- [v0.6.0 Observability Architecture and Operations Guide](docs/v0.6.0-observability.md)
