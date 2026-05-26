@@ -1913,7 +1913,10 @@ def executive_summary():
 
         latest_high_risk_incidents = (
             db.query(Incident)
-            .filter(Incident.risk_score >= 61)
+            .filter(
+                Incident.risk_score >= 61,
+                ~Incident.status.in_(["CLOSED", "FALSE_POSITIVE"]),
+            )
             .order_by(Incident.timestamp.desc().nullslast(), Incident.id.desc())
             .limit(5)
             .all()
