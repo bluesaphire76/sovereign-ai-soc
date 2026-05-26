@@ -889,12 +889,12 @@ function CasesQueue({ cases }: { cases: ExecutiveSummary["latest_cases"] }) {
   return (
     <Panel
       title="Cases requiring attention"
-      description="Most recent case records visible to management."
+      description="Open cases that still require management attention."
       count={cases.length}
       icon={<Briefcase className="h-3.5 w-3.5" />}
     >
       {cases.length === 0 ? (
-        <EmptyTable colSpan={6} label="No cases available." />
+        <EmptyTable colSpan={6} label="No open cases requiring attention." />
       ) : (
         <div className="overflow-x-auto rounded-md border border-slate-800">
           <table className="min-w-full text-left text-xs">
