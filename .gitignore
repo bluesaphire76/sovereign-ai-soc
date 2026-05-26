@@ -53,3 +53,6 @@ reports/validation/*.json
 reports/retention/
 data/geoip/*.mmdb
 AGENTS.md
+
+# Local observability secrets
+deploy/observability/.env
