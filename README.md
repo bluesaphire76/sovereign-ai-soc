@@ -222,6 +222,4 @@ See [Roadmap](docs/roadmap.md).
 
 Apache License 2.0. See [LICENSE](LICENSE).
 
-## Documentation
 
-- [v0.6.0 Observability Architecture and Operations Guide](docs/v0.6.0-observability.md)
