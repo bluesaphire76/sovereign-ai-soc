@@ -45,6 +45,16 @@ class RemediationAuditEventType(str, Enum):
     REMEDIATION_ROLLBACK_READINESS_ASSESSED = "REMEDIATION_ROLLBACK_READINESS_ASSESSED"
     REMEDIATION_CHAIN_OF_CUSTODY_PREPARED = "REMEDIATION_CHAIN_OF_CUSTODY_PREPARED"
     REMEDIATION_UNSUPPORTED_EXECUTION_REQUESTED = "REMEDIATION_UNSUPPORTED_EXECUTION_REQUESTED"
+    REMEDIATION_GOVERNANCE_STATE_EVALUATED = "REMEDIATION_GOVERNANCE_STATE_EVALUATED"
+    REMEDIATION_WORKFLOW_ADVANCED = "REMEDIATION_WORKFLOW_ADVANCED"
+    REMEDIATION_WORKFLOW_BLOCKED_BY_POLICY = "REMEDIATION_WORKFLOW_BLOCKED_BY_POLICY"
+    REMEDIATION_WORKFLOW_BLOCKED_BY_ROLLBACK = "REMEDIATION_WORKFLOW_BLOCKED_BY_ROLLBACK"
+    REMEDIATION_WORKFLOW_BLOCKED_BY_MISSING_APPROVAL = (
+        "REMEDIATION_WORKFLOW_BLOCKED_BY_MISSING_APPROVAL"
+    )
+    REMEDIATION_MOCK_DISPATCH_REQUESTED = "REMEDIATION_MOCK_DISPATCH_REQUESTED"
+    REMEDIATION_MOCK_DISPATCH_COMPLETED = "REMEDIATION_MOCK_DISPATCH_COMPLETED"
+    REMEDIATION_NOOP_DISPATCH_COMPLETED = "REMEDIATION_NOOP_DISPATCH_COMPLETED"
 
 
 class RemediationAuditEvent(RemediationBaseModel):
@@ -222,3 +232,54 @@ def audit_event_from_execution_audit_record(
             "execution_attempted": False,
         },
     )
+
+
+def audit_event_from_workflow_state(
+    state: Any,
+    *,
+    actor: RemediationApprovalActor | None = None,
+) -> RemediationAuditEvent:
+    status = getattr(state, "status")
+    status_value = status.value if hasattr(status, "value") else str(status)
+    event_type = _workflow_event_type(status_value)
+    return RemediationAuditEvent(
+        event_type=event_type,
+        outcome=status_value,
+        actor_username=actor.username if actor else None,
+        actor_role=actor.role if actor else None,
+        target_type="remediation_action",
+        target_id=getattr(state, "action_id", None) or getattr(state, "plan_id", "unknown"),
+        incident_id=getattr(state, "incident_id", None),
+        details={
+            "plan_id": getattr(state, "plan_id", None),
+            "action_id": getattr(state, "action_id", None),
+            "approval_id": getattr(state, "approval_id", None),
+            "dry_run_id": getattr(state, "dry_run_id", None),
+            "rollback_readiness_id": getattr(state, "rollback_readiness_id", None),
+            "readiness_id": getattr(state, "readiness_id", None),
+            "policy_decision_id": getattr(state, "policy_decision_id", None),
+            "dispatch_id": getattr(state, "dispatch_id", None),
+            "execution_audit_id": getattr(state, "execution_audit_id", None),
+            "blocker_count": len(getattr(state, "blockers", [])),
+            "timeline_count": len(getattr(state, "timeline", [])),
+            "execution_supported": False,
+            "execution_disabled": True,
+            "production_impact": False,
+        },
+    )
+
+
+def _workflow_event_type(status_value: str) -> RemediationAuditEventType:
+    if status_value == "BLOCKED_BY_POLICY":
+        return RemediationAuditEventType.REMEDIATION_WORKFLOW_BLOCKED_BY_POLICY
+    if status_value == "BLOCKED_BY_ROLLBACK":
+        return RemediationAuditEventType.REMEDIATION_WORKFLOW_BLOCKED_BY_ROLLBACK
+    if status_value == "AWAITING_APPROVAL":
+        return RemediationAuditEventType.REMEDIATION_WORKFLOW_BLOCKED_BY_MISSING_APPROVAL
+    if status_value == "MOCK_DISPATCH_COMPLETED":
+        return RemediationAuditEventType.REMEDIATION_MOCK_DISPATCH_COMPLETED
+    if status_value == "NOOP_DISPATCH_COMPLETED":
+        return RemediationAuditEventType.REMEDIATION_NOOP_DISPATCH_COMPLETED
+    if status_value in {"DRY_RUN_READY", "READINESS_READY", "READY_FOR_MOCK_DISPATCH"}:
+        return RemediationAuditEventType.REMEDIATION_WORKFLOW_ADVANCED
+    return RemediationAuditEventType.REMEDIATION_GOVERNANCE_STATE_EVALUATED

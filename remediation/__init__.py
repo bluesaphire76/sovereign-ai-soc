@@ -40,6 +40,7 @@ from .audit import (
     audit_event_from_execution_audit_record,
     audit_event_from_readiness_assessment,
     audit_event_from_rollback_readiness,
+    audit_event_from_workflow_state,
 )
 from .dry_run import (
     RemediationDryRunFinding,
@@ -141,6 +142,7 @@ __all__ = [
     "audit_event_from_execution_audit_record",
     "audit_event_from_readiness_assessment",
     "audit_event_from_rollback_readiness",
+    "audit_event_from_workflow_state",
     "build_chain_of_custody",
     "build_rollback_plan",
     "create_approval_record",
