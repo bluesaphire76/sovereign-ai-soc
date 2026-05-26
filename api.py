@@ -1905,6 +1905,7 @@ def executive_summary():
 
         latest_cases = (
             db.query(IncidentCase)
+            .filter(~IncidentCase.status.in_(["CLOSED", "FALSE_POSITIVE"]))
             .order_by(IncidentCase.updated_at.desc(), IncidentCase.id.desc())
             .limit(5)
             .all()
