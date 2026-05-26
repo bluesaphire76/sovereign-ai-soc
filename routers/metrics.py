@@ -9,10 +9,28 @@ from fastapi import APIRouter, Request, Response
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 
 from platform_health import get_platform_health
+from active_users import get_active_users_snapshot
 
 
 metrics_router = APIRouter(tags=["metrics"])
 
+
+
+ACTIVE_USERS = Gauge(
+    "ai_soc_active_users",
+    "Number of authenticated users active in the recent activity window.",
+)
+
+ACTIVE_USERS_WINDOW_SECONDS = Gauge(
+    "ai_soc_active_users_window_seconds",
+    "Active users calculation window in seconds.",
+)
+
+ACTIVE_USERS_BY_ROLE = Gauge(
+    "ai_soc_active_users_by_role",
+    "Number of authenticated users active in the recent activity window by role.",
+    ["role"],
+)
 
 HTTP_REQUESTS_TOTAL = Counter(
     "ai_soc_http_requests_total",
@@ -235,6 +253,22 @@ SURICATA_INGEST_BYTE_OFFSET = Gauge(
     "ai_soc_suricata_ingest_byte_offset",
     "Current Suricata ingest byte offset.",
 )
+
+
+
+def _collect_active_user_metrics() -> None:
+    snapshot = get_active_users_snapshot()
+
+    ACTIVE_USERS.set(float(snapshot.get("count", 0)))
+    ACTIVE_USERS_WINDOW_SECONDS.set(float(snapshot.get("window_seconds", 0)))
+
+    roles = snapshot.get("roles")
+    if isinstance(roles, dict):
+        for role, count in roles.items():
+            if isinstance(count, bool):
+                continue
+            if isinstance(count, int | float):
+                ACTIVE_USERS_BY_ROLE.labels(role=str(role)).set(float(count))
 
 
 def _normalize_path(request: Request) -> str:
@@ -572,6 +606,7 @@ async def prometheus_metrics_middleware(
 @metrics_router.get("/metrics", include_in_schema=False)
 def metrics() -> Response:
     _collect_platform_health_metrics()
+    _collect_active_user_metrics()
     _collect_gpu_metrics()
 
     return Response(

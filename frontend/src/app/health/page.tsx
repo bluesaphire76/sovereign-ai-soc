@@ -15,6 +15,7 @@ import {
   HeartPulse,
   RefreshCw,
   Server,
+  Users,
   XCircle,
   Cpu,
   Shield,
@@ -41,10 +42,17 @@ type LatestIncident = {
   correlation_score: number | null;
 };
 
+type ActiveUsers = {
+  count: number;
+  window_seconds: number;
+  roles?: Record<string, number>;
+};
+
 type PlatformHealth = {
   status: HealthStatus;
   checked_at: string;
   components: HealthComponent[];
+  active_users?: ActiveUsers;
   latest_incident: LatestIncident | null;
 };
 
@@ -364,7 +372,7 @@ export default function HealthPage() {
           </section>
         ) : (
           <div className="space-y-3">
-            <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-6">
+            <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-7">
               <StatusTile
                 title="Overall"
                 value={overallStatus}
@@ -395,6 +403,15 @@ export default function HealthPage() {
                 subtitle={formatTimestamp(health?.checked_at).split(",")[0] ?? "-"}
                 icon={<Activity className="h-3.5 w-3.5" />}
                 tone="neutral"
+              />
+
+
+              <StatusTile
+                title="Active users"
+                value={health?.active_users?.count ?? 0}
+                subtitle={`Last ${Math.round((health?.active_users?.window_seconds ?? 300) / 60)} min`}
+                icon={<Users className="h-3.5 w-3.5" />}
+                tone="OK"
               />
 
               <StatusTile

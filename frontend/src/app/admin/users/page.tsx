@@ -12,6 +12,31 @@ type UsersResponse = {
 
 const ROLES = ["ADMIN", "ANALYST", "VIEWER"];
 
+
+const ZURICH_DATE_TIME_FORMATTER = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Europe/Zurich",
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  timeZoneName: "short",
+});
+
+function formatZurichDateTime(value?: string | null) {
+  if (!value) {
+    return "-";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return ZURICH_DATE_TIME_FORMATTER.format(date);
+}
+
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<AuthUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -381,7 +406,7 @@ export default function AdminUsersPage() {
                             )}
                           </td>
                         <td className="whitespace-nowrap px-2 py-1.5 text-slate-400">
-                          {user.last_login_at ?? "-"}
+                          {formatZurichDateTime(user.last_login_at)}
                         </td>
                         <td className="px-2 py-1.5">
                             <div className="flex flex-wrap gap-1.5">

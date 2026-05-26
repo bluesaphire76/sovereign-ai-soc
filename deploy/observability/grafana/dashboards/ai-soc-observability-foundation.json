@@ -15,7 +15,7 @@
       "datasource": null,
       "gridPos": {
         "h": 4,
-        "w": 6,
+        "w": 5,
         "x": 0,
         "y": 0
       },
@@ -71,8 +71,8 @@
       "datasource": null,
       "gridPos": {
         "h": 4,
-        "w": 6,
-        "x": 6,
+        "w": 5,
+        "x": 5,
         "y": 0
       },
       "targets": [
@@ -119,8 +119,8 @@
       "datasource": null,
       "gridPos": {
         "h": 4,
-        "w": 6,
-        "x": 12,
+        "w": 5,
+        "x": 10,
         "y": 0
       },
       "targets": [
@@ -167,8 +167,8 @@
       "datasource": null,
       "gridPos": {
         "h": 4,
-        "w": 6,
-        "x": 18,
+        "w": 5,
+        "x": 15,
         "y": 0
       },
       "targets": [
@@ -699,11 +699,60 @@
           "sort": "none"
         }
       }
+    },
+    {
+      "id": 40,
+      "type": "stat",
+      "title": "Active Users",
+      "datasource": null,
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "ai_soc_active_users",
+          "legendFormat": "active users",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      }
     }
   ],
   "refresh": "15s",
   "schemaVersion": 39,
   "tags": [
+    "active-users",
     "ai-soc",
     "container",
     "foundation",
@@ -724,6 +773,6 @@
   "timezone": "browser",
   "title": "AI SOC Observability Foundation",
   "uid": "ai-soc-observability-foundation",
-  "version": 5,
+  "version": 6,
   "weekStart": ""
 }
