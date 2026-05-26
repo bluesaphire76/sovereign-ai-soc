@@ -4,9 +4,11 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Activity,
   BarChart3,
   Briefcase,
   Columns3,
+  Globe2,
   HeartPulse,
   LayoutDashboard,
   LogOut,
@@ -15,7 +17,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Users,
-  Globe2,} from "lucide-react";
+} from "lucide-react";
 import {
   clearAuthSession,
   fetchCurrentUser,
@@ -23,11 +25,14 @@ import {
   type AuthUser,
 } from "../lib/auth";
 
+const GRAFANA_URL = process.env.NEXT_PUBLIC_GRAFANA_URL || "http://127.0.0.1:3002/grafana/d/ai-soc-platform-health/ai-soc-platform-health?orgId=1&refresh=30s";
+
 type NavItem = {
   href: string;
   label: string;
   icon: React.ReactNode;
   match: "exact" | "prefix" | "cases";
+  external?: boolean;
 };
 
 const NAV_ITEMS: NavItem[] = [
@@ -125,6 +130,17 @@ export default function AppNavigation() {
   const navItems: NavItem[] = user
     ? [
         ...NAV_ITEMS,
+        ...(user.role === "ADMIN" || user.role === "ANALYST"
+          ? [
+              {
+                href: GRAFANA_URL,
+                label: "Observability",
+                icon: <Activity className="h-3.5 w-3.5" strokeWidth={1.75} />,
+                match: "exact" as const,
+                external: true,
+              },
+            ]
+          : []),
         ...(user.role === "ADMIN"
           ? [
               {
@@ -170,6 +186,8 @@ export default function AppNavigation() {
               <Link
                 key={item.href}
                 href={item.href}
+                target={item.external ? "_blank" : undefined}
+                rel={item.external ? "noreferrer" : undefined}
                 className={`inline-flex h-8 items-center gap-1.5 rounded-sm border px-2.5 text-xs font-medium transition xl:w-full xl:justify-start ${
                   active
                     ? "border-cyan-500 bg-cyan-500 text-slate-950"
