@@ -952,7 +952,7 @@ function HighRiskIncidentQueue({
 }) {
   return (
     <Panel
-      title="High-risk incident queue"
+      title="Open high-risk incident queue"
       description="Recent incident exposure sorted by executive relevance."
       count={incidents.length}
       icon={<AlertTriangle className="h-3.5 w-3.5" />}
