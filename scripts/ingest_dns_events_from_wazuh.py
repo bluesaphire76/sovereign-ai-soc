@@ -149,10 +149,19 @@ def load_candidate_raw_events(limit: int) -> list[dict[str, Any]]:
     with engine.begin() as conn:
         rows = conn.execute(
             text("""
-                select id, source_event_id, event_timestamp, agent, payload_json
-                from raw_events
-                where payload_json::text ilike '%ai_soc_dns_query%'
-                order by id asc
+                select r.id, r.source_event_id, r.event_timestamp, r.agent, r.payload_json
+                from raw_events r
+                where r.payload_json::text ilike '%ai_soc_dns_query%'
+                  and not exists (
+                      select 1
+                      from dns_events d
+                      where d.raw_event_id = r.id
+                         or (
+                             r.source_event_id is not null
+                             and d.source_event_id = r.source_event_id
+                         )
+                  )
+                order by r.id desc
                 limit :limit
             """),
             {"limit": limit},
