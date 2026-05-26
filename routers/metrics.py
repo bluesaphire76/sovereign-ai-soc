@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import subprocess
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -170,6 +171,66 @@ SURICATA_INGEST_EVENTS = Gauge(
     ["outcome"],
 )
 
+
+GPU_COLLECTION_SUCCESS = Gauge(
+    "ai_soc_gpu_collection_success",
+    "Whether the latest NVIDIA GPU metrics collection via nvidia-smi succeeded.",
+)
+
+GPU_UTILIZATION_PERCENT = Gauge(
+    "ai_soc_gpu_utilization_percent",
+    "GPU utilization percentage reported by nvidia-smi.",
+    ["gpu", "name"],
+)
+
+GPU_MEMORY_UTILIZATION_PERCENT = Gauge(
+    "ai_soc_gpu_memory_utilization_percent",
+    "GPU memory utilization percentage reported by nvidia-smi.",
+    ["gpu", "name"],
+)
+
+GPU_MEMORY_USED_BYTES = Gauge(
+    "ai_soc_gpu_memory_used_bytes",
+    "GPU memory used in bytes reported by nvidia-smi.",
+    ["gpu", "name"],
+)
+
+GPU_MEMORY_TOTAL_BYTES = Gauge(
+    "ai_soc_gpu_memory_total_bytes",
+    "GPU memory total in bytes reported by nvidia-smi.",
+    ["gpu", "name"],
+)
+
+GPU_POWER_DRAW_WATTS = Gauge(
+    "ai_soc_gpu_power_draw_watts",
+    "GPU power draw in watts reported by nvidia-smi.",
+    ["gpu", "name"],
+)
+
+GPU_POWER_LIMIT_WATTS = Gauge(
+    "ai_soc_gpu_power_limit_watts",
+    "GPU power limit in watts reported by nvidia-smi.",
+    ["gpu", "name"],
+)
+
+GPU_TEMPERATURE_CELSIUS = Gauge(
+    "ai_soc_gpu_temperature_celsius",
+    "GPU temperature in Celsius reported by nvidia-smi.",
+    ["gpu", "name"],
+)
+
+GPU_SM_CLOCK_HZ = Gauge(
+    "ai_soc_gpu_sm_clock_hz",
+    "GPU SM clock in Hertz reported by nvidia-smi.",
+    ["gpu", "name"],
+)
+
+GPU_MEMORY_CLOCK_HZ = Gauge(
+    "ai_soc_gpu_memory_clock_hz",
+    "GPU memory clock in Hertz reported by nvidia-smi.",
+    ["gpu", "name"],
+)
+
 SURICATA_INGEST_BYTE_OFFSET = Gauge(
     "ai_soc_suricata_ingest_byte_offset",
     "Current Suricata ingest byte offset.",
@@ -314,6 +375,88 @@ def _collect_worker_metrics(details: dict[str, Any]) -> None:
         _set_labeled_number(WORKER_BATCH_METRICS, str(key), value)
 
 
+
+def _to_float(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, str):
+        normalized = value.strip()
+        if normalized in {"", "N/A", "[N/A]", "nan"}:
+            return None
+        try:
+            return float(normalized)
+        except ValueError:
+            return None
+    return None
+
+
+def _collect_gpu_metrics() -> None:
+    command = [
+        "/usr/lib/wsl/lib/nvidia-smi",
+        "--query-gpu=index,name,utilization.gpu,utilization.memory,memory.used,memory.total,power.draw,power.limit,temperature.gpu,clocks.sm,clocks.mem",
+        "--format=csv,noheader,nounits",
+    ]
+
+    try:
+        completed = subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+    except Exception:
+        GPU_COLLECTION_SUCCESS.set(0)
+        return
+
+    output = completed.stdout.strip()
+    if not output:
+        GPU_COLLECTION_SUCCESS.set(0)
+        return
+
+    GPU_COLLECTION_SUCCESS.set(1)
+
+    for line in output.splitlines():
+        parts = [part.strip() for part in line.split(",")]
+        if len(parts) < 11:
+            continue
+
+        (
+            gpu_index,
+            gpu_name,
+            gpu_util,
+            mem_util,
+            mem_used_mib,
+            mem_total_mib,
+            power_draw,
+            power_limit,
+            temperature,
+            sm_clock_mhz,
+            mem_clock_mhz,
+        ) = parts[:11]
+
+        labels = {"gpu": gpu_index, "name": gpu_name}
+
+        values = [
+            (GPU_UTILIZATION_PERCENT, gpu_util, 1.0),
+            (GPU_MEMORY_UTILIZATION_PERCENT, mem_util, 1.0),
+            (GPU_MEMORY_USED_BYTES, mem_used_mib, 1024.0 * 1024.0),
+            (GPU_MEMORY_TOTAL_BYTES, mem_total_mib, 1024.0 * 1024.0),
+            (GPU_POWER_DRAW_WATTS, power_draw, 1.0),
+            (GPU_POWER_LIMIT_WATTS, power_limit, 1.0),
+            (GPU_TEMPERATURE_CELSIUS, temperature, 1.0),
+            (GPU_SM_CLOCK_HZ, sm_clock_mhz, 1_000_000.0),
+            (GPU_MEMORY_CLOCK_HZ, mem_clock_mhz, 1_000_000.0),
+        ]
+
+        for gauge, raw_value, multiplier in values:
+            parsed = _to_float(raw_value)
+            if parsed is not None:
+                gauge.labels(**labels).set(parsed * multiplier)
+
+
 def _collect_platform_health_metrics() -> None:
     started_at = time.perf_counter()
 
@@ -429,6 +572,7 @@ async def prometheus_metrics_middleware(
 @metrics_router.get("/metrics", include_in_schema=False)
 def metrics() -> Response:
     _collect_platform_health_metrics()
+    _collect_gpu_metrics()
 
     return Response(
         content=generate_latest(),
