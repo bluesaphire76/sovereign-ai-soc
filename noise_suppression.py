@@ -246,6 +246,25 @@ def _is_dns_telemetry_finding(rule_id: str, rule_description: str) -> bool:
 
     return False
 
+
+def _is_vulnerability_resolution_finding(rule_description: str) -> bool:
+    """Identify Wazuh vulnerability lifecycle events for resolved CVEs.
+
+    These events mean a previously detected vulnerable package was updated or
+    the vulnerability feed changed. They are useful telemetry, but they should
+    not create SOC incidents by themselves.
+    """
+
+    normalized_description = _lower(rule_description)
+
+    if "cve-" not in normalized_description:
+        return False
+
+    if "was solved due to an update in the agent or feed" in normalized_description:
+        return True
+
+    return False
+
 def _is_vulnerability_package_finding(rule_id: str, rule_description: str) -> bool:
     """Identify Wazuh package vulnerability findings.
 
@@ -325,6 +344,23 @@ def evaluate_noise_suppression(
                     "A normal DNS query does not represent a SOC incident unless another detection rule provides explicit malicious context.",
                 ],
                 "category": "dns_telemetry_context",
+            }
+        )
+        return base
+
+    if _is_vulnerability_resolution_finding(rule_description):
+        base.update(
+            {
+                "should_suppress": True,
+                "decision": "SUPPRESSED_NOISE",
+                "policy_id": "wazuh_vulnerability_resolution_context",
+                "reasons": [
+                    "Wazuh vulnerability resolution event suppressed from automatic incident creation.",
+                    "The CVE was reported as solved due to a package update or vulnerability feed update.",
+                    "Resolution lifecycle telemetry remains available as raw/security telemetry.",
+                    "A resolved CVE notification does not represent an active SOC incident by itself.",
+                ],
+                "category": "vulnerability_resolution_context",
             }
         )
         return base
