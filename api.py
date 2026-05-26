@@ -356,6 +356,7 @@ def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
 PUBLIC_AUTH_PATHS = {
     "/auth/login",
     "/health",
+    "/metrics",
     "/docs",
     "/docs/oauth2-redirect",
     "/openapi.json",
