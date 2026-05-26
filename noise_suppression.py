@@ -117,6 +117,25 @@ def _safe_sudo_command(command: str | None) -> bool:
 
 
 
+
+def _is_dns_telemetry_finding(rule_id: str, rule_description: str) -> bool:
+    """Identify AI SOC DNS telemetry events.
+
+    DNS telemetry is investigation context. Normal DNS queries must be normalized
+    into dns_events but must not create SOC incidents by themselves.
+    """
+
+    normalized_rule_id = str(rule_id or "").strip()
+    normalized_description = str(rule_description or "").lower().strip()
+
+    if normalized_rule_id == "100510":
+        return True
+
+    if normalized_description.startswith("ai soc dns telemetry query:"):
+        return True
+
+    return False
+
 def _is_vulnerability_package_finding(rule_id: str, rule_description: str) -> bool:
     """Identify Wazuh package vulnerability findings.
 
@@ -163,6 +182,22 @@ def evaluate_noise_suppression(
 
     if not NOISE_SUPPRESSION_ENABLED:
         base["reasons"].append("noise suppression disabled")
+        return base
+
+    if _is_dns_telemetry_finding(rule_id, rule_description):
+        base.update(
+            {
+                "should_suppress": True,
+                "decision": "SUPPRESSED_NOISE",
+                "policy_id": "ai_soc_dns_telemetry_context",
+                "reasons": [
+                    "AI SOC DNS telemetry event suppressed from automatic incident creation.",
+                    "DNS queries remain available as raw/security telemetry and normalized dns_events.",
+                    "A normal DNS query does not represent a SOC incident unless another detection rule provides explicit malicious context.",
+                ],
+                "category": "dns_telemetry_context",
+            }
+        )
         return base
 
     if _is_vulnerability_package_finding(rule_id, rule_description):
