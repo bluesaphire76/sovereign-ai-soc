@@ -16,9 +16,14 @@ from ai_triage_hardening import (
     AI_TRIAGE_ENABLED,
     AI_TRIAGE_FALLBACK_ON_ERROR,
     AI_TRIAGE_RETRY_ON_INVALID_OUTPUT,
+    AI_TRIAGE_RETRY_ON_TIMEOUT,
+    AI_TRIAGE_RETRY_TIMEOUT_SECONDS,
     AI_TRIAGE_TIMEOUT_SECONDS,
+    build_ai_triage_failure_reason,
     build_fallback_analysis,
     call_ollama_chat,
+    compact_triage_prompt,
+    is_timeout_exception,
 )
 from rag_retriever import retrieve_security_context
 from llm_output import is_invalid_llm_output, sanitize_llm_output
@@ -237,6 +242,30 @@ def _build_retry_messages(prompt):
     ]
 
 
+def _build_timeout_retry_messages(prompt):
+    compact_prompt = compact_triage_prompt(prompt)
+
+    return [
+        {
+            "role": "system",
+            "content": (
+                "The previous local AI triage call timed out. "
+                "Return a concise English SOC triage answer. "
+                "Do not include chain-of-thought, hidden reasoning, or <think> tags."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                "/no_think\n\n"
+                "Use the compact alert context below and produce only the final SOC analysis. "
+                "Be concise and operationally useful.\n\n"
+                f"{compact_prompt}"
+            ),
+        },
+    ]
+
+
 def analyze_alert_result(alert):
     if not AI_TRIAGE_ENABLED:
         return {
@@ -327,6 +356,36 @@ def analyze_alert_result(alert):
         }
 
     except Exception as exc:
+        retry_error = None
+
+        if (
+            AI_TRIAGE_RETRY_ON_TIMEOUT
+            and is_timeout_exception(exc)
+            and not retry_attempted
+        ):
+            retry_attempted = True
+
+            try:
+                retry_response = call_ollama_chat(
+                    messages=_build_timeout_retry_messages(prompt),
+                    timeout_seconds=AI_TRIAGE_RETRY_TIMEOUT_SECONDS,
+                )
+                analysis = sanitize_llm_output(retry_response)
+
+                if is_invalid_llm_output(retry_response) or is_invalid_llm_output(analysis):
+                    raise ValueError("invalid_llm_output_after_timeout_retry")
+
+                return {
+                    "analysis": analysis,
+                    "status": "success",
+                    "mode": "llm",
+                    "fallback_reason": None,
+                    "retry_attempted": retry_attempted,
+                }
+
+            except Exception as timeout_retry_exc:
+                retry_error = timeout_retry_exc
+
         if not AI_TRIAGE_FALLBACK_ON_ERROR:
             raise
 
@@ -335,17 +394,33 @@ def analyze_alert_result(alert):
             f"{type(exc).__name__}[/yellow]"
         )
 
+        fallback_reason = build_ai_triage_failure_reason(
+            exc,
+            retry_attempted=retry_attempted,
+            retry_error=retry_error,
+        )
+
+        context_notes = []
+        if context_warning:
+            context_notes.append(context_warning)
+
+        if retry_attempted:
+            context_notes.append(
+                "Compact timeout retry was attempted with reduced prompt context "
+                "to protect worker throughput."
+            )
+
         return {
             "analysis": build_fallback_analysis(
                 alert,
-                reason="AI triage failed, timed out or returned invalid output.",
-                error_type=type(exc).__name__,
+                reason=fallback_reason,
+                error_type=type(retry_error or exc).__name__,
                 retry_attempted=retry_attempted,
-                context_note=context_warning,
+                context_note=" ".join(context_notes) if context_notes else None,
             ),
             "status": "fallback",
             "mode": "deterministic_fallback",
-            "fallback_reason": type(exc).__name__,
+            "fallback_reason": type(retry_error or exc).__name__,
             "retry_attempted": retry_attempted,
         }
 

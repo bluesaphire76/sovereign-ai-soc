@@ -21,6 +21,11 @@ AI_TRIAGE_RETRY_ON_INVALID_OUTPUT = _bool_env(
 )
 AI_TRIAGE_FALLBACK_ON_ERROR = _bool_env("AI_TRIAGE_FALLBACK_ON_ERROR", "true")
 AI_TRIAGE_TIMEOUT_SECONDS = float(os.getenv("AI_TRIAGE_TIMEOUT_SECONDS", "30"))
+AI_TRIAGE_RETRY_ON_TIMEOUT = _bool_env("AI_TRIAGE_RETRY_ON_TIMEOUT", "true")
+AI_TRIAGE_RETRY_TIMEOUT_SECONDS = float(os.getenv("AI_TRIAGE_RETRY_TIMEOUT_SECONDS", "15"))
+AI_TRIAGE_COMPACT_RETRY_MAX_CHARS = int(
+    os.getenv("AI_TRIAGE_COMPACT_RETRY_MAX_CHARS", "3000")
+)
 
 
 def _get(data: dict, *path):
@@ -53,6 +58,71 @@ def _error_type(exc: Exception | None) -> str | None:
         return None
 
     return type(exc).__name__
+
+
+def is_timeout_exception(exc: Exception | None) -> bool:
+    if exc is None:
+        return False
+
+    if isinstance(exc, requests.exceptions.Timeout):
+        return True
+
+    return type(exc).__name__ in {
+        "ReadTimeout",
+        "Timeout",
+        "TimeoutError",
+        "TimeoutException",
+    }
+
+
+def compact_triage_prompt(prompt: str) -> str:
+    max_chars = max(AI_TRIAGE_COMPACT_RETRY_MAX_CHARS, 1000)
+
+    if len(prompt) <= max_chars:
+        return prompt
+
+    head_size = max_chars // 2
+    tail_size = max_chars - head_size
+
+    return (
+        prompt[:head_size]
+        + "\n\n[... prompt compacted for timeout retry ...]\n\n"
+        + prompt[-tail_size:]
+    )
+
+
+def build_ai_triage_failure_reason(
+    exc: Exception,
+    retry_attempted: bool = False,
+    retry_error: Exception | None = None,
+) -> str:
+    if is_timeout_exception(exc):
+        if retry_attempted and retry_error is not None:
+            if is_timeout_exception(retry_error):
+                return (
+                    "Local AI triage timed out after "
+                    f"{AI_TRIAGE_TIMEOUT_SECONDS:.0f}s; compact retry also timed out "
+                    f"after {AI_TRIAGE_RETRY_TIMEOUT_SECONDS:.0f}s."
+                )
+
+            return (
+                "Local AI triage timed out after "
+                f"{AI_TRIAGE_TIMEOUT_SECONDS:.0f}s; compact retry failed with "
+                f"{type(retry_error).__name__}."
+            )
+
+        return (
+            "Local AI triage timed out after "
+            f"{AI_TRIAGE_TIMEOUT_SECONDS:.0f}s before a successful LLM response was available."
+        )
+
+    if retry_attempted and retry_error is not None:
+        return (
+            "AI triage failed or returned invalid output; retry also failed with "
+            f"{type(retry_error).__name__}."
+        )
+
+    return "AI triage failed or returned invalid output."
 
 
 def call_ollama_chat(
