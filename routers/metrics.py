@@ -70,6 +70,21 @@ AI_RUNTIME_UP = Gauge(
     "Whether the configured local AI runtime is reachable according to platform health.",
 )
 
+AI_RUNTIME_TAGS_LATENCY_SECONDS = Gauge(
+    "ai_soc_ai_runtime_tags_latency_seconds",
+    "Latency in seconds of the latest AI runtime tags/model availability check.",
+)
+
+AI_RUNTIME_AVAILABLE_MODELS = Gauge(
+    "ai_soc_ai_runtime_available_models",
+    "Number of models available in the configured local AI runtime.",
+)
+
+AI_RUNTIME_CONFIGURED_MODEL_SIZE_BYTES = Gauge(
+    "ai_soc_ai_runtime_configured_model_size_bytes",
+    "Size in bytes of the configured AI model when reported by the runtime.",
+)
+
 LATEST_RAW_EVENT_FRESHNESS_SECONDS = Gauge(
     "ai_soc_latest_raw_event_freshness_seconds",
     "Freshness age in seconds of the latest raw event when available.",
@@ -88,6 +103,76 @@ LATEST_NETWORK_EVENT_FRESHNESS_SECONDS = Gauge(
 LATEST_INCIDENT_FRESHNESS_SECONDS = Gauge(
     "ai_soc_latest_incident_freshness_seconds",
     "Freshness age in seconds of the latest incident when available.",
+)
+
+LATEST_INCIDENT_RISK_SCORE = Gauge(
+    "ai_soc_latest_incident_risk_score",
+    "Risk score of the latest incident when available.",
+)
+
+LATEST_INCIDENT_SECURITY_ALERT_AGE_SECONDS = Gauge(
+    "ai_soc_latest_incident_security_alert_age_seconds",
+    "Age in seconds of the latest security alert considered by incident freshness logic.",
+)
+
+EVENT_QUEUE_PENDING_EVENTS = Gauge(
+    "ai_soc_event_queue_pending_events",
+    "Number of Wazuh events newer than the current ingest watermark.",
+)
+
+ACTIVE_EVENT_SOURCES = Gauge(
+    "ai_soc_active_event_sources",
+    "Number of active event sources in the health check window.",
+)
+
+WAZUH_INGEST_ALERTS = Gauge(
+    "ai_soc_wazuh_ingest_alerts",
+    "Wazuh ingest alert counts reported by platform health.",
+    ["outcome"],
+)
+
+WAZUH_INGEST_TOTAL_PROCESSED = Gauge(
+    "ai_soc_wazuh_ingest_total_processed",
+    "Total Wazuh alerts processed according to the ingest watermark.",
+)
+
+WORKER_ALERTS = Gauge(
+    "ai_soc_worker_alerts",
+    "AI SOC worker alert counts reported by the latest heartbeat details.",
+    ["outcome"],
+)
+
+WORKER_LATEST_EVENT_LAG_SECONDS = Gauge(
+    "ai_soc_worker_latest_event_lag_seconds",
+    "Lag in seconds of the latest event observed by the AI SOC worker.",
+)
+
+WORKER_POLL_INTERVAL_SECONDS = Gauge(
+    "ai_soc_worker_poll_interval_seconds",
+    "Configured poll interval in seconds reported by the AI SOC worker.",
+)
+
+WORKER_RESULT_COUNTS = Gauge(
+    "ai_soc_worker_result_counts",
+    "AI SOC worker result counts from the latest heartbeat details.",
+    ["result"],
+)
+
+WORKER_BATCH_METRICS = Gauge(
+    "ai_soc_worker_batch_metrics",
+    "AI SOC worker batch metrics from the latest heartbeat details.",
+    ["metric"],
+)
+
+SURICATA_INGEST_EVENTS = Gauge(
+    "ai_soc_suricata_ingest_events",
+    "Suricata ingest event counts from the latest worker details.",
+    ["outcome"],
+)
+
+SURICATA_INGEST_BYTE_OFFSET = Gauge(
+    "ai_soc_suricata_ingest_byte_offset",
+    "Current Suricata ingest byte offset.",
 )
 
 
@@ -135,14 +220,98 @@ def _first_number(mapping: dict[str, Any], keys: tuple[str, ...]) -> float | Non
     return None
 
 
+def _set_number(gauge: Gauge, value: Any) -> None:
+    if isinstance(value, bool):
+        return
+    if isinstance(value, int | float):
+        gauge.set(float(value))
+        return
+    if isinstance(value, str):
+        try:
+            gauge.set(float(value))
+        except ValueError:
+            return
+
+
+def _set_labeled_number(gauge: Gauge, label: str, value: Any) -> None:
+    if isinstance(value, bool):
+        return
+    if isinstance(value, int | float):
+        gauge.labels(label).set(float(value))
+        return
+    if isinstance(value, str):
+        try:
+            gauge.labels(label).set(float(value))
+        except ValueError:
+            return
+
+
 def _details(item: dict[str, Any]) -> dict[str, Any]:
     details = item.get("details")
     return details if isinstance(details, dict) else {}
 
 
+def _nested(mapping: dict[str, Any], key: str) -> dict[str, Any]:
+    value = mapping.get(key)
+    return value if isinstance(value, dict) else {}
+
+
 def _component_name(item: dict[str, Any]) -> str:
     value = item.get("component") or item.get("name") or item.get("id") or "unknown"
     return str(value)
+
+
+def _collect_ai_runtime_metrics(details: dict[str, Any]) -> None:
+    tags_latency_ms = _first_number(details, ("tags_latency_ms",))
+    if tags_latency_ms is not None:
+        AI_RUNTIME_TAGS_LATENCY_SECONDS.set(tags_latency_ms / 1000.0)
+
+    _set_number(AI_RUNTIME_AVAILABLE_MODELS, details.get("available_model_count"))
+
+    configured_model_details = _nested(details, "configured_model_details")
+    _set_number(
+        AI_RUNTIME_CONFIGURED_MODEL_SIZE_BYTES,
+        configured_model_details.get("size_bytes"),
+    )
+
+
+def _collect_wazuh_ingest_metrics(details: dict[str, Any]) -> None:
+    _set_labeled_number(WAZUH_INGEST_ALERTS, "seen", details.get("alerts_seen"))
+    _set_labeled_number(WAZUH_INGEST_ALERTS, "processed", details.get("alerts_processed"))
+    _set_labeled_number(WAZUH_INGEST_ALERTS, "skipped", details.get("alerts_skipped"))
+    _set_number(WAZUH_INGEST_TOTAL_PROCESSED, details.get("total_processed"))
+
+
+def _collect_suricata_ingest_metrics(details: dict[str, Any]) -> None:
+    _set_number(SURICATA_INGEST_BYTE_OFFSET, details.get("byte_offset"))
+
+    worker_details = _nested(details, "worker_details")
+    for key in (
+        "inserted",
+        "duplicates",
+        "lines_read",
+        "skipped_invalid_json",
+        "skipped_unsupported_type",
+        "supported_events",
+    ):
+        _set_labeled_number(SURICATA_INGEST_EVENTS, key, worker_details.get(key))
+
+
+def _collect_worker_metrics(details: dict[str, Any]) -> None:
+    _set_labeled_number(WORKER_ALERTS, "seen", details.get("alerts_seen"))
+    _set_labeled_number(WORKER_ALERTS, "processed", details.get("alerts_processed"))
+    _set_labeled_number(WORKER_ALERTS, "skipped", details.get("alerts_skipped"))
+
+    _set_number(WORKER_LATEST_EVENT_LAG_SECONDS, details.get("latest_event_lag_seconds"))
+    _set_number(WORKER_POLL_INTERVAL_SECONDS, details.get("poll_interval_seconds"))
+
+    result_counts = _nested(details, "result_counts")
+    for key, value in result_counts.items():
+        _set_labeled_number(WORKER_RESULT_COUNTS, str(key), value)
+
+    batch_metrics = _nested(details, "batch_metrics")
+    for key, value in batch_metrics.items():
+        _set_labeled_number(WORKER_BATCH_METRICS, str(key), value)
 
 
 def _collect_platform_health_metrics() -> None:
@@ -194,7 +363,7 @@ def _collect_platform_health_metrics() -> None:
         if age_seconds is not None:
             COMPONENT_AGE_SECONDS.labels(component=component).set(age_seconds)
 
-            if component == "worker_heartbeat":
+            if component == "ai_soc_worker":
                 WORKER_HEARTBEAT_AGE_SECONDS.set(age_seconds)
             elif component == "latest_raw_event_freshness":
                 LATEST_RAW_EVENT_FRESHNESS_SECONDS.set(age_seconds)
@@ -207,6 +376,23 @@ def _collect_platform_health_metrics() -> None:
 
         if component == "ai_runtime":
             AI_RUNTIME_UP.set(_is_up(status))
+            _collect_ai_runtime_metrics(details)
+        elif component == "wazuh_ingest":
+            _collect_wazuh_ingest_metrics(details)
+        elif component == "suricata_ingest":
+            _collect_suricata_ingest_metrics(details)
+        elif component == "event_processing_queue":
+            _set_number(EVENT_QUEUE_PENDING_EVENTS, details.get("pending_events"))
+        elif component == "active_event_sources":
+            _set_number(ACTIVE_EVENT_SOURCES, details.get("active_sources"))
+        elif component == "latest_incident_freshness":
+            _set_number(LATEST_INCIDENT_RISK_SCORE, details.get("risk_score"))
+            _set_number(
+                LATEST_INCIDENT_SECURITY_ALERT_AGE_SECONDS,
+                details.get("security_alert_age_seconds"),
+            )
+        elif component == "ai_soc_worker":
+            _collect_worker_metrics(_nested(details, "details"))
 
 
 async def prometheus_metrics_middleware(
