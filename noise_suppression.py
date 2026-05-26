@@ -118,6 +118,116 @@ def _safe_sudo_command(command: str | None) -> bool:
 
 
 
+
+def _syscheck_path(alert: dict) -> str:
+    syscheck = alert.get("syscheck")
+
+    if not isinstance(syscheck, dict):
+        data = alert.get("data") if isinstance(alert.get("data"), dict) else {}
+        syscheck = data.get("syscheck") if isinstance(data.get("syscheck"), dict) else {}
+
+    return _string(syscheck.get("path"))
+
+
+def _syscheck_mode(alert: dict) -> str:
+    syscheck = alert.get("syscheck")
+
+    if not isinstance(syscheck, dict):
+        data = alert.get("data") if isinstance(alert.get("data"), dict) else {}
+        syscheck = data.get("syscheck") if isinstance(data.get("syscheck"), dict) else {}
+
+    return _lower(syscheck.get("mode"))
+
+
+def _is_sensitive_integrity_path(path: str) -> bool:
+    normalized = _lower(path)
+
+    if not normalized:
+        return True
+
+    sensitive_exact = {
+        "/etc/passwd",
+        "/etc/shadow",
+        "/etc/group",
+        "/etc/gshadow",
+        "/etc/sudoers",
+        "/usr/bin/sudo",
+        "/usr/bin/su",
+        "/usr/bin/passwd",
+        "/usr/bin/ssh",
+        "/usr/sbin/sshd",
+        "/usr/bin/systemctl",
+    }
+
+    if normalized in sensitive_exact:
+        return True
+
+    sensitive_prefixes = (
+        "/etc/ssh/",
+        "/etc/pam.d/",
+        "/etc/sudoers.d/",
+        "/etc/cron.",
+        "/etc/cron/",
+        "/var/spool/cron/",
+        "/root/.ssh/",
+        "/home/",
+        "/etc/systemd/system/",
+        "/lib/systemd/system/",
+    )
+
+    if any(normalized.startswith(prefix) for prefix in sensitive_prefixes):
+        return True
+
+    sensitive_fragments = (
+        "authorized_keys",
+        "id_rsa",
+        "id_ed25519",
+        "known_hosts",
+    )
+
+    return any(fragment in normalized for fragment in sensitive_fragments)
+
+
+def _is_package_managed_runtime_path(path: str) -> bool:
+    normalized = _lower(path)
+
+    package_prefixes = (
+        "/usr/bin/",
+        "/usr/sbin/",
+        "/usr/lib/",
+        "/usr/libexec/",
+        "/usr/share/",
+        "/lib/",
+        "/lib64/",
+        "/bin/",
+        "/sbin/",
+    )
+
+    return any(normalized.startswith(prefix) for prefix in package_prefixes)
+
+
+def _is_package_update_fim_context(alert: dict, rule_id: str, rule_description: str) -> bool:
+    normalized_description = _lower(rule_description)
+
+    if rule_id != "550":
+        return False
+
+    if "integrity checksum changed" not in normalized_description:
+        return False
+
+    if _syscheck_mode(alert) != "scheduled":
+        return False
+
+    path = _syscheck_path(alert)
+
+    if not _is_package_managed_runtime_path(path):
+        return False
+
+    if _is_sensitive_integrity_path(path):
+        return False
+
+    return True
+
 def _is_dns_telemetry_finding(rule_id: str, rule_description: str) -> bool:
     """Identify AI SOC DNS telemetry events.
 
@@ -182,6 +292,25 @@ def evaluate_noise_suppression(
 
     if not NOISE_SUPPRESSION_ENABLED:
         base["reasons"].append("noise suppression disabled")
+        return base
+
+    if _is_package_update_fim_context(alert, rule_id, rule_description):
+        syscheck_path = _syscheck_path(alert)
+        base.update(
+            {
+                "should_suppress": True,
+                "decision": "SUPPRESSED_NOISE",
+                "policy_id": "package_update_file_integrity_context",
+                "reasons": [
+                    "Package-managed file integrity change suppressed from automatic incident creation.",
+                    "The change was observed by scheduled FIM on a package-managed runtime path.",
+                    "The path is not classified as security-sensitive by the AI SOC policy.",
+                    "File integrity telemetry remains available as raw/security telemetry.",
+                ],
+                "category": "package_update_file_integrity_context",
+                "syscheck_path": syscheck_path,
+            }
+        )
         return base
 
     if _is_dns_telemetry_finding(rule_id, rule_description):
