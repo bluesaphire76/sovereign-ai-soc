@@ -424,7 +424,7 @@ def process_alert(alert):
             "SUPPRESSED_NOISE",
         )
         print(
-            "[dim]Security alert soppresso da noise policy: "
+            "[dim]Security alert suppressed by noise policy: "
             f"doc_id={doc_id} "
             f"policy={noise_decision.get('policy_id')} "
             f"rule_id={noise_decision.get('rule_id')} "
@@ -444,7 +444,7 @@ def process_alert(alert):
             "AGGREGATED_DUPLICATE",
         )
         print(
-            "[dim]Evento aggregato entro finestra dedup: "
+            "[dim]Event aggregated within deduplication window: "
             f"fingerprint={aggregation_result.get('fingerprint')} "
             f"count={aggregation_result.get('count')} "
             f"window={aggregation_result.get('window_minutes')}m "
