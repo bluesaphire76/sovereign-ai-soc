@@ -248,6 +248,24 @@ def _is_dns_telemetry_finding(rule_id: str, rule_description: str) -> bool:
 
 
 
+
+def _is_windows_external_device_inventory_event(rule_id: str, rule_description: str) -> bool:
+    """Identify repeated Windows external device recognition inventory events.
+
+    These events are useful endpoint telemetry, but a single device recognition
+    event should not become a SOC incident by itself. It should become actionable
+    only when correlated with suspicious process, file, PowerShell, malware or
+    data movement evidence.
+    """
+
+    normalized_rule_id = str(rule_id or "").strip()
+    normalized_description = _lower(rule_description)
+
+    return (
+        normalized_rule_id == "60227"
+        and normalized_description == "a new external device was recognized by the system"
+    )
+
 def _is_windows_cis_benchmark_finding(rule_description: str) -> bool:
     """Identify Windows CIS benchmark compliance findings.
 
@@ -361,6 +379,22 @@ def evaluate_noise_suppression(
                     "A normal DNS query does not represent a SOC incident unless another detection rule provides explicit malicious context.",
                 ],
                 "category": "dns_telemetry_context",
+            }
+        )
+        return base
+
+    if _is_windows_external_device_inventory_event(rule_id, rule_description):
+        base.update(
+            {
+                "should_suppress": True,
+                "decision": "SUPPRESSED_NOISE",
+                "policy_id": "windows_external_device_inventory_context",
+                "reasons": [
+                    "Windows external device recognition event suppressed from automatic SOC incident creation.",
+                    "The event remains available as raw/security telemetry for endpoint inventory and investigation.",
+                    "A device recognition event should become actionable only when correlated with suspicious process, file, PowerShell, malware or data movement evidence.",
+                ],
+                "category": "windows_device_inventory_context",
             }
         )
         return base
