@@ -6,6 +6,7 @@
 ![Python](https://img.shields.io/badge/Python-FastAPI-3776AB)
 ![Next.js](https://img.shields.io/badge/Next.js-16-000000)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18.4-336791)
+![Qdrant](https://img.shields.io/badge/Qdrant-Vector%20DB-DC244C)
 ![Wazuh](https://img.shields.io/badge/Wazuh-endpoint%20monitoring-2563eb)
 ![Suricata](https://img.shields.io/badge/Suricata-network%20IDS-b91c1c)
 ![Local AI](https://img.shields.io/badge/Local%20AI-Ollama-0f766e)
