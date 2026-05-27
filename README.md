@@ -10,6 +10,8 @@
 ![Suricata](https://img.shields.io/badge/Suricata-network%20IDS-b91c1c)
 ![Local AI](https://img.shields.io/badge/Local%20AI-Ollama-0f766e)
 ![Human-in-the-loop](https://img.shields.io/badge/Human--in--the--loop-by%20design-7c3aed)
+![Grafana](https://img.shields.io/badge/Grafana-Observability-F46800)
+![Prometheus](https://img.shields.io/badge/Prometheus-Metrics-E6522C)
 
 Sovereign AI SOC is a local-first AI-powered security operations platform combining Wazuh, Suricata, correlation-first incident detection, local AI analysis, case workflow, executive reporting and human-in-the-loop security operations.
 
