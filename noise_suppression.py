@@ -249,6 +249,41 @@ def _is_dns_telemetry_finding(rule_id: str, rule_description: str) -> bool:
 
 
 
+
+def _is_windows_sca_summary_compliance_finding(rule_description: str) -> bool:
+    """Identify Windows SCA/CIS summary compliance posture findings.
+
+    SCA summary findings describe endpoint hardening posture. They should
+    remain available for compliance reporting, but they should not create
+    standalone SOC incidents without active exploitation or malicious context.
+    """
+
+    normalized_description = _lower(rule_description)
+
+    return (
+        "sca summary:" in normalized_description
+        and "cis microsoft windows" in normalized_description
+        and "benchmark" in normalized_description
+        and "score less than" in normalized_description
+    )
+
+
+def _is_wazuh_agent_lifecycle_source_health_event(rule_description: str) -> bool:
+    """Identify Wazuh agent lifecycle/source-health events.
+
+    Agent lifecycle events are important for source health monitoring, but they
+    should not become SOC incidents by themselves during onboarding or planned
+    source testing.
+    """
+
+    normalized_description = _lower(rule_description).strip()
+
+    return normalized_description in {
+        "wazuh agent disconnected.",
+        "wazuh agent stopped.",
+        "wazuh agent started.",
+    }
+
 def _is_windows_external_device_inventory_event(rule_id: str, rule_description: str) -> bool:
     """Identify repeated Windows external device recognition inventory events.
 
@@ -379,6 +414,38 @@ def evaluate_noise_suppression(
                     "A normal DNS query does not represent a SOC incident unless another detection rule provides explicit malicious context.",
                 ],
                 "category": "dns_telemetry_context",
+            }
+        )
+        return base
+
+    if _is_windows_sca_summary_compliance_finding(rule_description):
+        base.update(
+            {
+                "should_suppress": True,
+                "decision": "SUPPRESSED_NOISE",
+                "policy_id": "windows_sca_summary_compliance_context",
+                "reasons": [
+                    "Windows SCA/CIS summary compliance finding suppressed from automatic SOC incident creation.",
+                    "The finding remains available as raw/security telemetry for endpoint hardening and compliance reporting.",
+                    "Compliance posture summaries should be handled through compliance reporting or aggregated hardening workflows, not standalone SOC incidents.",
+                ],
+                "category": "windows_compliance_posture_context",
+            }
+        )
+        return base
+
+    if _is_wazuh_agent_lifecycle_source_health_event(rule_description):
+        base.update(
+            {
+                "should_suppress": True,
+                "decision": "SUPPRESSED_NOISE",
+                "policy_id": "wazuh_agent_lifecycle_source_health_context",
+                "reasons": [
+                    "Wazuh agent lifecycle event suppressed from automatic SOC incident creation.",
+                    "The event remains available as source-health telemetry.",
+                    "Agent start/stop/disconnect events should be reviewed through source health monitoring unless correlated with malicious activity.",
+                ],
+                "category": "source_health_context",
             }
         )
         return base
