@@ -212,11 +212,79 @@ function formatNumber(value: number | null, suffix = "") {
 function ingestModeTone(mode: string): HealthStatus | "neutral" {
   const value = mode.toUpperCase();
 
-  if (value === "REALTIME") return "OK";
-  if (value === "CATCHING_UP" || value === "IDLE") return "WARN";
+  if (value === "REALTIME" || value === "STABLE" || value === "IDLE") return "OK";
+  if (value === "CATCHING_UP") return "WARN";
   if (value === "LAGGING") return "ERROR";
 
   return "neutral";
+}
+
+
+function deriveIngestModeDisplay({
+  rawMode,
+  pendingEvents,
+  alertsSeen,
+  alertsProcessed,
+  alertsSkipped,
+  suppressedNoise,
+  aggregatedDuplicate,
+  duplicateDocId,
+  noDocId,
+  otherSkipped,
+}: {
+  rawMode: string;
+  pendingEvents: number | null;
+  alertsSeen: number | null;
+  alertsProcessed: number | null;
+  alertsSkipped: number | null;
+  suppressedNoise: number | null;
+  aggregatedDuplicate: number | null;
+  duplicateDocId: number | null;
+  noDocId: number | null;
+  otherSkipped: number | null;
+}) {
+  const normalizedMode = rawMode.toUpperCase();
+  const seen = alertsSeen ?? 0;
+  const processed = alertsProcessed ?? 0;
+  const skipped = alertsSkipped ?? 0;
+  const pending = pendingEvents ?? 0;
+
+  const knownSkippedOutcomes =
+    (suppressedNoise ?? 0) +
+    (aggregatedDuplicate ?? 0) +
+    (duplicateDocId ?? 0) +
+    (noDocId ?? 0) +
+    (otherSkipped ?? 0);
+
+  const latestBatchWasOnlyNonActionable =
+    seen > 0 &&
+    processed === 0 &&
+    skipped === seen &&
+    knownSkippedOutcomes >= skipped;
+
+  if (
+    normalizedMode === "CATCHING_UP" &&
+    pending === 0 &&
+    latestBatchWasOnlyNonActionable
+  ) {
+    return {
+      label: "STABLE",
+      rawLabel: normalizedMode,
+      isDerived: true,
+      description:
+        "No actionable backlog detected. Raw mode is still CATCHING_UP because event or watermark lag is above the realtime threshold, but the latest batch contained only suppressed noise, duplicates or skipped alerts.",
+    };
+  }
+
+  return {
+    label: normalizedMode,
+    rawLabel: normalizedMode,
+    isDerived: false,
+    description:
+      normalizedMode === "CATCHING_UP"
+        ? "Worker is catching up because event or watermark lag is above the realtime threshold."
+        : "Worker ingest mode reported by backend.",
+  };
 }
 
 
@@ -571,6 +639,19 @@ function WorkerIngestMetricsPanel({
   const aiTriageFallback = readNumber(resultCounts, ["ai_triage_fallback"]);
   const aiTriageSkipped = readNumber(resultCounts, ["ai_triage_skipped"]);
 
+  const ingestModeDisplay = deriveIngestModeDisplay({
+    rawMode: ingestMode,
+    pendingEvents,
+    alertsSeen,
+    alertsProcessed,
+    alertsSkipped,
+    suppressedNoise,
+    aggregatedDuplicate,
+    duplicateDocId,
+    noDocId,
+    otherSkipped,
+  });
+
   return (
     <section className="rounded-xl border border-slate-800 bg-slate-900 p-3 shadow-sm">
       <div className="mb-3 flex flex-col gap-2 xl:flex-row xl:items-start xl:justify-between">
@@ -588,7 +669,7 @@ function WorkerIngestMetricsPanel({
         </div>
 
         <div className="flex flex-wrap gap-1.5">
-          <StatusPill label="Mode" value={ingestMode} tone={ingestModeTone(ingestMode)} />
+          <StatusPill label="Mode" value={ingestModeDisplay.label} tone={ingestModeTone(ingestModeDisplay.label)} />
           <StatusPill label="Worker" value={worker?.status ?? "-"} tone={worker?.status ?? "neutral"} />
           <StatusPill label="Ingest" value={ingest?.status ?? "-"} tone={ingest?.status ?? "neutral"} />
           <StatusPill label="Queue" value={queue?.status ?? "-"} tone={queue?.status ?? "neutral"} />
@@ -598,9 +679,9 @@ function WorkerIngestMetricsPanel({
       <div className="mb-3 grid gap-1.5 lg:grid-cols-3">
         <ExecutiveMetric
           label="Ingest mode"
-          value={ingestMode}
-          subtitle="Current worker processing posture"
-          tone={ingestModeTone(ingestMode)}
+          value={ingestModeDisplay.label}
+          subtitle={ingestModeDisplay.isDerived ? `Raw mode: ${ingestModeDisplay.rawLabel}` : "Current worker processing posture"}
+          tone={ingestModeTone(ingestModeDisplay.label)}
         />
 
         <ExecutiveMetric
