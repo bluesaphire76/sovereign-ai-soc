@@ -1,0 +1,268 @@
+<!-- AI SOC Grafana login branding injection -->
+<style>
+  body {
+    background:
+      radial-gradient(circle at top left, rgba(8, 145, 178, 0.22), transparent 34rem),
+      radial-gradient(circle at bottom right, rgba(15, 23, 42, 0.94), transparent 38rem),
+      #020617 !important;
+  }
+
+  .ai-soc-grafana-login-branding {
+    position: fixed;
+    z-index: 1;
+    width: min(420px, calc(50vw - 96px));
+    max-width: 420px;
+    min-width: 320px;
+    border: 1px solid rgba(30, 41, 59, 0.95);
+    background: rgba(2, 6, 23, 0.78);
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.42);
+    border-radius: 14px;
+    padding: 20px 22px;
+    color: #cbd5e1;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    backdrop-filter: blur(16px);
+  }
+
+  .ai-soc-grafana-login-branding__header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+
+  .ai-soc-grafana-login-branding__logo {
+    flex: 0 0 auto;
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    border: 1px solid rgba(34, 211, 238, 0.45);
+    background:
+      radial-gradient(circle at 30% 20%, rgba(34, 211, 238, 0.38), transparent 1.6rem),
+      linear-gradient(135deg, rgba(8, 47, 73, 0.9), rgba(15, 23, 42, 0.95));
+    box-shadow: 0 0 30px rgba(8, 145, 178, 0.28);
+    display: grid;
+    place-items: center;
+  }
+
+  .ai-soc-grafana-login-branding__logo svg {
+    width: 30px;
+    height: 30px;
+  }
+
+  .ai-soc-grafana-login-branding__eyebrow {
+    color: #22d3ee;
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    margin-bottom: 4px;
+  }
+
+  .ai-soc-grafana-login-branding__title {
+    color: #f8fafc;
+    font-size: 23px;
+    font-weight: 750;
+    line-height: 1.18;
+  }
+
+  .ai-soc-grafana-login-branding__text {
+    color: #94a3b8;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .ai-soc-grafana-login-branding__meta {
+    margin-top: 14px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .ai-soc-grafana-login-branding__pill {
+    border: 1px solid rgba(8, 145, 178, 0.42);
+    background: rgba(8, 47, 73, 0.38);
+    color: #a5f3fc;
+    border-radius: 999px;
+    padding: 4px 9px;
+    font-size: 11px;
+    font-weight: 650;
+  }
+
+  @media (max-width: 1100px) {
+    .ai-soc-grafana-login-branding {
+      display: none;
+    }
+  }
+</style>
+
+<script>
+  (function () {
+    function isLoginPage() {
+      return window.location.pathname.endsWith("/login");
+    }
+
+    function removeAiSocBranding() {
+      var existing = document.querySelector(".ai-soc-grafana-login-branding");
+      if (existing) {
+        existing.remove();
+      }
+    }
+
+    function findGrafanaLoginBox() {
+      var inputs = Array.prototype.slice.call(
+        document.querySelectorAll('input[type="text"], input[type="email"], input[type="password"]')
+      );
+
+      var visibleInputs = inputs.filter(function (input) {
+        var rect = input.getBoundingClientRect();
+        return rect.width > 120 && rect.height > 20 && rect.top > 0 && rect.left > 0;
+      });
+
+      if (!visibleInputs.length) {
+        return null;
+      }
+
+      var node = visibleInputs[0];
+      var formCandidate = null;
+      var outerCandidate = null;
+
+      for (var i = 0; i < 12 && node; i += 1) {
+        var rect = node.getBoundingClientRect();
+
+        if (
+          rect.width >= 300 &&
+          rect.width <= 640 &&
+          rect.height >= 180 &&
+          rect.height <= 760 &&
+          rect.top > 0 &&
+          rect.left > 0
+        ) {
+          formCandidate = rect;
+        }
+
+        if (
+          rect.width >= 420 &&
+          rect.width <= 920 &&
+          rect.height >= 300 &&
+          rect.height <= 900 &&
+          rect.top > 0 &&
+          rect.left > 0
+        ) {
+          outerCandidate = rect;
+        }
+
+        node = node.parentElement;
+      }
+
+      return outerCandidate || formCandidate;
+    }
+
+    function positionAiSocBranding(root) {
+      var loginBox = findGrafanaLoginBox();
+      var viewportWidth = window.innerWidth;
+
+      if (!loginBox) {
+        root.style.left = "32px";
+        root.style.top = "22%";
+        return;
+      }
+
+      var rootWidth = root.getBoundingClientRect().width || 420;
+
+      var left = Math.max(32, (loginBox.left - rootWidth) / 2);
+      var top = Math.max(72, loginBox.top);
+
+      if (left + rootWidth > loginBox.left - 32) {
+        left = Math.max(32, loginBox.left - rootWidth - 32);
+      }
+
+      if (viewportWidth < 1100) {
+        root.style.display = "none";
+        return;
+      }
+
+      root.style.display = "";
+      root.style.left = left + "px";
+      root.style.top = top + "px";
+    }
+
+    function addAiSocBranding() {
+      if (!isLoginPage()) {
+        removeAiSocBranding();
+        return;
+      }
+
+      var root = document.querySelector(".ai-soc-grafana-login-branding");
+
+      if (!root) {
+        root = document.createElement("section");
+        root.className = "ai-soc-grafana-login-branding";
+        root.innerHTML =
+          '<div class="ai-soc-grafana-login-branding__header">' +
+            '<div class="ai-soc-grafana-login-branding__logo" aria-hidden="true">' +
+              '<svg viewBox="0 0 64 64" role="img">' +
+                '<defs>' +
+                  '<linearGradient id="aiSocLogoGradient" x1="0" x2="1" y1="0" y2="1">' +
+                    '<stop offset="0%" stop-color="#67e8f9"/>' +
+                    '<stop offset="55%" stop-color="#22d3ee"/>' +
+                    '<stop offset="100%" stop-color="#0e7490"/>' +
+                  '</linearGradient>' +
+                '</defs>' +
+                '<path d="M32 6 55 18v28L32 58 9 46V18L32 6Z" fill="none" stroke="url(#aiSocLogoGradient)" stroke-width="4" stroke-linejoin="round"/>' +
+                '<path d="M22 39h20M25 34l7-16 7 16M27.8 29h8.4" fill="none" stroke="#e0f2fe" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>' +
+                '<circle cx="32" cy="32" r="25" fill="none" stroke="rgba(165,243,252,0.22)" stroke-width="2"/>' +
+              '</svg>' +
+            '</div>' +
+            '<div>' +
+              '<div class="ai-soc-grafana-login-branding__eyebrow">Sovereign AI SOC</div>' +
+              '<div class="ai-soc-grafana-login-branding__title">Observability Layer</div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="ai-soc-grafana-login-branding__text">' +
+          'Grafana and Prometheus telemetry for platform health, SOC pipeline quality, AI runtime behavior, active users and GPU/runtime visibility.' +
+          '</div>' +
+          '<div class="ai-soc-grafana-login-branding__meta">' +
+          '<span class="ai-soc-grafana-login-branding__pill">Local-first</span>' +
+          '<span class="ai-soc-grafana-login-branding__pill">Prometheus</span>' +
+          '<span class="ai-soc-grafana-login-branding__pill">AI SOC Metrics</span>' +
+          '</div>';
+
+        document.body.appendChild(root);
+      }
+
+      document.title = "Sovereign AI SOC Observability";
+      positionAiSocBranding(root);
+    }
+
+    function refreshAiSocBranding() {
+      window.setTimeout(addAiSocBranding, 80);
+      window.setTimeout(addAiSocBranding, 300);
+      window.setTimeout(addAiSocBranding, 800);
+    }
+
+    var originalPushState = history.pushState;
+    history.pushState = function () {
+      var result = originalPushState.apply(this, arguments);
+      refreshAiSocBranding();
+      return result;
+    };
+
+    var originalReplaceState = history.replaceState;
+    history.replaceState = function () {
+      var result = originalReplaceState.apply(this, arguments);
+      refreshAiSocBranding();
+      return result;
+    };
+
+    window.addEventListener("resize", refreshAiSocBranding);
+    window.addEventListener("popstate", refreshAiSocBranding);
+    window.addEventListener("hashchange", refreshAiSocBranding);
+    window.addEventListener("load", refreshAiSocBranding);
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", refreshAiSocBranding);
+    } else {
+      refreshAiSocBranding();
+    }
+  })();
+</script>
