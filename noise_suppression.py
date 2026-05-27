@@ -247,6 +247,23 @@ def _is_dns_telemetry_finding(rule_id: str, rule_description: str) -> bool:
     return False
 
 
+
+def _is_windows_cis_benchmark_finding(rule_description: str) -> bool:
+    """Identify Windows CIS benchmark compliance findings.
+
+    CIS benchmark findings are endpoint compliance posture signals. They should
+    remain available as raw/security telemetry, but they should not create one
+    SOC incident per control finding by themselves.
+    """
+
+    normalized_description = _lower(rule_description)
+
+    return (
+        "cis microsoft windows" in normalized_description
+        and "benchmark" in normalized_description
+        and "ensure '" in normalized_description
+    )
+
 def _is_vulnerability_resolution_finding(rule_description: str) -> bool:
     """Identify Wazuh vulnerability lifecycle events for resolved CVEs.
 
@@ -344,6 +361,22 @@ def evaluate_noise_suppression(
                     "A normal DNS query does not represent a SOC incident unless another detection rule provides explicit malicious context.",
                 ],
                 "category": "dns_telemetry_context",
+            }
+        )
+        return base
+
+    if _is_windows_cis_benchmark_finding(rule_description):
+        base.update(
+            {
+                "should_suppress": True,
+                "decision": "SUPPRESSED_NOISE",
+                "policy_id": "windows_cis_benchmark_compliance_context",
+                "reasons": [
+                    "Windows CIS benchmark compliance finding suppressed from automatic SOC incident creation.",
+                    "The finding remains available as raw/security telemetry for endpoint hardening and compliance review.",
+                    "Compliance posture checks should be handled through compliance reporting or aggregated hardening workflows, not one incident per benchmark control.",
+                ],
+                "category": "windows_compliance_posture_context",
             }
         )
         return base
