@@ -405,6 +405,9 @@ RBAC_RULES: list[tuple[str, str, set[str]]] = [
     ("GET", r"^/platform/health$", ALL_ROLES),
     ("GET", r"^/platform/ingest/wazuh$", ALL_ROLES),
 
+    # Settings / detection control plane
+    ("GET", r"^/settings/detection-control$", OPERATOR_ROLES),
+
     # Executive / reports / metrics
     ("GET", r"^/executive/summary$", ALL_ROLES),
     ("GET", r"^/reports/incidents/\d+$", ALL_ROLES),

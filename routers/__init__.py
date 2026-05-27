@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from routers.detection_control import router as detection_control_router
 from routers.detection_quality import router as detection_quality_router
 from routers.dns_events import router as dns_events_router
 from routers.health import router as health_router
@@ -17,6 +18,7 @@ def include_app_routers(app: FastAPI) -> None:
     app.include_router(reports_router)
     app.include_router(incident_ai_brief_router)
     app.include_router(incident_network_evidence_router)
+    app.include_router(detection_control_router)
     app.include_router(detection_quality_router)
     app.include_router(dns_events_router)
     app.include_router(network_events_router)
