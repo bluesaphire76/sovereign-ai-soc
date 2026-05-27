@@ -1,6 +1,6 @@
 # Sovereign AI SOC
 
-![Release](https://img.shields.io/badge/latest%20tag-v0.4.0-0f172a)
+![Release](https://img.shields.io/badge/latest%20tag-v0.5.0-953fdc0)
 ![v0.5](https://img.shields.io/badge/v0.5-product%20grade%20track-0891b2)
 ![License](https://img.shields.io/badge/license-Apache--2.0-2563eb)
 ![Python](https://img.shields.io/badge/Python-FastAPI-3776AB)
