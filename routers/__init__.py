@@ -8,6 +8,7 @@ from routers.incident_ai_brief import router as incident_ai_brief_router
 from routers.incident_network_evidence import router as incident_network_evidence_router
 from routers.network_events import router as network_events_router
 from routers.reports import router as reports_router
+from routers.remediation import router as remediation_router
 from routers.metrics import metrics_router, prometheus_metrics_middleware
 
 
@@ -22,3 +23,4 @@ def include_app_routers(app: FastAPI) -> None:
     app.include_router(detection_quality_router)
     app.include_router(dns_events_router)
     app.include_router(network_events_router)
+    app.include_router(remediation_router)
