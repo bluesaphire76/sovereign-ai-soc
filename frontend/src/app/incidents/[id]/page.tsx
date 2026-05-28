@@ -45,6 +45,41 @@ type IncidentDetail = {
   recommended_priority: string | null;
 };
 
+type RemediationActionPreview = {
+  action_id: string;
+  action_type: string;
+  title: string;
+  description: string;
+  approval_requirement: string;
+  execution_supported: boolean;
+  command_preview?: string | null;
+  risk?: {
+    level?: string | null;
+    score?: number | null;
+    rationale?: string | null;
+  } | null;
+};
+
+type RemediationPlanPreview = {
+  source: string;
+  execution_supported: boolean;
+  notes: string[];
+  plan: {
+    plan_id: string;
+    incident_id: number;
+    summary: string;
+    rationale: string;
+    approval_required: boolean;
+    execution_supported: boolean;
+    actions: RemediationActionPreview[];
+  };
+  validation: {
+    valid: boolean;
+    issues: string[];
+    warnings: string[];
+  };
+};
+
 type AuditEvent = {
   id: number;
   incident_id: number;
@@ -505,6 +540,19 @@ async function fetchIncidentDnsEvidence(id: string): Promise<IncidentDnsEvidence
 
   if (!response.ok) {
     throw new Error(`Failed to load DNS evidence: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+
+async function fetchIncidentRemediationPlan(id: string): Promise<RemediationPlanPreview | null> {
+  const response = await authFetch(`/incidents/${id}/remediation-plan`, {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    return null;
   }
 
   return response.json();
@@ -1180,13 +1228,35 @@ function DecisionMatrix({ incident }: { incident: IncidentAiAssessmentInput }) {
 function ResponseBoard({
   incident,
   sections,
+  remediationPlan,
 }: {
   incident: IncidentAiAssessmentInput;
   sections: ParsedAiSection[];
+  remediationPlan?: RemediationPlanPreview | null;
 }) {
+  const structuredItems: HierarchicalAiItem[] =
+    remediationPlan?.plan?.actions?.map((action) => ({
+      title: action.title || action.action_type,
+      children: [
+        action.description,
+        `Approval: ${action.approval_requirement}`,
+        `Risk: ${action.risk?.level ?? "UNKNOWN"}`,
+        action.command_preview ? `Preview: ${action.command_preview}` : "",
+      ].filter(Boolean),
+    })) ?? [];
   const aiItems = remediationItemsFromAiSections(sections);
-  const items = aiItems.length > 0 ? aiItems : contextRemediationItems(incident);
-  const sourceLabel = aiItems.length > 0 ? "AI output" : "Context generated";
+  const items =
+    structuredItems.length > 0
+      ? structuredItems
+      : aiItems.length > 0
+        ? aiItems
+        : contextRemediationItems(incident);
+  const sourceLabel =
+    structuredItems.length > 0
+      ? "Structured plan"
+      : aiItems.length > 0
+        ? "AI output"
+        : "Context generated";
   const phases: Array<{
     key: RemediationPhase;
     description: string;
@@ -1374,6 +1444,7 @@ function InvestigationConsole({
   savingNote,
   canOperate,
   isViewer,
+  remediationPlan,
   onNoteDraftChange,
   onAddNote,
 }: {
@@ -1383,6 +1454,7 @@ function InvestigationConsole({
   savingNote: boolean;
   canOperate: boolean;
   isViewer: boolean;
+  remediationPlan?: RemediationPlanPreview | null;
   onNoteDraftChange: (value: string) => void;
   onAddNote: () => void;
 }) {
@@ -1470,7 +1542,11 @@ function InvestigationConsole({
           title="Response plan"
           description="Actions grouped by operational phase."
         >
-          <ResponseBoard incident={incident} sections={sections} />
+          <ResponseBoard
+            incident={incident}
+            sections={sections}
+            remediationPlan={remediationPlan}
+          />
         </ConsoleRow>
 
         <ConsoleRow
@@ -2100,6 +2176,7 @@ export default function IncidentDetailPage() {
   const [notes, setNotes] = useState<IncidentNote[]>([]);
   const [networkEvidence, setNetworkEvidence] = useState<IncidentNetworkEvidence | null>(null);
   const [dnsEvidence, setDnsEvidence] = useState<IncidentDnsEvidence | null>(null);
+  const [remediationPlan, setRemediationPlan] = useState<RemediationPlanPreview | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
   const [savingNote, setSavingNote] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -2126,12 +2203,20 @@ export default function IncidentDetailPage() {
     try {
       setRefreshing(true);
       setError(null);
-      const [data, auditData, notesData, networkEvidenceData, dnsEvidenceData] = await Promise.all([
+      const [
+        data,
+        auditData,
+        notesData,
+        networkEvidenceData,
+        dnsEvidenceData,
+        remediationPlanData,
+      ] = await Promise.all([
         fetchIncident(incidentId),
         fetchIncidentAudit(incidentId),
         fetchIncidentNotes(incidentId),
         fetchIncidentNetworkEvidence(incidentId),
         fetchIncidentDnsEvidence(incidentId),
+        fetchIncidentRemediationPlan(incidentId),
       ]);
 
       setIncident(data);
@@ -2139,6 +2224,7 @@ export default function IncidentDetailPage() {
       setNotes(notesData);
       setNetworkEvidence(networkEvidenceData);
       setDnsEvidence(dnsEvidenceData);
+      setRemediationPlan(remediationPlanData);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
@@ -2428,6 +2514,7 @@ export default function IncidentDetailPage() {
                 savingNote={savingNote}
                 canOperate={canOperate}
                 isViewer={isViewer}
+                remediationPlan={remediationPlan}
                 onNoteDraftChange={setNoteDraft}
                 onAddNote={addNote}
               />
