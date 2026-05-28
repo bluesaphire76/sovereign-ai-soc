@@ -1,3 +1,4 @@
 reportlab
 geoip2
 prometheus-client
+pydantic>=2,<3
