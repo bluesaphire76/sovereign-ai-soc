@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import copy
 import json
 import os
+import time
 from typing import Any
 
 from dotenv import load_dotenv
@@ -18,6 +20,27 @@ load_dotenv()
 REMEDIATION_INTELLIGENCE_TIMEOUT_SECONDS = float(
     os.getenv("REMEDIATION_INTELLIGENCE_TIMEOUT_SECONDS", "60")
 )
+REMEDIATION_INTELLIGENCE_CACHE_TTL_SECONDS = float(
+    os.getenv("REMEDIATION_INTELLIGENCE_CACHE_TTL_SECONDS", "120")
+)
+_REMEDIATION_INTELLIGENCE_CACHE: dict[int, tuple[float, dict[str, Any]]] = {}
+
+
+def _cache_get(incident_id: int) -> dict[str, Any] | None:
+    cached = _REMEDIATION_INTELLIGENCE_CACHE.get(incident_id)
+    if not cached:
+        return None
+
+    cached_at, payload = cached
+    if time.monotonic() - cached_at > REMEDIATION_INTELLIGENCE_CACHE_TTL_SECONDS:
+        _REMEDIATION_INTELLIGENCE_CACHE.pop(incident_id, None)
+        return None
+
+    return copy.deepcopy(payload)
+
+
+def _cache_set(incident_id: int, payload: dict[str, Any]) -> None:
+    _REMEDIATION_INTELLIGENCE_CACHE[incident_id] = (time.monotonic(), copy.deepcopy(payload))
 
 
 def _safe_json_loads(value: str | None) -> Any:
@@ -318,6 +341,10 @@ def _normalize_plan(value: dict[str, Any], incident_payload: dict[str, Any]) -> 
 
 
 def generate_remediation_intelligence(incident_id: int) -> dict[str, Any]:
+    cached = _cache_get(incident_id)
+    if cached is not None:
+        return cached
+
     db = SessionLocal()
 
     try:
@@ -408,7 +435,7 @@ def generate_remediation_intelligence(incident_id: int) -> dict[str, Any]:
 
         plan = _normalize_plan(parsed, incident_payload)
 
-        return {
+        result = {
             "incident_id": incident_id,
             "generated_at": utc_now().isoformat(),
             "source": source,
@@ -417,6 +444,8 @@ def generate_remediation_intelligence(incident_id: int) -> dict[str, Any]:
             "model_timeout_seconds": REMEDIATION_INTELLIGENCE_TIMEOUT_SECONDS,
             "plan": plan,
         }
+        _cache_set(incident_id, result)
+        return result
 
     finally:
         db.close()
