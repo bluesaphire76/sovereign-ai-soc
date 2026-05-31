@@ -46,12 +46,12 @@ type IncidentDetail = {
 };
 
 type RemediationActionPreview = {
-  action_id: string;
-  action_type: string;
-  title: string;
-  description: string;
-  approval_requirement: string;
-  execution_supported: boolean;
+  action_id?: string | null;
+  action_type?: string | null;
+  title?: string | null;
+  description?: string | null;
+  approval_requirement?: string | null;
+  execution_supported?: boolean | null;
   command_preview?: string | null;
   risk?: {
     level?: string | null;
@@ -60,20 +60,55 @@ type RemediationActionPreview = {
   } | null;
 };
 
+type RemediationRecommendedActionPreview = {
+  action_type?: string | null;
+  title?: string | null;
+  description?: string | null;
+  approval_requirement?: string | null;
+  risk_level?: string | null;
+  rollback_possible?: boolean | null;
+  evidence_basis?: string[] | null;
+};
+
 type RemediationPlanPreview = {
-  source: string;
-  execution_supported: boolean;
-  notes: string[];
+  incident_id?: number;
+  generated_at?: string;
+  source?: string;
+  retry_attempted?: boolean;
+  error_type?: string | null;
+  model_timeout_seconds?: number;
+  execution_supported?: boolean;
+  notes?: string[];
   plan: {
-    plan_id: string;
-    incident_id: number;
-    summary: string;
-    rationale: string;
-    approval_required: boolean;
-    execution_supported: boolean;
-    actions: RemediationActionPreview[];
+    executive_summary?: string;
+    remediation_objective?: string;
+    recommended_actions?: RemediationRecommendedActionPreview[];
+    containment_strategy?: Array<{
+      title?: string | null;
+      priority?: string | null;
+      description?: string | null;
+      requires_approval?: boolean | null;
+      business_risk?: string | null;
+      operational_precautions?: string | null;
+    }>;
+    investigation_validation_steps?: Array<{
+      title?: string | null;
+      reason?: string | null;
+      expected_signal?: string | null;
+    }>;
+    rollback_considerations?: string[];
+    business_impact_considerations?: string[];
+    approval_requirements?: string[];
+    limitations?: string[];
+    plan_id?: string;
+    incident_id?: number;
+    summary?: string;
+    rationale?: string;
+    approval_required?: boolean;
+    execution_supported?: boolean;
+    actions?: RemediationActionPreview[];
   };
-  validation: {
+  validation?: {
     valid: boolean;
     issues: string[];
     warnings: string[];
@@ -552,7 +587,7 @@ async function fetchIncidentRemediationPlan(id: string): Promise<RemediationPlan
   });
 
   if (!response.ok) {
-    return null;
+    throw new Error(`Failed to load remediation intelligence: ${response.status}`);
   }
 
   return response.json();
@@ -1229,21 +1264,58 @@ function ResponseBoard({
   incident,
   sections,
   remediationPlan,
+  remediationLoading = false,
+  remediationError = null,
 }: {
   incident: IncidentAiAssessmentInput;
   sections: ParsedAiSection[];
   remediationPlan?: RemediationPlanPreview | null;
+  remediationLoading?: boolean;
+  remediationError?: string | null;
 }) {
-  const structuredItems: HierarchicalAiItem[] =
-    remediationPlan?.plan?.actions?.map((action) => ({
-      title: action.title || action.action_type,
+  const recommendedActions = remediationPlan?.plan?.recommended_actions ?? [];
+  const legacyActions = remediationPlan?.plan?.actions ?? [];
+  const containmentStrategy = remediationPlan?.plan?.containment_strategy ?? [];
+  const intelligenceItems: HierarchicalAiItem[] = recommendedActions.map((action) => ({
+    title: action.title || action.action_type || "Recommended action",
+    children: [
+      action.description,
+      action.approval_requirement ? `Approval: ${action.approval_requirement}` : "",
+      action.risk_level ? `Risk: ${action.risk_level}` : "",
+      typeof action.rollback_possible === "boolean"
+        ? `Rollback: ${action.rollback_possible ? "possible" : "not confirmed"}`
+        : "",
+      ...(action.evidence_basis ?? []).map((item) => `Evidence: ${item}`),
+    ].filter((value): value is string => Boolean(value)),
+  }));
+  const containmentItems: HierarchicalAiItem[] = containmentStrategy.map((item) => ({
+    title: item.title || "Containment action",
+    children: [
+      item.description,
+      item.priority ? `Priority: ${item.priority}` : "",
+      typeof item.requires_approval === "boolean"
+        ? `Approval: ${item.requires_approval ? "required" : "review"}`
+        : "",
+      item.business_risk ? `Business risk: ${item.business_risk}` : "",
+      item.operational_precautions ? `Precaution: ${item.operational_precautions}` : "",
+    ].filter((value): value is string => Boolean(value)),
+  }));
+  const legacyItems: HierarchicalAiItem[] =
+    legacyActions.map((action) => ({
+      title: action.title || action.action_type || "Recommended action",
       children: [
         action.description,
-        `Approval: ${action.approval_requirement}`,
+        action.approval_requirement ? `Approval: ${action.approval_requirement}` : "",
         `Risk: ${action.risk?.level ?? "UNKNOWN"}`,
         action.command_preview ? `Preview: ${action.command_preview}` : "",
-      ].filter(Boolean),
+      ].filter((value): value is string => Boolean(value)),
     })) ?? [];
+  const structuredItems =
+    intelligenceItems.length > 0
+      ? intelligenceItems
+      : legacyItems.length > 0
+        ? legacyItems
+        : containmentItems;
   const aiItems = remediationItemsFromAiSections(sections);
   const items =
     structuredItems.length > 0
@@ -1251,12 +1323,18 @@ function ResponseBoard({
       : aiItems.length > 0
         ? aiItems
         : contextRemediationItems(incident);
-  const sourceLabel =
-    structuredItems.length > 0
-      ? "Structured plan"
-      : aiItems.length > 0
-        ? "AI output"
-        : "Context generated";
+  const source = remediationPlan?.source;
+  let sourceLabel = "Context generated";
+
+  if (source === "local_ai") {
+    sourceLabel = "Local AI remediation";
+  } else if (source === "deterministic_fallback") {
+    sourceLabel = "Fallback remediation";
+  } else if (legacyItems.length > 0) {
+    sourceLabel = "Structured plan";
+  } else if (aiItems.length > 0) {
+    sourceLabel = "AI output";
+  }
   const phases: Array<{
     key: RemediationPhase;
     description: string;
@@ -1294,6 +1372,21 @@ function ResponseBoard({
           {sourceLabel}
         </span>
       </div>
+
+      {(remediationLoading && structuredItems.length === 0) || remediationError ? (
+        <div className="space-y-1.5 border-b border-slate-800 bg-slate-950 px-2.5 py-2">
+          {remediationLoading && structuredItems.length === 0 && (
+            <div className="text-[11px] leading-4 text-cyan-200">
+              Generating remediation intelligence...
+            </div>
+          )}
+          {remediationError && (
+            <div className="text-[11px] leading-4 text-amber-300">
+              Remediation intelligence unavailable. Showing AI/context fallback.
+            </div>
+          )}
+        </div>
+      ) : null}
 
       <div className="grid gap-px bg-slate-800 lg:grid-cols-4">
         {phases.map((phase) => (
@@ -1445,6 +1538,8 @@ function InvestigationConsole({
   canOperate,
   isViewer,
   remediationPlan,
+  remediationLoading,
+  remediationError,
   onNoteDraftChange,
   onAddNote,
 }: {
@@ -1455,6 +1550,8 @@ function InvestigationConsole({
   canOperate: boolean;
   isViewer: boolean;
   remediationPlan?: RemediationPlanPreview | null;
+  remediationLoading?: boolean;
+  remediationError?: string | null;
   onNoteDraftChange: (value: string) => void;
   onAddNote: () => void;
 }) {
@@ -1546,6 +1643,8 @@ function InvestigationConsole({
             incident={incident}
             sections={sections}
             remediationPlan={remediationPlan}
+            remediationLoading={remediationLoading}
+            remediationError={remediationError}
           />
         </ConsoleRow>
 
@@ -2177,6 +2276,8 @@ export default function IncidentDetailPage() {
   const [networkEvidence, setNetworkEvidence] = useState<IncidentNetworkEvidence | null>(null);
   const [dnsEvidence, setDnsEvidence] = useState<IncidentDnsEvidence | null>(null);
   const [remediationPlan, setRemediationPlan] = useState<RemediationPlanPreview | null>(null);
+  const [remediationLoading, setRemediationLoading] = useState(false);
+  const [remediationError, setRemediationError] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
   const [savingNote, setSavingNote] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -2203,20 +2304,12 @@ export default function IncidentDetailPage() {
     try {
       setRefreshing(true);
       setError(null);
-      const [
-        data,
-        auditData,
-        notesData,
-        networkEvidenceData,
-        dnsEvidenceData,
-        remediationPlanData,
-      ] = await Promise.all([
+      const [data, auditData, notesData, networkEvidenceData, dnsEvidenceData] = await Promise.all([
         fetchIncident(incidentId),
         fetchIncidentAudit(incidentId),
         fetchIncidentNotes(incidentId),
         fetchIncidentNetworkEvidence(incidentId),
         fetchIncidentDnsEvidence(incidentId),
-        fetchIncidentRemediationPlan(incidentId),
       ]);
 
       setIncident(data);
@@ -2224,7 +2317,6 @@ export default function IncidentDetailPage() {
       setNotes(notesData);
       setNetworkEvidence(networkEvidenceData);
       setDnsEvidence(dnsEvidenceData);
-      setRemediationPlan(remediationPlanData);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
@@ -2324,6 +2416,40 @@ export default function IncidentDetailPage() {
 
   useEffect(() => {
     loadIncident();
+  }, [incidentId]);
+
+  useEffect(() => {
+    setRemediationPlan(null);
+    setRemediationError(null);
+    setRemediationLoading(true);
+    let cancelled = false;
+
+    async function loadRemediationPlan() {
+      try {
+        const plan = await fetchIncidentRemediationPlan(incidentId);
+
+        if (!cancelled) {
+          setRemediationPlan(plan);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setRemediationPlan(null);
+          setRemediationError(
+            err instanceof Error ? err.message : "Remediation intelligence unavailable",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setRemediationLoading(false);
+        }
+      }
+    }
+
+    loadRemediationPlan();
+
+    return () => {
+      cancelled = true;
+    };
   }, [incidentId]);
 
   const rawAlert = useMemo(() => {
@@ -2515,6 +2641,8 @@ export default function IncidentDetailPage() {
                 canOperate={canOperate}
                 isViewer={isViewer}
                 remediationPlan={remediationPlan}
+                remediationLoading={remediationLoading}
+                remediationError={remediationError}
                 onNoteDraftChange={setNoteDraft}
                 onAddNote={addNote}
               />
