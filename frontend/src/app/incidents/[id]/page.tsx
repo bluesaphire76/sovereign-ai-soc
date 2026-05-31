@@ -115,6 +115,38 @@ type RemediationPlanPreview = {
   };
 };
 
+type RemediationDryRunPreview = {
+  incident_id: number;
+  generated_at?: string;
+  source: string;
+  remediation_source?: string | null;
+  execution_supported: boolean;
+  state_mutated: boolean;
+  human_approval_required: boolean;
+  summary: string;
+  status: string;
+  findings: Array<{
+    title: string;
+    description: string;
+    severity?: string | null;
+    status: string;
+    recommendation?: string | null;
+  }>;
+  approval_gates: Array<{
+    action_id: string;
+    action_title: string;
+    approval_requirement: string;
+    current_state: string;
+    reason: string;
+  }>;
+  rollback_readiness: {
+    status: string;
+    blockers: string[];
+    limitations: string[];
+  };
+  next_safe_steps: string[];
+};
+
 type AuditEvent = {
   id: number;
   incident_id: number;
@@ -349,6 +381,15 @@ function toneForStatus(status: string | null | undefined): Tone {
   if (value === "RESOLVED" || value === "CLOSED") return "success";
   if (value === "FALSE_POSITIVE") return "executive";
 
+  return "neutral";
+}
+
+function toneForDryRunStatus(status: string | null | undefined): Tone {
+  const value = (status ?? "").toUpperCase();
+
+  if (value === "READY_FOR_REVIEW") return "success";
+  if (value === "MISSING_APPROVAL" || value === "MISSING_EVIDENCE") return "warning";
+  if (value === "MISSING_ROLLBACK" || value === "BLOCKED_BY_POLICY") return "danger";
   return "neutral";
 }
 
@@ -588,6 +629,18 @@ async function fetchIncidentRemediationPlan(id: string): Promise<RemediationPlan
 
   if (!response.ok) {
     throw new Error(`Failed to load remediation intelligence: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+async function fetchIncidentRemediationDryRun(id: string): Promise<RemediationDryRunPreview | null> {
+  const response = await authFetch(`/incidents/${id}/remediation-dry-run`, {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to load remediation dry-run: ${response.status}`);
   }
 
   return response.json();
@@ -1423,6 +1476,148 @@ function ResponseBoard({
   );
 }
 
+function RemediationDryRunPanel({
+  dryRun,
+  loading = false,
+  error = null,
+}: {
+  dryRun?: RemediationDryRunPreview | null;
+  loading?: boolean;
+  error?: string | null;
+}) {
+  if (loading && !dryRun) {
+    return (
+      <div className="rounded-md border border-slate-800 bg-slate-950 px-2.5 py-2 text-xs text-cyan-200">
+        Simulation pending...
+      </div>
+    );
+  }
+
+  if (error && !dryRun) {
+    return (
+      <div className="rounded-md border border-amber-900/70 bg-amber-950/20 px-2.5 py-2 text-xs leading-5 text-amber-300">
+        Dry-run simulation unavailable. No remediation action was executed.
+      </div>
+    );
+  }
+
+  if (!dryRun) {
+    return <EmptyState label="No dry-run simulation available." />;
+  }
+
+  const topFindings = dryRun.findings.slice(0, 4);
+  const blockers = [
+    ...dryRun.rollback_readiness.blockers,
+    ...dryRun.findings
+      .filter((finding) => finding.severity === "HIGH" || finding.severity === "CRITICAL")
+      .map((finding) => finding.description),
+  ].slice(0, 4);
+  const approvalGates = dryRun.approval_gates.slice(0, 3);
+
+  return (
+    <div className="overflow-hidden rounded-md border border-slate-800 bg-slate-950">
+      <div className="flex flex-col gap-2 border-b border-slate-800 bg-slate-900/70 px-2.5 py-2 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-cyan-300">
+            Remediation dry-run
+          </div>
+          <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-400">
+            {dryRun.summary}
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-1.5">
+          <Badge tone={toneForDryRunStatus(dryRun.status)}>{dryRun.status}</Badge>
+          <Badge tone={dryRun.human_approval_required ? "warning" : "neutral"}>
+            Approval {dryRun.human_approval_required ? "required" : "not required"}
+          </Badge>
+        </div>
+      </div>
+
+      <div className="grid gap-px bg-slate-800 lg:grid-cols-4">
+        <DenseField label="Execution supported" value={dryRun.execution_supported ? "true" : "false"} />
+        <DenseField label="State mutated" value={dryRun.state_mutated ? "true" : "false"} />
+        <DenseField label="Rollback readiness" value={dryRun.rollback_readiness.status} />
+        <DenseField label="Source" value={dryRun.source} />
+      </div>
+
+      <div className="grid gap-px bg-slate-800 lg:grid-cols-[1.15fr_0.85fr]">
+        <div className="space-y-2 bg-slate-950 p-2.5">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+            Findings
+          </div>
+          {topFindings.length === 0 ? (
+            <EmptyState label="No findings returned by the dry-run." />
+          ) : (
+            <div className="divide-y divide-slate-800 rounded-md border border-slate-800">
+              {topFindings.map((finding, index) => (
+                <div key={`${finding.status}-${index}`} className="px-2.5 py-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Badge tone={toneForDryRunStatus(finding.status)}>{finding.status}</Badge>
+                    <span className="text-xs font-semibold text-slate-100">{finding.title}</span>
+                  </div>
+                  <p className="mt-1 text-[11px] leading-4 text-slate-400">
+                    {finding.description}
+                  </p>
+                  {finding.recommendation && (
+                    <p className="mt-1 text-[11px] leading-4 text-cyan-200">
+                      {finding.recommendation}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-2 bg-slate-950 p-2.5">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+            Governance gates
+          </div>
+          <div className="space-y-1.5">
+            {approvalGates.map((gate) => (
+              <div key={gate.action_id} className="rounded-md border border-slate-800 bg-slate-900/50 p-2">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Badge tone={gate.current_state === "MISSING" ? "warning" : "neutral"}>
+                    {gate.current_state}
+                  </Badge>
+                  <span className="text-xs font-semibold text-slate-100">{gate.action_title}</span>
+                </div>
+                <p className="mt-1 text-[11px] leading-4 text-slate-400">
+                  {gate.approval_requirement}: {gate.reason}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          {blockers.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-red-300">
+                Blockers
+              </div>
+              {blockers.map((blocker, index) => (
+                <div key={`${blocker}-${index}`} className="text-[11px] leading-4 text-slate-300">
+                  {blocker}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="space-y-1.5">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+              Next safe steps
+            </div>
+            {dryRun.next_safe_steps.slice(0, 4).map((step) => (
+              <div key={step} className="text-[11px] leading-4 text-slate-300">
+                {step}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ReviewChecklist() {
   return (
     <div className="grid gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800 sm:grid-cols-2">
@@ -1540,6 +1735,9 @@ function InvestigationConsole({
   remediationPlan,
   remediationLoading,
   remediationError,
+  remediationDryRun,
+  remediationDryRunLoading,
+  remediationDryRunError,
   onNoteDraftChange,
   onAddNote,
 }: {
@@ -1552,6 +1750,9 @@ function InvestigationConsole({
   remediationPlan?: RemediationPlanPreview | null;
   remediationLoading?: boolean;
   remediationError?: string | null;
+  remediationDryRun?: RemediationDryRunPreview | null;
+  remediationDryRunLoading?: boolean;
+  remediationDryRunError?: string | null;
   onNoteDraftChange: (value: string) => void;
   onAddNote: () => void;
 }) {
@@ -1645,6 +1846,17 @@ function InvestigationConsole({
             remediationPlan={remediationPlan}
             remediationLoading={remediationLoading}
             remediationError={remediationError}
+          />
+        </ConsoleRow>
+
+        <ConsoleRow
+          title="Dry-run simulation"
+          description="Read-only governance check for remediation planning."
+        >
+          <RemediationDryRunPanel
+            dryRun={remediationDryRun}
+            loading={remediationDryRunLoading}
+            error={remediationDryRunError}
           />
         </ConsoleRow>
 
@@ -2278,6 +2490,9 @@ export default function IncidentDetailPage() {
   const [remediationPlan, setRemediationPlan] = useState<RemediationPlanPreview | null>(null);
   const [remediationLoading, setRemediationLoading] = useState(false);
   const [remediationError, setRemediationError] = useState<string | null>(null);
+  const [remediationDryRun, setRemediationDryRun] = useState<RemediationDryRunPreview | null>(null);
+  const [remediationDryRunLoading, setRemediationDryRunLoading] = useState(false);
+  const [remediationDryRunError, setRemediationDryRunError] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
   const [savingNote, setSavingNote] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -2422,6 +2637,9 @@ export default function IncidentDetailPage() {
     setRemediationPlan(null);
     setRemediationError(null);
     setRemediationLoading(true);
+    setRemediationDryRun(null);
+    setRemediationDryRunError(null);
+    setRemediationDryRunLoading(true);
     let cancelled = false;
 
     async function loadRemediationPlan() {
@@ -2451,6 +2669,53 @@ export default function IncidentDetailPage() {
       cancelled = true;
     };
   }, [incidentId]);
+
+  useEffect(() => {
+    const planIncidentId = String(
+      remediationPlan?.incident_id ?? remediationPlan?.plan?.incident_id ?? "",
+    );
+
+    if (remediationLoading) {
+      return;
+    }
+
+    if (!remediationPlan || planIncidentId !== incidentId) {
+      setRemediationDryRunLoading(false);
+      return;
+    }
+
+    setRemediationDryRun(null);
+    setRemediationDryRunError(null);
+    setRemediationDryRunLoading(true);
+    let cancelled = false;
+
+    async function loadRemediationDryRun() {
+      try {
+        const dryRun = await fetchIncidentRemediationDryRun(incidentId);
+
+        if (!cancelled) {
+          setRemediationDryRun(dryRun);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setRemediationDryRun(null);
+          setRemediationDryRunError(
+            err instanceof Error ? err.message : "Dry-run simulation unavailable",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setRemediationDryRunLoading(false);
+        }
+      }
+    }
+
+    loadRemediationDryRun();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [incidentId, remediationPlan, remediationLoading]);
 
   const rawAlert = useMemo(() => {
     return prettyJson(incident?.raw_alert ?? null);
@@ -2643,6 +2908,9 @@ export default function IncidentDetailPage() {
                 remediationPlan={remediationPlan}
                 remediationLoading={remediationLoading}
                 remediationError={remediationError}
+                remediationDryRun={remediationDryRun}
+                remediationDryRunLoading={remediationDryRunLoading}
+                remediationDryRunError={remediationDryRunError}
                 onNoteDraftChange={setNoteDraft}
                 onAddNote={addNote}
               />
