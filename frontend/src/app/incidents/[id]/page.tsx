@@ -147,6 +147,34 @@ type RemediationDryRunPreview = {
   next_safe_steps: string[];
 };
 
+type RemediationRollbackReadinessPreview = {
+  incident_id: number;
+  generated_at?: string;
+  source: string;
+  remediation_source?: string | null;
+  execution_supported: boolean;
+  rollback_execution_supported: boolean;
+  human_approval_required: boolean;
+  overall_status: string;
+  summary: string;
+  actions: Array<{
+    action_id: string;
+    action_type: string;
+    title: string;
+    rollback_available: boolean;
+    rollback_status: string;
+    rollback_risk: string;
+    approval_required: boolean;
+    preconditions: string[];
+    rollback_steps: string[];
+    validation_steps: string[];
+    limitations: string[];
+  }>;
+  blockers: string[];
+  warnings: string[];
+  notes: string[];
+};
+
 type AuditEvent = {
   id: number;
   incident_id: number;
@@ -390,6 +418,15 @@ function toneForDryRunStatus(status: string | null | undefined): Tone {
   if (value === "READY_FOR_REVIEW") return "success";
   if (value === "MISSING_APPROVAL" || value === "MISSING_EVIDENCE") return "warning";
   if (value === "MISSING_ROLLBACK" || value === "BLOCKED_BY_POLICY") return "danger";
+  return "neutral";
+}
+
+function toneForRollbackStatus(status: string | null | undefined): Tone {
+  const value = (status ?? "").toUpperCase();
+
+  if (value === "READY") return "success";
+  if (value === "CONDITIONAL") return "warning";
+  if (value === "NOT_READY") return "danger";
   return "neutral";
 }
 
@@ -641,6 +678,20 @@ async function fetchIncidentRemediationDryRun(id: string): Promise<RemediationDr
 
   if (!response.ok) {
     throw new Error(`Failed to load remediation dry-run: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+async function fetchIncidentRollbackReadiness(
+  id: string,
+): Promise<RemediationRollbackReadinessPreview | null> {
+  const response = await authFetch(`/incidents/${id}/remediation-rollback-readiness`, {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to load rollback readiness: ${response.status}`);
   }
 
   return response.json();
@@ -1618,6 +1669,148 @@ function RemediationDryRunPanel({
   );
 }
 
+function RollbackReadinessPanel({
+  readiness,
+  loading = false,
+  error = null,
+}: {
+  readiness?: RemediationRollbackReadinessPreview | null;
+  loading?: boolean;
+  error?: string | null;
+}) {
+  if (loading && !readiness) {
+    return (
+      <div className="rounded-md border border-slate-800 bg-slate-950 px-2.5 py-2 text-xs text-cyan-200">
+        Rollback readiness pending...
+      </div>
+    );
+  }
+
+  if (error && !readiness) {
+    return (
+      <div className="rounded-md border border-amber-900/70 bg-amber-950/20 px-2.5 py-2 text-xs leading-5 text-amber-300">
+        Rollback readiness unavailable. No rollback or remediation action was executed.
+      </div>
+    );
+  }
+
+  if (!readiness) {
+    return <EmptyState label="No rollback readiness available." />;
+  }
+
+  const actions = readiness.actions.slice(0, 4);
+  const blockers = readiness.blockers.slice(0, 4);
+  const warnings = readiness.warnings.slice(0, 4);
+
+  return (
+    <div className="overflow-hidden rounded-md border border-slate-800 bg-slate-950">
+      <div className="flex flex-col gap-2 border-b border-slate-800 bg-slate-900/70 px-2.5 py-2 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-cyan-300">
+            Rollback readiness
+          </div>
+          <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-400">
+            {readiness.summary}
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-1.5">
+          <Badge tone={toneForRollbackStatus(readiness.overall_status)}>
+            {readiness.overall_status}
+          </Badge>
+          <Badge tone="warning">Human approval</Badge>
+        </div>
+      </div>
+
+      <div className="grid gap-px bg-slate-800 lg:grid-cols-4">
+        <DenseField label="Rollback execution" value={readiness.rollback_execution_supported ? "true" : "false"} />
+        <DenseField label="Execution supported" value={readiness.execution_supported ? "true" : "false"} />
+        <DenseField label="Actions assessed" value={readiness.actions.length} />
+        <DenseField label="Source" value={readiness.source} />
+      </div>
+
+      <div className="grid gap-px bg-slate-800 lg:grid-cols-[1.2fr_0.8fr]">
+        <div className="space-y-2 bg-slate-950 p-2.5">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+            Action readiness
+          </div>
+          {actions.length === 0 ? (
+            <EmptyState label="No remediation actions were available for rollback assessment." />
+          ) : (
+            <div className="divide-y divide-slate-800 rounded-md border border-slate-800">
+              {actions.map((action) => (
+                <div key={action.action_id} className="px-2.5 py-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Badge tone={toneForRollbackStatus(action.rollback_status)}>
+                      {action.rollback_status}
+                    </Badge>
+                    <Badge tone={toneForRisk(action.rollback_risk === "CRITICAL" ? 90 : action.rollback_risk === "HIGH" ? 70 : action.rollback_risk === "MEDIUM" ? 45 : 20)}>
+                      {action.rollback_risk}
+                    </Badge>
+                    <span className="text-xs font-semibold text-slate-100">{action.title}</span>
+                  </div>
+                  <p className="mt-1 text-[11px] leading-4 text-slate-400">
+                    {action.action_type} · rollback {action.rollback_available ? "available for review" : "not ready"}
+                    {action.approval_required ? " · approval required" : ""}
+                  </p>
+                  {action.rollback_steps[0] && (
+                    <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-cyan-200">
+                      {action.rollback_steps[0]}
+                    </p>
+                  )}
+                  {action.validation_steps[0] && (
+                    <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-400">
+                      Validation: {action.validation_steps[0]}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-2 bg-slate-950 p-2.5">
+          {blockers.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-red-300">
+                Blockers
+              </div>
+              {blockers.map((blocker, index) => (
+                <div key={`${blocker}-${index}`} className="text-[11px] leading-4 text-slate-300">
+                  {blocker}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {warnings.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-orange-300">
+                Warnings
+              </div>
+              {warnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="text-[11px] leading-4 text-slate-300">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="space-y-1.5">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+              Notes
+            </div>
+            {readiness.notes.slice(0, 3).map((note) => (
+              <div key={note} className="text-[11px] leading-4 text-slate-300">
+                {note}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ReviewChecklist() {
   return (
     <div className="grid gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800 sm:grid-cols-2">
@@ -1738,6 +1931,9 @@ function InvestigationConsole({
   remediationDryRun,
   remediationDryRunLoading,
   remediationDryRunError,
+  rollbackReadiness,
+  rollbackReadinessLoading,
+  rollbackReadinessError,
   onNoteDraftChange,
   onAddNote,
 }: {
@@ -1753,6 +1949,9 @@ function InvestigationConsole({
   remediationDryRun?: RemediationDryRunPreview | null;
   remediationDryRunLoading?: boolean;
   remediationDryRunError?: string | null;
+  rollbackReadiness?: RemediationRollbackReadinessPreview | null;
+  rollbackReadinessLoading?: boolean;
+  rollbackReadinessError?: string | null;
   onNoteDraftChange: (value: string) => void;
   onAddNote: () => void;
 }) {
@@ -1857,6 +2056,17 @@ function InvestigationConsole({
             dryRun={remediationDryRun}
             loading={remediationDryRunLoading}
             error={remediationDryRunError}
+          />
+        </ConsoleRow>
+
+        <ConsoleRow
+          title="Rollback readiness"
+          description="Planning-only rollback checks for proposed remediation."
+        >
+          <RollbackReadinessPanel
+            readiness={rollbackReadiness}
+            loading={rollbackReadinessLoading}
+            error={rollbackReadinessError}
           />
         </ConsoleRow>
 
@@ -2493,6 +2703,10 @@ export default function IncidentDetailPage() {
   const [remediationDryRun, setRemediationDryRun] = useState<RemediationDryRunPreview | null>(null);
   const [remediationDryRunLoading, setRemediationDryRunLoading] = useState(false);
   const [remediationDryRunError, setRemediationDryRunError] = useState<string | null>(null);
+  const [rollbackReadiness, setRollbackReadiness] =
+    useState<RemediationRollbackReadinessPreview | null>(null);
+  const [rollbackReadinessLoading, setRollbackReadinessLoading] = useState(false);
+  const [rollbackReadinessError, setRollbackReadinessError] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
   const [savingNote, setSavingNote] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -2640,6 +2854,9 @@ export default function IncidentDetailPage() {
     setRemediationDryRun(null);
     setRemediationDryRunError(null);
     setRemediationDryRunLoading(true);
+    setRollbackReadiness(null);
+    setRollbackReadinessError(null);
+    setRollbackReadinessLoading(true);
     let cancelled = false;
 
     async function loadRemediationPlan() {
@@ -2711,6 +2928,53 @@ export default function IncidentDetailPage() {
     }
 
     loadRemediationDryRun();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [incidentId, remediationPlan, remediationLoading]);
+
+  useEffect(() => {
+    const planIncidentId = String(
+      remediationPlan?.incident_id ?? remediationPlan?.plan?.incident_id ?? "",
+    );
+
+    if (remediationLoading) {
+      return;
+    }
+
+    if (!remediationPlan || planIncidentId !== incidentId) {
+      setRollbackReadinessLoading(false);
+      return;
+    }
+
+    setRollbackReadiness(null);
+    setRollbackReadinessError(null);
+    setRollbackReadinessLoading(true);
+    let cancelled = false;
+
+    async function loadRollbackReadiness() {
+      try {
+        const readiness = await fetchIncidentRollbackReadiness(incidentId);
+
+        if (!cancelled) {
+          setRollbackReadiness(readiness);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setRollbackReadiness(null);
+          setRollbackReadinessError(
+            err instanceof Error ? err.message : "Rollback readiness unavailable",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setRollbackReadinessLoading(false);
+        }
+      }
+    }
+
+    loadRollbackReadiness();
 
     return () => {
       cancelled = true;
@@ -2911,6 +3175,9 @@ export default function IncidentDetailPage() {
                 remediationDryRun={remediationDryRun}
                 remediationDryRunLoading={remediationDryRunLoading}
                 remediationDryRunError={remediationDryRunError}
+                rollbackReadiness={rollbackReadiness}
+                rollbackReadinessLoading={rollbackReadinessLoading}
+                rollbackReadinessError={rollbackReadinessError}
                 onNoteDraftChange={setNoteDraft}
                 onAddNote={addNote}
               />

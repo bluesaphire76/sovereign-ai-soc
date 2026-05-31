@@ -360,6 +360,10 @@ def _plan_from_intelligence(intelligence: dict[str, Any]) -> RemediationPlan:
     )
 
 
+def build_remediation_plan_from_intelligence(intelligence: dict[str, Any]) -> RemediationPlan:
+    return _plan_from_intelligence(intelligence)
+
+
 def _approval_gates(plan: RemediationPlan) -> list[RemediationApprovalGatePreview]:
     gates: list[RemediationApprovalGatePreview] = []
     for action in plan.actions:
