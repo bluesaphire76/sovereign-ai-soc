@@ -1,17 +1,18 @@
 import json
-import os
 
-import ollama
 from dotenv import load_dotenv
 
+from ai_model_config import get_profile
+from ai_model_policy import AiTask
 from database import SessionLocal
+from llm_client import generate_ai_response
 from models import CaseAIAnalysis, CaseIncident, Incident, IncidentCase
 from rag_retriever import retrieve_security_context
 from llm_output import is_invalid_llm_output, sanitize_llm_output
 
 load_dotenv()
 
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:8b")
+OLLAMA_MODEL = get_profile("standard").model
 
 
 def safe_json_loads(value: str | None):
@@ -204,8 +205,7 @@ def generate_case_ai_analysis(case_id: int) -> CaseAIAnalysis:
 
         prompt = build_case_prompt(case, incidents)
 
-        response = ollama.chat(
-            model=OLLAMA_MODEL,
+        llm_result = generate_ai_response(
             messages=[
                 {
                     "role": "system",
@@ -222,14 +222,20 @@ def generate_case_ai_analysis(case_id: int) -> CaseAIAnalysis:
                     "content": prompt,
                 },
             ],
+            task=AiTask.CASE_ANALYSIS,
+            requested_mode="auto",
+            user_triggered=True,
         )
 
-        raw_analysis_text = response["message"]["content"]
+        raw_analysis_text = str(llm_result.get("text") or "")
+
+        if not raw_analysis_text:
+            raise RuntimeError(str(llm_result.get("error_type") or "EmptyLlmResponse"))
+
         analysis_text = sanitize_llm_output(raw_analysis_text)
 
         if is_invalid_llm_output(raw_analysis_text) or is_invalid_llm_output(analysis_text):
-            retry_response = ollama.chat(
-                model=OLLAMA_MODEL,
+            llm_result = generate_ai_response(
                 messages=[
                     {
                         "role": "system",
@@ -249,17 +255,23 @@ def generate_case_ai_analysis(case_id: int) -> CaseAIAnalysis:
                         ),
                     },
                 ],
+                task=AiTask.CASE_ANALYSIS,
+                requested_mode="auto",
+                user_triggered=True,
             )
 
-            analysis_text = sanitize_llm_output(
-                retry_response["message"]["content"]
-            )
+            raw_analysis_text = str(llm_result.get("text") or "")
+
+            if not raw_analysis_text:
+                raise RuntimeError(str(llm_result.get("error_type") or "EmptyLlmResponse"))
+
+            analysis_text = sanitize_llm_output(raw_analysis_text)
 
         recommended_status, recommended_severity = extract_recommendation(analysis_text)
 
         row = CaseAIAnalysis(
             case_id=case.id,
-            model=OLLAMA_MODEL,
+            model=str(llm_result.get("model") or OLLAMA_MODEL),
             analysis=analysis_text,
             recommended_status=recommended_status,
             recommended_severity=recommended_severity,

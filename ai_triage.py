@@ -6,8 +6,10 @@ import requests
 import urllib3
 from requests.auth import HTTPBasicAuth
 from dotenv import load_dotenv
-import ollama
 from rich import print
+from ai_model_config import get_profile
+from ai_model_policy import AiTask
+from llm_client import generate_ai_response
 from llm_output import is_invalid_llm_output, sanitize_llm_output
 
 urllib3.disable_warnings()
@@ -17,7 +19,7 @@ load_dotenv()
 WAZUH_INDEXER_URL = os.getenv("WAZUH_INDEXER_URL")
 WAZUH_USER = os.getenv("WAZUH_USER")
 WAZUH_PASSWORD = os.getenv("WAZUH_PASSWORD")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL")
+OLLAMA_MODEL = get_profile("standard").model
 
 
 def get_latest_alerts(limit=3):
@@ -85,8 +87,7 @@ Alert:
 {alert}
 """
 
-    response = ollama.chat(
-        model=OLLAMA_MODEL,
+    llm_result = generate_ai_response(
         messages=[
             {
                 "role": "system",
@@ -104,15 +105,21 @@ Return only the final answer. Do not include chain-of-thought, hidden reasoning,
                 "role": "user",
                 "content": prompt
             }
-        ]
+        ],
+        task=AiTask.INCIDENT_TRIAGE,
+        requested_mode="auto",
+        user_triggered=False,
     )
 
-    raw_analysis = response["message"]["content"]
+    raw_analysis = str(llm_result.get("text") or "")
+
+    if not raw_analysis:
+        raise RuntimeError(str(llm_result.get("error_type") or "EmptyLlmResponse"))
+
     analysis = sanitize_llm_output(raw_analysis)
 
     if is_invalid_llm_output(raw_analysis) or is_invalid_llm_output(analysis):
-        retry_response = ollama.chat(
-            model=OLLAMA_MODEL,
+        llm_result = generate_ai_response(
             messages=[
                 {
                     "role": "system",
@@ -132,9 +139,17 @@ Return only the final answer. Do not include chain-of-thought, hidden reasoning,
                     ),
                 },
             ],
+            task=AiTask.INCIDENT_TRIAGE,
+            requested_mode="auto",
+            user_triggered=False,
         )
 
-        analysis = sanitize_llm_output(retry_response["message"]["content"])
+        raw_analysis = str(llm_result.get("text") or "")
+
+        if not raw_analysis:
+            raise RuntimeError(str(llm_result.get("error_type") or "EmptyLlmResponse"))
+
+        analysis = sanitize_llm_output(raw_analysis)
 
     return analysis
 

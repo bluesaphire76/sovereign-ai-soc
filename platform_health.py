@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from requests.auth import HTTPBasicAuth
 from sqlalchemy import text as sql_text
 
+from ai_model_config import PROFILES, get_profile
 from database import engine, SessionLocal
 from models import Incident, RawEvent, SecurityAlert, WorkerHeartbeat, utc_now
 from ai_runtime_observability import get_ai_runtime_health_details
@@ -23,7 +24,7 @@ load_dotenv()
 WAZUH_INDEXER_URL = os.getenv("WAZUH_INDEXER_URL")
 WAZUH_USER = os.getenv("WAZUH_USER")
 WAZUH_PASSWORD = os.getenv("WAZUH_PASSWORD")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:8b")
+OLLAMA_MODEL = get_profile("standard").model
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "30"))
 WORKER_STALE_AFTER_SECONDS = int(os.getenv("WORKER_STALE_AFTER_SECONDS", "300"))
@@ -129,6 +130,11 @@ def check_ollama():
             started_at=started_at,
             details={
                 "configured_model": OLLAMA_MODEL,
+                "configured_profile": "standard",
+                "configured_profiles": {
+                    name: profile.model
+                    for name, profile in PROFILES.items()
+                },
                 "available_models": models,
             },
         )
@@ -139,7 +145,10 @@ def check_ollama():
             status="ERROR",
             message="Component health check failed.",
             started_at=started_at,
-            details={"configured_model": OLLAMA_MODEL},
+            details={
+                "configured_model": OLLAMA_MODEL,
+                "configured_profile": "standard",
+            },
         )
 
 
@@ -998,6 +1007,15 @@ def check_worker():
         if age_seconds is not None:
             message += f", last seen {age_seconds}s ago"
 
+        worker_details = parse_json_details(heartbeat.details) or {}
+
+        if not isinstance(worker_details, dict):
+            worker_details = {"raw": worker_details}
+
+        worker_details.setdefault("ollama_model", OLLAMA_MODEL)
+        worker_details.setdefault("llm_configured_profile", "standard")
+        worker_details.setdefault("llm_configured_model", OLLAMA_MODEL)
+
         return component_result(
             component="ai_soc_worker",
             status=normalized_status,
@@ -1015,7 +1033,7 @@ def check_worker():
                 if heartbeat.last_error_at
                 else None,
                 "last_error": heartbeat.last_error,
-                "details": parse_json_details(heartbeat.details),
+                "details": worker_details,
                 "details_raw": heartbeat.details,
                 "age_seconds": age_seconds,
                 "stale_after_seconds": stale_after,

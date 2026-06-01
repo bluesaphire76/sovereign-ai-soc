@@ -209,6 +209,16 @@ function formatNumber(value: number | null, suffix = "") {
   return suffix ? `${formatted} ${suffix}` : formatted;
 }
 
+function formatLlmProfile(profile: string) {
+  const normalized = profile.toLowerCase();
+
+  if (normalized === "fast") return "Fast";
+  if (normalized === "standard") return "Standard";
+  if (normalized === "quality") return "High quality";
+
+  return profile || "-";
+}
+
 function ingestModeTone(mode: string): HealthStatus | "neutral" {
   const value = mode.toUpperCase();
 
@@ -638,6 +648,17 @@ function WorkerIngestMetricsPanel({
   const aiTriageSuccess = readNumber(resultCounts, ["ai_triage_success"]);
   const aiTriageFallback = readNumber(resultCounts, ["ai_triage_fallback"]);
   const aiTriageSkipped = readNumber(resultCounts, ["ai_triage_skipped"]);
+  const effectiveLlmProfile = readString(
+    workerDetails,
+    ["llm_last_profile"],
+    readString(workerDetails, ["llm_configured_profile"], "standard")
+  );
+  const effectiveLlmModel = readString(
+    workerDetails,
+    ["llm_last_model"],
+    readString(workerDetails, ["llm_configured_model"], readString(workerDetails, ["ollama_model"], "-"))
+  );
+  const lastLlmFallback = readString(workerDetails, ["llm_last_fallback_used"], "No LLM call yet");
 
   const ingestModeDisplay = deriveIngestModeDisplay({
     rawMode: ingestMode,
@@ -734,6 +755,16 @@ function WorkerIngestMetricsPanel({
           <MetricRow label="AI fallback" value={formatNumber(aiTriageFallback)} tone={(aiTriageFallback ?? 0) > 0 ? "WARN" : "neutral"} />
           <MetricRow label="AI skipped" value={formatNumber(aiTriageSkipped)} />
           <MetricRow label="Configured model" value={readString(workerDetails, ["ollama_model"], "-")} />
+          <MetricRow
+            label="Effective LLM profile"
+            value={formatLlmProfile(effectiveLlmProfile)}
+          />
+          <MetricRow label="Effective LLM model" value={effectiveLlmModel} />
+          <MetricRow
+            label="Last LLM fallback"
+            value={lastLlmFallback}
+            tone={lastLlmFallback === "true" ? "WARN" : "neutral"}
+          />
         </MetricGroup>
       </div>
 

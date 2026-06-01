@@ -701,6 +701,66 @@
       }
     },
     {
+      "id": 41,
+      "type": "state-timeline",
+      "title": "LLM Model In Use Over Time",
+      "description": "Effective AI SOC LLM profile/model from the latest worker heartbeat. Fallback indicates whether the last LLM call used the FAST fallback path.",
+      "datasource": null,
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 48
+      },
+      "targets": [
+        {
+          "expr": "ai_soc_llm_model_in_use",
+          "legendFormat": "{{profile}} · {{model}} · fallback={{fallback}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "options": {
+                "1": {
+                  "text": "in use"
+                }
+              },
+              "type": "value"
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "alignValue": "center",
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "mergeValues": true,
+        "rowHeight": 0.9,
+        "showValue": "auto",
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
       "id": 40,
       "type": "stat",
       "title": "Active Users",
@@ -758,6 +818,7 @@
     "foundation",
     "gpu",
     "host",
+    "llm",
     "nvidia-smi",
     "observability",
     "runtime",
@@ -773,6 +834,6 @@
   "timezone": "browser",
   "title": "AI SOC Observability Foundation",
   "uid": "ai-soc-observability-foundation",
-  "version": 6,
+  "version": 7,
   "weekStart": ""
 }

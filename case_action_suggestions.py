@@ -1,17 +1,18 @@
 import json
-import os
 from datetime import datetime, timedelta, timezone
 
-import ollama
 from dotenv import load_dotenv
 
+from ai_model_config import get_profile
+from ai_model_policy import AiTask
 from database import SessionLocal
+from llm_client import generate_ai_response
 from llm_output import is_invalid_llm_output, sanitize_llm_output
 from models import CaseAIAnalysis, CaseAction, CaseIncident, Incident, IncidentCase
 
 load_dotenv()
 
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:8b")
+OLLAMA_MODEL = get_profile("standard").model
 
 VALID_CATEGORIES = {
     "INVESTIGATION",
@@ -266,9 +267,8 @@ Rules:
 """
 
 
-def generate_raw_suggestions(prompt: str) -> dict:
-    response = ollama.chat(
-        model=OLLAMA_MODEL,
+def generate_raw_suggestions(prompt: str) -> tuple[dict, dict]:
+    llm_result = generate_ai_response(
         messages=[
             {
                 "role": "system",
@@ -283,14 +283,20 @@ def generate_raw_suggestions(prompt: str) -> dict:
                 "content": prompt,
             },
         ],
+        task=AiTask.CASE_ANALYSIS,
+        requested_mode="auto",
+        user_triggered=True,
     )
 
-    raw_output = response["message"]["content"]
+    raw_output = str(llm_result.get("text") or "")
+
+    if not raw_output:
+        raise RuntimeError(str(llm_result.get("error_type") or "EmptyLlmResponse"))
+
     cleaned_output = sanitize_llm_output(raw_output)
 
     if is_invalid_llm_output(raw_output) or is_invalid_llm_output(cleaned_output):
-        retry_response = ollama.chat(
-            model=OLLAMA_MODEL,
+        llm_result = generate_ai_response(
             messages=[
                 {
                     "role": "system",
@@ -306,13 +312,19 @@ def generate_raw_suggestions(prompt: str) -> dict:
                     "content": prompt,
                 },
             ],
+            task=AiTask.CASE_ANALYSIS,
+            requested_mode="auto",
+            user_triggered=True,
         )
 
-        cleaned_output = sanitize_llm_output(
-            retry_response["message"]["content"]
-        )
+        raw_output = str(llm_result.get("text") or "")
 
-    return extract_json_object(cleaned_output)
+        if not raw_output:
+            raise RuntimeError(str(llm_result.get("error_type") or "EmptyLlmResponse"))
+
+        cleaned_output = sanitize_llm_output(raw_output)
+
+    return extract_json_object(cleaned_output), llm_result
 
 
 def normalize_actions(raw_payload: dict) -> list[dict]:
@@ -375,12 +387,15 @@ def generate_case_action_suggestions(case_id: int) -> dict:
             existing_actions=existing_actions,
         )
 
-        raw_payload = generate_raw_suggestions(prompt)
+        raw_payload, llm_result = generate_raw_suggestions(prompt)
         actions = normalize_actions(raw_payload)
 
         return {
             "case_id": case.id,
-            "model": OLLAMA_MODEL,
+            "model": str(llm_result.get("model") or OLLAMA_MODEL),
+            "llm_profile": llm_result.get("profile"),
+            "llm_fallback_used": bool(llm_result.get("fallback_used", False)),
+            "llm_latency_ms": llm_result.get("latency_ms"),
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "actions": actions,
         }

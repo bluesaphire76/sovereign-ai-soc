@@ -5,7 +5,9 @@ from datetime import datetime, timedelta, timezone
 from threading import Lock
 from typing import Any
 
-from ai_triage_hardening import OLLAMA_MODEL, call_ollama_chat
+from ai_model_config import get_profile
+from ai_model_policy import AiTask
+from llm_client import generate_ai_response
 from llm_output import is_invalid_llm_output, sanitize_llm_output
 
 
@@ -93,17 +95,36 @@ def extract_json_object(text: str) -> dict[str, Any]:
     return json.loads(cleaned[start:end + 1])
 
 
-def fallback_guidance(payload: dict[str, Any], reason: str) -> dict[str, Any]:
+def _llm_metadata(result: dict[str, Any] | None) -> dict[str, Any]:
+    result = result or {}
+
+    return {
+        "model": result.get("model") or get_profile("standard").model,
+        "llm_profile": result.get("profile"),
+        "llm_fallback_used": bool(result.get("fallback_used", False)),
+        "llm_latency_ms": result.get("latency_ms"),
+    }
+
+
+def fallback_guidance(
+    payload: dict[str, Any],
+    reason: str,
+    llm_result: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     action = str(payload.get("recommended_action") or "").strip()
+    metadata = _llm_metadata(llm_result)
 
     if not action:
         action = "Review synthetic detection quality signals and validate gaps."
 
     return {
         "source": "deterministic_fallback",
-        "model": OLLAMA_MODEL,
+        "model": metadata["model"],
         "generated_at": _utc_now_iso(),
         "error_type": reason,
+        "llm_profile": metadata["llm_profile"],
+        "llm_fallback_used": metadata["llm_fallback_used"],
+        "llm_latency_ms": metadata["llm_latency_ms"],
         "how_to_execute": [
             "Open the synthetic scenario breakdown and identify the weakest coverage signal.",
             "Review the latest synthetic incidents linked to the affected scenario.",
@@ -152,9 +173,14 @@ Return exactly this JSON structure:
 """
 
 
-def normalize_guidance(raw_payload: dict[str, Any], source_payload: dict[str, Any]) -> dict[str, Any]:
+def normalize_guidance(
+    raw_payload: dict[str, Any],
+    source_payload: dict[str, Any],
+    llm_result: dict[str, Any],
+) -> dict[str, Any]:
     raw_steps = raw_payload.get("how_to_execute")
     steps: list[str] = []
+    metadata = _llm_metadata(llm_result)
 
     if isinstance(raw_steps, list):
         for item in raw_steps[:6]:
@@ -171,9 +197,12 @@ def normalize_guidance(raw_payload: dict[str, Any], source_payload: dict[str, An
 
     return {
         "source": "local_ai",
-        "model": OLLAMA_MODEL,
+        "model": metadata["model"],
         "generated_at": _utc_now_iso(),
-        "error_type": None,
+        "error_type": llm_result.get("error_type"),
+        "llm_profile": metadata["llm_profile"],
+        "llm_fallback_used": metadata["llm_fallback_used"],
+        "llm_latency_ms": metadata["llm_latency_ms"],
         "how_to_execute": steps,
         "validation_notes": validation_notes[:360],
         "recommended_action": source_payload.get("recommended_action"),
@@ -182,9 +211,10 @@ def normalize_guidance(raw_payload: dict[str, Any], source_payload: dict[str, An
 
 def _generate_detection_quality_guidance_uncached(payload: dict[str, Any]) -> dict[str, Any]:
     prompt = build_guidance_prompt(payload)
+    llm_result: dict[str, Any] | None = None
 
     try:
-        raw_output = call_ollama_chat(
+        llm_result = generate_ai_response(
             messages=[
                 {
                     "role": "system",
@@ -199,14 +229,21 @@ def _generate_detection_quality_guidance_uncached(payload: dict[str, Any]) -> di
                     "content": prompt,
                 },
             ],
+            task=AiTask.ACTION_HOW_TO,
+            requested_mode="standard",
+            user_triggered=True,
             timeout_seconds=GUIDANCE_TIMEOUT_SECONDS,
         )
+        raw_output = str(llm_result.get("text") or "")
+
+        if not raw_output:
+            raise ValueError(str(llm_result.get("error_type") or "EmptyLlmResponse"))
 
         cleaned = sanitize_llm_output(raw_output)
         parsed = extract_json_object(cleaned)
 
         if is_invalid_llm_output(raw_output) or is_invalid_llm_output(cleaned):
-            raw_output = call_ollama_chat(
+            llm_result = generate_ai_response(
                 messages=[
                     {
                         "role": "system",
@@ -220,15 +257,23 @@ def _generate_detection_quality_guidance_uncached(payload: dict[str, Any]) -> di
                         "content": prompt,
                     },
                 ],
+                task=AiTask.ACTION_HOW_TO,
+                requested_mode="standard",
+                user_triggered=True,
                 timeout_seconds=GUIDANCE_TIMEOUT_SECONDS,
             )
+            raw_output = str(llm_result.get("text") or "")
+
+            if not raw_output:
+                raise ValueError(str(llm_result.get("error_type") or "EmptyLlmResponse"))
+
             cleaned = sanitize_llm_output(raw_output)
             parsed = extract_json_object(cleaned)
 
-        return normalize_guidance(parsed, payload)
+        return normalize_guidance(parsed, payload, llm_result)
 
     except Exception as exc:
-        return fallback_guidance(payload, type(exc).__name__)
+        return fallback_guidance(payload, type(exc).__name__, llm_result)
 
 
 def generate_detection_quality_guidance(payload: dict[str, Any]) -> dict[str, Any]:

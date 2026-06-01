@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from sqlalchemy.exc import SQLAlchemyError
 
 from ai_governance.policy import assess_remediation_output_governance
+from ai_model_policy import AiTask
 from ai_triage_hardening import call_ollama_chat
 from database import SessionLocal
 from llm_output import is_invalid_llm_output, sanitize_llm_output
@@ -432,6 +433,10 @@ def generate_remediation_intelligence(incident_id: int) -> dict[str, Any]:
                     {"role": "user", "content": prompt},
                 ],
                 timeout_seconds=REMEDIATION_INTELLIGENCE_TIMEOUT_SECONDS,
+                task=AiTask.REMEDIATION,
+                severity=incident_payload.get("recommended_priority"),
+                requested_mode="auto",
+                user_triggered=True,
             )
 
             cleaned = sanitize_llm_output(raw_output)
@@ -451,6 +456,10 @@ def generate_remediation_intelligence(incident_id: int) -> dict[str, Any]:
                         {"role": "user", "content": prompt},
                     ],
                     timeout_seconds=REMEDIATION_INTELLIGENCE_TIMEOUT_SECONDS,
+                    task=AiTask.REMEDIATION,
+                    severity=incident_payload.get("recommended_priority"),
+                    requested_mode="auto",
+                    user_triggered=True,
                 )
 
                 cleaned = sanitize_llm_output(raw_output)
