@@ -175,6 +175,36 @@ type RemediationRollbackReadinessPreview = {
   notes: string[];
 };
 
+type RemediationAuditTrailPreview = {
+  incident_id: number;
+  generated_at?: string;
+  source: string;
+  remediation_source?: string | null;
+  execution_supported: boolean;
+  records: Array<{
+    event_id: string;
+    event_type: string;
+    timestamp: string;
+    actor: string;
+    actor_role: string;
+    summary: string;
+    decision?: string | null;
+    policy_status: string;
+    evidence_refs: string[];
+    rationale: string;
+    metadata?: Record<string, unknown>;
+  }>;
+  summary: {
+    plan_generated: boolean;
+    approval_required: boolean;
+    dry_run_completed: boolean;
+    rollback_readiness_checked: boolean;
+    execution_attempted: boolean;
+    execution_blocked: boolean;
+  };
+  notes: string[];
+};
+
 type AuditEvent = {
   id: number;
   incident_id: number;
@@ -427,6 +457,15 @@ function toneForRollbackStatus(status: string | null | undefined): Tone {
   if (value === "READY") return "success";
   if (value === "CONDITIONAL") return "warning";
   if (value === "NOT_READY") return "danger";
+  return "neutral";
+}
+
+function toneForPolicyStatus(status: string | null | undefined): Tone {
+  const value = (status ?? "").toUpperCase();
+
+  if (value === "PASSED") return "success";
+  if (value === "WARNING") return "warning";
+  if (value === "BLOCKED") return "danger";
   return "neutral";
 }
 
@@ -692,6 +731,20 @@ async function fetchIncidentRollbackReadiness(
 
   if (!response.ok) {
     throw new Error(`Failed to load rollback readiness: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+async function fetchIncidentRemediationAuditTrail(
+  id: string,
+): Promise<RemediationAuditTrailPreview | null> {
+  const response = await authFetch(`/incidents/${id}/remediation-audit-trail`, {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to load remediation audit trail: ${response.status}`);
   }
 
   return response.json();
@@ -1811,6 +1864,119 @@ function RollbackReadinessPanel({
   );
 }
 
+function RemediationAuditTrailPanel({
+  auditTrail,
+  loading = false,
+  error = null,
+}: {
+  auditTrail?: RemediationAuditTrailPreview | null;
+  loading?: boolean;
+  error?: string | null;
+}) {
+  if (loading && !auditTrail) {
+    return (
+      <div className="rounded-md border border-slate-800 bg-slate-950 px-2.5 py-2 text-xs text-cyan-200">
+        Audit trail pending...
+      </div>
+    );
+  }
+
+  if (error && !auditTrail) {
+    return (
+      <div className="rounded-md border border-amber-900/70 bg-amber-950/20 px-2.5 py-2 text-xs leading-5 text-amber-300">
+        Remediation audit trail unavailable. No remediation action was executed.
+      </div>
+    );
+  }
+
+  if (!auditTrail) {
+    return <EmptyState label="No remediation audit trail available." />;
+  }
+
+  const records = auditTrail.records.slice(0, 6);
+
+  return (
+    <div className="overflow-hidden rounded-md border border-slate-800 bg-slate-950">
+      <div className="flex flex-col gap-2 border-b border-slate-800 bg-slate-900/70 px-2.5 py-2 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-cyan-300">
+            Remediation audit trail
+          </div>
+          <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-400">
+            Read-only chain of planning, approval gates, dry-run, rollback readiness and execution boundary.
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-1.5">
+          <Badge tone={auditTrail.summary.execution_blocked ? "danger" : "success"}>
+            {auditTrail.summary.execution_blocked ? "Execution blocked" : "Reviewed"}
+          </Badge>
+          <Badge tone={auditTrail.summary.approval_required ? "warning" : "neutral"}>
+            Approval {auditTrail.summary.approval_required ? "required" : "not required"}
+          </Badge>
+        </div>
+      </div>
+
+      <div className="grid gap-px bg-slate-800 lg:grid-cols-4">
+        <DenseField label="Execution supported" value={auditTrail.execution_supported ? "true" : "false"} />
+        <DenseField label="Execution attempted" value={auditTrail.summary.execution_attempted ? "true" : "false"} />
+        <DenseField label="Audit records" value={auditTrail.records.length} />
+        <DenseField label="Source" value={auditTrail.source} />
+      </div>
+
+      <div className="grid gap-px bg-slate-800 lg:grid-cols-[1.25fr_0.75fr]">
+        <div className="bg-slate-950 p-2.5">
+          {records.length === 0 ? (
+            <EmptyState label="No audit events were returned." />
+          ) : (
+            <div className="divide-y divide-slate-800 rounded-md border border-slate-800">
+              {records.map((record) => (
+                <div key={record.event_id} className="px-2.5 py-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Badge tone={toneForPolicyStatus(record.policy_status)}>
+                      {record.policy_status}
+                    </Badge>
+                    <span className="text-xs font-semibold text-slate-100">
+                      {record.event_type}
+                    </span>
+                  </div>
+                  <div className="mt-1 text-[10px] uppercase tracking-wide text-slate-500">
+                    {formatTimestamp(record.timestamp)} · {record.actor} · {record.actor_role}
+                  </div>
+                  <p className="mt-1 text-[11px] leading-4 text-slate-300">
+                    {record.summary}
+                  </p>
+                  <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-500">
+                    {record.rationale}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-2 bg-slate-950 p-2.5">
+          <div className="grid gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800">
+            <DenseField label="Plan generated" value={auditTrail.summary.plan_generated ? "true" : "false"} />
+            <DenseField label="Dry-run completed" value={auditTrail.summary.dry_run_completed ? "true" : "false"} />
+            <DenseField label="Rollback checked" value={auditTrail.summary.rollback_readiness_checked ? "true" : "false"} />
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+              Notes
+            </div>
+            {auditTrail.notes.slice(0, 3).map((note) => (
+              <div key={note} className="text-[11px] leading-4 text-slate-300">
+                {note}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ReviewChecklist() {
   return (
     <div className="grid gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800 sm:grid-cols-2">
@@ -1934,6 +2100,9 @@ function InvestigationConsole({
   rollbackReadiness,
   rollbackReadinessLoading,
   rollbackReadinessError,
+  remediationAuditTrail,
+  remediationAuditTrailLoading,
+  remediationAuditTrailError,
   onNoteDraftChange,
   onAddNote,
 }: {
@@ -1952,6 +2121,9 @@ function InvestigationConsole({
   rollbackReadiness?: RemediationRollbackReadinessPreview | null;
   rollbackReadinessLoading?: boolean;
   rollbackReadinessError?: string | null;
+  remediationAuditTrail?: RemediationAuditTrailPreview | null;
+  remediationAuditTrailLoading?: boolean;
+  remediationAuditTrailError?: string | null;
   onNoteDraftChange: (value: string) => void;
   onAddNote: () => void;
 }) {
@@ -2067,6 +2239,17 @@ function InvestigationConsole({
             readiness={rollbackReadiness}
             loading={rollbackReadinessLoading}
             error={rollbackReadinessError}
+          />
+        </ConsoleRow>
+
+        <ConsoleRow
+          title="Remediation audit trail"
+          description="Read-only governance events and execution boundary."
+        >
+          <RemediationAuditTrailPanel
+            auditTrail={remediationAuditTrail}
+            loading={remediationAuditTrailLoading}
+            error={remediationAuditTrailError}
           />
         </ConsoleRow>
 
@@ -2707,6 +2890,10 @@ export default function IncidentDetailPage() {
     useState<RemediationRollbackReadinessPreview | null>(null);
   const [rollbackReadinessLoading, setRollbackReadinessLoading] = useState(false);
   const [rollbackReadinessError, setRollbackReadinessError] = useState<string | null>(null);
+  const [remediationAuditTrail, setRemediationAuditTrail] =
+    useState<RemediationAuditTrailPreview | null>(null);
+  const [remediationAuditTrailLoading, setRemediationAuditTrailLoading] = useState(false);
+  const [remediationAuditTrailError, setRemediationAuditTrailError] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
   const [savingNote, setSavingNote] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -2857,6 +3044,9 @@ export default function IncidentDetailPage() {
     setRollbackReadiness(null);
     setRollbackReadinessError(null);
     setRollbackReadinessLoading(true);
+    setRemediationAuditTrail(null);
+    setRemediationAuditTrailError(null);
+    setRemediationAuditTrailLoading(true);
     let cancelled = false;
 
     async function loadRemediationPlan() {
@@ -2975,6 +3165,53 @@ export default function IncidentDetailPage() {
     }
 
     loadRollbackReadiness();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [incidentId, remediationPlan, remediationLoading]);
+
+  useEffect(() => {
+    const planIncidentId = String(
+      remediationPlan?.incident_id ?? remediationPlan?.plan?.incident_id ?? "",
+    );
+
+    if (remediationLoading) {
+      return;
+    }
+
+    if (!remediationPlan || planIncidentId !== incidentId) {
+      setRemediationAuditTrailLoading(false);
+      return;
+    }
+
+    setRemediationAuditTrail(null);
+    setRemediationAuditTrailError(null);
+    setRemediationAuditTrailLoading(true);
+    let cancelled = false;
+
+    async function loadRemediationAuditTrail() {
+      try {
+        const auditTrail = await fetchIncidentRemediationAuditTrail(incidentId);
+
+        if (!cancelled) {
+          setRemediationAuditTrail(auditTrail);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setRemediationAuditTrail(null);
+          setRemediationAuditTrailError(
+            err instanceof Error ? err.message : "Remediation audit trail unavailable",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setRemediationAuditTrailLoading(false);
+        }
+      }
+    }
+
+    loadRemediationAuditTrail();
 
     return () => {
       cancelled = true;
@@ -3178,6 +3415,9 @@ export default function IncidentDetailPage() {
                 rollbackReadiness={rollbackReadiness}
                 rollbackReadinessLoading={rollbackReadinessLoading}
                 rollbackReadinessError={rollbackReadinessError}
+                remediationAuditTrail={remediationAuditTrail}
+                remediationAuditTrailLoading={remediationAuditTrailLoading}
+                remediationAuditTrailError={remediationAuditTrailError}
                 onNoteDraftChange={setNoteDraft}
                 onAddNote={addNote}
               />
