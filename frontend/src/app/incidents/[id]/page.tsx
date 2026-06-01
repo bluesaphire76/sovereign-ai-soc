@@ -219,6 +219,39 @@ type RemediationAuditTrailPreview = {
   notes: string[];
 };
 
+type RemediationReplayPreview = {
+  incident_id: number;
+  generated_at?: string;
+  source: string;
+  remediation_source?: string | null;
+  execution_supported: boolean;
+  state_mutated: boolean;
+  replay_mode: string;
+  summary: string;
+  timeline: Array<{
+    step: number;
+    phase: string;
+    status: string;
+    title: string;
+    description: string;
+    evidence: string[];
+    policy_notes: string[];
+  }>;
+  proposed_actions: Array<{
+    action_type: string;
+    title: string;
+    approval_required: boolean;
+    dry_run_status: string;
+    rollback_status: string;
+    governance_status: string;
+  }>;
+  blockers: string[];
+  warnings: string[];
+  human_decision_required: boolean;
+  final_recommendation: string;
+  notes: string[];
+};
+
 type AuditEvent = {
   id: number;
   incident_id: number;
@@ -488,6 +521,15 @@ function toneForGovernanceStatus(status: string | null | undefined): Tone {
 
   if (value === "PASSED") return "success";
   if (value === "PASSED_WITH_WARNINGS" || value === "REQUIRES_REVIEW") return "warning";
+  if (value === "BLOCKED") return "danger";
+  return "neutral";
+}
+
+function toneForReplayStatus(status: string | null | undefined): Tone {
+  const value = (status ?? "").toUpperCase();
+
+  if (value === "PASSED") return "success";
+  if (value === "WARNING" || value === "REQUIRES_REVIEW" || value === "NOT_SUPPORTED") return "warning";
   if (value === "BLOCKED") return "danger";
   return "neutral";
 }
@@ -787,6 +829,20 @@ async function fetchIncidentRemediationAuditTrail(
 
   if (!response.ok) {
     throw new Error(`Failed to load remediation audit trail: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+async function fetchIncidentRemediationReplay(
+  id: string,
+): Promise<RemediationReplayPreview | null> {
+  const response = await authFetch(`/incidents/${id}/remediation-replay`, {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to load remediation replay: ${response.status}`);
   }
 
   return response.json();
@@ -2449,6 +2505,179 @@ function AIGovernancePanel({
   );
 }
 
+function ReplaySimulationPanel({
+  replay,
+  loading = false,
+  error = null,
+  waitingForPlan = false,
+}: {
+  replay?: RemediationReplayPreview | null;
+  loading?: boolean;
+  error?: string | null;
+  waitingForPlan?: boolean;
+}) {
+  if (waitingForPlan && !replay) {
+    return (
+      <div className="rounded-md border border-slate-800 bg-slate-950 px-2.5 py-2 text-xs text-slate-400">
+        Waiting for remediation plan before replay simulation.
+      </div>
+    );
+  }
+
+  if (loading && !replay) {
+    return (
+      <div className="rounded-md border border-slate-800 bg-slate-950 px-2.5 py-2 text-xs text-cyan-200">
+        Replay simulation pending...
+      </div>
+    );
+  }
+
+  if (error && !replay) {
+    return (
+      <div className="rounded-md border border-amber-900/70 bg-amber-950/20 px-2.5 py-2 text-xs leading-5 text-amber-300">
+        Replay simulation unavailable. No remediation or rollback action was executed.
+      </div>
+    );
+  }
+
+  if (!replay) {
+    return <EmptyState label="No replay simulation available." />;
+  }
+
+  const blockers = replay.blockers.slice(0, 4);
+  const warnings = replay.warnings.slice(0, 4);
+  const finalStatus = replay.timeline.at(-1)?.status ?? "REQUIRES_REVIEW";
+
+  return (
+    <div className="overflow-hidden rounded-md border border-slate-800 bg-slate-950">
+      <div className="flex flex-col gap-2 border-b border-slate-800 bg-slate-900/70 px-2.5 py-2 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-cyan-300">
+            Replay Simulation
+          </div>
+          <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-400">
+            {replay.summary}
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-1.5">
+          <Badge tone="neutral">{replay.replay_mode.replaceAll("_", " ")}</Badge>
+          <Badge tone={toneForReplayStatus(finalStatus)}>{finalStatus}</Badge>
+          <Badge tone={replay.human_decision_required ? "warning" : "neutral"}>
+            Human decision {replay.human_decision_required ? "required" : "not flagged"}
+          </Badge>
+        </div>
+      </div>
+
+      <div className="grid gap-px bg-slate-800 md:grid-cols-2 xl:grid-cols-4">
+        <DenseField label="Execution supported" value={replay.execution_supported ? "true" : "false"} />
+        <DenseField label="State mutated" value={replay.state_mutated ? "true" : "false"} />
+        <DenseField label="Actions replayed" value={replay.proposed_actions.length} />
+        <DenseField label="Source" value={replay.source} />
+      </div>
+
+      <div className="grid gap-px bg-slate-800 xl:grid-cols-[1.2fr_0.8fr]">
+        <div className="space-y-2 bg-slate-950 p-2.5">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+            Phase timeline
+          </div>
+          <div className="divide-y divide-slate-800 rounded-md border border-slate-800">
+            {replay.timeline.map((entry) => (
+              <div key={`${entry.step}-${entry.phase}`} className="grid grid-cols-[2rem_1fr] gap-2 px-2.5 py-2">
+                <div className="flex h-6 w-6 items-center justify-center rounded-sm border border-slate-700 bg-slate-900 text-[10px] font-semibold text-slate-300">
+                  {entry.step}
+                </div>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Badge tone={toneForReplayStatus(entry.status)}>{entry.status}</Badge>
+                    <span className="text-xs font-semibold text-slate-100">
+                      {entry.title}
+                    </span>
+                  </div>
+                  <div className="mt-0.5 text-[10px] uppercase tracking-wide text-slate-500">
+                    {entry.phase.replaceAll("_", " ")}
+                  </div>
+                  <p className="mt-1 text-[11px] leading-4 text-slate-400">
+                    {entry.description}
+                  </p>
+                  {entry.policy_notes.length > 0 && (
+                    <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-cyan-200">
+                      {entry.policy_notes.join(" ")}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-2 bg-slate-950 p-2.5">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+            Proposed action replay
+          </div>
+          {replay.proposed_actions.length === 0 ? (
+            <EmptyState label="No proposed actions were included in the replay." />
+          ) : (
+            <div className="divide-y divide-slate-800 rounded-md border border-slate-800">
+              {replay.proposed_actions.slice(0, 4).map((action, index) => (
+                <div key={`${action.action_type}-${index}`} className="px-2.5 py-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Badge tone={action.approval_required ? "warning" : "neutral"}>
+                      Approval {action.approval_required ? "required" : "not required"}
+                    </Badge>
+                    <Badge tone={toneForReplayStatus(action.dry_run_status)}>
+                      {action.dry_run_status}
+                    </Badge>
+                  </div>
+                  <div className="mt-1 text-xs font-semibold text-slate-100">
+                    {action.title}
+                  </div>
+                  <div className="mt-0.5 text-[11px] leading-4 text-slate-400">
+                    {action.action_type} · rollback {action.rollback_status} · governance {action.governance_status}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {(blockers.length > 0 || warnings.length > 0) && (
+            <div className="grid gap-2">
+              {blockers.length > 0 && (
+                <GovernanceList
+                  title="Policy blockers"
+                  items={blockers}
+                  emptyLabel="No blockers were reported."
+                  tone="danger"
+                />
+              )}
+              {warnings.length > 0 && (
+                <GovernanceList
+                  title="Replay warnings"
+                  items={warnings}
+                  emptyLabel="No warnings were reported."
+                  tone="warning"
+                />
+              )}
+            </div>
+          )}
+
+          <div className="rounded-md border border-slate-800 bg-slate-900/50 p-2">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+              Final recommendation
+            </div>
+            <p className="mt-1 text-[11px] leading-4 text-slate-300">
+              {replay.final_recommendation}
+            </p>
+          </div>
+
+          <div className="rounded-md border border-slate-800 bg-slate-950 px-2.5 py-2 text-[11px] leading-4 text-slate-500">
+            {replay.notes.slice(0, 4).join(" ")}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function InvestigationConsole({
   incident,
   notes,
@@ -2468,6 +2697,9 @@ function InvestigationConsole({
   remediationAuditTrail,
   remediationAuditTrailLoading,
   remediationAuditTrailError,
+  remediationReplay,
+  remediationReplayLoading,
+  remediationReplayError,
   onNoteDraftChange,
   onAddNote,
 }: {
@@ -2489,6 +2721,9 @@ function InvestigationConsole({
   remediationAuditTrail?: RemediationAuditTrailPreview | null;
   remediationAuditTrailLoading?: boolean;
   remediationAuditTrailError?: string | null;
+  remediationReplay?: RemediationReplayPreview | null;
+  remediationReplayLoading?: boolean;
+  remediationReplayError?: string | null;
   onNoteDraftChange: (value: string) => void;
   onAddNote: () => void;
 }) {
@@ -2637,6 +2872,18 @@ function InvestigationConsole({
             dryRun={remediationDryRun}
             loading={remediationDryRunLoading}
             error={remediationDryRunError}
+            waitingForPlan={Boolean(remediationLoading)}
+          />
+        </ConsoleRow>
+
+        <ConsoleRow
+          title="Replay Simulation"
+          description="Read-only workflow replay and final decision posture."
+        >
+          <ReplaySimulationPanel
+            replay={remediationReplay}
+            loading={remediationReplayLoading}
+            error={remediationReplayError}
             waitingForPlan={Boolean(remediationLoading)}
           />
         </ConsoleRow>
@@ -3306,6 +3553,10 @@ export default function IncidentDetailPage() {
     useState<RemediationAuditTrailPreview | null>(null);
   const [remediationAuditTrailLoading, setRemediationAuditTrailLoading] = useState(false);
   const [remediationAuditTrailError, setRemediationAuditTrailError] = useState<string | null>(null);
+  const [remediationReplay, setRemediationReplay] =
+    useState<RemediationReplayPreview | null>(null);
+  const [remediationReplayLoading, setRemediationReplayLoading] = useState(false);
+  const [remediationReplayError, setRemediationReplayError] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
   const [savingNote, setSavingNote] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -3459,6 +3710,9 @@ export default function IncidentDetailPage() {
     setRemediationAuditTrail(null);
     setRemediationAuditTrailError(null);
     setRemediationAuditTrailLoading(false);
+    setRemediationReplay(null);
+    setRemediationReplayError(null);
+    setRemediationReplayLoading(false);
     let cancelled = false;
 
     async function loadRemediationPlan() {
@@ -3624,6 +3878,53 @@ export default function IncidentDetailPage() {
     }
 
     loadRemediationAuditTrail();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [incidentId, remediationPlan, remediationLoading]);
+
+  useEffect(() => {
+    const planIncidentId = String(
+      remediationPlan?.incident_id ?? remediationPlan?.plan?.incident_id ?? "",
+    );
+
+    if (remediationLoading) {
+      return;
+    }
+
+    if (!remediationPlan || planIncidentId !== incidentId) {
+      setRemediationReplayLoading(false);
+      return;
+    }
+
+    setRemediationReplay(null);
+    setRemediationReplayError(null);
+    setRemediationReplayLoading(true);
+    let cancelled = false;
+
+    async function loadRemediationReplay() {
+      try {
+        const replay = await fetchIncidentRemediationReplay(incidentId);
+
+        if (!cancelled) {
+          setRemediationReplay(replay);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setRemediationReplay(null);
+          setRemediationReplayError(
+            err instanceof Error ? err.message : "Remediation replay unavailable",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setRemediationReplayLoading(false);
+        }
+      }
+    }
+
+    loadRemediationReplay();
 
     return () => {
       cancelled = true;
@@ -3830,6 +4131,9 @@ export default function IncidentDetailPage() {
                 remediationAuditTrail={remediationAuditTrail}
                 remediationAuditTrailLoading={remediationAuditTrailLoading}
                 remediationAuditTrailError={remediationAuditTrailError}
+                remediationReplay={remediationReplay}
+                remediationReplayLoading={remediationReplayLoading}
+                remediationReplayError={remediationReplayError}
                 onNoteDraftChange={setNoteDraft}
                 onAddNote={addNote}
               />

@@ -66,6 +66,15 @@ from .readiness import (
     assess_action_execution_readiness,
     assess_plan_execution_readiness,
 )
+from .replay import (
+    RemediationReplayMode,
+    RemediationReplayPhase,
+    RemediationReplayProposedAction,
+    RemediationReplayResponse,
+    RemediationReplayStepStatus,
+    RemediationReplayTimelineEntry,
+    generate_incident_remediation_replay,
+)
 from .risk import assess_action_risk, approval_for_action
 from .rollback import build_rollback_plan
 from .rollback_readiness import (
@@ -116,6 +125,12 @@ __all__ = [
     "RemediationPlanningContext",
     "RemediationPostCheck",
     "RemediationPreCheck",
+    "RemediationReplayMode",
+    "RemediationReplayPhase",
+    "RemediationReplayProposedAction",
+    "RemediationReplayResponse",
+    "RemediationReplayStepStatus",
+    "RemediationReplayTimelineEntry",
     "RemediationReviewOutcome",
     "RemediationRiskAssessment",
     "RemediationRiskLevel",
@@ -150,6 +165,7 @@ __all__ = [
     "evaluate_action_approval",
     "evaluate_plan_approval",
     "generate_action_dry_run",
+    "generate_incident_remediation_replay",
     "generate_plan_dry_run",
     "generate_remediation_plan",
     "prepare_execution_audit_record",
