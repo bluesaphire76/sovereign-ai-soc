@@ -74,6 +74,7 @@ type RemediationPlanPreview = {
   incident_id?: number;
   generated_at?: string;
   source?: string;
+  remediation_source?: string | null;
   retry_attempted?: boolean;
   error_type?: string | null;
   model_timeout_seconds?: number;
@@ -504,6 +505,15 @@ function toneClasses(tone: Tone) {
   };
 
   return classes[tone];
+}
+
+function remediationSourceLabel(plan: RemediationPlanPreview | null | undefined) {
+  const source = plan?.source ?? plan?.remediation_source;
+
+  if (source === "local_ai") return "Local AI";
+  if (source === "deterministic_fallback") return "Deterministic fallback";
+  if (source) return source.split("_").join(" ");
+  return "Context";
 }
 
 function prettyJson(value: string | null) {
@@ -1584,11 +1594,21 @@ function RemediationDryRunPanel({
   dryRun,
   loading = false,
   error = null,
+  waitingForPlan = false,
 }: {
   dryRun?: RemediationDryRunPreview | null;
   loading?: boolean;
   error?: string | null;
+  waitingForPlan?: boolean;
 }) {
+  if (waitingForPlan && !dryRun) {
+    return (
+      <div className="rounded-md border border-slate-800 bg-slate-950 px-2.5 py-2 text-xs text-slate-400">
+        Waiting for remediation plan before dry-run simulation.
+      </div>
+    );
+  }
+
   if (loading && !dryRun) {
     return (
       <div className="rounded-md border border-slate-800 bg-slate-950 px-2.5 py-2 text-xs text-cyan-200">
@@ -1726,11 +1746,21 @@ function RollbackReadinessPanel({
   readiness,
   loading = false,
   error = null,
+  waitingForPlan = false,
 }: {
   readiness?: RemediationRollbackReadinessPreview | null;
   loading?: boolean;
   error?: string | null;
+  waitingForPlan?: boolean;
 }) {
+  if (waitingForPlan && !readiness) {
+    return (
+      <div className="rounded-md border border-slate-800 bg-slate-950 px-2.5 py-2 text-xs text-slate-400">
+        Waiting for remediation plan before rollback readiness assessment.
+      </div>
+    );
+  }
+
   if (loading && !readiness) {
     return (
       <div className="rounded-md border border-slate-800 bg-slate-950 px-2.5 py-2 text-xs text-cyan-200">
@@ -1868,11 +1898,21 @@ function RemediationAuditTrailPanel({
   auditTrail,
   loading = false,
   error = null,
+  waitingForPlan = false,
 }: {
   auditTrail?: RemediationAuditTrailPreview | null;
   loading?: boolean;
   error?: string | null;
+  waitingForPlan?: boolean;
 }) {
+  if (waitingForPlan && !auditTrail) {
+    return (
+      <div className="rounded-md border border-slate-800 bg-slate-950 px-2.5 py-2 text-xs text-slate-400">
+        Waiting for remediation plan before governance audit trail.
+      </div>
+    );
+  }
+
   if (loading && !auditTrail) {
     return (
       <div className="rounded-md border border-slate-800 bg-slate-950 px-2.5 py-2 text-xs text-cyan-200">
@@ -2084,6 +2124,153 @@ function ConsoleRow({
   );
 }
 
+function CommandRoomSignal({
+  label,
+  value,
+  detail,
+  tone,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  tone: Tone;
+}) {
+  const classes = toneClasses(tone);
+
+  return (
+    <div className={`min-w-0 rounded-md border px-2.5 py-2 ${classes.panel}`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="truncate text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+          {label}
+        </div>
+        <span className={`shrink-0 text-[10px] font-semibold uppercase tracking-wide ${classes.text}`}>
+          {value}
+        </span>
+      </div>
+      <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-400">
+        {detail}
+      </div>
+    </div>
+  );
+}
+
+function CommandRoomGovernanceStrip({
+  remediationPlan,
+  remediationLoading,
+  remediationError,
+  remediationDryRun,
+  remediationDryRunLoading,
+  remediationDryRunError,
+  rollbackReadiness,
+  rollbackReadinessLoading,
+  rollbackReadinessError,
+  remediationAuditTrail,
+  remediationAuditTrailLoading,
+  remediationAuditTrailError,
+}: {
+  remediationPlan?: RemediationPlanPreview | null;
+  remediationLoading?: boolean;
+  remediationError?: string | null;
+  remediationDryRun?: RemediationDryRunPreview | null;
+  remediationDryRunLoading?: boolean;
+  remediationDryRunError?: string | null;
+  rollbackReadiness?: RemediationRollbackReadinessPreview | null;
+  rollbackReadinessLoading?: boolean;
+  rollbackReadinessError?: string | null;
+  remediationAuditTrail?: RemediationAuditTrailPreview | null;
+  remediationAuditTrailLoading?: boolean;
+  remediationAuditTrailError?: string | null;
+}) {
+  const planValue = remediationLoading
+    ? "Loading"
+    : remediationError
+      ? "Unavailable"
+      : remediationPlan
+        ? remediationSourceLabel(remediationPlan)
+        : "Pending";
+  const planTone: Tone = remediationLoading
+    ? "primary"
+    : remediationError
+      ? "warning"
+      : remediationPlan?.source === "local_ai"
+        ? "success"
+        : remediationPlan
+          ? "primary"
+          : "neutral";
+
+  const dryRunValue = remediationDryRunLoading
+    ? "Loading"
+    : remediationDryRunError
+      ? "Unavailable"
+      : remediationDryRun?.status ?? "Pending";
+  const dryRunTone = remediationDryRunLoading
+    ? "primary"
+    : remediationDryRunError
+      ? "warning"
+      : toneForDryRunStatus(remediationDryRun?.status);
+
+  const rollbackValue = rollbackReadinessLoading
+    ? "Loading"
+    : rollbackReadinessError
+      ? "Unavailable"
+      : rollbackReadiness?.overall_status ?? "Pending";
+  const rollbackTone = rollbackReadinessLoading
+    ? "primary"
+    : rollbackReadinessError
+      ? "warning"
+      : toneForRollbackStatus(rollbackReadiness?.overall_status);
+
+  const auditValue = remediationAuditTrailLoading
+    ? "Loading"
+    : remediationAuditTrailError
+      ? "Unavailable"
+      : remediationAuditTrail
+        ? `${remediationAuditTrail.records.length} records`
+        : "Pending";
+  const auditTone: Tone = remediationAuditTrailLoading
+    ? "primary"
+    : remediationAuditTrailError
+      ? "warning"
+      : remediationAuditTrail
+        ? "success"
+        : "neutral";
+
+  return (
+    <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-5">
+      <CommandRoomSignal
+        label="Remediation plan"
+        value={planValue}
+        detail="Planning intelligence is loaded independently from the incident record."
+        tone={planTone}
+      />
+      <CommandRoomSignal
+        label="Simulation"
+        value={dryRunValue}
+        detail="Dry-run explains expected outcomes without mutating system state."
+        tone={dryRunTone}
+      />
+      <CommandRoomSignal
+        label="Rollback"
+        value={rollbackValue}
+        detail="Rollback readiness is assessed before any future operational workflow."
+        tone={rollbackTone}
+      />
+      <CommandRoomSignal
+        label="Audit trail"
+        value={auditValue}
+        detail="Governance events document approvals, policy gates and boundaries."
+        tone={auditTone}
+      />
+      <CommandRoomSignal
+        label="Execution boundary"
+        value="Disabled"
+        detail="No remediation or rollback execution is available from this page."
+        tone="neutral"
+      />
+    </div>
+  );
+}
+
 function InvestigationConsole({
   incident,
   notes,
@@ -2134,6 +2321,20 @@ function InvestigationConsole({
     .slice(1)
     .filter((section) => !isAiRemediationHeading(section.title));
   const decision = assessmentDecision(incident);
+  const sourceBadgeLabel = remediationLoading
+    ? "AI source loading"
+    : remediationError
+      ? "AI source unavailable"
+      : remediationPlan
+        ? remediationSourceLabel(remediationPlan)
+        : "Context fallback";
+  const sourceBadgeTone: Tone = remediationLoading
+    ? "primary"
+    : remediationError
+      ? "warning"
+      : remediationPlan?.source === "local_ai"
+        ? "success"
+        : "neutral";
 
   return (
     <div className="space-y-3">
@@ -2142,13 +2343,13 @@ function InvestigationConsole({
           <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
             <div>
               <div className="text-[10px] font-semibold uppercase tracking-wide text-violet-300">
-                AI investigation console
+                Incident command room
               </div>
               <h3 className="mt-1 text-sm font-semibold tracking-tight text-slate-100">
                 {decision}
               </h3>
               <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-400">
-                One review surface for assessment, response planning, validation and notes.
+                Local-first investigation, remediation planning, dry-run, rollback readiness, audit trail and analyst notes in one governed surface.
               </p>
             </div>
 
@@ -2160,13 +2361,32 @@ function InvestigationConsole({
                 {incident.status ?? "NEW"}
               </Badge>
               <Badge tone="warning">Human approval</Badge>
+              <Badge tone={sourceBadgeTone}>{sourceBadgeLabel}</Badge>
+              <Badge tone="neutral">Execution disabled</Badge>
             </div>
           </div>
         </div>
 
+        <div className="border-b border-slate-800 bg-slate-950 p-2.5">
+          <CommandRoomGovernanceStrip
+            remediationPlan={remediationPlan}
+            remediationLoading={remediationLoading}
+            remediationError={remediationError}
+            remediationDryRun={remediationDryRun}
+            remediationDryRunLoading={remediationDryRunLoading}
+            remediationDryRunError={remediationDryRunError}
+            rollbackReadiness={rollbackReadiness}
+            rollbackReadinessLoading={rollbackReadinessLoading}
+            rollbackReadinessError={rollbackReadinessError}
+            remediationAuditTrail={remediationAuditTrail}
+            remediationAuditTrailLoading={remediationAuditTrailLoading}
+            remediationAuditTrailError={remediationAuditTrailError}
+          />
+        </div>
+
         <ConsoleRow
           title="Executive brief"
-          description="Compact AI summary with full detail collapsed."
+          description="Situation summary and decision posture."
         >
           {analysis ? (
             <ExecutiveBrief
@@ -2202,14 +2422,14 @@ function InvestigationConsole({
 
         <ConsoleRow
           title="Decision facts"
-          description="Incident facts needed before escalation or closure."
+          description="Evidence posture, scope and correlation."
         >
           <DecisionMatrix incident={incident} />
         </ConsoleRow>
 
         <ConsoleRow
           title="Response plan"
-          description="Actions grouped by operational phase."
+          description="AI remediation intelligence by operational phase."
         >
           <ResponseBoard
             incident={incident}
@@ -2221,41 +2441,44 @@ function InvestigationConsole({
         </ConsoleRow>
 
         <ConsoleRow
-          title="Dry-run simulation"
-          description="Read-only governance check for remediation planning."
+          title="Simulation / dry run"
+          description="Read-only simulation, blockers and approval gates."
         >
           <RemediationDryRunPanel
             dryRun={remediationDryRun}
             loading={remediationDryRunLoading}
             error={remediationDryRunError}
+            waitingForPlan={Boolean(remediationLoading)}
           />
         </ConsoleRow>
 
         <ConsoleRow
           title="Rollback readiness"
-          description="Planning-only rollback checks for proposed remediation."
+          description="Rollback feasibility, risk and validation checks."
         >
           <RollbackReadinessPanel
             readiness={rollbackReadiness}
             loading={rollbackReadinessLoading}
             error={rollbackReadinessError}
+            waitingForPlan={Boolean(remediationLoading)}
           />
         </ConsoleRow>
 
         <ConsoleRow
           title="Remediation audit trail"
-          description="Read-only governance events and execution boundary."
+          description="Governance events, policy status and rationale."
         >
           <RemediationAuditTrailPanel
             auditTrail={remediationAuditTrail}
             loading={remediationAuditTrailLoading}
             error={remediationAuditTrailError}
+            waitingForPlan={Boolean(remediationLoading)}
           />
         </ConsoleRow>
 
         <ConsoleRow
           title="Human review"
-          description="Validation gates and analyst rationale."
+          description="Analyst checklist, rationale and notes."
         >
           <div className="grid gap-3 xl:grid-cols-[0.95fr_1.05fr]">
             <ReviewChecklist />
@@ -3040,13 +3263,13 @@ export default function IncidentDetailPage() {
     setRemediationLoading(true);
     setRemediationDryRun(null);
     setRemediationDryRunError(null);
-    setRemediationDryRunLoading(true);
+    setRemediationDryRunLoading(false);
     setRollbackReadiness(null);
     setRollbackReadinessError(null);
-    setRollbackReadinessLoading(true);
+    setRollbackReadinessLoading(false);
     setRemediationAuditTrail(null);
     setRemediationAuditTrailError(null);
-    setRemediationAuditTrailLoading(true);
+    setRemediationAuditTrailLoading(false);
     let cancelled = false;
 
     async function loadRemediationPlan() {
