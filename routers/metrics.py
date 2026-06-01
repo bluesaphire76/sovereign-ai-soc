@@ -183,6 +183,12 @@ WORKER_BATCH_METRICS = Gauge(
     ["metric"],
 )
 
+LLM_MODEL_IN_USE = Gauge(
+    "ai_soc_llm_model_in_use",
+    "Effective AI SOC LLM model in use according to the latest worker heartbeat.",
+    ["profile", "model", "fallback"],
+)
+
 SURICATA_INGEST_EVENTS = Gauge(
     "ai_soc_suricata_ingest_events",
     "Suricata ingest event counts from the latest worker details.",
@@ -407,6 +413,35 @@ def _collect_worker_metrics(details: dict[str, Any]) -> None:
     batch_metrics = _nested(details, "batch_metrics")
     for key, value in batch_metrics.items():
         _set_labeled_number(WORKER_BATCH_METRICS, str(key), value)
+
+    profile = str(
+        details.get("llm_last_profile")
+        or details.get("llm_configured_profile")
+        or "unknown"
+    ).strip() or "unknown"
+    model = str(
+        details.get("llm_last_model")
+        or details.get("llm_configured_model")
+        or details.get("ollama_model")
+        or "unknown"
+    ).strip() or "unknown"
+    fallback_value = details.get("llm_last_fallback_used")
+
+    if isinstance(fallback_value, bool):
+        fallback = str(fallback_value).lower()
+    elif fallback_value is None:
+        fallback = "unknown"
+    else:
+        fallback = str(fallback_value).strip().lower() or "unknown"
+
+    if hasattr(LLM_MODEL_IN_USE, "clear"):
+        LLM_MODEL_IN_USE.clear()
+
+    LLM_MODEL_IN_USE.labels(
+        profile=profile,
+        model=model,
+        fallback=fallback,
+    ).set(1)
 
 
 

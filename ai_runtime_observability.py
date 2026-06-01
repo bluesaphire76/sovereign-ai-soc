@@ -6,9 +6,12 @@ from typing import Any
 
 import requests
 
+from ai_model_config import PROFILES, get_profile
+from ai_model_policy import AiTask
+from llm_client import generate_ai_response
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:8b")
+OLLAMA_MODEL = get_profile("standard").model
 
 AI_RUNTIME_HEALTH_TIMEOUT_SECONDS = float(
     os.getenv("AI_RUNTIME_HEALTH_TIMEOUT_SECONDS", "3")
@@ -52,6 +55,19 @@ def _normalize_model(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _configured_profiles() -> dict[str, dict[str, Any]]:
+    return {
+        name: {
+            "model": profile.model,
+            "num_ctx": profile.num_ctx,
+            "temperature": profile.temperature,
+            "timeout_seconds": profile.timeout_seconds,
+            "keep_alive": profile.keep_alive,
+        }
+        for name, profile in PROFILES.items()
+    }
+
+
 def get_ollama_runtime_snapshot() -> dict[str, Any]:
     started_at = time.perf_counter()
 
@@ -81,6 +97,8 @@ def get_ollama_runtime_snapshot() -> dict[str, Any]:
         "provider": "ollama",
         "base_url": OLLAMA_BASE_URL,
         "configured_model": OLLAMA_MODEL,
+        "configured_profile": "standard",
+        "configured_profiles": _configured_profiles(),
         "model_present": configured is not None,
         "available_model_count": len(models),
         "available_models": [item.get("name") for item in models if item.get("name")],
@@ -97,36 +115,28 @@ def run_optional_ollama_chat_probe() -> dict[str, Any] | None:
         return None
 
     started_at = time.perf_counter()
-
-    response = requests.post(
-        f"{OLLAMA_BASE_URL}/api/chat",
-        json={
-            "model": OLLAMA_MODEL,
-            "stream": False,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": "Return only the word OK.",
-                }
-            ],
-        },
-        timeout=AI_RUNTIME_HEALTH_CHAT_TIMEOUT_SECONDS,
+    result = generate_ai_response(
+        messages=[
+            {
+                "role": "user",
+                "content": "Return only the word OK.",
+            }
+        ],
+        task=AiTask.ROUTING,
+        requested_mode="fast",
+        user_triggered=False,
+        timeout_seconds=AI_RUNTIME_HEALTH_CHAT_TIMEOUT_SECONDS,
     )
-    response.raise_for_status()
 
     latency_ms = round((time.perf_counter() - started_at) * 1000, 2)
-    payload = response.json()
 
     return {
         "latency_ms": latency_ms,
-        "done": payload.get("done"),
-        "done_reason": payload.get("done_reason"),
-        "total_duration_ns": payload.get("total_duration"),
-        "load_duration_ns": payload.get("load_duration"),
-        "prompt_eval_count": payload.get("prompt_eval_count"),
-        "prompt_eval_duration_ns": payload.get("prompt_eval_duration"),
-        "eval_count": payload.get("eval_count"),
-        "eval_duration_ns": payload.get("eval_duration"),
+        "profile": result.get("profile"),
+        "model": result.get("model"),
+        "fallback_used": result.get("fallback_used"),
+        "error_type": result.get("error_type"),
+        "response_present": bool(result.get("text")),
     }
 
 

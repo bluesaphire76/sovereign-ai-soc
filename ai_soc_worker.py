@@ -23,6 +23,7 @@ from ai_triage_hardening import (
     build_fallback_analysis,
     call_ollama_chat,
     compact_triage_prompt,
+    get_last_llm_call_metadata,
     is_timeout_exception,
 )
 from rag_retriever import retrieve_security_context
@@ -48,7 +49,6 @@ from wazuh_ingest_state import (
     WAZUH_WATERMARK_FLUSH_EVERY,
 )
 
-import ollama
 import requests
 from dotenv import load_dotenv
 from requests.auth import HTTPBasicAuth
@@ -66,6 +66,28 @@ WAZUH_PASSWORD = os.getenv("WAZUH_PASSWORD")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:8b")
 
 POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "30"))
+
+
+def _llm_worker_details() -> dict:
+    metadata = get_last_llm_call_metadata()
+    details = {
+        "ollama_model": OLLAMA_MODEL,
+        "llm_configured_profile": "standard",
+        "llm_configured_model": OLLAMA_MODEL,
+    }
+
+    if metadata:
+        details.update(
+            {
+                "llm_last_profile": metadata.get("profile"),
+                "llm_last_model": metadata.get("model"),
+                "llm_last_fallback_used": metadata.get("fallback_used"),
+                "llm_last_error_type": metadata.get("error_type"),
+                "llm_last_latency_ms": metadata.get("latency_ms"),
+            }
+        )
+
+    return details
 
 
 def get_latest_alerts(limit=None):
@@ -611,7 +633,7 @@ def run_worker():
         "STARTING",
         details={
             "poll_interval_seconds": POLL_INTERVAL_SECONDS,
-            "ollama_model": OLLAMA_MODEL,
+            **_llm_worker_details(),
         },
     )
 
@@ -624,7 +646,7 @@ def run_worker():
                 details={
                     "phase": "polling",
                     "poll_interval_seconds": POLL_INTERVAL_SECONDS,
-                    "ollama_model": OLLAMA_MODEL,
+                    **_llm_worker_details(),
                 },
             )
 
@@ -645,7 +667,7 @@ def run_worker():
                         "current_doc_id": alert.get("_wazuh_doc_id"),
                         "current_timestamp": alert.get("@timestamp"),
                         "poll_interval_seconds": POLL_INTERVAL_SECONDS,
-                        "ollama_model": OLLAMA_MODEL,
+                        **_llm_worker_details(),
                         "wazuh_ingest": query_info,
                     },
                 )
@@ -705,7 +727,7 @@ def run_worker():
                     "latest_event_lag_seconds": batch_metrics.get("latest_event_lag_seconds"),
                     "latest_event_lag_minutes": batch_metrics.get("latest_event_lag_minutes"),
                     "poll_interval_seconds": POLL_INTERVAL_SECONDS,
-                    "ollama_model": OLLAMA_MODEL,
+                    **_llm_worker_details(),
                     "wazuh_ingest": query_info,
                     "batch_metrics": batch_metrics,
                 },
@@ -724,7 +746,7 @@ def run_worker():
                 last_error=str(exc),
                 details={
                     "poll_interval_seconds": POLL_INTERVAL_SECONDS,
-                    "ollama_model": OLLAMA_MODEL,
+                    **_llm_worker_details(),
                     "wazuh_ingest": query_info,
                 },
             )
@@ -735,4 +757,3 @@ def run_worker():
 
 if __name__ == "__main__":
     run_worker()
-

@@ -1,13 +1,25 @@
 import json
 import os
+from threading import Lock
+from typing import Any
 
 import requests
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ModuleNotFoundError:
+    def load_dotenv(*args, **kwargs):
+        return False
+
+from ai_model_config import get_profile
+from ai_model_policy import AiTask
+from llm_client import generate_ai_response
 
 load_dotenv()
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:8b")
+OLLAMA_MODEL = get_profile("standard").model
+_LAST_LLM_CALL_METADATA: dict[str, Any] = {}
+_LAST_LLM_CALL_LOCK = Lock()
 
 
 def _bool_env(name: str, default: str = "true") -> bool:
@@ -75,6 +87,39 @@ def is_timeout_exception(exc: Exception | None) -> bool:
     }
 
 
+def _raise_for_empty_llm_result(result: dict[str, Any]) -> None:
+    error_type = str(result.get("error_type") or "EmptyLlmResponse")
+
+    if error_type in {
+        "ReadTimeout",
+        "Timeout",
+        "TimeoutError",
+        "TimeoutException",
+    }:
+        raise requests.exceptions.Timeout(error_type)
+
+    raise RuntimeError(error_type)
+
+
+def _record_llm_call_metadata(result: dict[str, Any]) -> None:
+    with _LAST_LLM_CALL_LOCK:
+        _LAST_LLM_CALL_METADATA.clear()
+        _LAST_LLM_CALL_METADATA.update(
+            {
+                "profile": result.get("profile"),
+                "model": result.get("model"),
+                "fallback_used": result.get("fallback_used"),
+                "error_type": result.get("error_type"),
+                "latency_ms": result.get("latency_ms"),
+            }
+        )
+
+
+def get_last_llm_call_metadata() -> dict[str, Any]:
+    with _LAST_LLM_CALL_LOCK:
+        return dict(_LAST_LLM_CALL_METADATA)
+
+
 def compact_triage_prompt(prompt: str) -> str:
     max_chars = max(AI_TRIAGE_COMPACT_RETRY_MAX_CHARS, 1000)
 
@@ -128,26 +173,27 @@ def build_ai_triage_failure_reason(
 def call_ollama_chat(
     messages: list[dict],
     timeout_seconds: float | None = None,
+    task: AiTask | str = AiTask.INCIDENT_TRIAGE,
+    severity: str | None = None,
+    requested_mode: str | None = "auto",
+    user_triggered: bool = False,
 ) -> str:
     timeout = timeout_seconds or AI_TRIAGE_TIMEOUT_SECONDS
-
-    payload = {
-        "model": OLLAMA_MODEL,
-        "messages": messages,
-        "stream": False,
-    }
-
-    response = requests.post(
-        f"{OLLAMA_BASE_URL}/api/chat",
-        json=payload,
-        timeout=timeout,
+    result = generate_ai_response(
+        messages=messages,
+        task=task,
+        severity=severity,
+        requested_mode=requested_mode,
+        user_triggered=user_triggered,
+        timeout_seconds=timeout,
     )
-    response.raise_for_status()
+    _record_llm_call_metadata(result)
+    text = str(result.get("text") or "")
 
-    data = response.json()
-    message = data.get("message") or {}
+    if not text:
+        _raise_for_empty_llm_result(result)
 
-    return str(message.get("content") or "")
+    return text
 
 
 def build_fallback_analysis(

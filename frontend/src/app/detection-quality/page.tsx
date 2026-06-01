@@ -103,6 +103,9 @@ type SyntheticRunResponse = {
 type DetectionQualityActionGuidance = {
   source: string;
   model: string | null;
+  llm_profile?: string | null;
+  llm_fallback_used?: boolean;
+  llm_latency_ms?: number | null;
   generated_at: string | null;
   error_type: string | null;
   cache_hit?: boolean;
@@ -162,6 +165,27 @@ function isActionGuidance(
     candidate.how_to_execute.every((step) => typeof step === "string") &&
     typeof candidate.validation_notes === "string"
   );
+}
+
+function formatLlmProfile(profile?: string | null) {
+  const normalized = String(profile ?? "").toLowerCase();
+
+  if (normalized === "fast") return "Fast";
+  if (normalized === "standard") return "Standard";
+  if (normalized === "quality") return "High quality";
+
+  return "Unknown";
+}
+
+function formatGuidanceModelLabel(guidance: DetectionQualityActionGuidance) {
+  const profileLabel = formatLlmProfile(guidance.llm_profile);
+  const fallbackSuffix = guidance.llm_fallback_used ? " fallback" : "";
+
+  if (guidance.llm_profile) {
+    return `${profileLabel}${fallbackSuffix}`;
+  }
+
+  return guidance.source === "local_ai" ? "LLM" : "Fallback";
 }
 
 function loadStoredActionGuidance(): Record<
@@ -1608,11 +1632,11 @@ function DetectionQualityBrief({
             {actionGuidance ? (
               <span
                 className="inline-flex h-4 items-center rounded-sm border border-violet-800 bg-violet-950 px-1.5 py-0 text-[10px] leading-4 text-violet-200"
-                title={`${actionGuidance.source === "local_ai" ? "LLM" : "Fallback"}${
-                  actionGuidance.cache_hit ? " cache" : ""
-                }`}
+                title={`${formatGuidanceModelLabel(actionGuidance)}${
+                  actionGuidance.model ? ` · ${actionGuidance.model}` : ""
+                }${actionGuidance.cache_hit ? " · cache" : ""}`}
               >
-                AI generated
+                {formatGuidanceModelLabel(actionGuidance)}
               </span>
             ) : (
               <button
@@ -1648,6 +1672,13 @@ function DetectionQualityBrief({
               </ol>
               <div className="mt-2 border-t border-violet-900/50 pt-1.5 text-[10px] leading-4 text-slate-500">
                 {actionGuidance.validation_notes}
+              </div>
+              <div className="mt-1 text-[10px] leading-4 text-slate-600">
+                Model: {formatGuidanceModelLabel(actionGuidance)}
+                {actionGuidance.model ? ` (${actionGuidance.model})` : ""}
+                {typeof actionGuidance.llm_latency_ms === "number"
+                  ? ` · ${actionGuidance.llm_latency_ms} ms`
+                  : ""}
               </div>
             </>
           ) : (
