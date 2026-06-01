@@ -3,10 +3,11 @@ from __future__ import annotations
 from ai_governance.models import (
     AIGovernanceAssessment,
     AIGovernanceStatus,
+    AIRemediationGovernanceAssessment,
     AIPresentationSafetyLabel,
     AIClaimClassification,
 )
-from ai_governance.validators import assess_claim_governance
+from ai_governance.validators import assess_claim_governance, assess_remediation_plan_governance
 
 
 def assess_output_governance(
@@ -59,4 +60,19 @@ def is_safe_to_present_as_evidence_backed(assessment: AIGovernanceAssessment) ->
         and assessment.evidence_count > 0
         and not assessment.unsupported_claims
         and assessment.confidence_score >= 70
+    )
+
+
+def assess_remediation_output_governance(
+    *,
+    plan: dict,
+    source: str | None = None,
+    execution_supported: bool = False,
+    fallback_used: bool = False,
+) -> AIRemediationGovernanceAssessment:
+    return assess_remediation_plan_governance(
+        plan=plan,
+        source=source,
+        execution_supported=execution_supported,
+        fallback_used=fallback_used,
     )

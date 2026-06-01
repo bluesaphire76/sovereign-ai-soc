@@ -9,6 +9,7 @@ from typing import Any
 from dotenv import load_dotenv
 from sqlalchemy.exc import SQLAlchemyError
 
+from ai_governance.policy import assess_remediation_output_governance
 from ai_triage_hardening import call_ollama_chat
 from database import SessionLocal
 from llm_output import is_invalid_llm_output, sanitize_llm_output
@@ -189,6 +190,8 @@ def _required_schema() -> dict[str, Any]:
         "rollback_considerations": ["string"],
         "business_impact_considerations": ["string"],
         "approval_requirements": ["string"],
+        "assumptions": ["string"],
+        "unsupported_claims": ["string"],
         "human_validation_required": True,
         "limitations": ["string"],
     }
@@ -246,6 +249,8 @@ def _build_prompt(incident_payload: dict[str, Any]) -> str:
         "rollback_considerations": ["string"],
         "business_impact_considerations": ["string"],
         "approval_requirements": ["string"],
+        "assumptions": ["string"],
+        "unsupported_claims": ["string"],
         "human_validation_required": True,
         "limitations": ["string"],
     }
@@ -254,6 +259,8 @@ def _build_prompt(incident_payload: dict[str, Any]) -> str:
         "/no_think\n"
         "You are a defensive SOC remediation advisor. Produce one concise incident-specific remediation plan. "
         "No commands. No automatic execution. No offensive actions. Human approval is mandatory. "
+        "Every recommended action must include evidence_basis. Include assumptions and limitations. "
+        "Do not claim remediation, containment, rollback or response was performed. "
         "Return only valid JSON, no markdown, no chain-of-thought, no prose outside JSON.\n\n"
         f"Incident:\n{json.dumps(compact_payload, ensure_ascii=False, default=str)}\n\n"
         f"JSON schema:\n{json.dumps(schema, ensure_ascii=False)}"
@@ -315,6 +322,10 @@ def _fallback_plan(incident_payload: dict[str, Any], reason: str) -> dict[str, A
         "approval_requirements": [
             "Human analyst approval is required before any operational change.",
         ],
+        "assumptions": [
+            "Only structured incident fields are available to the fallback remediation planner.",
+        ],
+        "unsupported_claims": [],
         "human_validation_required": True,
         "limitations": [
             reason,
@@ -331,13 +342,34 @@ def _normalize_plan(value: dict[str, Any], incident_payload: dict[str, Any]) -> 
             plan[key] = value[key]
 
     plan["human_validation_required"] = True
+    plan["execution_supported"] = False
+    plan.setdefault("assumptions", [])
+    plan.setdefault("unsupported_claims", [])
+    plan.setdefault("limitations", [])
 
     for action in plan.get("recommended_actions", []):
         if isinstance(action, dict):
             action["approval_requirement"] = action.get("approval_requirement") or "ANALYST_APPROVAL"
             action["rollback_possible"] = bool(action.get("rollback_possible", True))
+            action["execution_supported"] = False
+            action.setdefault("evidence_basis", [])
 
     return plan
+
+
+def _governance_payload(
+    plan: dict[str, Any],
+    *,
+    source: str,
+    execution_supported: bool = False,
+) -> dict[str, object]:
+    assessment = assess_remediation_output_governance(
+        plan=plan,
+        source=source,
+        execution_supported=execution_supported,
+        fallback_used=source == "deterministic_fallback",
+    )
+    return assessment.to_payload()
 
 
 def generate_remediation_intelligence(incident_id: int) -> dict[str, Any]:
@@ -366,7 +398,13 @@ def generate_remediation_intelligence(incident_id: int) -> dict[str, Any]:
                 "retry_attempted": False,
                 "error_type": type(exc).__name__,
                 "model_timeout_seconds": REMEDIATION_INTELLIGENCE_TIMEOUT_SECONDS,
+                "execution_supported": False,
                 "plan": plan,
+                "governance": _governance_payload(
+                    plan,
+                    source="deterministic_fallback",
+                    execution_supported=False,
+                ),
             }
 
         if not incident:
@@ -442,7 +480,13 @@ def generate_remediation_intelligence(incident_id: int) -> dict[str, Any]:
             "retry_attempted": retry_attempted,
             "error_type": error_type,
             "model_timeout_seconds": REMEDIATION_INTELLIGENCE_TIMEOUT_SECONDS,
+            "execution_supported": False,
             "plan": plan,
+            "governance": _governance_payload(
+                plan,
+                source=source,
+                execution_supported=False,
+            ),
         }
         _cache_set(incident_id, result)
         return result

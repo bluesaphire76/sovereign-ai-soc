@@ -70,6 +70,18 @@ type RemediationRecommendedActionPreview = {
   evidence_basis?: string[] | null;
 };
 
+type AIGovernancePreview = {
+  status?: string | null;
+  confidence_score?: number | null;
+  evidence_coverage?: string | null;
+  human_review_required?: boolean | null;
+  unsupported_claims?: string[] | null;
+  assumptions?: string[] | null;
+  limitations?: string[] | null;
+  policy_warnings?: string[] | null;
+  safety_labels?: string[] | null;
+};
+
 type RemediationPlanPreview = {
   incident_id?: number;
   generated_at?: string;
@@ -114,6 +126,7 @@ type RemediationPlanPreview = {
     issues: string[];
     warnings: string[];
   };
+  governance?: AIGovernancePreview | null;
 };
 
 type RemediationDryRunPreview = {
@@ -467,6 +480,25 @@ function toneForPolicyStatus(status: string | null | undefined): Tone {
   if (value === "PASSED") return "success";
   if (value === "WARNING") return "warning";
   if (value === "BLOCKED") return "danger";
+  return "neutral";
+}
+
+function toneForGovernanceStatus(status: string | null | undefined): Tone {
+  const value = (status ?? "").toUpperCase();
+
+  if (value === "PASSED") return "success";
+  if (value === "PASSED_WITH_WARNINGS" || value === "REQUIRES_REVIEW") return "warning";
+  if (value === "BLOCKED") return "danger";
+  return "neutral";
+}
+
+function toneForEvidenceCoverage(coverage: string | null | undefined): Tone {
+  const value = (coverage ?? "").toUpperCase();
+
+  if (value === "HIGH") return "success";
+  if (value === "MEDIUM") return "primary";
+  if (value === "LOW") return "warning";
+  if (value === "NONE") return "danger";
   return "neutral";
 }
 
@@ -2271,6 +2303,152 @@ function CommandRoomGovernanceStrip({
   );
 }
 
+function GovernanceList({
+  title,
+  items,
+  emptyLabel,
+  tone = "neutral",
+}: {
+  title: string;
+  items?: string[] | null;
+  emptyLabel: string;
+  tone?: Tone;
+}) {
+  const values = (items ?? []).filter(Boolean).slice(0, 4);
+  const classes = toneClasses(tone);
+
+  return (
+    <div className="rounded-md border border-slate-800 bg-slate-950">
+      <div className={`border-b border-slate-800 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide ${classes.text}`}>
+        {title}
+      </div>
+      {values.length === 0 ? (
+        <div className="px-2.5 py-2 text-[11px] leading-4 text-slate-500">
+          {emptyLabel}
+        </div>
+      ) : (
+        <div className="divide-y divide-slate-800">
+          {values.map((item, index) => (
+            <div key={`${title}-${item}-${index}`} className="px-2.5 py-2 text-[11px] leading-4 text-slate-300">
+              {item}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AIGovernancePanel({
+  governance,
+  loading = false,
+  error = null,
+}: {
+  governance?: AIGovernancePreview | null;
+  loading?: boolean;
+  error?: string | null;
+}) {
+  if (loading && !governance) {
+    return (
+      <div className="rounded-md border border-slate-800 bg-slate-950 px-2.5 py-2 text-xs text-cyan-200">
+        AI governance assessment pending with remediation intelligence.
+      </div>
+    );
+  }
+
+  if (error && !governance) {
+    return (
+      <div className="rounded-md border border-amber-900/70 bg-amber-950/20 px-2.5 py-2 text-xs leading-5 text-amber-300">
+        AI governance assessment unavailable. Treat remediation guidance as advisory and require human review.
+      </div>
+    );
+  }
+
+  if (!governance) {
+    return <EmptyState label="No structured AI governance assessment is available for this remediation plan." />;
+  }
+
+  const status = governance.status ?? "REQUIRES_REVIEW";
+  const evidenceCoverage = governance.evidence_coverage ?? "UNKNOWN";
+  const confidence = typeof governance.confidence_score === "number"
+    ? governance.confidence_score
+    : 0;
+  const safetyLabels = (governance.safety_labels ?? []).slice(0, 5);
+
+  return (
+    <div className="overflow-hidden rounded-md border border-slate-800 bg-slate-950">
+      <div className="flex flex-col gap-2 border-b border-slate-800 bg-slate-900/70 px-2.5 py-2 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-cyan-300">
+            AI Governance
+          </div>
+          <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-400">
+            Structured safeguard assessment for AI-generated remediation guidance. Recommendations remain advisory until validated by a human analyst.
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-1.5">
+          <Badge tone={toneForGovernanceStatus(status)}>{status}</Badge>
+          <Badge tone={toneForEvidenceCoverage(evidenceCoverage)}>
+            Evidence {evidenceCoverage}
+          </Badge>
+          <Badge tone={governance.human_review_required === false ? "neutral" : "warning"}>
+            Human review {governance.human_review_required === false ? "not flagged" : "required"}
+          </Badge>
+        </div>
+      </div>
+
+      <div className="grid gap-px bg-slate-800 md:grid-cols-2 xl:grid-cols-4">
+        <DenseField label="Confidence" value={`${confidence}/100`} />
+        <DenseField label="Evidence coverage" value={evidenceCoverage} />
+        <DenseField label="Unsupported claims" value={governance.unsupported_claims?.length ?? 0} />
+        <DenseField label="Assumptions" value={governance.assumptions?.length ?? 0} />
+      </div>
+
+      {safetyLabels.length > 0 && (
+        <div className="border-b border-slate-800 bg-slate-950 px-2.5 py-2">
+          <div className="flex flex-wrap gap-1.5">
+            {safetyLabels.map((label) => (
+              <Badge key={label} tone={label === "NO_EXECUTION" || label === "EXECUTION_DISABLED" ? "neutral" : "primary"}>
+                {label}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="grid gap-px bg-slate-800 xl:grid-cols-2">
+        <div className="grid gap-2 bg-slate-950 p-2.5">
+          <GovernanceList
+            title="Policy warnings"
+            items={governance.policy_warnings}
+            emptyLabel="No policy warnings were reported."
+            tone="warning"
+          />
+          <GovernanceList
+            title="Limitations"
+            items={governance.limitations}
+            emptyLabel="No explicit limitations were reported."
+          />
+        </div>
+        <div className="grid gap-2 bg-slate-950 p-2.5">
+          <GovernanceList
+            title="Unsupported claims"
+            items={governance.unsupported_claims}
+            emptyLabel="No unsupported claims were reported."
+            tone="danger"
+          />
+          <GovernanceList
+            title="Assumptions"
+            items={governance.assumptions}
+            emptyLabel="No assumptions were reported."
+            tone="primary"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function InvestigationConsole({
   incident,
   notes,
@@ -2383,6 +2561,17 @@ function InvestigationConsole({
             remediationAuditTrailError={remediationAuditTrailError}
           />
         </div>
+
+        <ConsoleRow
+          title="AI Governance"
+          description="Confidence, evidence coverage, warnings and limitations."
+        >
+          <AIGovernancePanel
+            governance={remediationPlan?.governance}
+            loading={remediationLoading}
+            error={remediationError}
+          />
+        </ConsoleRow>
 
         <ConsoleRow
           title="Executive brief"
