@@ -11,7 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from ai_governance.policy import assess_remediation_output_governance
 from ai_model_policy import AiTask
-from ai_triage_hardening import call_ollama_chat
+from ai_triage_hardening import call_ollama_chat, get_last_llm_call_metadata
 from database import SessionLocal
 from llm_output import is_invalid_llm_output, sanitize_llm_output
 from models import Incident, utc_now
@@ -416,6 +416,7 @@ def generate_remediation_intelligence(incident_id: int) -> dict[str, Any]:
 
         source = "local_ai"
         raw_output = ""
+        llm_metadata: dict[str, Any] = {}
         parsed: dict[str, Any] | None = None
         retry_attempted = False
         error_type = None
@@ -438,6 +439,7 @@ def generate_remediation_intelligence(incident_id: int) -> dict[str, Any]:
                 requested_mode="auto",
                 user_triggered=True,
             )
+            llm_metadata = get_last_llm_call_metadata()
 
             cleaned = sanitize_llm_output(raw_output)
             parsed = _extract_json_object(cleaned)
@@ -461,6 +463,7 @@ def generate_remediation_intelligence(incident_id: int) -> dict[str, Any]:
                     requested_mode="auto",
                     user_triggered=True,
                 )
+                llm_metadata = get_last_llm_call_metadata()
 
                 cleaned = sanitize_llm_output(raw_output)
                 parsed = _extract_json_object(cleaned)
@@ -489,6 +492,9 @@ def generate_remediation_intelligence(incident_id: int) -> dict[str, Any]:
             "retry_attempted": retry_attempted,
             "error_type": error_type,
             "model_timeout_seconds": REMEDIATION_INTELLIGENCE_TIMEOUT_SECONDS,
+            "model_profile": llm_metadata.get("profile"),
+            "model": llm_metadata.get("model"),
+            "model_task": AiTask.REMEDIATION.value,
             "execution_supported": False,
             "plan": plan,
             "governance": _governance_payload(

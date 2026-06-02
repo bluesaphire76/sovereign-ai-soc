@@ -1,7 +1,12 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
+from remediation.controlled_soar import (
+    ControlledSoarExecutionRequest,
+    actor_from_current_user,
+    execute_approved_controlled_soar_action,
+)
 from remediation.audit_trail import generate_incident_remediation_audit_trail
 from remediation.intelligence import generate_remediation_intelligence
 from remediation.replay import generate_incident_remediation_replay
@@ -81,5 +86,31 @@ def get_incident_remediation_replay(incident_id: int):
         result = generate_incident_remediation_replay(incident_id)
     except ValueError:
         raise HTTPException(status_code=404, detail="Incident not found.")
+
+    return result.model_dump(mode="json")
+
+
+@router.post("/incidents/{incident_id}/remediation-actions/{action_id}/execute-approved")
+def execute_approved_incident_remediation_action(
+    incident_id: int,
+    action_id: str,
+    payload: ControlledSoarExecutionRequest,
+    request: Request,
+):
+    if incident_id <= 0:
+        raise HTTPException(status_code=404, detail="Incident not found.")
+
+    actor = actor_from_current_user(getattr(request.state, "current_user", None))
+
+    try:
+        result = execute_approved_controlled_soar_action(
+            incident_id=incident_id,
+            action_id=action_id,
+            actor=actor,
+            approval_confirmed=payload.approval_confirmed,
+            approval_rationale=payload.approval_rationale,
+        )
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Incident or remediation action not found.")
 
     return result.model_dump(mode="json")
