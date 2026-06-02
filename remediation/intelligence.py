@@ -14,7 +14,7 @@ from ai_model_policy import AiTask
 from ai_triage_hardening import call_ollama_chat, get_last_llm_call_metadata
 from database import SessionLocal
 from llm_output import is_invalid_llm_output, sanitize_llm_output
-from models import Incident, utc_now
+from models import Incident, IncidentAudit, utc_now
 
 
 load_dotenv()
@@ -26,6 +26,7 @@ REMEDIATION_INTELLIGENCE_CACHE_TTL_SECONDS = float(
     os.getenv("REMEDIATION_INTELLIGENCE_CACHE_TTL_SECONDS", "120")
 )
 _REMEDIATION_INTELLIGENCE_CACHE: dict[int, tuple[float, dict[str, Any]]] = {}
+REMEDIATION_PLAN_SNAPSHOT_EVENT_TYPE = "REMEDIATION_PLAN_SNAPSHOT"
 
 
 def _cache_get(incident_id: int) -> dict[str, Any] | None:
@@ -43,6 +44,54 @@ def _cache_get(incident_id: int) -> dict[str, Any] | None:
 
 def _cache_set(incident_id: int, payload: dict[str, Any]) -> None:
     _REMEDIATION_INTELLIGENCE_CACHE[incident_id] = (time.monotonic(), copy.deepcopy(payload))
+
+
+def _persistent_snapshot_get(db, incident_id: int) -> dict[str, Any] | None:
+    row = (
+        db.query(IncidentAudit)
+        .filter(
+            IncidentAudit.incident_id == incident_id,
+            IncidentAudit.event_type == REMEDIATION_PLAN_SNAPSHOT_EVENT_TYPE,
+        )
+        .order_by(IncidentAudit.created_at.desc(), IncidentAudit.id.desc())
+        .first()
+    )
+    if row is None or not row.new_value:
+        return None
+
+    try:
+        payload = json.loads(row.new_value)
+    except Exception:
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    payload.setdefault("incident_id", incident_id)
+    payload["history_source"] = "incident_audit_snapshot"
+    payload["snapshot_event_id"] = row.id
+    payload["snapshot_created_at"] = (
+        row.created_at.isoformat()
+        if hasattr(row.created_at, "isoformat")
+        else str(row.created_at)
+    )
+    return payload
+
+
+def _persistent_snapshot_set(db, incident_id: int, payload: dict[str, Any]) -> None:
+    row = IncidentAudit(
+        incident_id=incident_id,
+        event_type=REMEDIATION_PLAN_SNAPSHOT_EVENT_TYPE,
+        old_value=None,
+        new_value=json.dumps(payload, ensure_ascii=False, default=str, sort_keys=True),
+        comment=(
+            "Persistent remediation intelligence snapshot. "
+            "Used to keep Incident Command Room history stable across page refreshes."
+        ),
+        created_by="remediation_intelligence",
+    )
+    db.add(row)
+    db.commit()
 
 
 def _safe_json_loads(value: str | None) -> Any:
@@ -411,6 +460,16 @@ def generate_remediation_intelligence(incident_id: int) -> dict[str, Any]:
         if not incident:
             raise ValueError(f"Incident {incident_id} not found")
 
+        try:
+            persistent = _persistent_snapshot_get(db, incident_id)
+        except SQLAlchemyError:
+            db.rollback()
+            persistent = None
+
+        if persistent is not None:
+            _cache_set(incident_id, persistent)
+            return persistent
+
         incident_payload = _incident_payload(incident)
         prompt = _build_prompt(incident_payload)
 
@@ -503,6 +562,10 @@ def generate_remediation_intelligence(incident_id: int) -> dict[str, Any]:
                 execution_supported=False,
             ),
         }
+        try:
+            _persistent_snapshot_set(db, incident_id, result)
+        except SQLAlchemyError:
+            db.rollback()
         _cache_set(incident_id, result)
         return result
 

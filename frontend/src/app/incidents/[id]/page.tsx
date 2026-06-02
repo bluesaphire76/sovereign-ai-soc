@@ -449,6 +449,41 @@ type ParsedAiSection = {
   lines: string[];
 };
 
+type IncidentAiBriefPreview = {
+  source?: string | null;
+  generated_at?: string | null;
+  incident?: Record<string, unknown> | null;
+  brief?: {
+    situation_summary?: string | null;
+    risk_rationale?: string | null;
+    confidence?: number | null;
+    limitations?: string[] | null;
+    evidence_used?: Array<{
+      label?: string | null;
+      type?: string | null;
+      summary?: string | null;
+      strength?: string | null;
+    }> | null;
+    evidence_overview?: Array<{
+      label?: string | null;
+      value?: string | null;
+      detail?: string | null;
+    }> | null;
+    recommended_checks?: Array<{
+      title?: string | null;
+      reason?: string | null;
+      expected_signal?: string | null;
+    }> | null;
+    recommended_actions?: Array<{
+      action?: string | null;
+      reason?: string | null;
+      approval_required?: boolean | null;
+      risk?: string | null;
+    }> | null;
+    executive_summary?: string | null;
+  } | null;
+};
+
 type HierarchicalAiItem = {
   title: string;
   children: string[];
@@ -817,6 +852,30 @@ async function fetchIncidentDnsEvidence(id: string): Promise<IncidentDnsEvidence
   return response.json();
 }
 
+async function fetchIncidentAiBrief(id: string): Promise<IncidentAiBriefPreview | null> {
+  const response = await authFetch(`/incidents/${id}/ai-brief`, {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to load AI brief: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+async function generateIncidentAiBrief(id: string): Promise<IncidentAiBriefPreview | null> {
+  const response = await authFetch(`/incidents/${id}/ai-brief`, {
+    method: "POST",
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to generate AI brief: ${response.status}`);
+  }
+
+  return response.json();
+}
 
 async function fetchIncidentRemediationPlan(id: string): Promise<RemediationPlanPreview | null> {
   const response = await authFetch(`/incidents/${id}/remediation-plan`, {
@@ -3710,6 +3769,410 @@ function DnsEvidencePanel({
   );
 }
 
+function CompactDisclosure({
+  title,
+  description,
+  children,
+  open = false,
+}: {
+  title: string;
+  description?: string;
+  children: ReactNode;
+  open?: boolean;
+}) {
+  return (
+    <details open={open} className="rounded-md border border-slate-800 bg-slate-950">
+      <summary className="cursor-pointer list-none px-3 py-2 hover:bg-slate-900/60">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-xs font-semibold text-slate-100">{title}</div>
+            {description && (
+              <p className="mt-0.5 text-[11px] leading-4 text-slate-500">{description}</p>
+            )}
+          </div>
+          <span className="shrink-0 text-[10px] uppercase tracking-wide text-cyan-300">
+            open
+          </span>
+        </div>
+      </summary>
+      <div className="border-t border-slate-800 p-3">{children}</div>
+    </details>
+  );
+}
+
+function AsyncLine({
+  loading,
+  error,
+  ready,
+}: {
+  loading?: boolean;
+  error?: string | null;
+  ready?: boolean;
+}) {
+  if (loading) {
+    return (
+      <span className="inline-flex items-center gap-1 text-cyan-300">
+        <RefreshCw className="h-3 w-3 animate-spin" />
+        loading
+      </span>
+    );
+  }
+
+  if (error) return <span className="text-amber-300">unavailable</span>;
+  if (ready) return <span className="text-emerald-300">available</span>;
+  return <span className="text-slate-500">pending</span>;
+}
+
+function IncidentCommandCenterRefoundation({
+  incident,
+  auditEvents,
+  notes,
+  noteDraft,
+  savingNote,
+  canOperate,
+  isViewer,
+  creatingCase,
+  aiBrief,
+  aiBriefLoading,
+  aiBriefError,
+  aiBriefGenerating,
+  remediationPlan,
+  remediationLoading,
+  remediationError,
+  remediationDryRun,
+  remediationDryRunLoading,
+  remediationDryRunError,
+  rollbackReadiness,
+  rollbackReadinessLoading,
+  rollbackReadinessError,
+  remediationAuditTrail,
+  remediationAuditTrailLoading,
+  remediationAuditTrailError,
+  remediationReplay,
+  remediationReplayLoading,
+  remediationReplayError,
+  controlledExecutionResult,
+  controlledExecutionLoadingActionId,
+  controlledExecutionError,
+  networkEvidence,
+  dnsEvidence,
+  parsedCorrelationSummary,
+  matchedPatterns,
+  matchedAttackChains,
+  relatedCorrelationEvents,
+  rawAlert,
+  correlationSummary,
+  statusDraft,
+  onStatusDraftChange,
+  onApplyStatus,
+  onCreateCase,
+  onGenerateAiBrief,
+  onNoteDraftChange,
+  onAddNote,
+  onExecuteApprovedAction,
+}: {
+  incident: IncidentDetail;
+  auditEvents: AuditEvent[];
+  notes: IncidentNote[];
+  noteDraft: string;
+  savingNote: boolean;
+  canOperate: boolean;
+  isViewer: boolean;
+  creatingCase: boolean;
+  aiBrief?: IncidentAiBriefPreview | null;
+  aiBriefLoading?: boolean;
+  aiBriefError?: string | null;
+  aiBriefGenerating?: boolean;
+  remediationPlan?: RemediationPlanPreview | null;
+  remediationLoading?: boolean;
+  remediationError?: string | null;
+  remediationDryRun?: RemediationDryRunPreview | null;
+  remediationDryRunLoading?: boolean;
+  remediationDryRunError?: string | null;
+  rollbackReadiness?: RemediationRollbackReadinessPreview | null;
+  rollbackReadinessLoading?: boolean;
+  rollbackReadinessError?: string | null;
+  remediationAuditTrail?: RemediationAuditTrailPreview | null;
+  remediationAuditTrailLoading?: boolean;
+  remediationAuditTrailError?: string | null;
+  remediationReplay?: RemediationReplayPreview | null;
+  remediationReplayLoading?: boolean;
+  remediationReplayError?: string | null;
+  controlledExecutionResult?: ControlledSoarExecutionResult | null;
+  controlledExecutionLoadingActionId?: string | null;
+  controlledExecutionError?: string | null;
+  networkEvidence?: IncidentNetworkEvidence | null;
+  dnsEvidence?: IncidentDnsEvidence | null;
+  parsedCorrelationSummary?: CorrelationSummary | null;
+  matchedPatterns: Array<[string, { keywords?: string[]; weight?: number }]>;
+  matchedAttackChains: NonNullable<CorrelationSummary["matched_attack_chains"]>;
+  relatedCorrelationEvents: NonNullable<CorrelationSummary["related_event_details"]>;
+  rawAlert: string;
+  correlationSummary: string;
+  statusDraft: string;
+  onStatusDraftChange: (status: string) => void;
+  onApplyStatus: () => void;
+  onCreateCase: () => void;
+  onGenerateAiBrief: () => void;
+  onNoteDraftChange: (value: string) => void;
+  onAddNote: () => void;
+  onExecuteApprovedAction: (actionId: string) => void;
+}) {
+  const analysis = (incident.ai_analysis ?? "").trim();
+  const sections = analysis ? parseAiAnalysis(analysis) : [];
+  const decision = assessmentDecision(incident);
+  const brief = aiBrief?.brief;
+  const currentStatus = incident.status ?? "NEW";
+  const briefSummary =
+    brief?.situation_summary ??
+    brief?.executive_summary ??
+    sections[0]?.lines?.slice(0, 3).join(" ") ??
+    "No AI situation brief is available yet.";
+  const planObjective =
+    remediationPlan?.plan?.remediation_objective ??
+    remediationPlan?.plan?.summary ??
+    remediationPlan?.plan?.executive_summary ??
+    "No remediation plan is available yet.";
+  const supportedAction = remediationReplay?.proposed_actions.find(
+    (action) =>
+      action.controlled_execution_supported &&
+      action.action_id &&
+      !["BLOCKED", "FORBIDDEN"].includes((action.policy_gate_status ?? "").toUpperCase()) &&
+      !["BLOCKED", "NOT_READY", "MISSING"].includes((action.rollback_status ?? "").toUpperCase()),
+  );
+  const controlledResultForAction =
+    supportedAction && controlledExecutionResult?.action_id === supportedAction.action_id
+      ? controlledExecutionResult
+      : null;
+
+  return (
+    <div className="space-y-3">
+      <section className="rounded-md border border-slate-800 bg-slate-950">
+        <div className="grid gap-px bg-slate-800 xl:grid-cols-[1fr_360px]">
+          <div className="bg-slate-950 p-4">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-cyan-300">
+              Incident Command Center
+            </div>
+            <h2 className="mt-1 text-lg font-semibold tracking-tight text-slate-100">
+              {decision}
+            </h2>
+            <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-400">
+              {briefSummary}
+            </p>
+            <div className="mt-3 grid gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800 md:grid-cols-4">
+              <DenseField label="Risk" value={`${riskLabel(incident.risk_score)} · ${incident.risk_score ?? 0}`} />
+              <DenseField label="Status" value={currentStatus} />
+              <DenseField label="Host" value={incident.agent ?? "unknown"} />
+              <DenseField label="Detected" value={incident.timestamp_local ?? formatTimestamp(incident.timestamp)} />
+            </div>
+          </div>
+
+          <div className="space-y-3 bg-slate-950 p-4">
+            <div>
+              <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                Lifecycle
+              </label>
+              <div className="mt-1 flex gap-1.5">
+                <select
+                  value={statusDraft}
+                  disabled={!canOperate}
+                  onChange={(event) => onStatusDraftChange(event.target.value)}
+                  className="h-8 min-w-0 flex-1 rounded-sm border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-400 disabled:opacity-50"
+                >
+                  {INCIDENT_STATUSES.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+                <CommandButton
+                  disabled={!canOperate || statusDraft === currentStatus}
+                  onClick={onApplyStatus}
+                >
+                  Update
+                </CommandButton>
+              </div>
+            </div>
+
+            <div className="grid gap-1.5">
+              {canOperate && (
+                <CommandButton tone="success" disabled={creatingCase} onClick={onCreateCase}>
+                  {creatingCase ? "Creating case..." : "Create case"}
+                </CommandButton>
+              )}
+              {canOperate && (
+                <CommandButton disabled={aiBriefGenerating} onClick={onGenerateAiBrief}>
+                  <RefreshCw className={`h-3.5 w-3.5 ${aiBriefGenerating ? "animate-spin" : ""}`} />
+                  Refresh AI brief
+                </CommandButton>
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="space-y-3">
+          <CompactDisclosure
+            open
+            title="AI Situation Brief"
+            description="Structured AI assessment, evidence, limitations and next checks."
+          >
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                <span>Brief: <AsyncLine loading={aiBriefLoading || aiBriefGenerating} error={aiBriefError} ready={Boolean(aiBrief)} /></span>
+                <span>Plan: <AsyncLine loading={remediationLoading} error={remediationError} ready={Boolean(remediationPlan)} /></span>
+              </div>
+              <ExecutiveBrief
+                lines={briefSummary ? splitAiSentences(briefSummary) : sections[0]?.lines ?? []}
+                decision={decision}
+              />
+              <DecisionMatrix incident={incident} />
+              <ResponseBoard
+                incident={incident}
+                sections={sections}
+                remediationPlan={remediationPlan}
+                remediationLoading={remediationLoading}
+                remediationError={remediationError}
+              />
+              {brief?.limitations?.length ? (
+                <GovernanceList
+                  title="AI limitations"
+                  tone="warning"
+                  items={brief.limitations.slice(0, 6)}
+                  emptyLabel="No AI limitations were returned."
+                />
+              ) : null}
+            </div>
+          </CompactDisclosure>
+
+          <CompactDisclosure
+            open
+            title="Evidence & Correlation"
+            description="Correlation explanation, attack chain, related incidents and telemetry context."
+          >
+            <div className="space-y-3">
+              <CorrelationConsole
+                incident={incident}
+                parsedCorrelationSummary={parsedCorrelationSummary ?? null}
+                matchedPatterns={matchedPatterns}
+                matchedAttackChains={matchedAttackChains}
+                relatedCorrelationEvents={relatedCorrelationEvents}
+              />
+              <div className="grid gap-3 xl:grid-cols-2">
+                <NetworkEvidencePanel evidence={networkEvidence ?? null} />
+                <DnsEvidencePanel evidence={dnsEvidence ?? null} />
+              </div>
+            </div>
+          </CompactDisclosure>
+
+          <CompactDisclosure
+            title="Remediation Governance"
+            description="Plan, dry-run, rollback, audit trail and controlled SOAR eligibility."
+          >
+            <div className="space-y-3">
+              <div className="rounded-md border border-slate-800 bg-slate-950 p-3">
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                  Remediation objective
+                </div>
+                <p className="mt-1 text-sm leading-6 text-slate-300">{planObjective}</p>
+                <p className="mt-2 text-xs leading-5 text-slate-500">
+                  No target-system execution is available from the AI plan endpoint. Only allowlisted product workflow records may be created when policy gates pass.
+                </p>
+              </div>
+              <AIGovernancePanel governance={remediationPlan?.governance} loading={remediationLoading} error={remediationError} />
+              <RemediationDryRunPanel
+                dryRun={remediationDryRun}
+                loading={remediationDryRunLoading}
+                error={remediationDryRunError}
+                waitingForPlan={Boolean(remediationLoading)}
+              />
+              <RollbackReadinessPanel
+                readiness={rollbackReadiness}
+                loading={rollbackReadinessLoading}
+                error={rollbackReadinessError}
+                waitingForPlan={Boolean(remediationLoading)}
+              />
+              <ReplaySimulationPanel
+                replay={remediationReplay}
+                loading={remediationReplayLoading}
+                error={remediationReplayError}
+                waitingForPlan={Boolean(remediationLoading)}
+                canOperate={canOperate}
+                isViewer={isViewer}
+                executionResult={controlledExecutionResult}
+                executionLoadingActionId={controlledExecutionLoadingActionId}
+                executionError={controlledExecutionError}
+                onExecuteApprovedAction={onExecuteApprovedAction}
+              />
+              {controlledResultForAction && (
+                <div className="rounded-md border border-emerald-900/60 bg-emerald-950/20 p-3 text-xs leading-5 text-emerald-200">
+                  {controlledResultForAction.summary}
+                </div>
+              )}
+            </div>
+          </CompactDisclosure>
+
+          <CompactDisclosure
+            title="Technical Evidence Appendix"
+            description="MITRE metadata, raw alert and original payloads."
+          >
+            <div className="grid gap-3 xl:grid-cols-2">
+              <Panel title="MITRE / Metadata" icon={<Database className="h-3.5 w-3.5" />}>
+                <EvidenceBlock title="MITRE evidence">
+                  {incident.mitre ?? "No MITRE data available."}
+                </EvidenceBlock>
+              </Panel>
+              <Panel title="Correlation summary" icon={<FileText className="h-3.5 w-3.5" />}>
+                <EvidenceBlock title="Structured payload">
+                  {correlationSummary || "No correlation summary available."}
+                </EvidenceBlock>
+              </Panel>
+              <div className="xl:col-span-2">
+                <Panel title="Raw Wazuh alert" icon={<FileText className="h-3.5 w-3.5" />}>
+                  <EvidenceBlock title="Raw JSON evidence">
+                    {rawAlert || "No raw alert available."}
+                  </EvidenceBlock>
+                </Panel>
+              </div>
+            </div>
+          </CompactDisclosure>
+        </div>
+
+        <aside className="space-y-3">
+          <Panel title="Human Review Workspace" description="Notes, audit and handoff.">
+            <AnalystNotesPanel
+              notes={notes}
+              noteDraft={noteDraft}
+              savingNote={savingNote}
+              canOperate={canOperate}
+              isViewer={isViewer}
+              onNoteDraftChange={onNoteDraftChange}
+              onAddNote={onAddNote}
+            />
+          </Panel>
+
+          <Panel title="Audit" icon={<ClipboardList className="h-3.5 w-3.5" />}>
+            <AuditTrail auditEvents={auditEvents} />
+          </Panel>
+
+          <CompactDisclosure
+            title="Remediation audit"
+            description="Read-only remediation governance chain."
+          >
+            <RemediationAuditTrailPanel
+              auditTrail={remediationAuditTrail}
+              loading={remediationAuditTrailLoading}
+              error={remediationAuditTrailError}
+              waitingForPlan={Boolean(remediationLoading)}
+            />
+          </CompactDisclosure>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
 
 export default function IncidentDetailPage() {
   const params = useParams();
@@ -3722,6 +4185,10 @@ export default function IncidentDetailPage() {
   const [notes, setNotes] = useState<IncidentNote[]>([]);
   const [networkEvidence, setNetworkEvidence] = useState<IncidentNetworkEvidence | null>(null);
   const [dnsEvidence, setDnsEvidence] = useState<IncidentDnsEvidence | null>(null);
+  const [aiBrief, setAiBrief] = useState<IncidentAiBriefPreview | null>(null);
+  const [aiBriefLoading, setAiBriefLoading] = useState(false);
+  const [aiBriefGenerating, setAiBriefGenerating] = useState(false);
+  const [aiBriefError, setAiBriefError] = useState<string | null>(null);
   const [remediationPlan, setRemediationPlan] = useState<RemediationPlanPreview | null>(null);
   const [remediationLoading, setRemediationLoading] = useState(false);
   const [remediationError, setRemediationError] = useState<string | null>(null);
@@ -3752,6 +4219,7 @@ export default function IncidentDetailPage() {
   const [creatingCase, setCreatingCase] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [statusDraft, setStatusDraft] = useState("NEW");
 
   const canOperate =
     currentUser?.role === "ADMIN" || currentUser?.role === "ANALYST";
@@ -3780,6 +4248,7 @@ export default function IncidentDetailPage() {
       ]);
 
       setIncident(data);
+      setStatusDraft(data.status ?? "NEW");
       setAuditEvents(auditData);
       setNotes(notesData);
       setNetworkEvidence(networkEvidenceData);
@@ -3812,6 +4281,29 @@ export default function IncidentDetailPage() {
       await loadIncident();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
+    }
+  }
+
+  async function refreshAiBrief(generate = false) {
+    try {
+      if (generate) {
+        setAiBriefGenerating(true);
+      } else {
+        setAiBriefLoading(true);
+      }
+      setAiBriefError(null);
+
+      const data = generate
+        ? await generateIncidentAiBrief(incidentId)
+        : await fetchIncidentAiBrief(incidentId);
+
+      setAiBrief(data);
+    } catch (err) {
+      setAiBrief(null);
+      setAiBriefError(err instanceof Error ? err.message : "AI brief unavailable");
+    } finally {
+      setAiBriefLoading(false);
+      setAiBriefGenerating(false);
     }
   }
 
@@ -3911,6 +4403,12 @@ export default function IncidentDetailPage() {
 
   useEffect(() => {
     loadIncident();
+  }, [incidentId]);
+
+  useEffect(() => {
+    setAiBrief(null);
+    setAiBriefError(null);
+    refreshAiBrief(false);
   }, [incidentId]);
 
   useEffect(() => {
@@ -4254,166 +4752,54 @@ export default function IncidentDetailPage() {
         )}
 
         {incident && (
-          <div className="space-y-3">
-            <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
-              <MetricTile
-                title="Risk"
-                value={`${riskLabel(incident.risk_score)} - ${incident.risk_score ?? 0}`}
-                tone={toneForRisk(incident.risk_score)}
-                icon={<AlertTriangle className="h-4 w-4" />}
-              />
-              <MetricTile
-                title="Status"
-                value={incident.status ?? "NEW"}
-                tone={toneForStatus(incident.status)}
-                icon={<ShieldAlert className="h-4 w-4" />}
-              />
-              <MetricTile
-                title="Host"
-                value={incident.agent ?? "unknown"}
-                tone="primary"
-                icon={<Database className="h-4 w-4" />}
-              />
-              <MetricTile
-                title="Wazuh level"
-                value={incident.level ?? 0}
-                tone={toneForRisk((incident.level ?? 0) * 10)}
-                icon={<Target className="h-4 w-4" />}
-              />
-              <MetricTile
-                title="Correlation"
-                value={incident.correlation_score ?? 0}
-                tone={incident.correlated ? "executive" : "neutral"}
-                icon={<Brain className="h-4 w-4" />}
-              />
-              <MetricTile
-                title="Priority"
-                value={incident.recommended_priority ?? "-"}
-                tone={toneForStatus(incident.recommended_priority)}
-                icon={<ShieldAlert className="h-4 w-4" />}
-              />
-            </section>
-
-            <section className="grid gap-3 xl:grid-cols-[340px_1fr]">
-              {canOperate ? (
-                <Panel title="Lifecycle" description="Controlled incident state transitions.">
-                  <LifecycleConsole
-                    status={incident.status}
-                    timestamp={incident.timestamp_local ?? incident.timestamp}
-                    onStatusChange={updateStatus}
-                  />
-                </Panel>
-              ) : isViewer ? (
-                <Panel title="Lifecycle" description="Read-only incident state.">
-                  <LifecycleConsole
-                    status={incident.status}
-                    timestamp={incident.timestamp_local ?? incident.timestamp}
-                    readOnly
-                  />
-                </Panel>
-              ) : null}
-
-              <Panel title="Detection record" description="Primary alert identity and source metadata.">
-                <div className="grid gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800 lg:grid-cols-4">
-                  <DenseField
-                    label="Timestamp"
-                    value={incident.timestamp_local ?? formatTimestamp(incident.timestamp)}
-                  />
-                  <DenseField label="Agent" value={incident.agent ?? "-"} />
-                  <DenseField label="Rule" value={shortText(incident.rule, 140)} />
-                  <DenseField label="Wazuh doc ID" value={incident.wazuh_doc_id ?? "-"} />
-                </div>
-              </Panel>
-            </section>
-
-            <Panel
-              title="Investigation console"
-              description="AI brief, decision facts, response plan, review gates and notes in one surface."
-              icon={<Brain className="h-3.5 w-3.5" />}
-            >
-              <InvestigationConsole
-                incident={incident}
-                notes={notes}
-                noteDraft={noteDraft}
-                savingNote={savingNote}
-                canOperate={canOperate}
-                isViewer={isViewer}
-                remediationPlan={remediationPlan}
-                remediationLoading={remediationLoading}
-                remediationError={remediationError}
-                remediationDryRun={remediationDryRun}
-                remediationDryRunLoading={remediationDryRunLoading}
-                remediationDryRunError={remediationDryRunError}
-                rollbackReadiness={rollbackReadiness}
-                rollbackReadinessLoading={rollbackReadinessLoading}
-                rollbackReadinessError={rollbackReadinessError}
-                remediationAuditTrail={remediationAuditTrail}
-                remediationAuditTrailLoading={remediationAuditTrailLoading}
-                remediationAuditTrailError={remediationAuditTrailError}
-                remediationReplay={remediationReplay}
-                remediationReplayLoading={remediationReplayLoading}
-                remediationReplayError={remediationReplayError}
-                controlledExecutionResult={controlledExecutionResult}
-                controlledExecutionLoadingActionId={controlledExecutionLoadingActionId}
-                controlledExecutionError={controlledExecutionError}
-                onNoteDraftChange={setNoteDraft}
-                onAddNote={addNote}
-                onExecuteApprovedAction={executeControlledWorkflowAction}
-              />
-            </Panel>
-
-            <Panel
-              title="Correlation intelligence"
-              description="Explainable correlation score, matched patterns, attack chains and related events."
-              icon={<Brain className="h-3.5 w-3.5" />}
-            >
-              <CorrelationConsole
-                incident={incident}
-                parsedCorrelationSummary={parsedCorrelationSummary}
-                matchedPatterns={matchedPatterns}
-                matchedAttackChains={matchedAttackChains}
-                relatedCorrelationEvents={relatedCorrelationEvents}
-              />
-            </Panel>
-
-            <section className="grid gap-3 xl:grid-cols-[1fr_420px]">
-              <Panel title="Structured context" icon={<Database className="h-3.5 w-3.5" />}>
-                <div className="grid gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800 lg:grid-cols-2">
-                  <DenseField label="Correlation type" value={incident.correlation_type ?? "-"} />
-                  <DenseField label="Recommended priority" value={incident.recommended_priority ?? "-"} />
-                  <DenseField label="Attack chain" value={incident.attack_chain ?? "-"} />
-                  <DenseField label="Escalation reason" value={incident.escalation_reason ?? "-"} />
-                </div>
-              </Panel>
-
-              <Panel title="Audit trail" icon={<ClipboardList className="h-3.5 w-3.5" />}>
-                <AuditTrail auditEvents={auditEvents} />
-              </Panel>
-            </section>
-
-            <NetworkEvidencePanel evidence={networkEvidence} />
-            <DnsEvidencePanel evidence={dnsEvidence} />
-
-            <section className="grid gap-3 xl:grid-cols-2">
-              <Panel title="MITRE / Metadata" icon={<Database className="h-3.5 w-3.5" />}>
-                <EvidenceBlock title="MITRE evidence">
-                  {incident.mitre ?? "No MITRE data available."}
-                </EvidenceBlock>
-              </Panel>
-
-              <Panel title="Correlation summary" icon={<FileText className="h-3.5 w-3.5" />}>
-                <EvidenceBlock title="Structured payload">
-                  {correlationSummary || "No correlation summary available."}
-                </EvidenceBlock>
-              </Panel>
-            </section>
-
-            <Panel title="Raw Wazuh alert" icon={<FileText className="h-3.5 w-3.5" />}>
-              <EvidenceBlock title="Raw JSON evidence">
-                {rawAlert || "No raw alert available."}
-              </EvidenceBlock>
-            </Panel>
-          </div>
+          <IncidentCommandCenterRefoundation
+            incident={incident}
+            auditEvents={auditEvents}
+            notes={notes}
+            noteDraft={noteDraft}
+            savingNote={savingNote}
+            canOperate={canOperate}
+            isViewer={isViewer}
+            creatingCase={creatingCase}
+            aiBrief={aiBrief}
+            aiBriefLoading={aiBriefLoading}
+            aiBriefError={aiBriefError}
+            aiBriefGenerating={aiBriefGenerating}
+            remediationPlan={remediationPlan}
+            remediationLoading={remediationLoading}
+            remediationError={remediationError}
+            remediationDryRun={remediationDryRun}
+            remediationDryRunLoading={remediationDryRunLoading}
+            remediationDryRunError={remediationDryRunError}
+            rollbackReadiness={rollbackReadiness}
+            rollbackReadinessLoading={rollbackReadinessLoading}
+            rollbackReadinessError={rollbackReadinessError}
+            remediationAuditTrail={remediationAuditTrail}
+            remediationAuditTrailLoading={remediationAuditTrailLoading}
+            remediationAuditTrailError={remediationAuditTrailError}
+            remediationReplay={remediationReplay}
+            remediationReplayLoading={remediationReplayLoading}
+            remediationReplayError={remediationReplayError}
+            controlledExecutionResult={controlledExecutionResult}
+            controlledExecutionLoadingActionId={controlledExecutionLoadingActionId}
+            controlledExecutionError={controlledExecutionError}
+            networkEvidence={networkEvidence}
+            dnsEvidence={dnsEvidence}
+            parsedCorrelationSummary={parsedCorrelationSummary}
+            matchedPatterns={matchedPatterns}
+            matchedAttackChains={matchedAttackChains}
+            relatedCorrelationEvents={relatedCorrelationEvents}
+            rawAlert={rawAlert}
+            correlationSummary={correlationSummary}
+            statusDraft={statusDraft}
+            onStatusDraftChange={setStatusDraft}
+            onApplyStatus={() => updateStatus(statusDraft)}
+            onCreateCase={createCaseFromIncident}
+            onGenerateAiBrief={() => refreshAiBrief(true)}
+            onNoteDraftChange={setNoteDraft}
+            onAddNote={addNote}
+            onExecuteApprovedAction={executeControlledWorkflowAction}
+          />
         )}
       </div>
     </main>
