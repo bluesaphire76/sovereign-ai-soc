@@ -90,6 +90,9 @@ type RemediationPlanPreview = {
   retry_attempted?: boolean;
   error_type?: string | null;
   model_timeout_seconds?: number;
+  model_profile?: string | null;
+  model?: string | null;
+  model_task?: string | null;
   execution_supported?: boolean;
   notes?: string[];
   plan: {
@@ -238,17 +241,50 @@ type RemediationReplayPreview = {
     policy_notes: string[];
   }>;
   proposed_actions: Array<{
+    action_id?: string | null;
     action_type: string;
     title: string;
     approval_required: boolean;
     dry_run_status: string;
     rollback_status: string;
     governance_status: string;
+    controlled_execution_supported?: boolean | null;
+    controlled_action_type?: string | null;
+    execution_label?: string | null;
+    unsupported_reason?: string | null;
+    policy_gate_status?: string | null;
   }>;
   blockers: string[];
   warnings: string[];
   human_decision_required: boolean;
   final_recommendation: string;
+  notes: string[];
+};
+
+type ControlledSoarExecutionResult = {
+  incident_id: number;
+  action_id: string;
+  action_type: string;
+  source: string;
+  execution_supported: boolean;
+  external_system_mutated: boolean;
+  target_system_mutated: boolean;
+  product_workflow_mutated?: boolean;
+  status: string;
+  summary: string;
+  policy_checks: Array<{
+    check: string;
+    status: string;
+    detail: string;
+  }>;
+  created_records: Array<{
+    record_type: string;
+    record_id: string;
+  }>;
+  audit: {
+    before_event_id?: string | null;
+    after_event_id?: string | null;
+  };
   notes: string[];
 };
 
@@ -846,6 +882,34 @@ async function fetchIncidentRemediationReplay(
   }
 
   return response.json();
+}
+
+async function executeApprovedRemediationAction(
+  id: string,
+  actionId: string,
+): Promise<ControlledSoarExecutionResult> {
+  const response = await authFetch(
+    `/incidents/${id}/remediation-actions/${encodeURIComponent(actionId)}/execute-approved`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        approval_confirmed: true,
+        approval_rationale:
+          "Operator confirmed controlled product-only workflow action from Incident Command Room.",
+      }),
+    },
+  );
+
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(String(payload?.detail ?? `API error ${response.status}`));
+  }
+
+  return payload;
 }
 
 
@@ -2322,13 +2386,16 @@ function CommandRoomGovernanceStrip({
       : remediationAuditTrail
         ? "success"
         : "neutral";
+  const planDetail = remediationPlan?.model_profile
+    ? `LLM ${remediationPlan.model_profile}: ${remediationPlan.model ?? "configured model"}; advisory only.`
+    : "Planning intelligence is loaded independently from the incident record.";
 
   return (
     <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-5">
       <CommandRoomSignal
         label="Remediation plan"
         value={planValue}
-        detail="Planning intelligence is loaded independently from the incident record."
+        detail={planDetail}
         tone={planTone}
       />
       <CommandRoomSignal
@@ -2351,8 +2418,8 @@ function CommandRoomGovernanceStrip({
       />
       <CommandRoomSignal
         label="Execution boundary"
-        value="Disabled"
-        detail="No remediation or rollback execution is available from this page."
+        value="Controlled"
+        detail="Only allowlisted internal workflow records can be created; target execution is disabled."
         tone="neutral"
       />
     </div>
@@ -2510,12 +2577,26 @@ function ReplaySimulationPanel({
   loading = false,
   error = null,
   waitingForPlan = false,
+  canOperate = false,
+  isViewer = false,
+  executionResult = null,
+  executionLoadingActionId = null,
+  executionError = null,
+  onExecuteApprovedAction,
 }: {
   replay?: RemediationReplayPreview | null;
   loading?: boolean;
   error?: string | null;
   waitingForPlan?: boolean;
+  canOperate?: boolean;
+  isViewer?: boolean;
+  executionResult?: ControlledSoarExecutionResult | null;
+  executionLoadingActionId?: string | null;
+  executionError?: string | null;
+  onExecuteApprovedAction?: (actionId: string) => void;
 }) {
+  const [confirmedActionId, setConfirmedActionId] = useState<string | null>(null);
+
   if (waitingForPlan && !replay) {
     return (
       <div className="rounded-md border border-slate-800 bg-slate-950 px-2.5 py-2 text-xs text-slate-400">
@@ -2618,24 +2699,112 @@ function ReplaySimulationPanel({
             <EmptyState label="No proposed actions were included in the replay." />
           ) : (
             <div className="divide-y divide-slate-800 rounded-md border border-slate-800">
-              {replay.proposed_actions.slice(0, 4).map((action, index) => (
-                <div key={`${action.action_type}-${index}`} className="px-2.5 py-2">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <Badge tone={action.approval_required ? "warning" : "neutral"}>
-                      Approval {action.approval_required ? "required" : "not required"}
-                    </Badge>
-                    <Badge tone={toneForReplayStatus(action.dry_run_status)}>
-                      {action.dry_run_status}
-                    </Badge>
+              {replay.proposed_actions.slice(0, 4).map((action, index) => {
+                const actionId = action.action_id ?? "";
+                const supportStatus = action.controlled_execution_supported
+                  ? "Supported"
+                  : "Not supported";
+                const gateStatus = action.policy_gate_status ?? "REQUIRES_REVIEW";
+                const rollbackBlocked = ["BLOCKED", "MISSING", "UNKNOWN", "NOT_READY"].includes(
+                  action.rollback_status,
+                );
+                const dryRunBlocked = action.dry_run_status === "BLOCKED";
+                const governanceBlocked = action.governance_status === "BLOCKED";
+                const confirmed = confirmedActionId === actionId;
+                const loadingAction = executionLoadingActionId === actionId;
+                const canExecute =
+                  canOperate &&
+                  !isViewer &&
+                  Boolean(actionId) &&
+                  Boolean(action.controlled_execution_supported) &&
+                  !dryRunBlocked &&
+                  !rollbackBlocked &&
+                  !governanceBlocked &&
+                  confirmed &&
+                  !loadingAction;
+                const actionResult =
+                  executionResult?.action_id === actionId ? executionResult : null;
+
+                return (
+                  <div key={`${action.action_type}-${index}`} className="px-2.5 py-2">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Badge tone={action.approval_required ? "warning" : "neutral"}>
+                        Approval {action.approval_required ? "required" : "not required"}
+                      </Badge>
+                      <Badge tone={toneForReplayStatus(action.dry_run_status)}>
+                        {action.dry_run_status}
+                      </Badge>
+                      <Badge tone={action.controlled_execution_supported ? "success" : "neutral"}>
+                        {supportStatus}
+                      </Badge>
+                    </div>
+                    <div className="mt-1 text-xs font-semibold text-slate-100">
+                      {action.title}
+                    </div>
+                    <div className="mt-0.5 text-[11px] leading-4 text-slate-400">
+                      {action.action_type} · rollback {action.rollback_status} · governance {action.governance_status}
+                    </div>
+                    <div className="mt-1 text-[11px] leading-4 text-slate-500">
+                      {action.controlled_execution_supported
+                        ? `${action.execution_label ?? "Internal workflow action"} · ${action.controlled_action_type ?? "ALLOWLISTED"} · gate ${gateStatus}`
+                        : action.unsupported_reason ?? "Requires external connector or playbook integration."}
+                    </div>
+
+                    {action.controlled_execution_supported && (
+                      <div className="mt-2 space-y-1.5 rounded-md border border-slate-800 bg-slate-950 p-2">
+                        <label className="flex items-start gap-2 text-[11px] leading-4 text-slate-400">
+                          <input
+                            type="checkbox"
+                            className="mt-0.5 h-3.5 w-3.5 rounded border-slate-700 bg-slate-950"
+                            checked={confirmed}
+                            disabled={!canOperate || isViewer || loadingAction}
+                            onChange={(event) => {
+                              setConfirmedActionId(event.target.checked ? actionId : null);
+                            }}
+                          />
+                          <span>
+                            I confirm human approval. This creates internal task/note/audit records only; no endpoint, identity, firewall or host action is executed.
+                          </span>
+                        </label>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <CommandButton
+                            tone="primary"
+                            disabled={!canExecute}
+                            onClick={() => {
+                              if (actionId && onExecuteApprovedAction) {
+                                onExecuteApprovedAction(actionId);
+                              }
+                            }}
+                          >
+                            {loadingAction ? "Recording..." : "Execute approved action"}
+                          </CommandButton>
+                          {!canOperate && (
+                            <span className="text-[11px] leading-4 text-slate-500">
+                              Read-only role cannot execute workflow actions.
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {actionResult && (
+                      <div className="mt-2 rounded-md border border-emerald-900/60 bg-emerald-950/20 p-2 text-[11px] leading-4 text-emerald-200">
+                        <div className="font-semibold">{actionResult.status}</div>
+                        <div className="mt-0.5">{actionResult.summary}</div>
+                        <div className="mt-0.5 text-emerald-300">
+                          Target mutated: {actionResult.target_system_mutated ? "yes" : "no"} · external mutated: {actionResult.external_system_mutated ? "yes" : "no"}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <div className="mt-1 text-xs font-semibold text-slate-100">
-                    {action.title}
-                  </div>
-                  <div className="mt-0.5 text-[11px] leading-4 text-slate-400">
-                    {action.action_type} · rollback {action.rollback_status} · governance {action.governance_status}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
+            </div>
+          )}
+
+          {executionError && (
+            <div className="rounded-md border border-amber-900/70 bg-amber-950/20 px-2.5 py-2 text-[11px] leading-4 text-amber-300">
+              {executionError}
             </div>
           )}
 
@@ -2700,8 +2869,12 @@ function InvestigationConsole({
   remediationReplay,
   remediationReplayLoading,
   remediationReplayError,
+  controlledExecutionResult,
+  controlledExecutionLoadingActionId,
+  controlledExecutionError,
   onNoteDraftChange,
   onAddNote,
+  onExecuteApprovedAction,
 }: {
   incident: IncidentAiAssessmentInput;
   notes: IncidentNote[];
@@ -2724,8 +2897,12 @@ function InvestigationConsole({
   remediationReplay?: RemediationReplayPreview | null;
   remediationReplayLoading?: boolean;
   remediationReplayError?: string | null;
+  controlledExecutionResult?: ControlledSoarExecutionResult | null;
+  controlledExecutionLoadingActionId?: string | null;
+  controlledExecutionError?: string | null;
   onNoteDraftChange: (value: string) => void;
   onAddNote: () => void;
+  onExecuteApprovedAction?: (actionId: string) => void;
 }) {
   const analysis = (incident.ai_analysis ?? "").trim();
   const sections = analysis ? parseAiAnalysis(analysis) : [];
@@ -2775,7 +2952,7 @@ function InvestigationConsole({
               </Badge>
               <Badge tone="warning">Human approval</Badge>
               <Badge tone={sourceBadgeTone}>{sourceBadgeLabel}</Badge>
-              <Badge tone="neutral">Execution disabled</Badge>
+              <Badge tone="neutral">Target execution disabled</Badge>
             </div>
           </div>
         </div>
@@ -2885,6 +3062,12 @@ function InvestigationConsole({
             loading={remediationReplayLoading}
             error={remediationReplayError}
             waitingForPlan={Boolean(remediationLoading)}
+            canOperate={canOperate}
+            isViewer={isViewer}
+            executionResult={controlledExecutionResult}
+            executionLoadingActionId={controlledExecutionLoadingActionId}
+            executionError={controlledExecutionError}
+            onExecuteApprovedAction={onExecuteApprovedAction}
           />
         </ConsoleRow>
 
@@ -3557,6 +3740,11 @@ export default function IncidentDetailPage() {
     useState<RemediationReplayPreview | null>(null);
   const [remediationReplayLoading, setRemediationReplayLoading] = useState(false);
   const [remediationReplayError, setRemediationReplayError] = useState<string | null>(null);
+  const [controlledExecutionResult, setControlledExecutionResult] =
+    useState<ControlledSoarExecutionResult | null>(null);
+  const [controlledExecutionLoadingActionId, setControlledExecutionLoadingActionId] =
+    useState<string | null>(null);
+  const [controlledExecutionError, setControlledExecutionError] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
   const [savingNote, setSavingNote] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -3693,6 +3881,34 @@ export default function IncidentDetailPage() {
     }
   }
 
+  async function executeControlledWorkflowAction(actionId: string) {
+    if (!canOperate || controlledExecutionLoadingActionId) return;
+
+    try {
+      setControlledExecutionLoadingActionId(actionId);
+      setControlledExecutionError(null);
+      const result = await executeApprovedRemediationAction(incidentId, actionId);
+      setControlledExecutionResult(result);
+
+      const [auditData, notesData, auditTrailData] = await Promise.all([
+        fetchIncidentAudit(incidentId),
+        fetchIncidentNotes(incidentId),
+        fetchIncidentRemediationAuditTrail(incidentId).catch(() => null),
+      ]);
+      setAuditEvents(auditData);
+      setNotes(notesData);
+      if (auditTrailData) {
+        setRemediationAuditTrail(auditTrailData);
+      }
+    } catch (err) {
+      setControlledExecutionError(
+        err instanceof Error ? err.message : "Controlled workflow action failed",
+      );
+    } finally {
+      setControlledExecutionLoadingActionId(null);
+    }
+  }
+
   useEffect(() => {
     loadIncident();
   }, [incidentId]);
@@ -3713,6 +3929,9 @@ export default function IncidentDetailPage() {
     setRemediationReplay(null);
     setRemediationReplayError(null);
     setRemediationReplayLoading(false);
+    setControlledExecutionResult(null);
+    setControlledExecutionError(null);
+    setControlledExecutionLoadingActionId(null);
     let cancelled = false;
 
     async function loadRemediationPlan() {
@@ -4134,8 +4353,12 @@ export default function IncidentDetailPage() {
                 remediationReplay={remediationReplay}
                 remediationReplayLoading={remediationReplayLoading}
                 remediationReplayError={remediationReplayError}
+                controlledExecutionResult={controlledExecutionResult}
+                controlledExecutionLoadingActionId={controlledExecutionLoadingActionId}
+                controlledExecutionError={controlledExecutionError}
                 onNoteDraftChange={setNoteDraft}
                 onAddNote={addNote}
+                onExecuteApprovedAction={executeControlledWorkflowAction}
               />
             </Panel>
 

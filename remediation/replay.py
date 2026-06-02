@@ -19,6 +19,7 @@ from .models import (
     RemediationBaseModel,
     RemediationPlan,
 )
+from .controlled_soar import controlled_soar_support_for_action
 from .rollback_engine import (
     RollbackEngineOverallStatus,
     build_rollback_engine_response,
@@ -71,12 +72,18 @@ class RemediationReplayTimelineEntry(RemediationBaseModel):
 
 
 class RemediationReplayProposedAction(RemediationBaseModel):
+    action_id: str | None = None
     action_type: str
     title: str
     approval_required: bool = True
     dry_run_status: RemediationReplayDryRunStatus = RemediationReplayDryRunStatus.UNKNOWN
     rollback_status: str = "UNKNOWN"
     governance_status: str = "REQUIRES_REVIEW"
+    controlled_execution_supported: bool = False
+    controlled_action_type: str | None = None
+    execution_label: str | None = None
+    unsupported_reason: str | None = None
+    policy_gate_status: str = "REQUIRES_REVIEW"
 
 
 class RemediationReplayResponse(RemediationBaseModel):
@@ -190,6 +197,24 @@ def _approval_required(action: RemediationAction) -> bool:
 
 def _action_evidence(action: RemediationAction) -> list[str]:
     return [evidence.summary for evidence in action.evidence if evidence.summary][:4]
+
+
+def _controlled_gate_status(
+    *,
+    supported: bool,
+    dry_run_status: RemediationReplayDryRunStatus,
+    rollback_status: str,
+    governance_status: str,
+) -> str:
+    if not supported:
+        return "NOT_SUPPORTED"
+    if governance_status == "BLOCKED":
+        return "BLOCKED_BY_GOVERNANCE"
+    if dry_run_status == RemediationReplayDryRunStatus.BLOCKED:
+        return "BLOCKED_BY_DRY_RUN"
+    if rollback_status in {"BLOCKED", "MISSING", "UNKNOWN", "NOT_READY"}:
+        return "BLOCKED_BY_ROLLBACK"
+    return "REQUIRES_HUMAN_APPROVAL"
 
 
 def _blocked_or_warning_values(*values: list[str]) -> tuple[list[str], list[str]]:
@@ -390,16 +415,36 @@ def build_remediation_replay_response(
             dry_status = RemediationReplayDryRunStatus.UNKNOWN
             warnings.append(f"Action dry-run unavailable for {action.title}: {type(exc).__name__}")
 
+        rollback_status = (
+            rollback_by_action.get(action.action_id).rollback_status.value
+            if action.action_id in rollback_by_action
+            else "UNKNOWN"
+        )
+        controlled_support = controlled_soar_support_for_action(action)
+        gate_status = _controlled_gate_status(
+            supported=controlled_support.execution_supported,
+            dry_run_status=dry_status,
+            rollback_status=rollback_status,
+            governance_status=governance_status,
+        )
         proposed_actions.append(
             RemediationReplayProposedAction(
+                action_id=action.action_id,
                 action_type=action.action_type.value,
                 title=action.title,
                 approval_required=_approval_required(action),
                 dry_run_status=dry_status,
-                rollback_status=rollback_by_action.get(action.action_id).rollback_status.value
-                if action.action_id in rollback_by_action
-                else "UNKNOWN",
+                rollback_status=rollback_status,
                 governance_status=governance_status,
+                controlled_execution_supported=controlled_support.execution_supported,
+                controlled_action_type=(
+                    controlled_support.controlled_action_type.value
+                    if controlled_support.controlled_action_type
+                    else None
+                ),
+                execution_label=controlled_support.execution_label,
+                unsupported_reason=controlled_support.unsupported_reason,
+                policy_gate_status=gate_status,
             )
         )
         if not action.evidence:
