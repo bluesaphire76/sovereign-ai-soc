@@ -432,7 +432,7 @@ def build_remediation_replay_response(
                 action_id=action.action_id,
                 action_type=action.action_type.value,
                 title=action.title,
-                approval_required=_approval_required(action),
+                approval_required=True,
                 dry_run_status=dry_status,
                 rollback_status=rollback_status,
                 governance_status=governance_status,
