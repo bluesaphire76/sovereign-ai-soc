@@ -11,10 +11,37 @@ from remediation.audit_trail import generate_incident_remediation_audit_trail
 from remediation.intelligence import generate_remediation_intelligence
 from remediation.replay import generate_incident_remediation_replay
 from remediation.rollback_engine import generate_incident_remediation_rollback_readiness
-from remediation.simulation import generate_incident_remediation_dry_run
+from remediation.simulation import (
+    build_remediation_plan_from_intelligence,
+    generate_incident_remediation_dry_run,
+)
+from remediation.validators import validate_remediation_plan
 
 
 router = APIRouter()
+
+
+def _public_plan_source(source: object) -> str:
+    if source == "deterministic_fallback":
+        return "fallback"
+    if source:
+        return str(source)
+    return "unknown"
+
+
+def _public_plan_payload(result: dict) -> tuple[dict, dict]:
+    remediation_plan = build_remediation_plan_from_intelligence(result)
+    validation = validate_remediation_plan(remediation_plan)
+    intelligence_plan = result.get("plan") if isinstance(result.get("plan"), dict) else {}
+
+    plan = {
+        **intelligence_plan,
+        "incident_id": remediation_plan.incident_id,
+        "plan_id": remediation_plan.plan_id,
+        "execution_supported": False,
+    }
+
+    return plan, validation.model_dump(mode="json")
 
 
 @router.get("/incidents/{incident_id}/remediation-plan")
@@ -27,9 +54,15 @@ def get_incident_remediation_plan(incident_id: int):
     except ValueError:
         raise HTTPException(status_code=404, detail="Incident not found.")
 
+    plan, validation = _public_plan_payload(result)
+
     return {
         **result,
+        "source": _public_plan_source(result.get("source")),
+        "remediation_source": result.get("source"),
         "execution_supported": False,
+        "plan": plan,
+        "validation": validation,
         "notes": [
             "LLM-backed remediation intelligence preview.",
             "No remediation execution is available from this endpoint.",
