@@ -14,6 +14,7 @@ Editable Mermaid source: [deployment-architecture.mmd](diagrams/deployment-archi
 | Next.js frontend | SOC user interface on port `3000` behind Nginx. |
 | FastAPI backend | API service on port `8008` behind Nginx. |
 | PostgreSQL | Operational datastore. |
+| Qdrant | Local vector knowledge base for SOC playbook context used by RAG-enabled AI workflows. |
 | Wazuh | Host/security telemetry source. |
 | Suricata | Network IDS telemetry source. |
 | Ollama | Local AI runtime. |
@@ -33,6 +34,7 @@ Set local values for:
 
 - Wazuh indexer URL and credentials.
 - PostgreSQL host, database, user and password.
+- Qdrant URL, collection and knowledge base path if RAG context is enabled.
 - Ollama model and base URL.
 - Authentication secret.
 - Ingestion and health thresholds.
@@ -62,6 +64,18 @@ PYTHONPATH=. .venv/bin/uvicorn api:app --host 127.0.0.1 --port 8008
 ```
 
 The deployed service is represented by `ai-soc-api`.
+
+## Qdrant Knowledge Base
+
+Qdrant-backed RAG is configured with `AI_SOC_RAG_ENABLED`, `QDRANT_URL`, `QDRANT_COLLECTION` and `QDRANT_KNOWLEDGE_BASE_PATH`.
+
+Index local Markdown playbooks into the configured collection:
+
+```bash
+PYTHONPATH=. .venv/bin/python rag_index.py --recreate
+```
+
+The Health page reports Qdrant as `WARN` when the service is reachable but the configured collection is missing or empty.
 
 ## Nginx
 
@@ -108,7 +122,7 @@ sudo systemctl status ai-soc-dns-collector --no-pager
 After deployment or restart:
 
 1. Open `/health`.
-2. Confirm API and PostgreSQL are healthy.
+2. Confirm API, PostgreSQL and Qdrant are healthy.
 3. Confirm Wazuh/Suricata/DNS freshness if those sources are expected.
 4. Confirm Ollama/local AI runtime status.
 5. Open `/incidents`, `/executive` and `/detection-quality`.

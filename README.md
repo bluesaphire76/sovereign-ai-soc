@@ -169,6 +169,15 @@ npm run build
 npm run start
 ```
 
+Optional local knowledge base indexing for Qdrant-backed RAG:
+
+```bash
+# Recreate the configured collection and index Markdown files from knowledge_base/.
+PYTHONPATH=. .venv/bin/python rag_index.py --recreate
+```
+
+The AI triage, incident brief, case analysis and bounded investigation retrieval paths can use the configured `QDRANT_COLLECTION` for contextual SOC playbook evidence. The Health page reports `WARN` when Qdrant is reachable but the configured knowledge base collection is missing or empty.
+
 Production-style demo deployments in this repository use Nginx and systemd service names already documented in `deploy/`:
 
 ```bash
@@ -233,4 +242,3 @@ See [Roadmap](docs/roadmap.md).
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE).
-

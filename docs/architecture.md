@@ -15,6 +15,7 @@ Editable Mermaid source: [high-level-architecture.mmd](diagrams/high-level-archi
 | Next.js frontend | Enterprise SOC console for dashboards, incidents, cases, detection quality, health and admin workflows. |
 | FastAPI backend | API layer for incidents, cases, reports, AI briefings, health, RBAC and telemetry access. |
 | PostgreSQL | Operational storage for normalized events, alerts, incidents, cases, users, audit and report metadata. |
+| Qdrant | Local vector knowledge base for SOC playbook context used by RAG-enabled AI workflows. |
 | Wazuh | Host and endpoint security monitoring source. |
 | Suricata | Network IDS source normalized into network events. |
 | DNS telemetry | Endpoint DNS context normalized into `dns_events`. |
@@ -55,6 +56,7 @@ This separation keeps reporting, workflow and detection logic clear.
 The local AI runtime supports:
 
 - Incident AI analysis.
+- Qdrant-backed SOC playbook context retrieval for AI prompts and bounded investigation enrichment.
 - Local AI Command Brief generation.
 - Risk rationale and evidence summaries.
 - Recommended actions and HOW TO EXECUTE guidance.
@@ -80,6 +82,7 @@ The repository includes deployment artifacts for:
 - Suricata EVE ingest worker.
 - DNS collector worker.
 - PostgreSQL lab runtime.
+- Qdrant local vector knowledge base.
 - Ollama local runtime.
 
 ![Deployment architecture](assets/architecture/deployment-architecture.svg)

@@ -26,6 +26,13 @@ WAZUH_USER = os.getenv("WAZUH_USER")
 WAZUH_PASSWORD = os.getenv("WAZUH_PASSWORD")
 OLLAMA_MODEL = get_profile("standard").model
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
+QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "security_kb")
+AI_SOC_RAG_ENABLED = os.getenv("AI_SOC_RAG_ENABLED", "true").strip().lower() not in {
+    "0",
+    "false",
+    "no",
+    "off",
+}
 POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "30"))
 WORKER_STALE_AFTER_SECONDS = int(os.getenv("WORKER_STALE_AFTER_SECONDS", "300"))
 EVENT_SOURCE_WINDOW_MINUTES = int(os.getenv("EVENT_SOURCE_WINDOW_MINUTES", "15"))
@@ -896,16 +903,44 @@ def check_qdrant():
         data = response.json()
 
         collections = data.get("result", {}).get("collections", [])
+        collection_names = [item.get("name") for item in collections]
+        collection_details = None
+        points_count = None
+        indexed_vectors_count = None
+        status = "OK"
+        message = "Qdrant is reachable and the configured knowledge base is indexed."
+
+        if QDRANT_COLLECTION in collection_names:
+            detail_response = requests.get(
+                f"{QDRANT_URL.rstrip('/')}/collections/{QDRANT_COLLECTION}",
+                timeout=8,
+            )
+            detail_response.raise_for_status()
+            collection_details = detail_response.json().get("result", {})
+            points_count = collection_details.get("points_count")
+            indexed_vectors_count = collection_details.get("indexed_vectors_count")
+
+            if not points_count:
+                status = "WARN"
+                message = "Qdrant is reachable, but the configured knowledge base collection is empty."
+        else:
+            status = "WARN"
+            message = "Qdrant is reachable, but the configured knowledge base collection is missing."
 
         return component_result(
             component="qdrant",
-            status="OK",
-            message="Qdrant is reachable.",
+            status=status,
+            message=message,
             started_at=started_at,
             details={
                 "url": QDRANT_URL,
-                "collections": [item.get("name") for item in collections],
+                "rag_enabled": AI_SOC_RAG_ENABLED,
+                "configured_collection": QDRANT_COLLECTION,
+                "collections": collection_names,
                 "collection_count": len(collections),
+                "points_count": points_count,
+                "indexed_vectors_count": indexed_vectors_count,
+                "collection_status": collection_details.get("status") if collection_details else None,
             },
         )
 
