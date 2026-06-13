@@ -1,7 +1,7 @@
 # Sovereign AI SOC
 
-![Release](https://img.shields.io/badge/latest%20tag-v0.5.0-953fdc0)
-![v0.5](https://img.shields.io/badge/v0.5-product%20grade%20track-0891b2)
+![Release](https://img.shields.io/badge/latest%20tag-v0.6.0-953fdc0)
+![v0.6](https://img.shields.io/badge/v0.6-AI%20investigation%20%26%20governed%20remediation-0891b2)
 ![License](https://img.shields.io/badge/license-Apache--2.0-2563eb)
 ![Python](https://img.shields.io/badge/Python-FastAPI-3776AB)
 ![Next.js](https://img.shields.io/badge/Next.js-16-000000)
@@ -14,7 +14,7 @@
 ![Grafana](https://img.shields.io/badge/Grafana-Observability-F46800)
 ![Prometheus](https://img.shields.io/badge/Prometheus-Metrics-E6522C)
 
-Sovereign AI SOC is a local-first AI-powered security operations platform combining Wazuh, Suricata, correlation-first incident detection, local AI analysis, case workflow, executive reporting and human-in-the-loop security operations.
+Sovereign AI SOC is a local-first AI-powered security operations platform combining Wazuh, Suricata, correlation-first incident detection, local AI analysis, investigation intelligence, human-governed remediation, case workflow, executive reporting and human-in-the-loop security operations.
 
 It is built as a product-grade prototype for teams that want AI-assisted SOC workflows without making external AI providers a mandatory dependency for sensitive security data.
 
@@ -46,9 +46,10 @@ Sovereign AI SOC demonstrates a local-first approach:
 | Event model | Separation between raw events, security alerts, incidents and cases |
 | Ingestion quality | Aggregation, deduplication, watermarking, backlog tracking and noise suppression |
 | Incident creation | Correlation-first logic before incident creation, with observed-only and suppressed paths |
-| Incident workflow | Incident detail, lifecycle updates, analyst notes, correlation visualization and evidence context |
+| Incident workflow | Incident Command Center, lifecycle updates, analyst notes, AI Situation Brief, correlation visualization and evidence context |
 | Case workflow | Ownership, SLA posture, closure readiness, linked incidents, Kanban and case AI analysis |
-| AI workflow | Incident analysis, Command Brief, risk rationale, evidence summaries, recommended actions and HOW TO EXECUTE guidance |
+| AI workflow | Incident analysis, Command Brief, risk rationale, evidence summaries, configurable local LLM model routing, recommended actions and HOW TO EXECUTE guidance |
+| Remediation workflow | LLM-backed remediation intelligence, approval gates, dry-run simulation, rollback readiness, execution audit trail, replay simulation and controlled internal workflow actions |
 | Detection engineering | Detection Quality dashboard, synthetic scenarios, coverage posture and AI-generated remediation suggestions |
 | Executive workflow | Executive dashboard, executive insights, decision brief and concise management reporting |
 | Reporting | Incident reports, case reports, evidence packs, executive PDFs and professional export naming |
@@ -66,10 +67,12 @@ AI is used across the workflow, not only for triage.
 - Case analysis, open gaps, decision points and workflow support.
 - Correlation explanation to help answer why an event became an incident.
 - Detection Quality assistance for synthetic scenarios, weak coverage areas and next recommended action.
+- LLM-backed remediation intelligence with governance labels, approval requirements, dry-run, rollback readiness and replay simulation.
+- Controlled SOAR support for allowlisted internal workflow actions such as remediation tasks, notes, case actions and audit records.
 - Executive insights and report enrichment for management-ready summaries.
-- Runtime observability, timeout handling and deterministic fallback when the local model is unavailable.
+- Runtime observability, timeout handling, deterministic fallback and visible LLM profile/model metadata when the local model is unavailable or routed by task.
 
-The platform does not autonomously execute destructive or operational response actions. AI provides interpretation, recommendations and draft guidance; the analyst remains responsible for validation and action.
+The platform does not autonomously execute destructive or external operational response actions. AI provides interpretation, recommendations and draft guidance; the analyst remains responsible for validation and action. Controlled SOAR execution is limited to safe internal product workflow records unless future connector/playbook integrations are explicitly added and governed.
 
 See [AI Capabilities](docs/ai-capabilities.md) for the full model.
 
@@ -91,6 +94,8 @@ The product is designed for analyst-controlled security operations:
 - Deterministic policy determines suppression, correlation and incident creation.
 - AI explains, summarizes and recommends.
 - Analysts decide escalation, ownership, response, closure and reporting.
+- Remediation remains human-governed through approval, dry-run, rollback readiness and audit trail checks.
+- Controlled SOAR actions are limited to allowlisted internal workflow records; external host, identity, firewall or endpoint changes are not executed.
 - Admin-only areas such as Security Audit and user management remain protected by RBAC.
 - Evidence packs and audit trails preserve accountability.
 
@@ -120,12 +125,13 @@ A concise product demo can follow this path:
 2. Review active incidents, risk distribution and operational health.
 3. Open a correlated incident in the Incident Command Room.
 4. Explain the AI Command Brief, risk rationale, evidence summary and recommended actions.
-5. Inspect Correlation Visualization to show why the platform created the incident.
-6. Review endpoint DNS context or Suricata network evidence where available.
-7. Open Detection Quality and show synthetic scenario coverage plus AI-generated remediation guidance.
-8. Create or open a case, assign ownership, review SLA posture and closure readiness.
-9. Generate an incident report, case report or analyst evidence pack.
-10. Open Health and Security Audit to show operational observability and governance.
+5. Review Remediation Governance, replay simulation and controlled internal workflow action eligibility.
+6. Inspect Correlation Visualization to show why the platform created the incident.
+7. Review endpoint DNS context or Suricata network evidence where available.
+8. Open Detection Quality and show synthetic scenario coverage plus AI-generated remediation guidance.
+9. Create or open a case, assign ownership, review SLA posture and closure readiness.
+10. Generate an incident report, case report or analyst evidence pack.
+11. Open Health, Grafana Observability and Security Audit to show operational observability and governance.
 
 See [Demo Guide](docs/demo-guide.md) for presenter talking points.
 
@@ -194,6 +200,8 @@ See [Deployment Guide](docs/deployment-guide.md) for a fuller operational view.
 - [Security Model](docs/security-model.md)
 - [Reporting Guide](docs/reporting-guide.md)
 - [Observability Architecture and Operations Guide](docs/v0.6.0-observability.md)
+- [v0.6.0 Release Notes](RELEASE_NOTES_v0.6.0.md)
+- [v0.6 Release Checklist](docs/v0.6-release-checklist.md)
 - [Roadmap](docs/roadmap.md)
 - [Screenshot Checklist](docs/assets/screenshots/README.md)
 - [Architecture Asset Notes](docs/assets/architecture/README.md)
@@ -216,13 +224,13 @@ Existing release and validation notes:
 | v0.2 | Completed | Initial SOC platform, incident views, synthetic scenarios and detection quality foundation |
 | v0.3 | Completed | RBAC, user management, Security Audit, session hardening, Nginx headers and PostgreSQL upgrade |
 | v0.4 | Completed | Ingestion quality, event separation, correlation-first incident creation, noise suppression, AI hardening, reporting and observability |
-| v0.5 | Active product-grade track | Demo scenario pack, enterprise UX, Incident Command Room, case workflow, report/export polish, Suricata, DNS context and correlation visualization |
-| v0.6 | Candidate | Deeper detection engineering workflows, expanded connectors, richer case collaboration and additional reporting automation |
+| v0.5 | Completed | Demo scenario pack, enterprise UX, Incident Command Room, case workflow, report/export polish, Suricata, DNS context and correlation visualization |
+| v0.6 | Released | AI investigation intelligence, human-governed remediation, Incident Command Center rewrite, replay simulation, controlled internal SOAR workflow actions and observability improvements |
+| v0.7 | Candidate | Additional connectors, deeper case collaboration, stronger reporting automation and broader validation tooling |
 
 See [Roadmap](docs/roadmap.md).
 
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE).
-
 
