@@ -1,0 +1,23 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: ai-soc-null
+  group_by:
+    - alertname
+    - service
+    - severity
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+  routes:
+    - matchers:
+        - severity="critical"
+      receiver: ai-soc-critical-null
+      repeat_interval: 1h
+
+receivers:
+  - name: ai-soc-null
+
+  - name: ai-soc-critical-null

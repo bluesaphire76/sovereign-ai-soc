@@ -11,7 +11,21 @@ services:
       - "--web.enable-lifecycle"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules:/etc/prometheus/rules:ro
       - ai_soc_prometheus_data:/prometheus
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: ai-soc-alertmanager
+    restart: unless-stopped
+    network_mode: host
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+      - "--web.listen-address=127.0.0.1:9093"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ai_soc_alertmanager_data:/alertmanager
 
   grafana:
     image: grafana/grafana:latest
@@ -73,6 +87,7 @@ services:
 volumes:
   ai_soc_prometheus_data:
   ai_soc_grafana_data:
+  ai_soc_alertmanager_data:
 
 networks:
   ai_soc_observability:
