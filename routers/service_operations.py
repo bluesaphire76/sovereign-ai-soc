@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from database import SessionLocal
 from service_operations import (
+    count_operations,
     get_operation,
     get_service_status,
     list_operations,
@@ -105,13 +106,40 @@ def service_operation_restart(
 @router.get("/service-operations/operations")
 def service_operation_history(
     service_key: str | None = Query(default=None),
+    operation_type: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    search: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
 ):
     db = SessionLocal()
 
     try:
+        total = count_operations(
+            db,
+            service_key=service_key,
+            operation_type=operation_type,
+            status=status,
+            search=search,
+        )
+        items = list_operations(
+            db,
+            service_key=service_key,
+            operation_type=operation_type,
+            status=status,
+            search=search,
+            limit=limit,
+            offset=offset,
+        )
+        total_pages = max(1, (total + limit - 1) // limit)
+
         return {
-            "items": list_operations(db, service_key=service_key, limit=limit),
+            "items": items,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "page": (offset // limit) + 1,
+            "total_pages": total_pages,
         }
     finally:
         db.close()

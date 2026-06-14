@@ -123,7 +123,7 @@ async function fetchServices(): Promise<ServiceListResponse> {
 }
 
 async function fetchOperations(): Promise<OperationsResponse> {
-  const response = await authFetch("/service-operations/operations?limit=20", {
+  const response = await authFetch("/service-operations/operations?limit=200", {
     cache: "no-store",
   });
 
@@ -177,15 +177,91 @@ function riskTone(riskLevel: string) {
 function serviceMatchesAffected(service: ServiceItem, relatedConfigVersion: RelatedConfigVersion) {
   if (!relatedConfigVersion?.requires_restart) return false;
 
+  return relatedConfigVersion.affected_services.some((item) =>
+    serviceMatchesAffectedName(service, item)
+  );
+}
+
+function serviceMatchesAffectedName(service: ServiceItem, affectedService: string) {
+  const normalizedAffected = normalizeServiceName(affectedService);
   const names = new Set([
-    service.key,
-    service.key.replaceAll("_", "-"),
-    service.unit || "",
-    service.container || "",
+    normalizeServiceName(service.key),
+    normalizeServiceName(service.key.replaceAll("_", "-")),
+    normalizeServiceName(service.unit || ""),
+    normalizeServiceName(`${service.unit || ""}.service`),
+    normalizeServiceName(service.container || ""),
   ]);
 
-  return relatedConfigVersion.affected_services.some((item) => names.has(item));
+  return names.has(normalizedAffected);
 }
+
+function normalizeServiceName(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function serviceDisplayName(service: ServiceItem | null, fallback: string) {
+  return service?.display_name || fallback;
+}
+
+function latestSuccessfulRestartForConfig(
+  operations: ServiceOperation[],
+  service: ServiceItem,
+  configVersionId: number
+) {
+  return operations.find(
+    (operation) =>
+      operation.operation_type === "restart" &&
+      operation.status === "success" &&
+      operation.related_config_version_id === configVersionId &&
+      operation.service_key === service.key
+  ) || null;
+}
+
+function restartClearance(
+  relatedConfigVersion: RelatedConfigVersion,
+  services: ServiceItem[],
+  operations: ServiceOperation[]
+) {
+  if (!relatedConfigVersion?.requires_restart) return null;
+
+  const impacted = relatedConfigVersion.affected_services.map((affectedService) => {
+    const service =
+      services.find((item) => serviceMatchesAffectedName(item, affectedService)) || null;
+    const successfulRestart = service
+      ? latestSuccessfulRestartForConfig(operations, service, relatedConfigVersion.id)
+      : null;
+    const running = service?.status === "running";
+    const completed = Boolean(successfulRestart && running);
+
+    return {
+      affectedService,
+      completed,
+      displayName: serviceDisplayName(service, affectedService),
+      operation: successfulRestart,
+      running,
+      service,
+    };
+  });
+
+  const pending = impacted.filter((item) => !item.completed);
+  const completed = impacted.filter((item) => item.completed);
+
+  return {
+    allCompleted: impacted.length > 0 && pending.length === 0,
+    completed,
+    impacted,
+    pending,
+  };
+}
+
+function joinNames(names: string[]) {
+  if (names.length === 0) return "-";
+  if (names.length === 1) return names[0];
+
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+type RestartClearance = NonNullable<ReturnType<typeof restartClearance>>;
 
 async function readApiError(response: Response) {
   const body = (await response.json().catch(() => null)) as { detail?: unknown } | null;
@@ -198,6 +274,43 @@ async function readApiError(response: Response) {
   }
 
   return `Request failed with status ${response.status}`;
+}
+
+function ConfigRestartStatusBanner({
+  clearance,
+  versionNumber,
+}: {
+  clearance: RestartClearance;
+  versionNumber: number;
+}) {
+  if (clearance.allCompleted) {
+    return (
+      <div className="mb-3 rounded-lg border border-emerald-900/70 bg-emerald-950/30 p-3 text-xs text-emerald-100">
+        <div className="flex items-start gap-2">
+          <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <div>
+            Config v{versionNumber} active and running for{" "}
+            {joinNames(clearance.completed.map((item) => item.displayName))}.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-3 rounded-lg border border-amber-900/70 bg-amber-950/30 p-3 text-xs text-amber-100">
+      <div className="flex items-start gap-2">
+        <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <div>
+          Config v{versionNumber} requires restart for{" "}
+          {joinNames(clearance.pending.map((item) => item.displayName))}.
+          {clearance.completed.length > 0 && (
+            <> Completed: {joinNames(clearance.completed.map((item) => item.displayName))}.</>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function ServiceOperationsPanel({
@@ -252,6 +365,10 @@ export default function ServiceOperationsPanel({
           .map((service) => service.key)
       ),
     [relatedConfigVersion, services]
+  );
+  const configRestartClearance = useMemo(
+    () => restartClearance(relatedConfigVersion, services, operations),
+    [operations, relatedConfigVersion, services]
   );
 
   function openRestart(service: ServiceItem) {
@@ -397,16 +514,11 @@ export default function ServiceOperationsPanel({
         </div>
       )}
 
-      {relatedConfigVersion?.requires_restart && (
-        <div className="mb-3 rounded-lg border border-amber-900/70 bg-amber-950/30 p-3 text-xs text-amber-100">
-          <div className="flex items-start gap-2">
-            <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <div>
-              Active config v{relatedConfigVersion.version_number} flags restart for{" "}
-              {relatedConfigVersion.affected_services.join(", ")}.
-            </div>
-          </div>
-        </div>
+      {relatedConfigVersion?.requires_restart && configRestartClearance && (
+        <ConfigRestartStatusBanner
+          clearance={configRestartClearance}
+          versionNumber={relatedConfigVersion.version_number}
+        />
       )}
 
       <div className="grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
@@ -414,6 +526,11 @@ export default function ServiceOperationsPanel({
           <ServiceCard
             key={service.key}
             affected={affectedServiceKeys.has(service.key)}
+            restartCompleted={Boolean(
+              configRestartClearance?.completed.some(
+                (item) => item.service?.key === service.key
+              )
+            )}
             canRestart={canRestart}
             running={running}
             service={service}
@@ -422,8 +539,6 @@ export default function ServiceOperationsPanel({
           />
         ))}
       </div>
-
-      <OperationHistory items={operations} />
 
       {selectedService && (
         <RestartModal
@@ -454,6 +569,7 @@ export default function ServiceOperationsPanel({
 function ServiceCard({
   affected,
   canRestart,
+  restartCompleted,
   running,
   service,
   onCheckStatus,
@@ -461,6 +577,7 @@ function ServiceCard({
 }: {
   affected: boolean;
   canRestart: boolean;
+  restartCompleted: boolean;
   running: boolean;
   service: ServiceItem;
   onCheckStatus: (service: ServiceItem) => void;
@@ -488,8 +605,14 @@ function ServiceCard({
           {service.command_family}
         </span>
         {affected && (
-          <span className="rounded-md border border-amber-800 bg-amber-950/50 px-2 py-1 text-[11px] text-amber-200">
-            affected config
+          <span
+            className={`rounded-md border px-2 py-1 text-[11px] ${
+              restartCompleted
+                ? "border-emerald-800 bg-emerald-950/50 text-emerald-200"
+                : "border-amber-800 bg-amber-950/50 text-amber-200"
+            }`}
+          >
+            {restartCompleted ? "config running" : "restart pending"}
           </span>
         )}
       </div>
@@ -697,68 +820,6 @@ function RestartModal({
             Restart service
           </button>
         </div>
-      </div>
-    </div>
-  );
-}
-
-function OperationHistory({ items }: { items: ServiceOperation[] }) {
-  return (
-    <div className="mt-3 overflow-hidden rounded-lg border border-slate-800">
-      <div className="border-b border-slate-800 bg-slate-950 px-3 py-2 text-xs font-medium uppercase tracking-wide text-slate-500">
-        Operation History
-      </div>
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-slate-800 text-left text-xs">
-          <thead className="bg-slate-950 text-[11px] uppercase tracking-wide text-slate-500">
-            <tr>
-              <th className="px-3 py-2">Operation</th>
-              <th className="px-3 py-2">Service</th>
-              <th className="px-3 py-2">Status</th>
-              <th className="px-3 py-2">Pre / Post</th>
-              <th className="px-3 py-2">User</th>
-              <th className="px-3 py-2">Created</th>
-              <th className="px-3 py-2">Message</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-800 bg-slate-900">
-            {items.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="px-3 py-3 text-slate-500">
-                  No service operations recorded yet.
-                </td>
-              </tr>
-            ) : (
-              items.map((item) => (
-                <tr key={item.operation_id} className="align-top hover:bg-slate-800/40">
-                  <td className="px-3 py-2 text-slate-300">
-                    #{item.operation_id} / {item.operation_type}
-                  </td>
-                  <td className="px-3 py-2 text-slate-300">
-                    {item.display_name || item.service_key}
-                  </td>
-                  <td className="px-3 py-2">
-                    <span className={`rounded-md border px-2 py-1 text-[11px] ${statusTone(item.status)}`}>
-                      {item.status}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 text-slate-500">
-                    {item.pre_status || "-"} / {item.post_status || "-"}
-                  </td>
-                  <td className="px-3 py-2 text-slate-500">
-                    {item.requested_by_username || "-"}
-                  </td>
-                  <td className="px-3 py-2 text-slate-500">
-                    {formatDate(item.created_at)}
-                  </td>
-                  <td className="max-w-sm px-3 py-2 text-slate-500">
-                    {item.safe_message || item.safe_error || "-"}
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
       </div>
     </div>
   );

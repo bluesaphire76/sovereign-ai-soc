@@ -11,6 +11,8 @@ import {
   Columns3,
   Globe2,
   HeartPulse,
+  History,
+  Info,
   LayoutDashboard,
   LogOut,
   Network,
@@ -105,6 +107,24 @@ const SETTINGS_ITEMS: NavItem[] = [
   },
 ];
 
+const SYSTEM_INFORMATION_ITEMS: NavItem[] = [
+  {
+    href: "/system-information/operation-history",
+    label: "Operation History",
+    icon: <History className="h-3.5 w-3.5" strokeWidth={1.75} />,
+    match: "prefix",
+  },
+];
+
+const SYSTEM_INFORMATION_ADMIN_ITEMS: NavItem[] = [
+  {
+    href: "/system-information/security-audit",
+    label: "Security Audit",
+    icon: <ShieldCheck className="h-3.5 w-3.5" strokeWidth={1.75} />,
+    match: "prefix",
+  },
+];
+
 function isActive(pathname: string, item: NavItem) {
   if (item.external) {
     return false;
@@ -158,6 +178,9 @@ export default function AppNavigation() {
   const pathname = usePathname();
   const [user, setUser] = useState<AuthUser | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(pathname.startsWith("/settings"));
+  const [systemInfoOpen, setSystemInfoOpen] = useState(
+    pathname.startsWith("/system-information")
+  );
 
   useEffect(() => {
     setUser(getStoredUser());
@@ -173,6 +196,10 @@ export default function AppNavigation() {
     if (pathname.startsWith("/settings")) {
       setSettingsOpen(true);
     }
+
+    if (pathname.startsWith("/system-information")) {
+      setSystemInfoOpen(true);
+    }
   }, [pathname]);
 
   async function handleLogout() {
@@ -183,6 +210,13 @@ export default function AppNavigation() {
   const canUseSettings =
     user?.role === "ADMIN" || user?.role === "ANALYST" || user?.role === "VIEWER";
   const settingsActive = pathname.startsWith("/settings");
+  const canUseSystemInformation =
+    user?.role === "ADMIN" || user?.role === "ANALYST" || user?.role === "VIEWER";
+  const systemInfoActive = pathname.startsWith("/system-information");
+  const systemInformationItems = [
+    ...(user?.role === "ADMIN" ? SYSTEM_INFORMATION_ADMIN_ITEMS : []),
+    ...SYSTEM_INFORMATION_ITEMS,
+  ];
 
   const navItems: NavItem[] = user
     ? [
@@ -195,16 +229,6 @@ export default function AppNavigation() {
                 icon: <Activity className="h-3.5 w-3.5" strokeWidth={1.75} />,
                 match: "exact" as const,
                 external: true,
-              },
-            ]
-          : []),
-        ...(user.role === "ADMIN"
-          ? [
-              {
-                href: "/admin/security-audit",
-                label: "Security Audit",
-                icon: <ShieldCheck className="h-3.5 w-3.5" strokeWidth={1.75} />,
-                match: "prefix" as const,
               },
             ]
           : []),
@@ -265,6 +289,44 @@ export default function AppNavigation() {
                 <div className="w-full min-w-0 border-l border-slate-800 pl-2">
                   <div className="flex w-full min-w-0 flex-col gap-1">
                     {SETTINGS_ITEMS.map((item) => (
+                      <NavLink
+                        key={item.href}
+                        item={item}
+                        pathname={pathname}
+                        nested
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {canUseSystemInformation && (
+            <div className="flex w-full min-w-0 flex-col gap-1">
+              <button
+                type="button"
+                onClick={() => setSystemInfoOpen((value) => !value)}
+                className={`flex h-8 w-full min-w-0 items-center gap-1.5 rounded-sm border px-2.5 text-xs font-medium transition ${
+                  systemInfoActive
+                    ? "border-slate-700 bg-slate-900 text-cyan-200"
+                    : "border-transparent bg-transparent text-slate-300 hover:border-slate-700 hover:bg-slate-900 hover:text-cyan-200"
+                }`}
+              >
+                <Info className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
+                <span className="min-w-0 truncate">System Information</span>
+                <ChevronDown
+                  className={`ml-auto h-3.5 w-3.5 shrink-0 transition ${
+                    systemInfoOpen ? "rotate-180" : ""
+                  }`}
+                  strokeWidth={1.75}
+                />
+              </button>
+
+              {systemInfoOpen && (
+                <div className="w-full min-w-0 border-l border-slate-800 pl-2">
+                  <div className="flex w-full min-w-0 flex-col gap-1">
+                    {systemInformationItems.map((item) => (
                       <NavLink
                         key={item.href}
                         item={item}
