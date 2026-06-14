@@ -5,6 +5,7 @@ import { authFetch, fetchCurrentUser, getStoredUser, type AuthUser } from "@/lib
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import AppNavigation from "../../../components/AppNavigation";
+import ServiceOperationsPanel from "./ServiceOperationsPanel";
 import {
   AlertTriangle,
   Ban,
@@ -1221,6 +1222,20 @@ export default function DetectionControlPlanePage() {
               onViewVersion={viewVersionDetails}
             />
 
+            <ServiceOperationsPanel
+              currentUser={currentUser}
+              relatedConfigVersion={
+                activeVersion
+                  ? {
+                      id: activeVersion.id,
+                      version_number: activeVersion.version_number,
+                      requires_restart: activeVersion.requires_restart,
+                      affected_services: activeVersion.affected_services,
+                    }
+                  : null
+              }
+            />
+
             <section className="grid gap-3 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.55fr)]">
               <div className="min-w-0 rounded-lg border border-slate-800 bg-slate-900/80 p-3">
                 <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
@@ -1276,7 +1291,7 @@ export default function DetectionControlPlanePage() {
                 <ServerCog className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                 <p className="leading-5">
                   Entries may require apply or service restart depending on source policy and
-                  affected service. Restart orchestration will be enabled in Step 3.
+                  affected service. Use Service Operations for governed restart after applying configuration changes.
                 </p>
               </div>
             </section>

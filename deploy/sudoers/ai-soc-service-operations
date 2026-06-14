@@ -1,0 +1,11 @@
+# AI SOC governed service restart permissions.
+#
+# Install with:
+#   sudo install -m 0440 deploy/sudoers/ai-soc-service-operations /etc/sudoers.d/ai-soc-service-operations
+#   sudo visudo -cf /etc/sudoers.d/ai-soc-service-operations
+#
+# Keep this list narrow. The GUI/backend still enforce their own service allowlist,
+# but sudoers must not grant generic systemctl access.
+
+lele ALL=(root) NOPASSWD: /usr/bin/systemctl restart ai-soc-worker, /usr/bin/systemctl restart ai-soc-worker.service
+lele ALL=(root) NOPASSWD: /usr/bin/systemctl restart ai-soc-frontend, /usr/bin/systemctl restart ai-soc-frontend.service
