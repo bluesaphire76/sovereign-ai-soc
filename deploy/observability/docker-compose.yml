@@ -84,6 +84,18 @@ services:
     networks:
       - ai_soc_observability
 
+  ntfy-bridge:
+    build:
+      context: ./ntfy-bridge
+    container_name: ai-soc-ntfy-bridge
+    restart: unless-stopped
+    env_file:
+      - ./ntfy-bridge/.env
+    ports:
+      - "127.0.0.1:8011:8011"
+    networks:
+      - ai_soc_observability
+
 volumes:
   ai_soc_prometheus_data:
   ai_soc_grafana_data:
