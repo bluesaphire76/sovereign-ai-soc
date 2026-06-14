@@ -60,3 +60,16 @@ def test_detection_control_validation_warns_on_global_suppression_scope():
     assert result.valid is True
     assert result.severity == "WARNING"
     assert result.warnings
+
+
+def test_detection_control_validation_accepts_inventory_control_types():
+    for rule_type in ["TELEMETRY_SOURCE", "SERVICE_CONTROL"]:
+        result = validate_detection_control_payload(
+            valid_payload(
+                type=rule_type,
+                matcher_kind="EXACT",
+                matcher_value=f"{rule_type.lower()}:inventory-target",
+            )
+        )
+
+        assert result.valid is True

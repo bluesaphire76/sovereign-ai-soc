@@ -115,9 +115,16 @@ type RuleMutationResponse = {
   validation?: ValidationResult;
 };
 
-type RuleType = "NOISE_SUPPRESSION" | "EXCEPTION" | "DETECTION_RULE" | "SOURCE_POLICY";
+type RuleType =
+  | "NOISE_SUPPRESSION"
+  | "EXCEPTION"
+  | "DETECTION_RULE"
+  | "SOURCE_POLICY"
+  | "TELEMETRY_SOURCE"
+  | "SERVICE_CONTROL";
 type MatcherKind = "CONTAINS" | "EXACT" | "REGEX" | "JSON" | "YAML";
 type TabKey = "rules" | "exceptions" | "sources" | "policies" | "services";
+type InventoryCategory = TabKey;
 
 type RuleFormState = {
   name: string;
@@ -129,6 +136,7 @@ type RuleFormState = {
   owner: string;
   enabled: boolean;
   description: string;
+  metadata: Record<string, unknown>;
 };
 
 const RULE_TYPES: RuleType[] = [
@@ -136,6 +144,8 @@ const RULE_TYPES: RuleType[] = [
   "EXCEPTION",
   "DETECTION_RULE",
   "SOURCE_POLICY",
+  "TELEMETRY_SOURCE",
+  "SERVICE_CONTROL",
 ];
 
 const MATCHER_KINDS: MatcherKind[] = ["CONTAINS", "EXACT", "REGEX", "JSON", "YAML"];
@@ -159,6 +169,7 @@ function emptyForm(owner = ""): RuleFormState {
     owner,
     enabled: true,
     description: "",
+    metadata: {},
   };
 }
 
@@ -293,7 +304,125 @@ function rulePayload(form: RuleFormState) {
     owner: form.owner,
     enabled: form.enabled,
     description: form.description,
+    metadata: form.metadata,
   };
+}
+
+function allInventoryItems(inventory: DetectionControlInventory | null) {
+  if (!inventory) return [];
+
+  return [
+    ...inventory.rules.map((item) => ({ item, category: "rules" as const })),
+    ...inventory.exceptions.map((item) => ({ item, category: "exceptions" as const })),
+    ...inventory.telemetry_sources.map((item) => ({ item, category: "sources" as const })),
+    ...inventory.policies.map((item) => ({ item, category: "policies" as const })),
+    ...inventory.service_controls.map((item) => ({ item, category: "services" as const })),
+  ];
+}
+
+function managedInventoryId(rule: ManagedRule) {
+  const value = rule.metadata?.inventory_id;
+
+  return typeof value === "string" ? value : null;
+}
+
+function categoryForManagedRule(rule: ManagedRule): InventoryCategory {
+  const metadataCategory = rule.metadata?.inventory_category;
+
+  if (
+    metadataCategory === "rules" ||
+    metadataCategory === "exceptions" ||
+    metadataCategory === "sources" ||
+    metadataCategory === "policies" ||
+    metadataCategory === "services"
+  ) {
+    return metadataCategory;
+  }
+
+  if (rule.type === "DETECTION_RULE") return "rules";
+  if (rule.type === "EXCEPTION" || rule.type === "NOISE_SUPPRESSION") return "exceptions";
+  if (rule.type === "TELEMETRY_SOURCE") return "sources";
+  if (rule.type === "SERVICE_CONTROL") return "services";
+
+  return "policies";
+}
+
+function typeForInventoryItem(item: InventoryItem, category: InventoryCategory): RuleType {
+  if (category === "rules") return "DETECTION_RULE";
+  if (category === "exceptions") return "EXCEPTION";
+  if (category === "sources") return "TELEMETRY_SOURCE";
+  if (category === "services") return "SERVICE_CONTROL";
+
+  if (item.type.includes("NOISE_SUPPRESSION")) return "NOISE_SUPPRESSION";
+
+  return "SOURCE_POLICY";
+}
+
+function enabledForInventoryItem(item: InventoryItem) {
+  return ["ACTIVE", "OK"].includes(item.status.toUpperCase());
+}
+
+function inventoryItemForm(
+  item: InventoryItem,
+  category: InventoryCategory,
+  owner: string
+): RuleFormState {
+  return {
+    name: item.name,
+    type: typeForInventoryItem(item, category),
+    scope: item.scope || "global",
+    matcher_kind: "EXACT",
+    matcher_value: item.target || item.id,
+    reason: item.reason || item.description || "Managed from Detection Control inventory.",
+    owner,
+    enabled: enabledForInventoryItem(item),
+    description: item.description || "",
+    metadata: {
+      inventory_id: item.id,
+      inventory_category: category,
+      inventory_type: item.type,
+      inventory_source: item.source,
+      inventory_target: item.target,
+    },
+  };
+}
+
+function buildManagedByInventoryId(items: ManagedRule[]) {
+  const map = new Map<string, ManagedRule>();
+
+  for (const rule of items) {
+    const inventoryId = managedInventoryId(rule);
+
+    if (inventoryId) {
+      map.set(inventoryId, rule);
+    }
+  }
+
+  return map;
+}
+
+function isActiveStatus(status: string, enabled: boolean) {
+  const normalized = status.toUpperCase();
+
+  return enabled && (normalized === "ACTIVE" || normalized === "OK");
+}
+
+function isDisabledStatus(status: string, enabled: boolean) {
+  const normalized = status.toUpperCase();
+
+  return (
+    !enabled ||
+    normalized === "DISABLED" ||
+    normalized === "READ_ONLY" ||
+    normalized === "EMPTY"
+  );
+}
+
+function isFailedStatus(status: string, validationStatus?: string | null) {
+  const normalized = status.toUpperCase();
+  const validation = (validationStatus || "").toUpperCase();
+
+  return normalized === "ERROR" || normalized === "FAILED_VALIDATION" || validation === "ERROR";
 }
 
 export default function DetectionControlPlanePage() {
@@ -368,13 +497,72 @@ export default function DetectionControlPlanePage() {
   const activeInventoryItems = useMemo(() => {
     if (!inventory) return [];
 
-    if (activeTab === "rules") return inventory.rules;
-    if (activeTab === "exceptions") return inventory.exceptions;
-    if (activeTab === "sources") return inventory.telemetry_sources;
-    if (activeTab === "policies") return inventory.policies;
+    if (activeTab === "rules") {
+      return inventory.rules.map((item) => ({ item, category: "rules" as const }));
+    }
+    if (activeTab === "exceptions") {
+      return inventory.exceptions.map((item) => ({ item, category: "exceptions" as const }));
+    }
+    if (activeTab === "sources") {
+      return inventory.telemetry_sources.map((item) => ({ item, category: "sources" as const }));
+    }
+    if (activeTab === "policies") {
+      return inventory.policies.map((item) => ({ item, category: "policies" as const }));
+    }
 
-    return inventory.service_controls;
+    return inventory.service_controls.map((item) => ({ item, category: "services" as const }));
   }, [activeTab, inventory]);
+
+  const managedByInventoryId = useMemo(
+    () => buildManagedByInventoryId(managedRules?.items || []),
+    [managedRules]
+  );
+
+  const unifiedSummary = useMemo(() => {
+    const rows = allInventoryItems(inventory);
+    const standaloneManaged = (managedRules?.items || []).filter(
+      (rule) => !managedInventoryId(rule)
+    );
+    const categoryCounts = {
+      rules: 0,
+      exceptions: 0,
+      sources: 0,
+      policies: 0,
+      services: 0,
+    };
+    let active = 0;
+    let disabled = 0;
+    let failedValidation = 0;
+
+    for (const { item, category } of rows) {
+      categoryCounts[category] += 1;
+      const managed = managedByInventoryId.get(item.id);
+      const status = managed?.status || item.status;
+      const enabled = managed ? managed.enabled : enabledForInventoryItem(item);
+
+      if (isActiveStatus(status, enabled)) active += 1;
+      if (isDisabledStatus(status, enabled)) disabled += 1;
+      if (isFailedStatus(status, managed?.last_validation_status)) failedValidation += 1;
+    }
+
+    for (const rule of standaloneManaged) {
+      categoryCounts[categoryForManagedRule(rule)] += 1;
+
+      if (isActiveStatus(rule.status, rule.enabled)) active += 1;
+      if (isDisabledStatus(rule.status, rule.enabled)) disabled += 1;
+      if (isFailedStatus(rule.status, rule.last_validation_status)) failedValidation += 1;
+    }
+
+    return {
+      total: rows.length + standaloneManaged.length,
+      active,
+      disabled,
+      failed_validation: failedValidation,
+      managed_overlays: managedByInventoryId.size,
+      managed_standalone: standaloneManaged.length,
+      ...categoryCounts,
+    };
+  }, [inventory, managedByInventoryId, managedRules]);
 
   async function handleApiError(response: Response) {
     const body = await response.json().catch(() => null) as { detail?: unknown } | null;
@@ -460,7 +648,21 @@ export default function DetectionControlPlanePage() {
       owner: rule.owner,
       enabled: rule.enabled,
       description: rule.description || "",
+      metadata: rule.metadata || {},
     });
+  }
+
+  function startManageInventoryItem(item: InventoryItem, category: InventoryCategory) {
+    const existingRule = managedByInventoryId.get(item.id);
+
+    if (existingRule) {
+      startEdit(existingRule);
+      return;
+    }
+
+    setEditingRuleId(null);
+    setValidationResult(null);
+    setForm(inventoryItemForm(item, category, currentUser?.username || ""));
   }
 
   async function validateRule(rule: ManagedRule) {
@@ -599,28 +801,40 @@ export default function DetectionControlPlanePage() {
           </section>
         ) : managedRules && inventory && canView ? (
           <div className="space-y-3">
-            <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
+            <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-6">
               <MetricCard
-                title="Managed Entries"
-                value={managedRules.summary.total}
-                subtitle="Rules and exceptions"
+                title="Unified Inventory"
+                value={unifiedSummary.total}
+                subtitle={`${unifiedSummary.active} active / ${unifiedSummary.disabled} disabled`}
                 icon={<FileCog className="h-3.5 w-3.5" />}
               />
               <MetricCard
-                title="Active"
-                value={managedRules.summary.active}
-                subtitle="Enabled operational entries"
+                title="Rules"
+                value={unifiedSummary.rules}
+                subtitle="Detected and managed"
                 icon={<Shield className="h-3.5 w-3.5" />}
               />
               <MetricCard
-                title="Disabled"
-                value={managedRules.summary.disabled}
-                subtitle="Inactive or archived state"
+                title="Exceptions"
+                value={unifiedSummary.exceptions}
+                subtitle="Suppressions and exceptions"
                 icon={<Ban className="h-3.5 w-3.5" />}
               />
               <MetricCard
+                title="Sources"
+                value={unifiedSummary.sources}
+                subtitle="Telemetry inputs"
+                icon={<ServerCog className="h-3.5 w-3.5" />}
+              />
+              <MetricCard
+                title="Policies"
+                value={unifiedSummary.policies}
+                subtitle={`${unifiedSummary.services} service controls`}
+                icon={<SlidersHorizontal className="h-3.5 w-3.5" />}
+              />
+              <MetricCard
                 title="Failed Validation"
-                value={managedRules.summary.failed_validation}
+                value={unifiedSummary.failed_validation}
                 subtitle={formatDate(managedRules.summary.generated_at)}
                 icon={<AlertTriangle className="h-3.5 w-3.5" />}
               />
@@ -643,10 +857,10 @@ export default function DetectionControlPlanePage() {
                 <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                   <div>
                     <h2 className="text-sm font-semibold text-slate-100">
-                      Rule / Exception Table
+                      Managed Control Entries
                     </h2>
                     <p className="mt-1 text-xs text-slate-500">
-                      Changes that require apply remain staged until service orchestration is enabled.
+                      Entries created directly or linked from inventory share the same validation, RBAC and audit path.
                     </p>
                   </div>
 
@@ -720,7 +934,14 @@ export default function DetectionControlPlanePage() {
                 ))}
               </div>
 
-              <InventoryTable items={activeInventoryItems} />
+              <InventoryTable
+                canWrite={Boolean(canWrite)}
+                items={activeInventoryItems}
+                managedByInventoryId={managedByInventoryId}
+                saving={saving}
+                onEditManaged={startEdit}
+                onManageInventory={startManageInventoryItem}
+              />
             </section>
           </div>
         ) : null}
@@ -1105,7 +1326,21 @@ function ValidationPanel({ result }: { result: ValidationResult | null }) {
   );
 }
 
-function InventoryTable({ items }: { items: InventoryItem[] }) {
+function InventoryTable({
+  canWrite,
+  items,
+  managedByInventoryId,
+  saving,
+  onEditManaged,
+  onManageInventory,
+}: {
+  canWrite: boolean;
+  items: Array<{ item: InventoryItem; category: InventoryCategory }>;
+  managedByInventoryId: Map<string, ManagedRule>;
+  saving: boolean;
+  onEditManaged: (rule: ManagedRule) => void;
+  onManageInventory: (item: InventoryItem, category: InventoryCategory) => void;
+}) {
   if (items.length === 0) {
     return (
       <div className="rounded-lg border border-slate-800 bg-slate-950 p-4 text-xs text-slate-500">
@@ -1125,57 +1360,94 @@ function InventoryTable({ items }: { items: InventoryItem[] }) {
               <th className="px-3 py-2">Type</th>
               <th className="px-3 py-2">Scope / Target</th>
               <th className="px-3 py-2">Status</th>
-              <th className="px-3 py-2">Managed</th>
+              <th className="px-3 py-2">Governed</th>
               <th className="px-3 py-2">Reload</th>
               <th className="px-3 py-2">Metadata</th>
+              <th className="px-3 py-2">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800 bg-slate-900">
-            {items.map((item) => (
-              <tr key={item.id} className="align-top hover:bg-slate-800/40">
-                <td className="max-w-sm px-3 py-2">
-                  <div className="font-medium text-slate-100">{item.name}</div>
-                  <div className="mt-1 leading-5 text-slate-500">{item.description}</div>
-                  <div className="mt-1 leading-5 text-slate-600">{item.reason}</div>
-                </td>
-                <td className="px-3 py-2">
-                  <span className={`inline-flex rounded-md border px-2 py-1 text-[11px] ${sourceTone(item.source)}`}>
-                    {item.source}
-                  </span>
-                </td>
-                <td className="px-3 py-2 text-slate-300">{item.type}</td>
-                <td className="px-3 py-2">
-                  <div className="text-slate-300">{item.scope}</div>
-                  <div className="mt-1 max-w-xs truncate text-slate-500" title={item.target}>
-                    {item.target}
-                  </div>
-                </td>
-                <td className="px-3 py-2">
-                  <span className={`inline-flex rounded-md border px-2 py-1 text-[11px] ${statusTone(item.status)}`}>
-                    {item.status}
-                  </span>
-                </td>
-                <td className="px-3 py-2">
-                  {item.managed ? (
-                    <span className="inline-flex items-center gap-1 text-emerald-300">
-                      <CheckCircle2 className="h-3.5 w-3.5" />
-                      yes
+            {items.map(({ item, category }) => {
+              const managedRule = managedByInventoryId.get(item.id);
+              const status = managedRule?.status || item.status;
+              const validationStatus = managedRule?.last_validation_status;
+
+              return (
+                <tr key={item.id} className="align-top hover:bg-slate-800/40">
+                  <td className="max-w-sm px-3 py-2">
+                    <div className="font-medium text-slate-100">{item.name}</div>
+                    <div className="mt-1 leading-5 text-slate-500">{item.description}</div>
+                    <div className="mt-1 leading-5 text-slate-600">{item.reason}</div>
+                  </td>
+                  <td className="px-3 py-2">
+                    <span className={`inline-flex rounded-md border px-2 py-1 text-[11px] ${sourceTone(item.source)}`}>
+                      {item.source}
                     </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 text-slate-500">
-                      <XCircle className="h-3.5 w-3.5" />
-                      no
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="text-slate-300">{item.type}</div>
+                    <div className="mt-1 text-slate-500">{category}</div>
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="text-slate-300">{item.scope}</div>
+                    <div className="mt-1 max-w-xs truncate text-slate-500" title={item.target}>
+                      {item.target}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2">
+                    <span className={`inline-flex rounded-md border px-2 py-1 text-[11px] ${statusTone(status)}`}>
+                      {status}
                     </span>
-                  )}
-                </td>
-                <td className="px-3 py-2 text-slate-300">
-                  {item.requires_reload ? "required" : "no"}
-                </td>
-                <td className="max-w-xs px-3 py-2 text-slate-500">
-                  {metadataPreview(item.metadata)}
-                </td>
-              </tr>
-            ))}
+                    {validationStatus && (
+                      <div className="mt-1 text-[11px] text-slate-500">
+                        validation: {validationStatus}
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-3 py-2">
+                    {managedRule ? (
+                      <span className="inline-flex items-center gap-1 text-emerald-300">
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        linked
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-slate-500">
+                        <XCircle className="h-3.5 w-3.5" />
+                        inventory
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-slate-300">
+                    {item.requires_reload || managedRule?.requires_apply ? "required" : "no"}
+                  </td>
+                  <td className="max-w-xs px-3 py-2 text-slate-500">
+                    {metadataPreview(managedRule?.metadata || item.metadata)}
+                  </td>
+                  <td className="px-3 py-2">
+                    {canWrite ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          managedRule
+                            ? onEditManaged(managedRule)
+                            : onManageInventory(item, category)
+                        }
+                        disabled={saving}
+                        className="flex h-7 items-center gap-1 rounded-md border border-slate-700 bg-slate-950 px-2 text-[11px] text-slate-200 hover:border-cyan-700 hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                        {managedRule ? "Edit" : "Manage"}
+                      </button>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-slate-500">
+                        <Lock className="h-3.5 w-3.5" />
+                        Read-only
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

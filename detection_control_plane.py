@@ -101,6 +101,12 @@ def _service_for_rule_type(rule_type: str) -> tuple[bool, str | None]:
     if rule_type == "EXCEPTION":
         return True, "ai-soc-worker"
 
+    if rule_type == "TELEMETRY_SOURCE":
+        return False, None
+
+    if rule_type == "SERVICE_CONTROL":
+        return True, "service-control"
+
     return False, None
 
 
