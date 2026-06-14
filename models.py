@@ -385,6 +385,75 @@ class DetectionConfigVersion(Base):
     source_identifier = Column(String)
 
 
+class DetectionRuleLifecycleItem(Base):
+    __tablename__ = "detection_rule_lifecycle_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    policy_type = Column(String, index=True, nullable=False)
+    rule_key = Column(String, index=True, nullable=False)
+    version_number = Column(Integer, nullable=False)
+
+    title = Column(String, index=True, nullable=False)
+    description = Column(Text)
+    content_json = Column(Text, nullable=False)
+    state = Column(String, index=True, nullable=False)
+
+    created_by_user_id = Column(Integer, index=True)
+    created_by_username = Column(String, index=True)
+    updated_by_user_id = Column(Integer, index=True)
+    updated_by_username = Column(String, index=True)
+
+    submitted_by_user_id = Column(Integer, index=True)
+    submitted_at = Column(DateTime(timezone=True))
+    approved_by_user_id = Column(Integer, index=True)
+    approved_at = Column(DateTime(timezone=True))
+    rejected_by_user_id = Column(Integer, index=True)
+    rejected_at = Column(DateTime(timezone=True))
+    rejection_reason = Column(Text)
+    applied_by_user_id = Column(Integer, index=True)
+    applied_at = Column(DateTime(timezone=True))
+    disabled_by_user_id = Column(Integer, index=True)
+    disabled_at = Column(DateTime(timezone=True))
+    disable_reason = Column(Text)
+
+    superseded_by_item_id = Column(Integer, index=True)
+    cloned_from_item_id = Column(Integer, index=True)
+    related_config_version_id = Column(Integer, index=True)
+
+    validation_status = Column(String, default="not_validated", index=True)
+    validation_errors_json = Column(Text)
+    validation_warnings_json = Column(Text)
+
+    expires_at = Column(DateTime(timezone=True), index=True)
+    owner = Column(String, index=True)
+    business_reason = Column(Text)
+    risk_note = Column(Text)
+    last_hit_at = Column(DateTime(timezone=True))
+    hit_count = Column(Integer, default=0, nullable=False)
+    source_system = Column(String, index=True)
+
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class DetectionRuleLifecycleEvent(Base):
+    __tablename__ = "detection_rule_lifecycle_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    item_id = Column(Integer, index=True, nullable=False)
+    action = Column(String, index=True, nullable=False)
+    from_state = Column(String, index=True)
+    to_state = Column(String, index=True)
+    actor_user_id = Column(Integer, index=True)
+    actor_username = Column(String, index=True)
+    actor_role = Column(String, index=True)
+    comment = Column(Text)
+    details_json = Column(Text)
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
 class ServiceOperation(Base):
     __tablename__ = "service_operations"
 

@@ -521,7 +521,7 @@ export default function ServiceOperationsPanel({
         />
       )}
 
-      <div className="grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
         {services.map((service) => (
           <ServiceCard
             key={service.key}
@@ -586,27 +586,31 @@ function ServiceCard({
   const restartDisabled = running || !canRestart || !service.restart_allowed;
 
   return (
-    <article className="rounded-lg border border-slate-800 bg-slate-950 p-3">
-      <div className="mb-2 flex items-start justify-between gap-2">
-        <div>
-          <div className="font-medium text-slate-100">{service.display_name}</div>
-          <div className="mt-1 text-xs leading-5 text-slate-500">{service.description}</div>
+    <article className="rounded-sm border border-slate-800 bg-slate-950 p-2 shadow-sm">
+      <div className="mb-1.5 flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate text-xs font-semibold leading-4 text-slate-100">
+            {service.display_name}
+          </div>
+          <div className="mt-0.5 max-h-8 overflow-hidden text-[11px] leading-4 text-slate-500">
+            {service.description}
+          </div>
         </div>
-        <span className={`rounded-md border px-2 py-1 text-[11px] ${riskTone(service.risk_level)}`}>
+        <span className={`shrink-0 rounded-sm border px-1.5 py-0.5 text-[10px] ${riskTone(service.risk_level)}`}>
           {service.risk_level}
         </span>
       </div>
 
-      <div className="mb-2 flex flex-wrap items-center gap-1.5 text-xs">
-        <span className={`rounded-md border px-2 py-1 text-[11px] ${statusTone(service.status)}`}>
+      <div className="mb-1.5 flex flex-wrap items-center gap-1 text-xs">
+        <span className={`rounded-sm border px-1.5 py-0.5 text-[10px] ${statusTone(service.status)}`}>
           {service.status}
         </span>
-        <span className="rounded-md border border-slate-800 bg-slate-900 px-2 py-1 text-[11px] text-slate-400">
+        <span className="rounded-sm border border-slate-800 bg-slate-900 px-1.5 py-0.5 text-[10px] text-slate-400">
           {service.command_family}
         </span>
         {affected && (
           <span
-            className={`rounded-md border px-2 py-1 text-[11px] ${
+            className={`rounded-sm border px-1.5 py-0.5 text-[10px] ${
               restartCompleted
                 ? "border-emerald-800 bg-emerald-950/50 text-emerald-200"
                 : "border-amber-800 bg-amber-950/50 text-amber-200"
@@ -618,21 +622,21 @@ function ServiceCard({
       </div>
 
       {service.last_operation && (
-        <div className="mb-3 rounded-md border border-slate-800 bg-slate-900 p-2 text-[11px] text-slate-400">
+        <div className="mb-2 truncate rounded-sm border border-slate-800 bg-slate-900 px-2 py-1 text-[10px] text-slate-400">
           Last {service.last_operation.operation_type}: {service.last_operation.status} /{" "}
           {formatDate(service.last_operation.created_at)}
         </div>
       )}
 
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap gap-1">
         <button
           type="button"
           onClick={() => onCheckStatus(service)}
           disabled={running}
-          className="flex h-7 items-center gap-1 rounded-md border border-slate-700 bg-slate-900 px-2 text-[11px] text-slate-200 hover:border-cyan-700 hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-7 items-center gap-1 rounded-sm border border-slate-700 bg-slate-900 px-2 text-[11px] text-slate-200 hover:border-cyan-700 hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Eye className="h-3.5 w-3.5" />
-          Check status
+          Status
         </button>
         <button
           type="button"
@@ -643,7 +647,7 @@ function ServiceCard({
               ? "ADMIN role required"
               : service.restart_disabled_reason || undefined
           }
-          className="flex h-7 items-center gap-1 rounded-md border border-slate-700 bg-slate-900 px-2 text-[11px] text-slate-200 hover:border-amber-700 hover:text-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-7 items-center gap-1 rounded-sm border border-slate-700 bg-slate-900 px-2 text-[11px] text-slate-200 hover:border-amber-700 hover:text-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <RotateCcw className="h-3.5 w-3.5" />
           Restart
