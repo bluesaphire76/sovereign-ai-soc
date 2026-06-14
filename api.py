@@ -412,7 +412,12 @@ RBAC_RULES: list[tuple[str, str, set[str]]] = [
     ("GET", r"^/platform/ingest/wazuh$", ALL_ROLES),
 
     # Settings / detection control plane
-    ("GET", r"^/settings/detection-control$", OPERATOR_ROLES),
+    ("GET", r"^/settings/detection-control$", ALL_ROLES),
+    ("GET", r"^/detection-control/rules(?:/[^/]+)?$", ALL_ROLES),
+    ("POST", r"^/detection-control/rules$", {ROLE_ADMIN}),
+    ("PATCH", r"^/detection-control/rules/[^/]+$", {ROLE_ADMIN}),
+    ("DELETE", r"^/detection-control/rules/[^/]+$", {ROLE_ADMIN}),
+    ("POST", r"^/detection-control/rules/[^/]+/(enable|disable|validate)$", {ROLE_ADMIN}),
 
     # Executive / reports / metrics
     ("GET", r"^/executive/summary$", ALL_ROLES),

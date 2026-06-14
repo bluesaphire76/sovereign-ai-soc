@@ -322,6 +322,34 @@ class SecurityAuditEvent(Base):
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
 
 
+class DetectionControlRule(Base):
+    __tablename__ = "detection_control_rules"
+
+    id = Column(String, primary_key=True, index=True)
+
+    rule_type = Column(String, index=True, nullable=False)
+    name = Column(String, index=True, nullable=False)
+    description = Column(Text)
+    scope = Column(String, index=True, nullable=False)
+    matcher_kind = Column(String, nullable=False)
+    matcher_value = Column(Text, nullable=False)
+    reason = Column(Text, nullable=False)
+    owner = Column(String, index=True, nullable=False)
+
+    enabled = Column(Boolean, default=True, nullable=False)
+    status = Column(String, default="ACTIVE", index=True, nullable=False)
+
+    created_by = Column(String)
+    updated_by = Column(String)
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    deleted_at = Column(DateTime(timezone=True), index=True)
+
+    last_validation_status = Column(String, default="OK", index=True)
+    last_validation_message = Column(Text)
+    metadata_json = Column(Text)
+
+
 class InvestigationSessionRecord(Base):
     __tablename__ = "investigation_sessions"
 
