@@ -1758,9 +1758,9 @@ function VersionHistoryTable({
       <div className="border-b border-slate-800 bg-slate-950 px-3 py-2 text-xs font-medium uppercase tracking-wide text-slate-500">
         Version History
       </div>
-      <div className="overflow-x-auto">
+      <div className="max-h-[220px] overflow-auto">
         <table className="min-w-full divide-y divide-slate-800 text-left text-xs">
-          <thead className="bg-slate-950 text-[11px] uppercase tracking-wide text-slate-500">
+          <thead className="sticky top-0 z-10 bg-slate-950 text-[11px] uppercase tracking-wide text-slate-500">
             <tr>
               <th className="px-3 py-2">Version</th>
               <th className="px-3 py-2">Status</th>

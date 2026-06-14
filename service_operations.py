@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Mapping
 
 from fastapi import HTTPException, Request
+from sqlalchemy import or_
 
 from detection_control_plane import _request_client_ip, _sanitize_audit_details
 from models import SecurityAuditEvent, ServiceOperation
@@ -1128,15 +1129,95 @@ def list_operations(
     db,
     *,
     service_key: str | None = None,
+    operation_type: str | None = None,
+    status: str | None = None,
+    search: str | None = None,
     limit: int = 50,
+    offset: int = 0,
 ) -> list[dict[str, Any]]:
+    query = _operations_query(
+        db,
+        service_key=service_key,
+        operation_type=operation_type,
+        status=status,
+        search=search,
+    )
+
+    rows = (
+        query.order_by(ServiceOperation.id.desc())
+        .offset(max(0, offset))
+        .limit(max(1, min(limit, 200)))
+        .all()
+    )
+    return [_operation_to_dict(row) for row in rows]
+
+
+def count_operations(
+    db,
+    *,
+    service_key: str | None = None,
+    operation_type: str | None = None,
+    status: str | None = None,
+    search: str | None = None,
+) -> int:
+    return _operations_query(
+        db,
+        service_key=service_key,
+        operation_type=operation_type,
+        status=status,
+        search=search,
+    ).count()
+
+
+def _operations_query(
+    db,
+    *,
+    service_key: str | None,
+    operation_type: str | None,
+    status: str | None,
+    search: str | None,
+):
     query = db.query(ServiceOperation)
 
     if service_key:
         query = query.filter(ServiceOperation.service_key == _service(service_key).key)
 
-    rows = query.order_by(ServiceOperation.id.desc()).limit(max(1, min(limit, 200))).all()
-    return [_operation_to_dict(row) for row in rows]
+    if operation_type:
+        query = query.filter(ServiceOperation.operation_type == operation_type.strip().lower())
+
+    if status:
+        query = query.filter(ServiceOperation.status == status.strip().lower())
+
+    term = str(search or "").strip()
+
+    if term:
+        like_term = f"%{term}%"
+        search_filters = [
+            ServiceOperation.service_key.ilike(like_term),
+            ServiceOperation.display_name.ilike(like_term),
+            ServiceOperation.operation_type.ilike(like_term),
+            ServiceOperation.status.ilike(like_term),
+            ServiceOperation.reason.ilike(like_term),
+            ServiceOperation.requested_by_username.ilike(like_term),
+            ServiceOperation.pre_status.ilike(like_term),
+            ServiceOperation.post_status.ilike(like_term),
+            ServiceOperation.safe_message.ilike(like_term),
+            ServiceOperation.safe_error.ilike(like_term),
+        ]
+        numeric_term = term.removeprefix("#")
+
+        if numeric_term.isdigit():
+            numeric_value = int(numeric_term)
+            search_filters.extend(
+                [
+                    ServiceOperation.id == numeric_value,
+                    ServiceOperation.related_config_version_id == numeric_value,
+                ]
+            )
+
+        query = query.filter(or_(*search_filters))
+
+    return query
 
 
 def get_operation(db, operation_id: int) -> dict[str, Any]:

@@ -7,7 +7,9 @@ from sqlalchemy.orm import sessionmaker
 
 from models import Base, SecurityAuditEvent, ServiceOperation
 from service_operations import (
+    count_operations,
     get_service_status,
+    list_operations,
     preview_restart,
     restart_service,
 )
@@ -64,6 +66,33 @@ def active_systemd(args=None):
     )
 
 
+def add_operation(
+    db,
+    *,
+    service_key,
+    display_name,
+    operation_type,
+    status,
+    username="admin",
+    reason=None,
+    related_config_version_id=None,
+    safe_message=None,
+):
+    row = ServiceOperation(
+        service_key=service_key,
+        display_name=display_name,
+        operation_type=operation_type,
+        status=status,
+        requested_by_username=username,
+        reason=reason,
+        related_config_version_id=related_config_version_id,
+        safe_message=safe_message,
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
 def test_unknown_service_key_is_rejected():
     db = db_session()
 
@@ -77,6 +106,77 @@ def test_unknown_service_key_is_rejected():
             )
 
         assert exc.value.status_code == 404
+    finally:
+        db.close()
+
+
+def test_operation_history_supports_pagination_and_filters():
+    db = db_session()
+
+    try:
+        status_check = add_operation(
+            db,
+            service_key="ai_soc_worker",
+            display_name="AI SOC Worker",
+            operation_type="status_check",
+            status="success",
+            safe_message="AI SOC Worker is running.",
+        )
+        failed_restart = add_operation(
+            db,
+            service_key="ai_soc_worker",
+            display_name="AI SOC Worker",
+            operation_type="restart",
+            status="failed",
+            reason="Apply config v12.",
+            related_config_version_id=12,
+            safe_message="Restart command failed.",
+        )
+        frontend_restart = add_operation(
+            db,
+            service_key="ai_soc_frontend",
+            display_name="AI SOC Frontend",
+            operation_type="restart",
+            status="success",
+            safe_message="AI SOC Frontend restarted successfully.",
+        )
+        denied_preview = add_operation(
+            db,
+            service_key="suricata",
+            display_name="Suricata IDS",
+            operation_type="restart_preview",
+            status="denied",
+            reason="Policy review required.",
+        )
+        db.commit()
+
+        assert count_operations(db) == 4
+
+        page = list_operations(db, limit=2, offset=1)
+        assert [item["operation_id"] for item in page] == [
+            frontend_restart.id,
+            failed_restart.id,
+        ]
+
+        worker_failures = list_operations(
+            db,
+            service_key="ai_soc_worker",
+            status="failed",
+            limit=10,
+        )
+        assert [item["operation_id"] for item in worker_failures] == [failed_restart.id]
+
+        previews = list_operations(
+            db,
+            operation_type="restart_preview",
+            search="policy",
+            limit=10,
+        )
+        assert [item["operation_id"] for item in previews] == [denied_preview.id]
+
+        config_matches = list_operations(db, search="#12", limit=10)
+        assert [item["operation_id"] for item in config_matches] == [failed_restart.id]
+        assert status_check.id < denied_preview.id
     finally:
         db.close()
 
