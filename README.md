@@ -20,11 +20,132 @@ It is built as a product-grade prototype for teams that want AI-assisted SOC wor
 
 ## Product Preview
 
-Real screenshots are not committed yet. The repository includes a capture checklist for producing a clean product preview with demo data:
+Sovereign AI SOC is a local-first, human-in-the-loop security operations platform that combines detection, AI-assisted investigation, case workflow, governance and observability.
 
-- [Screenshot capture checklist](docs/assets/screenshots/README.md)
+![Sovereign AI SOC Primary Dashboard](docs/assets/screenshots/01-primary-dashboard.png)
 
-Recommended future screenshots include the Executive Dashboard, Incidents, Incident Command Room, AI Command Brief, Correlation Visualization, Detection Quality, Case Detail, Case Kanban, Health, Security Audit, Users/RBAC and report exports.
+The platform provides a high-level operational view across incidents, risk posture, workflow readiness and platform health, giving both analysts and stakeholders an immediate understanding of the security operations picture.
+
+---
+
+### SOC Operations
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/assets/screenshots/02-incidents-workbench.png" alt="Incidents workbench">
+      <br>
+      <strong>Incidents Workbench</strong>
+      <br>
+      Prioritized security incidents with lifecycle, severity, source and investigation context.
+    </td>
+    <td width="50%">
+      <img src="docs/assets/screenshots/03-incident-ai-analysis.png" alt="AI-assisted incident analysis">
+      <br>
+      <strong>AI-assisted Incident Analysis</strong>
+      <br>
+      Local AI supports the analyst with risk rationale, evidence summary and recommended checks.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/assets/screenshots/04-incident-ai-situation-brief.png" alt="AI situation brief">
+      <br>
+      <strong>AI Situation Brief</strong>
+      <br>
+      Executive-style incident context, decision support and analyst-oriented summary.
+    </td>
+    <td width="50%">
+      <img src="docs/assets/screenshots/05-incident-correlation-timeline-attack-chain.png" alt="Correlation timeline and attack chain">
+      <br>
+      <strong>Correlation Timeline & Attack Chain</strong>
+      <br>
+      Related alerts, evidence, MITRE context and explainable incident correlation.
+    </td>
+  </tr>
+</table>
+
+---
+
+### Response Workflow & Governance
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/assets/screenshots/07-incident-remediation-governance.png" alt="Remediation governance">
+      <br>
+      <strong>Remediation Governance</strong>
+      <br>
+      Recommended actions remain governed, reviewable and human-approved.
+    </td>
+    <td width="50%">
+      <img src="docs/assets/screenshots/08-case-kanban-sla-workflow.png" alt="Case Kanban and SLA workflow">
+      <br>
+      <strong>Case Kanban & SLA Workflow</strong>
+      <br>
+      Human-in-the-loop case management with ownership, SLA and closure readiness.
+    </td>
+  </tr>
+</table>
+
+---
+
+### Detection Quality & Control Plane
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/assets/screenshots/09-detection-quality-validation.png" alt="Detection quality validation">
+      <br>
+      <strong>Detection Quality Validation</strong>
+      <br>
+      Synthetic scenario validation, detection coverage and analyst-oriented next actions.
+    </td>
+    <td width="50%">
+      <img src="docs/assets/screenshots/10-detection-control-plane.png" alt="Detection control plane">
+      <br>
+      <strong>Detection Control Plane</strong>
+      <br>
+      Operational governance for rules, exceptions, suppression and detection policies.
+    </td>
+  </tr>
+</table>
+
+---
+
+### Platform Health & Observability
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/assets/screenshots/13-platform-health-components.png" alt="Platform health components">
+      <br>
+      <strong>Platform Health</strong>
+      <br>
+      Runtime visibility across AI, ingestion, Wazuh, Suricata, database and workers.
+    </td>
+    <td width="50%">
+      <img src="docs/assets/screenshots/14-grafana-ai-soc-observability-foundation.png" alt="Grafana AI SOC observability foundation">
+      <br>
+      <strong>Grafana Observability</strong>
+      <br>
+      Historical metrics for the AI SOC platform, infrastructure and runtime components.
+    </td>
+  </tr>
+</table>
+
+## Additional Product Views
+
+Additional screenshots are available in [`docs/assets/screenshots`](docs/assets/screenshots), including technical evidence, control plane inventory and extended observability views.
+
+## How the Platform Works
+
+1. Security events are collected from local detection sources such as Wazuh and Suricata.
+2. The ingestion pipeline normalizes, deduplicates and suppresses known operational noise.
+3. Relevant signals are correlated into explainable incidents.
+4. Local AI supports the analyst with risk rationale, evidence summary, recommended checks and remediation guidance.
+5. The analyst remains in control through human-in-the-loop case workflow and approval gates.
+6. Health and observability views provide operational confidence across the platform.
 
 ## Why Sovereign AI SOC
 
