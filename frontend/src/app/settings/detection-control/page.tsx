@@ -15,6 +15,7 @@ import {
 } from "react";
 import Link from "next/link";
 import AppNavigation from "../../../components/AppNavigation";
+import OperationsPanel from "./OperationsPanel";
 import ServiceOperationsPanel from "./ServiceOperationsPanel";
 import {
   AlertTriangle,
@@ -1292,6 +1293,8 @@ export default function DetectionControlPlanePage() {
                 </div>
               </section>
             )}
+
+            <OperationsPanel currentUser={currentUser} />
 
             <VersionGovernancePanel
               activeVersion={activeVersion}

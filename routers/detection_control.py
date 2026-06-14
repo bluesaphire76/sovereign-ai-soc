@@ -29,6 +29,15 @@ from detection_control_plane import (
     update_detection_control_rule,
     validate_existing_detection_control_rule,
 )
+from detection_operations import (
+    extend_review,
+    list_operation_items,
+    mark_reviewed,
+    match_preview,
+    matched_events_for_item,
+    operations_overview,
+    get_operation_item_summary,
+)
 from detection_control_inventory import get_detection_control_inventory
 from detection_rule_lifecycle import (
     apply_lifecycle_item,
@@ -109,6 +118,28 @@ class LifecycleRejectRequest(BaseModel):
 
 class LifecycleDisableRequest(BaseModel):
     disable_reason: str | None = None
+
+
+class DetectionOperationMatchPreviewRequest(BaseModel):
+    name: str | None = None
+    type: str | None = None
+    scope: str | None = None
+    matcher_kind: str | None = None
+    matcher_value: str | None = None
+    content_json: Any = Field(default_factory=dict)
+    metadata: Any = Field(default_factory=dict)
+    limit: int | None = Field(default=25, ge=1, le=100)
+    scan_limit: int | None = Field(default=500, ge=1, le=2000)
+
+
+class DetectionOperationExtendReviewRequest(BaseModel):
+    expires_at: str
+    reason: str | None = None
+
+
+class DetectionOperationMarkReviewedRequest(BaseModel):
+    review_status: str | None = None
+    review_notes: str | None = None
 
 
 def _current_user(request: Request) -> dict:
@@ -219,6 +250,177 @@ def detection_lifecycle_items(
             owner=owner,
             search=search,
             limit=limit,
+        )
+    finally:
+        db.close()
+
+
+@router.get("/detection-control/operations/overview")
+def detection_operations_summary(request: Request):
+    db = SessionLocal()
+
+    try:
+        return operations_overview(db, current_user=_current_user(request))
+    finally:
+        db.close()
+
+
+@router.get("/detection-control/operations/noise-suppression")
+def detection_operations_noise_suppression(
+    status: str | None = Query(default=None),
+    scope_classification: str | None = Query(default=None),
+    review_status: str | None = Query(default=None),
+    search: str | None = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=500),
+):
+    db = SessionLocal()
+
+    try:
+        return list_operation_items(
+            db,
+            item_type="NOISE_SUPPRESSION",
+            status=status,
+            scope_classification=scope_classification,
+            review_status=review_status,
+            search=search,
+            limit=limit,
+        )
+    finally:
+        db.close()
+
+
+@router.get("/detection-control/operations/exceptions")
+def detection_operations_exceptions(
+    status: str | None = Query(default=None),
+    scope_classification: str | None = Query(default=None),
+    review_status: str | None = Query(default=None),
+    search: str | None = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=500),
+):
+    db = SessionLocal()
+
+    try:
+        return list_operation_items(
+            db,
+            item_type="EXCEPTION",
+            status=status,
+            scope_classification=scope_classification,
+            review_status=review_status,
+            search=search,
+            limit=limit,
+        )
+    finally:
+        db.close()
+
+
+@router.get("/detection-control/operations/rules")
+def detection_operations_rules(
+    status: str | None = Query(default=None),
+    scope_classification: str | None = Query(default=None),
+    review_status: str | None = Query(default=None),
+    search: str | None = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=500),
+):
+    db = SessionLocal()
+
+    try:
+        return list_operation_items(
+            db,
+            item_type="DETECTION_RULE",
+            status=status,
+            scope_classification=scope_classification,
+            review_status=review_status,
+            search=search,
+            limit=limit,
+        )
+    finally:
+        db.close()
+
+
+@router.get("/detection-control/operations/items/{item_id}/summary")
+def detection_operations_item_summary(item_id: str):
+    db = SessionLocal()
+
+    try:
+        return get_operation_item_summary(db, item_id=item_id)
+    finally:
+        db.close()
+
+
+@router.get("/detection-control/operations/items/{item_id}/matched-events")
+def detection_operations_item_matches(
+    item_id: str,
+    limit: int = Query(default=25, ge=1, le=100),
+    scan_limit: int = Query(default=1000, ge=1, le=2000),
+):
+    db = SessionLocal()
+
+    try:
+        return matched_events_for_item(
+            db,
+            item_id=item_id,
+            limit=limit,
+            scan_limit=scan_limit,
+        )
+    finally:
+        db.close()
+
+
+@router.post("/detection-control/operations/match-preview")
+def detection_operations_match_preview(
+    payload: DetectionOperationMatchPreviewRequest,
+    request: Request,
+):
+    db = SessionLocal()
+
+    try:
+        return match_preview(
+            db,
+            payload=payload.model_dump(exclude_unset=True),
+            current_user=_current_user(request),
+            request=request,
+        )
+    finally:
+        db.close()
+
+
+@router.post("/detection-control/operations/items/{item_id}/extend-review")
+def detection_operations_extend_review(
+    item_id: str,
+    payload: DetectionOperationExtendReviewRequest,
+    request: Request,
+):
+    db = SessionLocal()
+
+    try:
+        return extend_review(
+            db,
+            item_id=item_id,
+            expires_at=payload.expires_at,
+            reason=payload.reason,
+            current_user=_current_user(request),
+            request=request,
+        )
+    finally:
+        db.close()
+
+
+@router.post("/detection-control/operations/items/{item_id}/mark-reviewed")
+def detection_operations_mark_reviewed(
+    item_id: str,
+    payload: DetectionOperationMarkReviewedRequest,
+    request: Request,
+):
+    db = SessionLocal()
+
+    try:
+        return mark_reviewed(
+            db,
+            item_id=item_id,
+            review_status=payload.review_status,
+            review_notes=payload.review_notes,
+            current_user=_current_user(request),
+            request=request,
         )
     finally:
         db.close()
