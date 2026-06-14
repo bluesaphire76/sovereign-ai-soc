@@ -1,0 +1,68 @@
+groups:
+  - name: ai-soc-wazuh-ingest-backlog
+    rules:
+      - alert: WazuhIngestBacklogWarning
+        expr: ai_soc_event_queue_pending_events > 250
+        for: 15m
+        labels:
+          severity: warning
+          service: ai-soc-worker
+          domain: wazuh-ingest
+        annotations:
+          summary: "AI SOC Wazuh ingest backlog is growing"
+          description: "Pending Wazuh events have been above 250 for more than 15 minutes. The worker may be falling behind."
+
+      - alert: WazuhIngestBacklogCritical
+        expr: ai_soc_event_queue_pending_events > 1000
+        for: 10m
+        labels:
+          severity: critical
+          service: ai-soc-worker
+          domain: wazuh-ingest
+        annotations:
+          summary: "AI SOC Wazuh ingest backlog is critical"
+          description: "Pending Wazuh events have been above 1000 for more than 10 minutes. Investigation data may be delayed."
+
+      - alert: WazuhIngestWatermarkLagHigh
+        expr: ai_soc_worker_batch_metrics{metric="watermark_lag_seconds"} > 1800
+        for: 15m
+        labels:
+          severity: warning
+          service: ai-soc-worker
+          domain: wazuh-ingest
+        annotations:
+          summary: "AI SOC Wazuh ingest watermark lag is high"
+          description: "The Wazuh ingest watermark has been more than 30 minutes behind for more than 15 minutes."
+
+      - alert: AiSocWorkerHeartbeatStale
+        expr: ai_soc_worker_heartbeat_age_seconds > 300
+        for: 10m
+        labels:
+          severity: critical
+          service: ai-soc-worker
+          domain: worker-health
+        annotations:
+          summary: "AI SOC worker heartbeat is stale"
+          description: "The latest AI SOC worker heartbeat has been older than 5 minutes for more than 10 minutes."
+
+      - alert: AiSocApiMetricsDown
+        expr: up{job="ai-soc-api"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          service: ai-soc-api
+          domain: observability
+        annotations:
+          summary: "AI SOC API metrics endpoint is down"
+          description: "Prometheus cannot scrape the AI SOC API /metrics endpoint."
+
+      - alert: WazuhIngestComponentError
+        expr: ai_soc_component_status_code{component="wazuh_ingest",status="error"} == 1
+        for: 5m
+        labels:
+          severity: critical
+          service: ai-soc-worker
+          domain: wazuh-ingest
+        annotations:
+          summary: "AI SOC Wazuh ingest component is reporting error"
+          description: "The AI SOC platform health metrics report the Wazuh ingest component in error state."
