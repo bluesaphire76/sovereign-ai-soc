@@ -385,6 +385,32 @@ class DetectionConfigVersion(Base):
     source_identifier = Column(String)
 
 
+class ServiceOperation(Base):
+    __tablename__ = "service_operations"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    service_key = Column(String, index=True, nullable=False)
+    display_name = Column(String)
+    operation_type = Column(String, index=True, nullable=False)
+    status = Column(String, index=True, nullable=False)
+
+    reason = Column(Text)
+    requested_by_user_id = Column(Integer, index=True)
+    requested_by_username = Column(String, index=True)
+    related_config_version_id = Column(Integer, index=True)
+
+    pre_status = Column(String)
+    post_status = Column(String)
+    safe_message = Column(Text)
+    safe_error = Column(Text)
+
+    started_at = Column(DateTime(timezone=True))
+    finished_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
 class InvestigationSessionRecord(Base):
     __tablename__ = "investigation_sessions"
 
