@@ -57,3 +57,13 @@ AGENTS.md
 # Local observability secrets
 deploy/observability/.env
 .local-backups/
+
+# Local Alertmanager notification configuration and secrets
+deploy/observability/alertmanager/alertmanager.local.yml
+deploy/observability/alertmanager/secrets/
+
+# Local ntfy bridge configuration
+deploy/observability/ntfy-bridge/.env
+
+# Local Alertmanager override configuration
+deploy/observability/alertmanager/alertmanager.local.yml
