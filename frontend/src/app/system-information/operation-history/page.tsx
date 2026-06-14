@@ -182,7 +182,11 @@ export default function OperationHistoryPage() {
   }, [queryString]);
 
   useEffect(() => {
-    loadData();
+    const timer = window.setTimeout(() => {
+      void loadData();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, [loadData]);
 
   useEffect(() => {

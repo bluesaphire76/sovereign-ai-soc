@@ -3,14 +3,11 @@
 import { downloadBackendFile } from "@/lib/download";
 import { authFetch, fetchCurrentUser, getStoredUser, type AuthUser } from "@/lib/auth";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import AppNavigation from "../../../components/AppNavigation";
 import {
-  AlertTriangle,
-  Brain,
-  CheckCircle2,
   ClipboardList,
   Database,
   FileDown,
@@ -19,7 +16,6 @@ import {
   Globe2,
   RefreshCw,
   ShieldAlert,
-  Target,
 } from "lucide-react";
 
 type IncidentDetail = {
@@ -502,12 +498,6 @@ const INCIDENT_STATUSES = [
   "ESCALATED",
 ];
 
-const INCIDENT_EXCEPTION_STATUSES = ["FALSE_POSITIVE", "ESCALATED"];
-
-const INCIDENT_WORKFLOW_STATUSES = INCIDENT_STATUSES.filter(
-  (status) => !INCIDENT_EXCEPTION_STATUSES.includes(status)
-);
-
 const AI_REMEDIATION_HEADINGS = [
   "suggested remediation",
   "suggested remediations",
@@ -521,13 +511,6 @@ const AI_SUBSECTION_HEADINGS = [
   "recommended checks",
   "recommended check",
   ...AI_REMEDIATION_HEADINGS,
-];
-
-const REVIEW_CHECKS = [
-  "Validate the AI interpretation against raw Wazuh evidence.",
-  "Confirm whether correlation context supports escalation.",
-  "Check affected host, rule metadata and related events.",
-  "Document analyst conclusion before closing or escalating.",
 ];
 
 function riskLabel(score: number | null | undefined) {
@@ -546,18 +529,6 @@ function toneForRisk(score: number | null | undefined): Tone {
   if (value >= 60) return "warning";
   if (value >= 40) return "primary";
   return "success";
-}
-
-function toneForStatus(status: string | null | undefined): Tone {
-  const value = (status ?? "NEW").toUpperCase();
-
-  if (value === "ESCALATED") return "danger";
-  if (value === "TRIAGED" || value === "INVESTIGATING") return "primary";
-  if (value === "CONTAINED") return "warning";
-  if (value === "RESOLVED" || value === "CLOSED") return "success";
-  if (value === "FALSE_POSITIVE") return "executive";
-
-  return "neutral";
 }
 
 function toneForDryRunStatus(status: string | null | undefined): Tone {
@@ -650,15 +621,6 @@ function toneClasses(tone: Tone) {
   };
 
   return classes[tone];
-}
-
-function remediationSourceLabel(plan: RemediationPlanPreview | null | undefined) {
-  const source = plan?.source ?? plan?.remediation_source;
-
-  if (source === "local_ai") return "Local AI";
-  if (source === "deterministic_fallback") return "Deterministic fallback";
-  if (source) return source.split("_").join(" ");
-  return "Context";
 }
 
 function prettyJson(value: string | null) {
@@ -783,12 +745,6 @@ function formatTimestamp(value: string | null | undefined) {
 
 function shortTimestamp(value: string | null | undefined) {
   return formatTimestamp(value).replace(", ", " · ");
-}
-
-function shortText(value: string | null | undefined, max = 120) {
-  if (!value) return "-";
-  if (value.length <= max) return value;
-  return `${value.slice(0, max - 1)}...`;
 }
 
 async function fetchIncident(id: string): Promise<IncidentDetail> {
@@ -1293,40 +1249,6 @@ function remediationPhase(item: HierarchicalAiItem): RemediationPhase {
   return "Validate";
 }
 
-function MetricTile({
-  title,
-  value,
-  tone,
-  icon,
-}: {
-  title: string;
-  value: string | number;
-  tone: Tone;
-  icon?: ReactNode;
-}) {
-  const classes = toneClasses(tone);
-
-  return (
-    <div className={`rounded-md border px-2.5 py-2 shadow-sm ${classes.panel}`}>
-      <div className="flex items-center justify-between gap-2">
-        <div className="min-w-0">
-          <div className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
-            {title}
-          </div>
-          <div className="mt-0.5 truncate text-sm font-semibold leading-5 text-slate-100">
-            {value}
-          </div>
-        </div>
-        {icon && (
-          <div className={`shrink-0 rounded-md bg-slate-950 p-1.5 ${classes.text}`}>
-            {icon}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function Panel({
   title,
   description,
@@ -1443,137 +1365,6 @@ function LinkCommand({
     >
       {children}
     </a>
-  );
-}
-
-function LifecycleConsole({
-  status,
-  timestamp,
-  onStatusChange,
-  readOnly = false,
-}: {
-  status: string | null | undefined;
-  timestamp: string | null | undefined;
-  onStatusChange?: (status: string) => void;
-  readOnly?: boolean;
-}) {
-  const currentStatus = (status ?? "NEW").toUpperCase();
-  const activeWorkflowIndex = INCIDENT_WORKFLOW_STATUSES.indexOf(currentStatus);
-  const activeTone = toneForStatus(currentStatus);
-  const activeClasses = toneClasses(activeTone);
-
-  const handleChange = (nextStatus: string) => {
-    if (readOnly || !onStatusChange) return;
-    onStatusChange(nextStatus);
-  };
-
-  return (
-    <div className="space-y-3">
-      <div className={`rounded-md border px-2.5 py-2 ${activeClasses.panel}`}>
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-              Current state
-            </div>
-            <div className="mt-1 flex items-center gap-2">
-              <Badge tone={activeTone}>{currentStatus}</Badge>
-              {activeWorkflowIndex >= 0 && (
-                <span className="text-[10px] uppercase tracking-wide text-slate-500">
-                  Workflow {activeWorkflowIndex + 1}/{INCIDENT_WORKFLOW_STATUSES.length}
-                </span>
-              )}
-            </div>
-          </div>
-
-          <div className="text-right">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-              Event time
-            </div>
-            <div className="mt-1 text-[11px] text-slate-300">
-              {shortTimestamp(timestamp)}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="overflow-hidden rounded-md border border-slate-800 bg-slate-950">
-        <div className="border-b border-slate-800 bg-slate-900/70 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-          Primary workflow
-        </div>
-        <div className="divide-y divide-slate-800">
-          {INCIDENT_WORKFLOW_STATUSES.map((candidate, index) => {
-            const isActive = candidate === currentStatus;
-            const isCompleted = activeWorkflowIndex >= 0 && index < activeWorkflowIndex;
-
-            return (
-              <button
-                key={candidate}
-                type="button"
-                aria-pressed={isActive}
-                disabled={readOnly}
-                onClick={() => handleChange(candidate)}
-                className={`grid h-8 w-full grid-cols-[1.25rem_1fr_auto] items-center gap-2 border-l-2 px-2 text-left text-xs transition disabled:cursor-default ${
-                  isActive
-                    ? "border-l-cyan-400 bg-cyan-950/40 text-cyan-100"
-                    : isCompleted
-                      ? "border-l-emerald-800 bg-emerald-950/15 text-slate-300"
-                      : "border-l-transparent bg-slate-950 text-slate-400 hover:bg-slate-900 hover:text-slate-200"
-                }`}
-              >
-                <span
-                  className={`flex h-4 w-4 items-center justify-center rounded-sm border text-[9px] font-semibold ${
-                    isActive
-                      ? "border-cyan-400 bg-cyan-500 text-slate-950"
-                      : isCompleted
-                        ? "border-emerald-700 bg-emerald-950 text-emerald-200"
-                        : "border-slate-700 bg-slate-900 text-slate-500"
-                  }`}
-                >
-                  {index + 1}
-                </span>
-                <span className="truncate font-medium">{candidate}</span>
-                <span className="text-[10px] uppercase tracking-wide text-slate-600">
-                  {isActive ? "Now" : isCompleted ? "Done" : "Next"}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="rounded-md border border-slate-800 bg-slate-950 p-2">
-        <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-          Exception disposition
-        </div>
-        <div className="grid grid-cols-2 gap-1.5">
-          {INCIDENT_EXCEPTION_STATUSES.map((candidate) => {
-            const isActive = candidate === currentStatus;
-            return (
-              <button
-                key={candidate}
-                type="button"
-                aria-pressed={isActive}
-                disabled={readOnly}
-                onClick={() => handleChange(candidate)}
-                className={`inline-flex h-7 items-center justify-center rounded-md border px-2 text-[10px] font-semibold leading-none transition disabled:cursor-default ${
-                  isActive
-                    ? "border-cyan-400 bg-cyan-500 text-slate-950"
-                    : "border-slate-800 bg-slate-950 text-slate-400 hover:border-slate-700 hover:bg-slate-900 hover:text-slate-200"
-                }`}
-              >
-                {candidate}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {readOnly && (
-        <div className="rounded-md border border-slate-800 bg-slate-950 px-2 py-1.5 text-[11px] leading-4 text-slate-500">
-          Read-only access: your role can review lifecycle state but cannot modify it.
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -2228,19 +2019,6 @@ function RemediationAuditTrailPanel({
   );
 }
 
-function ReviewChecklist() {
-  return (
-    <div className="grid gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800 sm:grid-cols-2">
-      {REVIEW_CHECKS.map((item) => (
-        <div key={item} className="flex gap-2 bg-slate-950 px-2.5 py-2">
-          <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-cyan-300" />
-          <div className="text-xs leading-5 text-slate-300">{item}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function AnalystNotesPanel({
   notes,
   noteDraft,
@@ -2308,179 +2086,6 @@ function AnalystNotesPanel({
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-function ConsoleRow({
-  title,
-  description,
-  children,
-}: {
-  title: string;
-  description: string;
-  children: ReactNode;
-}) {
-  return (
-    <section className="grid border-b border-slate-800 last:border-b-0 xl:grid-cols-[220px_1fr]">
-      <div className="border-b border-slate-800 bg-slate-900/60 px-3 py-2.5 xl:border-b-0 xl:border-r">
-        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-100">
-          {title}
-        </h3>
-        <p className="mt-1 text-[11px] leading-4 text-slate-500">{description}</p>
-      </div>
-
-      <div className="min-w-0 bg-slate-950 px-3 py-2.5">{children}</div>
-    </section>
-  );
-}
-
-function CommandRoomSignal({
-  label,
-  value,
-  detail,
-  tone,
-}: {
-  label: string;
-  value: string;
-  detail: string;
-  tone: Tone;
-}) {
-  const classes = toneClasses(tone);
-
-  return (
-    <div className={`min-w-0 rounded-md border px-2.5 py-2 ${classes.panel}`}>
-      <div className="flex items-center justify-between gap-2">
-        <div className="truncate text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-          {label}
-        </div>
-        <span className={`shrink-0 text-[10px] font-semibold uppercase tracking-wide ${classes.text}`}>
-          {value}
-        </span>
-      </div>
-      <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-400">
-        {detail}
-      </div>
-    </div>
-  );
-}
-
-function CommandRoomGovernanceStrip({
-  remediationPlan,
-  remediationLoading,
-  remediationError,
-  remediationDryRun,
-  remediationDryRunLoading,
-  remediationDryRunError,
-  rollbackReadiness,
-  rollbackReadinessLoading,
-  rollbackReadinessError,
-  remediationAuditTrail,
-  remediationAuditTrailLoading,
-  remediationAuditTrailError,
-}: {
-  remediationPlan?: RemediationPlanPreview | null;
-  remediationLoading?: boolean;
-  remediationError?: string | null;
-  remediationDryRun?: RemediationDryRunPreview | null;
-  remediationDryRunLoading?: boolean;
-  remediationDryRunError?: string | null;
-  rollbackReadiness?: RemediationRollbackReadinessPreview | null;
-  rollbackReadinessLoading?: boolean;
-  rollbackReadinessError?: string | null;
-  remediationAuditTrail?: RemediationAuditTrailPreview | null;
-  remediationAuditTrailLoading?: boolean;
-  remediationAuditTrailError?: string | null;
-}) {
-  const planValue = remediationLoading
-    ? "Loading"
-    : remediationError
-      ? "Unavailable"
-      : remediationPlan
-        ? remediationSourceLabel(remediationPlan)
-        : "Pending";
-  const planTone: Tone = remediationLoading
-    ? "primary"
-    : remediationError
-      ? "warning"
-      : remediationPlan?.source === "local_ai"
-        ? "success"
-        : remediationPlan
-          ? "primary"
-          : "neutral";
-
-  const dryRunValue = remediationDryRunLoading
-    ? "Loading"
-    : remediationDryRunError
-      ? "Unavailable"
-      : remediationDryRun?.status ?? "Pending";
-  const dryRunTone = remediationDryRunLoading
-    ? "primary"
-    : remediationDryRunError
-      ? "warning"
-      : toneForDryRunStatus(remediationDryRun?.status);
-
-  const rollbackValue = rollbackReadinessLoading
-    ? "Loading"
-    : rollbackReadinessError
-      ? "Unavailable"
-      : rollbackReadiness?.overall_status ?? "Pending";
-  const rollbackTone = rollbackReadinessLoading
-    ? "primary"
-    : rollbackReadinessError
-      ? "warning"
-      : toneForRollbackStatus(rollbackReadiness?.overall_status);
-
-  const auditValue = remediationAuditTrailLoading
-    ? "Loading"
-    : remediationAuditTrailError
-      ? "Unavailable"
-      : remediationAuditTrail
-        ? `${remediationAuditTrail.records.length} records`
-        : "Pending";
-  const auditTone: Tone = remediationAuditTrailLoading
-    ? "primary"
-    : remediationAuditTrailError
-      ? "warning"
-      : remediationAuditTrail
-        ? "success"
-        : "neutral";
-  const planDetail = remediationPlan?.model_profile
-    ? `LLM ${remediationPlan.model_profile}: ${remediationPlan.model ?? "configured model"}; advisory only.`
-    : "Planning intelligence is loaded independently from the incident record.";
-
-  return (
-    <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-5">
-      <CommandRoomSignal
-        label="Remediation plan"
-        value={planValue}
-        detail={planDetail}
-        tone={planTone}
-      />
-      <CommandRoomSignal
-        label="Simulation"
-        value={dryRunValue}
-        detail="Dry-run explains expected outcomes without mutating system state."
-        tone={dryRunTone}
-      />
-      <CommandRoomSignal
-        label="Rollback"
-        value={rollbackValue}
-        detail="Rollback readiness is assessed before any future operational workflow."
-        tone={rollbackTone}
-      />
-      <CommandRoomSignal
-        label="Audit trail"
-        value={auditValue}
-        detail="Governance events document approvals, policy gates and boundaries."
-        tone={auditTone}
-      />
-      <CommandRoomSignal
-        label="Execution boundary"
-        value="Controlled"
-        detail="Only allowlisted internal workflow records can be created; target execution is disabled."
-        tone="neutral"
-      />
     </div>
   );
 }
@@ -2902,285 +2507,6 @@ function ReplaySimulationPanel({
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-function InvestigationConsole({
-  incident,
-  notes,
-  noteDraft,
-  savingNote,
-  canOperate,
-  isViewer,
-  remediationPlan,
-  remediationLoading,
-  remediationError,
-  remediationDryRun,
-  remediationDryRunLoading,
-  remediationDryRunError,
-  rollbackReadiness,
-  rollbackReadinessLoading,
-  rollbackReadinessError,
-  remediationAuditTrail,
-  remediationAuditTrailLoading,
-  remediationAuditTrailError,
-  remediationReplay,
-  remediationReplayLoading,
-  remediationReplayError,
-  controlledExecutionResult,
-  controlledExecutionLoadingActionId,
-  controlledExecutionError,
-  onNoteDraftChange,
-  onAddNote,
-  onExecuteApprovedAction,
-}: {
-  incident: IncidentAiAssessmentInput;
-  notes: IncidentNote[];
-  noteDraft: string;
-  savingNote: boolean;
-  canOperate: boolean;
-  isViewer: boolean;
-  remediationPlan?: RemediationPlanPreview | null;
-  remediationLoading?: boolean;
-  remediationError?: string | null;
-  remediationDryRun?: RemediationDryRunPreview | null;
-  remediationDryRunLoading?: boolean;
-  remediationDryRunError?: string | null;
-  rollbackReadiness?: RemediationRollbackReadinessPreview | null;
-  rollbackReadinessLoading?: boolean;
-  rollbackReadinessError?: string | null;
-  remediationAuditTrail?: RemediationAuditTrailPreview | null;
-  remediationAuditTrailLoading?: boolean;
-  remediationAuditTrailError?: string | null;
-  remediationReplay?: RemediationReplayPreview | null;
-  remediationReplayLoading?: boolean;
-  remediationReplayError?: string | null;
-  controlledExecutionResult?: ControlledSoarExecutionResult | null;
-  controlledExecutionLoadingActionId?: string | null;
-  controlledExecutionError?: string | null;
-  onNoteDraftChange: (value: string) => void;
-  onAddNote: () => void;
-  onExecuteApprovedAction?: (actionId: string) => void;
-}) {
-  const analysis = (incident.ai_analysis ?? "").trim();
-  const sections = analysis ? parseAiAnalysis(analysis) : [];
-  const primary = sections[0];
-  const secondary = sections
-    .slice(1)
-    .filter((section) => !isAiRemediationHeading(section.title));
-  const decision = assessmentDecision(incident);
-  const sourceBadgeLabel = remediationLoading
-    ? "AI source loading"
-    : remediationError
-      ? "AI source unavailable"
-      : remediationPlan
-        ? remediationSourceLabel(remediationPlan)
-        : "Context fallback";
-  const sourceBadgeTone: Tone = remediationLoading
-    ? "primary"
-    : remediationError
-      ? "warning"
-      : remediationPlan?.source === "local_ai"
-        ? "success"
-        : "neutral";
-
-  return (
-    <div className="space-y-3">
-      <div className="overflow-hidden rounded-md border border-slate-800 bg-slate-950 shadow-sm">
-        <div className="border-b border-slate-800 bg-slate-900/80 p-3">
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-            <div>
-              <div className="text-[10px] font-semibold uppercase tracking-wide text-violet-300">
-                Incident command room
-              </div>
-              <h3 className="mt-1 text-sm font-semibold tracking-tight text-slate-100">
-                {decision}
-              </h3>
-              <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-400">
-                Local-first investigation, remediation planning, dry-run, rollback readiness, audit trail and analyst notes in one governed surface.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap gap-1.5">
-              <Badge tone={toneForRisk(incident.risk_score)}>
-                {riskLabel(incident.risk_score)}
-              </Badge>
-              <Badge tone={toneForStatus(incident.status)}>
-                {incident.status ?? "NEW"}
-              </Badge>
-              <Badge tone="warning">Human approval</Badge>
-              <Badge tone={sourceBadgeTone}>{sourceBadgeLabel}</Badge>
-              <Badge tone="neutral">Target execution disabled</Badge>
-            </div>
-          </div>
-        </div>
-
-        <div className="border-b border-slate-800 bg-slate-950 p-2.5">
-          <CommandRoomGovernanceStrip
-            remediationPlan={remediationPlan}
-            remediationLoading={remediationLoading}
-            remediationError={remediationError}
-            remediationDryRun={remediationDryRun}
-            remediationDryRunLoading={remediationDryRunLoading}
-            remediationDryRunError={remediationDryRunError}
-            rollbackReadiness={rollbackReadiness}
-            rollbackReadinessLoading={rollbackReadinessLoading}
-            rollbackReadinessError={rollbackReadinessError}
-            remediationAuditTrail={remediationAuditTrail}
-            remediationAuditTrailLoading={remediationAuditTrailLoading}
-            remediationAuditTrailError={remediationAuditTrailError}
-          />
-        </div>
-
-        <ConsoleRow
-          title="AI Governance"
-          description="Confidence, evidence coverage, warnings and limitations."
-        >
-          <AIGovernancePanel
-            governance={remediationPlan?.governance}
-            loading={remediationLoading}
-            error={remediationError}
-          />
-        </ConsoleRow>
-
-        <ConsoleRow
-          title="Executive brief"
-          description="Situation summary and decision posture."
-        >
-          {analysis ? (
-            <ExecutiveBrief
-              lines={primary?.lines ?? splitAiSentences(analysis)}
-              decision={decision}
-            />
-          ) : (
-            <EmptyState label="No AI analysis available." />
-          )}
-
-          {secondary.length > 0 && (
-            <details className="mt-2 rounded-md border border-slate-800 bg-slate-950">
-              <summary className="cursor-pointer px-2.5 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400 hover:text-cyan-200">
-                Additional AI context
-              </summary>
-              <div className="grid gap-2 border-t border-slate-800 p-2.5 xl:grid-cols-2">
-                {secondary.map((section) => (
-                  <div key={section.title} className="space-y-1.5">
-                    <div className="text-[10px] font-semibold uppercase tracking-wide text-cyan-300">
-                      {section.title}
-                    </div>
-                    {flattenAiItems(buildHierarchicalAiItems(section.lines)).slice(0, 4).map((line) => (
-                      <div key={line} className="line-clamp-2 text-xs leading-5 text-slate-300">
-                        {line}
-                      </div>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </details>
-          )}
-        </ConsoleRow>
-
-        <ConsoleRow
-          title="Decision facts"
-          description="Evidence posture, scope and correlation."
-        >
-          <DecisionMatrix incident={incident} />
-        </ConsoleRow>
-
-        <ConsoleRow
-          title="Response plan"
-          description="AI remediation intelligence by operational phase."
-        >
-          <ResponseBoard
-            incident={incident}
-            sections={sections}
-            remediationPlan={remediationPlan}
-            remediationLoading={remediationLoading}
-            remediationError={remediationError}
-          />
-        </ConsoleRow>
-
-        <ConsoleRow
-          title="Simulation / dry run"
-          description="Read-only simulation, blockers and approval gates."
-        >
-          <RemediationDryRunPanel
-            dryRun={remediationDryRun}
-            loading={remediationDryRunLoading}
-            error={remediationDryRunError}
-            waitingForPlan={Boolean(remediationLoading)}
-          />
-        </ConsoleRow>
-
-        <ConsoleRow
-          title="Replay Simulation"
-          description="Read-only workflow replay and final decision posture."
-        >
-          <ReplaySimulationPanel
-            replay={remediationReplay}
-            loading={remediationReplayLoading}
-            error={remediationReplayError}
-            waitingForPlan={Boolean(remediationLoading)}
-            canOperate={canOperate}
-            isViewer={isViewer}
-            executionResult={controlledExecutionResult}
-            executionLoadingActionId={controlledExecutionLoadingActionId}
-            executionError={controlledExecutionError}
-            onExecuteApprovedAction={onExecuteApprovedAction}
-          />
-        </ConsoleRow>
-
-        <ConsoleRow
-          title="Rollback readiness"
-          description="Rollback feasibility, risk and validation checks."
-        >
-          <RollbackReadinessPanel
-            readiness={rollbackReadiness}
-            loading={rollbackReadinessLoading}
-            error={rollbackReadinessError}
-            waitingForPlan={Boolean(remediationLoading)}
-          />
-        </ConsoleRow>
-
-        <ConsoleRow
-          title="Remediation audit trail"
-          description="Governance events, policy status and rationale."
-        >
-          <RemediationAuditTrailPanel
-            auditTrail={remediationAuditTrail}
-            loading={remediationAuditTrailLoading}
-            error={remediationAuditTrailError}
-            waitingForPlan={Boolean(remediationLoading)}
-          />
-        </ConsoleRow>
-
-        <ConsoleRow
-          title="Human review"
-          description="Analyst checklist, rationale and notes."
-        >
-          <div className="grid gap-3 xl:grid-cols-[0.95fr_1.05fr]">
-            <ReviewChecklist />
-            <AnalystNotesPanel
-              notes={notes}
-              noteDraft={noteDraft}
-              savingNote={savingNote}
-              canOperate={canOperate}
-              isViewer={isViewer}
-              onNoteDraftChange={onNoteDraftChange}
-              onAddNote={onAddNote}
-            />
-          </div>
-        </ConsoleRow>
-      </div>
-
-      <details className="rounded-md border border-slate-800 bg-slate-950">
-        <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-slate-300 hover:text-cyan-200">
-          Show original AI output
-        </summary>
-        <pre className="max-h-56 overflow-auto whitespace-pre-wrap border-t border-slate-800 p-3 text-xs leading-5 text-slate-400">
-          {analysis || "No AI analysis available."}
-        </pre>
-      </details>
     </div>
   );
 }
@@ -4226,16 +3552,20 @@ export default function IncidentDetailPage() {
   const isViewer = currentUser?.role === "VIEWER";
 
   useEffect(() => {
-    setCurrentUser(getStoredUser());
+    const timer = window.setTimeout(() => {
+      setCurrentUser(getStoredUser());
 
-    fetchCurrentUser()
-      .then((current) => setCurrentUser(current))
-      .catch(() => {
-        // authFetch handles expired/invalid sessions globally
-      });
+      fetchCurrentUser()
+        .then((current) => setCurrentUser(current))
+        .catch(() => {
+          // authFetch handles expired/invalid sessions globally
+        });
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, []);
 
-  async function loadIncident() {
+  const loadIncident = useCallback(async () => {
     try {
       setRefreshing(true);
       setError(null);
@@ -4259,7 +3589,7 @@ export default function IncidentDetailPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }
+  }, [incidentId]);
 
   async function updateStatus(status: string) {
     if (!canOperate) return;
@@ -4284,7 +3614,7 @@ export default function IncidentDetailPage() {
     }
   }
 
-  async function refreshAiBrief(generate = false) {
+  const refreshAiBrief = useCallback(async (generate = false) => {
     try {
       if (generate) {
         setAiBriefGenerating(true);
@@ -4305,7 +3635,7 @@ export default function IncidentDetailPage() {
       setAiBriefLoading(false);
       setAiBriefGenerating(false);
     }
-  }
+  }, [incidentId]);
 
   async function addNote() {
     if (!canOperate) return;
@@ -4402,202 +3732,122 @@ export default function IncidentDetailPage() {
   }
 
   useEffect(() => {
-    loadIncident();
-  }, [incidentId]);
+    const timer = window.setTimeout(() => {
+      void loadIncident();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [loadIncident]);
 
   useEffect(() => {
-    setAiBrief(null);
-    setAiBriefError(null);
-    refreshAiBrief(false);
-  }, [incidentId]);
+    const timer = window.setTimeout(() => {
+      setAiBrief(null);
+      setAiBriefError(null);
+      void refreshAiBrief(false);
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [refreshAiBrief]);
 
   useEffect(() => {
-    setRemediationPlan(null);
-    setRemediationError(null);
-    setRemediationLoading(true);
-    setRemediationDryRun(null);
-    setRemediationDryRunError(null);
-    setRemediationDryRunLoading(false);
-    setRollbackReadiness(null);
-    setRollbackReadinessError(null);
-    setRollbackReadinessLoading(false);
-    setRemediationAuditTrail(null);
-    setRemediationAuditTrailError(null);
-    setRemediationAuditTrailLoading(false);
-    setRemediationReplay(null);
-    setRemediationReplayError(null);
-    setRemediationReplayLoading(false);
-    setControlledExecutionResult(null);
-    setControlledExecutionError(null);
-    setControlledExecutionLoadingActionId(null);
     let cancelled = false;
-
-    async function loadRemediationPlan() {
-      try {
-        const plan = await fetchIncidentRemediationPlan(incidentId);
-
-        if (!cancelled) {
-          setRemediationPlan(plan);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setRemediationPlan(null);
-          setRemediationError(
-            err instanceof Error ? err.message : "Remediation intelligence unavailable",
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setRemediationLoading(false);
-        }
-      }
-    }
-
-    loadRemediationPlan();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [incidentId]);
-
-  useEffect(() => {
-    const planIncidentId = String(
-      remediationPlan?.incident_id ?? remediationPlan?.plan?.incident_id ?? "",
-    );
-
-    if (remediationLoading) {
-      return;
-    }
-
-    if (!remediationPlan || planIncidentId !== incidentId) {
+    const timer = window.setTimeout(() => {
+      setRemediationPlan(null);
+      setRemediationError(null);
+      setRemediationLoading(true);
+      setRemediationDryRun(null);
+      setRemediationDryRunError(null);
       setRemediationDryRunLoading(false);
-      return;
-    }
-
-    setRemediationDryRun(null);
-    setRemediationDryRunError(null);
-    setRemediationDryRunLoading(true);
-    let cancelled = false;
-
-    async function loadRemediationDryRun() {
-      try {
-        const dryRun = await fetchIncidentRemediationDryRun(incidentId);
-
-        if (!cancelled) {
-          setRemediationDryRun(dryRun);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setRemediationDryRun(null);
-          setRemediationDryRunError(
-            err instanceof Error ? err.message : "Dry-run simulation unavailable",
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setRemediationDryRunLoading(false);
-        }
-      }
-    }
-
-    loadRemediationDryRun();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [incidentId, remediationPlan, remediationLoading]);
-
-  useEffect(() => {
-    const planIncidentId = String(
-      remediationPlan?.incident_id ?? remediationPlan?.plan?.incident_id ?? "",
-    );
-
-    if (remediationLoading) {
-      return;
-    }
-
-    if (!remediationPlan || planIncidentId !== incidentId) {
+      setRollbackReadiness(null);
+      setRollbackReadinessError(null);
       setRollbackReadinessLoading(false);
-      return;
-    }
-
-    setRollbackReadiness(null);
-    setRollbackReadinessError(null);
-    setRollbackReadinessLoading(true);
-    let cancelled = false;
-
-    async function loadRollbackReadiness() {
-      try {
-        const readiness = await fetchIncidentRollbackReadiness(incidentId);
-
-        if (!cancelled) {
-          setRollbackReadiness(readiness);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setRollbackReadiness(null);
-          setRollbackReadinessError(
-            err instanceof Error ? err.message : "Rollback readiness unavailable",
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setRollbackReadinessLoading(false);
-        }
-      }
-    }
-
-    loadRollbackReadiness();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [incidentId, remediationPlan, remediationLoading]);
-
-  useEffect(() => {
-    const planIncidentId = String(
-      remediationPlan?.incident_id ?? remediationPlan?.plan?.incident_id ?? "",
-    );
-
-    if (remediationLoading) {
-      return;
-    }
-
-    if (!remediationPlan || planIncidentId !== incidentId) {
+      setRemediationAuditTrail(null);
+      setRemediationAuditTrailError(null);
       setRemediationAuditTrailLoading(false);
-      return;
-    }
+      setRemediationReplay(null);
+      setRemediationReplayError(null);
+      setRemediationReplayLoading(false);
+      setControlledExecutionResult(null);
+      setControlledExecutionError(null);
+      setControlledExecutionLoadingActionId(null);
 
-    setRemediationAuditTrail(null);
-    setRemediationAuditTrailError(null);
-    setRemediationAuditTrailLoading(true);
-    let cancelled = false;
+      async function loadRemediationPlan() {
+        try {
+          const plan = await fetchIncidentRemediationPlan(incidentId);
 
-    async function loadRemediationAuditTrail() {
-      try {
-        const auditTrail = await fetchIncidentRemediationAuditTrail(incidentId);
-
-        if (!cancelled) {
-          setRemediationAuditTrail(auditTrail);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setRemediationAuditTrail(null);
-          setRemediationAuditTrailError(
-            err instanceof Error ? err.message : "Remediation audit trail unavailable",
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setRemediationAuditTrailLoading(false);
+          if (!cancelled) {
+            setRemediationPlan(plan);
+          }
+        } catch (err) {
+          if (!cancelled) {
+            setRemediationPlan(null);
+            setRemediationError(
+              err instanceof Error ? err.message : "Remediation intelligence unavailable",
+            );
+          }
+        } finally {
+          if (!cancelled) {
+            setRemediationLoading(false);
+          }
         }
       }
-    }
 
-    loadRemediationAuditTrail();
+      void loadRemediationPlan();
+    }, 0);
 
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [incidentId]);
+
+  useEffect(() => {
+    const planIncidentId = String(
+      remediationPlan?.incident_id ?? remediationPlan?.plan?.incident_id ?? "",
+    );
+
+    if (remediationLoading) {
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (!remediationPlan || planIncidentId !== incidentId) {
+        setRemediationDryRunLoading(false);
+        return;
+      }
+
+      setRemediationDryRun(null);
+      setRemediationDryRunError(null);
+      setRemediationDryRunLoading(true);
+
+      async function loadRemediationDryRun() {
+        try {
+          const dryRun = await fetchIncidentRemediationDryRun(incidentId);
+
+          if (!cancelled) {
+            setRemediationDryRun(dryRun);
+          }
+        } catch (err) {
+          if (!cancelled) {
+            setRemediationDryRun(null);
+            setRemediationDryRunError(
+              err instanceof Error ? err.message : "Dry-run simulation unavailable",
+            );
+          }
+        } finally {
+          if (!cancelled) {
+            setRemediationDryRunLoading(false);
+          }
+        }
+      }
+
+      void loadRemediationDryRun();
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
     };
   }, [incidentId, remediationPlan, remediationLoading]);
 
@@ -4610,41 +3860,144 @@ export default function IncidentDetailPage() {
       return;
     }
 
-    if (!remediationPlan || planIncidentId !== incidentId) {
-      setRemediationReplayLoading(false);
-      return;
-    }
-
-    setRemediationReplay(null);
-    setRemediationReplayError(null);
-    setRemediationReplayLoading(true);
     let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (!remediationPlan || planIncidentId !== incidentId) {
+        setRollbackReadinessLoading(false);
+        return;
+      }
 
-    async function loadRemediationReplay() {
-      try {
-        const replay = await fetchIncidentRemediationReplay(incidentId);
+      setRollbackReadiness(null);
+      setRollbackReadinessError(null);
+      setRollbackReadinessLoading(true);
 
-        if (!cancelled) {
-          setRemediationReplay(replay);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setRemediationReplay(null);
-          setRemediationReplayError(
-            err instanceof Error ? err.message : "Remediation replay unavailable",
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setRemediationReplayLoading(false);
+      async function loadRollbackReadiness() {
+        try {
+          const readiness = await fetchIncidentRollbackReadiness(incidentId);
+
+          if (!cancelled) {
+            setRollbackReadiness(readiness);
+          }
+        } catch (err) {
+          if (!cancelled) {
+            setRollbackReadiness(null);
+            setRollbackReadinessError(
+              err instanceof Error ? err.message : "Rollback readiness unavailable",
+            );
+          }
+        } finally {
+          if (!cancelled) {
+            setRollbackReadinessLoading(false);
+          }
         }
       }
-    }
 
-    loadRemediationReplay();
+      void loadRollbackReadiness();
+    }, 0);
 
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [incidentId, remediationPlan, remediationLoading]);
+
+  useEffect(() => {
+    const planIncidentId = String(
+      remediationPlan?.incident_id ?? remediationPlan?.plan?.incident_id ?? "",
+    );
+
+    if (remediationLoading) {
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (!remediationPlan || planIncidentId !== incidentId) {
+        setRemediationAuditTrailLoading(false);
+        return;
+      }
+
+      setRemediationAuditTrail(null);
+      setRemediationAuditTrailError(null);
+      setRemediationAuditTrailLoading(true);
+
+      async function loadRemediationAuditTrail() {
+        try {
+          const auditTrail = await fetchIncidentRemediationAuditTrail(incidentId);
+
+          if (!cancelled) {
+            setRemediationAuditTrail(auditTrail);
+          }
+        } catch (err) {
+          if (!cancelled) {
+            setRemediationAuditTrail(null);
+            setRemediationAuditTrailError(
+              err instanceof Error ? err.message : "Remediation audit trail unavailable",
+            );
+          }
+        } finally {
+          if (!cancelled) {
+            setRemediationAuditTrailLoading(false);
+          }
+        }
+      }
+
+      void loadRemediationAuditTrail();
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [incidentId, remediationPlan, remediationLoading]);
+
+  useEffect(() => {
+    const planIncidentId = String(
+      remediationPlan?.incident_id ?? remediationPlan?.plan?.incident_id ?? "",
+    );
+
+    if (remediationLoading) {
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (!remediationPlan || planIncidentId !== incidentId) {
+        setRemediationReplayLoading(false);
+        return;
+      }
+
+      setRemediationReplay(null);
+      setRemediationReplayError(null);
+      setRemediationReplayLoading(true);
+
+      async function loadRemediationReplay() {
+        try {
+          const replay = await fetchIncidentRemediationReplay(incidentId);
+
+          if (!cancelled) {
+            setRemediationReplay(replay);
+          }
+        } catch (err) {
+          if (!cancelled) {
+            setRemediationReplay(null);
+            setRemediationReplayError(
+              err instanceof Error ? err.message : "Remediation replay unavailable",
+            );
+          }
+        } finally {
+          if (!cancelled) {
+            setRemediationReplayLoading(false);
+          }
+        }
+      }
+
+      void loadRemediationReplay();
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
     };
   }, [incidentId, remediationPlan, remediationLoading]);
 

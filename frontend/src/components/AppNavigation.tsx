@@ -183,23 +183,31 @@ export default function AppNavigation() {
   );
 
   useEffect(() => {
-    setUser(getStoredUser());
+    const timer = window.setTimeout(() => {
+      setUser(getStoredUser());
 
-    fetchCurrentUser()
-      .then((current) => setUser(current))
-      .catch(() => {
-        // authFetch handles expired/invalid sessions globally.
-      });
+      fetchCurrentUser()
+        .then((current) => setUser(current))
+        .catch(() => {
+          // authFetch handles expired/invalid sessions globally.
+        });
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
-    if (pathname.startsWith("/settings")) {
-      setSettingsOpen(true);
-    }
+    const timer = window.setTimeout(() => {
+      if (pathname.startsWith("/settings")) {
+        setSettingsOpen(true);
+      }
 
-    if (pathname.startsWith("/system-information")) {
-      setSystemInfoOpen(true);
-    }
+      if (pathname.startsWith("/system-information")) {
+        setSystemInfoOpen(true);
+      }
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, [pathname]);
 
   async function handleLogout() {

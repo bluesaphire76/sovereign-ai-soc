@@ -3,7 +3,7 @@
 import { downloadBackendFile } from "@/lib/download";
 import { authFetch } from "@/lib/auth";
 
-import { Component, useEffect, useMemo, useState, type ErrorInfo, type ReactNode } from "react";
+import { Component, useCallback, useEffect, useMemo, useState, type ErrorInfo, type ReactNode } from "react";
 import Link from "next/link";
 import AppNavigation from "../../../components/AppNavigation";
 import { fetchCurrentUser, getStoredUser, type AuthUser } from "../../../lib/auth";
@@ -15,7 +15,6 @@ import {
   Briefcase,
   CheckCircle2,
   CircleDashed,
-  FileDown,
   ShieldAlert,
 } from "lucide-react";
 
@@ -194,9 +193,6 @@ type CaseSectionFocus =
   | "WORKBENCH"
   | "EVIDENCE"
   | "REPORTS";
-
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8008";
 
 function severityClass(value: string | null | undefined) {
   const severity = value ?? "LOW";
@@ -1140,7 +1136,7 @@ export default function CaseDetailPage() {
 
   const currentUsername = currentUser?.username || "local_analyst";
 
-  async function loadCase() {
+  const loadCase = useCallback(async () => {
     try {
       setError(null);
 
@@ -1176,7 +1172,7 @@ export default function CaseDetailPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [caseId]);
 
   async function handleGenerateActionSuggestions() {
     if (!assertCanOperate()) return;
@@ -1509,13 +1505,17 @@ export default function CaseDetailPage() {
   }
 
   useEffect(() => {
-    setCurrentUser(getStoredUser());
+    const timer = window.setTimeout(() => {
+      setCurrentUser(getStoredUser());
 
-    fetchCurrentUser()
-      .then((current) => setCurrentUser(current))
-      .catch(() => {
-        // authFetch handles expired/invalid sessions globally
-      });
+      fetchCurrentUser()
+        .then((current) => setCurrentUser(current))
+        .catch(() => {
+          // authFetch handles expired/invalid sessions globally
+        });
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -1566,8 +1566,12 @@ export default function CaseDetailPage() {
   }, [isViewer]);
 
   useEffect(() => {
-    loadCase();
-  }, [caseId]);
+    const timer = window.setTimeout(() => {
+      void loadCase();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [loadCase]);
 
   const summary = useMemo(() => {
     return prettyJson(caseData?.summary ?? null);

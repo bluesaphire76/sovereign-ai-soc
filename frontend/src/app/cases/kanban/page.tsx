@@ -13,7 +13,6 @@ import {
   CircleDashed,
   RefreshCw,
   Search,
-  ShieldAlert,
 } from "lucide-react";
 
 type IncidentCase = {
@@ -78,9 +77,6 @@ type KanbanColumn = {
 };
 
 type Tone = "success" | "warning" | "danger" | "primary" | "neutral" | "executive";
-
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8008";
 
 const TERMINAL_STATUSES = new Set(["CLOSED", "FALSE_POSITIVE"]);
 
@@ -242,12 +238,6 @@ function formatTimestamp(value: string | null | undefined) {
   });
 }
 
-function shortText(value: string | null | undefined, max = 86) {
-  if (!value) return "-";
-  if (value.length <= max) return value;
-  return `${value.slice(0, max - 1)}…`;
-}
-
 function normalize(value: string | null | undefined) {
   return (value ?? "").trim().toLowerCase();
 }
@@ -317,7 +307,7 @@ export default function CaseKanbanPage() {
   const [hideClosed, setHideClosed] = useState(false);
   const [compactCards, setCompactCards] = useState(true);
 
-  const cases = data?.items ?? [];
+  const cases = useMemo(() => data?.items ?? [], [data]);
 
   const filteredCases = useMemo(() => {
     const query = normalize(searchText);
@@ -404,7 +394,11 @@ export default function CaseKanbanPage() {
   }
 
   useEffect(() => {
-    loadCases();
+    const timer = window.setTimeout(() => {
+      void loadCases();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, []);
 
   return (

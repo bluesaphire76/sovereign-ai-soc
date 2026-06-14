@@ -207,7 +207,11 @@ export default function AdminSecurityAuditPage() {
   }, [queryString]);
 
   useEffect(() => {
-    loadEvents();
+    const timer = window.setTimeout(() => {
+      void loadEvents();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, [loadEvents]);
 
   function resetFilters() {

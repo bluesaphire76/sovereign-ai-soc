@@ -309,13 +309,18 @@ export default function ExecutivePage() {
   }
 
   useEffect(() => {
-    loadExecutiveSummary();
+    const timer = window.setTimeout(() => {
+      void loadExecutiveSummary();
+    }, 0);
 
     const interval = window.setInterval(() => {
-      loadExecutiveSummary();
+      void loadExecutiveSummary();
     }, 30000);
 
-    return () => window.clearInterval(interval);
+    return () => {
+      window.clearTimeout(timer);
+      window.clearInterval(interval);
+    };
   }, []);
 
   const incidentStatusRows = useMemo(() => {

@@ -75,7 +75,11 @@ export default function AdminUsersPage() {
   }, []);
 
   useEffect(() => {
-    loadUsers();
+    const timer = window.setTimeout(() => {
+      void loadUsers();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, [loadUsers]);
 
   const isAdmin = currentUser?.role === "ADMIN";

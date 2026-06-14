@@ -56,9 +56,6 @@ type PlatformHealth = {
   latest_incident: LatestIncident | null;
 };
 
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8008";
-
 const COMPONENT_ORDER = [
   "api",
   "postgres",
@@ -320,12 +317,6 @@ function formatTimestamp(value: string | null | undefined) {
   });
 }
 
-function shortText(value: string | null | undefined, max = 96) {
-  if (!value) return "-";
-  if (value.length <= max) return value;
-  return `${value.slice(0, max - 1)}…`;
-}
-
 async function fetchHealth(): Promise<PlatformHealth> {
   const response = await authFetch(`/platform/health`, {
     cache: "no-store",
@@ -386,17 +377,21 @@ export default function HealthPage() {
   }
 
   useEffect(() => {
-    loadHealth();
+    const timer = window.setTimeout(() => {
+      void loadHealth();
+    }, 0);
 
     const interval = window.setInterval(() => {
-      loadHealth();
+      void loadHealth();
     }, 30000);
 
-    return () => window.clearInterval(interval);
+    return () => {
+      window.clearTimeout(timer);
+      window.clearInterval(interval);
+    };
   }, []);
 
   const overallStatus = health?.status ?? "UNKNOWN";
-  const status = statusClasses(overallStatus);
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
