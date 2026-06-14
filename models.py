@@ -350,6 +350,41 @@ class DetectionControlRule(Base):
     metadata_json = Column(Text)
 
 
+class DetectionConfigVersion(Base):
+    __tablename__ = "detection_config_versions"
+    __table_args__ = (
+        UniqueConstraint(
+            "config_domain",
+            "version_number",
+            name="uq_detection_config_domain_version",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    config_domain = Column(String, index=True, nullable=False)
+    version_number = Column(Integer, nullable=False)
+    status = Column(String, index=True, nullable=False)
+
+    config_payload = Column(Text, nullable=False)
+    config_checksum = Column(String, index=True, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    created_by = Column(String)
+    created_reason = Column(Text)
+
+    activated_at = Column(DateTime(timezone=True))
+    activated_by = Column(String)
+
+    validation_status = Column(String, index=True)
+    validation_errors = Column(Text)
+    validation_warnings = Column(Text)
+    diff_summary = Column(Text)
+
+    rollback_of_version_id = Column(Integer, index=True)
+    source_identifier = Column(String)
+
+
 class InvestigationSessionRecord(Base):
     __tablename__ = "investigation_sessions"
 

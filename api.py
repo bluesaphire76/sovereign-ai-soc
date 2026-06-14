@@ -413,6 +413,9 @@ RBAC_RULES: list[tuple[str, str, set[str]]] = [
 
     # Settings / detection control plane
     ("GET", r"^/settings/detection-control$", ALL_ROLES),
+    ("GET", r"^/detection-control/config-versions(?:/[^/]+(?:/(active|\d+))?)?$", ALL_ROLES),
+    ("POST", r"^/detection-control/config-versions/[^/]+/(validate|diff)$", OPERATOR_ROLES),
+    ("POST", r"^/detection-control/config-versions/[^/]+/(apply|rollback)$", {ROLE_ADMIN}),
     ("GET", r"^/detection-control/rules(?:/[^/]+)?$", ALL_ROLES),
     ("POST", r"^/detection-control/rules$", {ROLE_ADMIN}),
     ("PATCH", r"^/detection-control/rules/[^/]+$", {ROLE_ADMIN}),
