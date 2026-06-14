@@ -2,7 +2,17 @@
 
 import { authFetch, fetchCurrentUser, getStoredUser, type AuthUser } from "@/lib/auth";
 
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import dynamic from "next/dynamic";
+import {
+  Component,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ErrorInfo,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import Link from "next/link";
 import AppNavigation from "../../../components/AppNavigation";
 import ServiceOperationsPanel from "./ServiceOperationsPanel";
@@ -196,6 +206,11 @@ type RuleFormState = {
   metadata: Record<string, unknown>;
 };
 
+type LifecyclePanelProps = {
+  currentUser: AuthUser | null;
+  onConfigChanged: () => Promise<void>;
+};
+
 const RULE_TYPES: RuleType[] = [
   "NOISE_SUPPRESSION",
   "EXCEPTION",
@@ -228,6 +243,70 @@ const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "policies", label: "Policies" },
   { key: "services", label: "Service Control" },
 ];
+
+const LifecyclePanel = dynamic<LifecyclePanelProps>(() => import("./LifecyclePanel"), {
+  ssr: false,
+  loading: () => (
+    <section className="rounded-lg border border-slate-800 bg-slate-900/80 p-3 text-xs text-slate-400">
+      Loading detection lifecycle...
+    </section>
+  ),
+});
+
+class LifecyclePanelBoundary extends Component<
+  { children: ReactNode },
+  { errorMessage: string | null; retryKey: number }
+> {
+  state = {
+    errorMessage: null,
+    retryKey: 0,
+  };
+
+  static getDerivedStateFromError(error: Error) {
+    return {
+      errorMessage: error.message || "Detection lifecycle panel failed to load.",
+    };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error("Detection lifecycle panel failed", error, errorInfo);
+  }
+
+  retry = () => {
+    this.setState((state) => ({
+      errorMessage: null,
+      retryKey: state.retryKey + 1,
+    }));
+  };
+
+  render() {
+    if (this.state.errorMessage) {
+      return (
+        <section className="rounded-lg border border-amber-900/70 bg-amber-950/30 p-3 text-xs text-amber-100">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex min-w-0 items-start gap-2">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <div>
+                <div className="font-medium">Detection lifecycle is temporarily unavailable.</div>
+                <div className="mt-1 text-amber-200/80">{this.state.errorMessage}</div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={this.retry}
+              className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-amber-800 bg-amber-950 px-3 text-xs text-amber-100 hover:bg-amber-900"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              Retry
+            </button>
+          </div>
+        </section>
+      );
+    }
+
+    return <div key={this.state.retryKey}>{this.props.children}</div>;
+  }
+}
 
 function emptyForm(owner = ""): RuleFormState {
   return {
@@ -1222,19 +1301,25 @@ export default function DetectionControlPlanePage() {
               onViewVersion={viewVersionDetails}
             />
 
-            <ServiceOperationsPanel
-              currentUser={currentUser}
-              relatedConfigVersion={
-                activeVersion
-                  ? {
-                      id: activeVersion.id,
-                      version_number: activeVersion.version_number,
-                      requires_restart: activeVersion.requires_restart,
-                      affected_services: activeVersion.affected_services,
-                    }
-                  : null
-              }
-            />
+            <LifecyclePanelBoundary>
+              <LifecyclePanel currentUser={currentUser} onConfigChanged={loadData} />
+            </LifecyclePanelBoundary>
+
+            <section id="service-operations" className="scroll-mt-4">
+              <ServiceOperationsPanel
+                currentUser={currentUser}
+                relatedConfigVersion={
+                  activeVersion
+                    ? {
+                        id: activeVersion.id,
+                        version_number: activeVersion.version_number,
+                        requires_restart: activeVersion.requires_restart,
+                        affected_services: activeVersion.affected_services,
+                      }
+                    : null
+                }
+              />
+            </section>
 
             <section className="grid gap-3 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.55fr)]">
               <div className="min-w-0 rounded-lg border border-slate-800 bg-slate-900/80 p-3">
@@ -1847,15 +1932,23 @@ function MetricCard({
   icon: ReactNode;
 }) {
   return (
-    <article className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+    <article className="flex min-h-[46px] items-center justify-between gap-2 rounded-sm border border-slate-800 bg-slate-900 px-2 py-1.5 shadow-sm">
+      <div className="min-w-0">
+        <div className="truncate text-[9px] font-medium uppercase tracking-wide text-slate-500">
           {title}
         </div>
-        <div className="text-slate-400">{icon}</div>
+        <div className="mt-0.5 flex min-w-0 items-baseline gap-1.5">
+          <span className="text-base font-semibold leading-5 text-slate-100">
+            {value}
+          </span>
+          <span className="min-w-0 truncate text-[10px] leading-3 text-slate-500">
+            {subtitle}
+          </span>
+        </div>
       </div>
-      <div className="text-lg font-semibold text-slate-100">{value}</div>
-      <div className="mt-1 text-[11px] text-slate-500">{subtitle}</div>
+      <div className="shrink-0 rounded-sm bg-slate-950 p-1 text-slate-400">
+        {icon}
+      </div>
     </article>
   );
 }
