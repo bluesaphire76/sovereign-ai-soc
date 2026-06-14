@@ -180,7 +180,8 @@ export default function AppNavigation() {
     window.location.href = "/login";
   }
 
-  const canUseSettings = user?.role === "ADMIN" || user?.role === "ANALYST";
+  const canUseSettings =
+    user?.role === "ADMIN" || user?.role === "ANALYST" || user?.role === "VIEWER";
   const settingsActive = pathname.startsWith("/settings");
 
   const navItems: NavItem[] = user
