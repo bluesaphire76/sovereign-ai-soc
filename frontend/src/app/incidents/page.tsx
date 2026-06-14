@@ -200,14 +200,6 @@ function Field({
   );
 }
 
-function nextAction(incident: Incident | null) {
-  if (!incident) return "Select an incident from the grid.";
-  if ((incident.risk_score ?? 0) >= 80) return "Validate evidence and prioritize containment decision.";
-  if (incident.correlated) return "Review correlation context and confirm whether this belongs to an existing case.";
-  if ((incident.level ?? 0) >= 8) return "Validate source event and decide whether analyst triage is required.";
-  return "Review signal context and classify as benign, observed, or requiring investigation.";
-}
-
 function decisionLabel(incident: Incident | null) {
   if (!incident) return "No incident selected";
   if ((incident.risk_score ?? 0) >= 80) return "Containment review";
@@ -288,7 +280,7 @@ export default function IncidentsPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const incidents = data?.items ?? [];
+  const incidents = useMemo(() => data?.items ?? [], [data]);
   const total = data?.total ?? 0;
   const totalPages = data?.total_pages ?? 1;
   const demoMode = searchFilter.trim() === DEMO_SEARCH_TERM;
@@ -356,13 +348,21 @@ export default function IncidentsPage() {
   }, [hostFilter, page, riskFilter, searchFilter, statusFilter]);
 
   useEffect(() => {
-    loadIncidents();
+    const timer = window.setTimeout(() => {
+      void loadIncidents();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, [loadIncidents]);
 
   useEffect(() => {
-    if (!selectedIncidentId && incidents.length > 0) {
-      setSelectedIncidentId(incidents[0].id);
-    }
+    const timer = window.setTimeout(() => {
+      if (!selectedIncidentId && incidents.length > 0) {
+        setSelectedIncidentId(incidents[0].id);
+      }
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, [incidents, selectedIncidentId]);
 
   function resetFilters() {

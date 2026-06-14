@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useState } from "react";
 import { Shield, LogIn } from "lucide-react";
 import { API_BASE, setAuthSession, type AuthUser } from "../../lib/auth";
 

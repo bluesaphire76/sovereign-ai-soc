@@ -677,21 +677,25 @@ export default function DetectionControlPlanePage() {
   const canApplyConfig = currentUser?.role === "ADMIN";
 
   useEffect(() => {
-    const storedUser = getStoredUser();
-    setCurrentUser(storedUser);
-    setForm(emptyForm(storedUser?.username || ""));
+    const timer = window.setTimeout(() => {
+      const storedUser = getStoredUser();
+      setCurrentUser(storedUser);
+      setForm(emptyForm(storedUser?.username || ""));
 
-    fetchCurrentUser()
-      .then((current) => {
-        setCurrentUser(current);
-        setForm((value) => ({
-          ...value,
-          owner: value.owner || current.username,
-        }));
-      })
-      .catch(() => {
-        // authFetch handles expired/invalid sessions globally.
-      });
+      fetchCurrentUser()
+        .then((current) => {
+          setCurrentUser(current);
+          setForm((value) => ({
+            ...value,
+            owner: value.owner || current.username,
+          }));
+        })
+        .catch(() => {
+          // authFetch handles expired/invalid sessions globally.
+        });
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, []);
 
   const loadData = useCallback(async () => {
@@ -719,15 +723,19 @@ export default function DetectionControlPlanePage() {
   }, [selectedDomain]);
 
   useEffect(() => {
-    if (currentUser && !canView) {
-      setLoading(false);
-      setError("Forbidden: Detection Control Plane is not available for this account.");
-      return;
-    }
+    const timer = window.setTimeout(() => {
+      if (currentUser && !canView) {
+        setLoading(false);
+        setError("Forbidden: Detection Control Plane is not available for this account.");
+        return;
+      }
 
-    if (!currentUser) return;
+      if (!currentUser) return;
 
-    loadData();
+      void loadData();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, [currentUser, canView, loadData]);
 
   const activeInventoryItems = useMemo(() => {
@@ -810,9 +818,13 @@ export default function DetectionControlPlanePage() {
   );
 
   useEffect(() => {
-    setConfigValidation(null);
-    setConfigDiff(null);
-    setSelectedVersionDetails(null);
+    const timer = window.setTimeout(() => {
+      setConfigValidation(null);
+      setConfigDiff(null);
+      setSelectedVersionDetails(null);
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, [selectedDomain, proposedConfigSignature]);
 
   async function handleApiError(response: Response) {
