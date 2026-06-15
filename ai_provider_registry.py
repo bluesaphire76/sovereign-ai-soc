@@ -30,6 +30,15 @@ PROVIDER_TYPES = {
     PROVIDER_DISABLED,
 }
 
+PROVIDER_DISPLAY_NAMES = {
+    "local_ollama": "Ollama",
+    "openrouter": "Openrouter",
+    "openai_compatible": "OpenAI",
+    "azure_openai_compatible": "MS Azure",
+    "anthropic_compatible": "Anthropic",
+    "custom_http_compatible": "Custom HTTP",
+}
+
 LOCAL_FEATURE_ALLOWLIST = [
     "incident_triage",
     "incident_analysis",
@@ -199,7 +208,7 @@ def _providers_from_env() -> dict[str, ProviderConfig]:
     local = ProviderConfig(
         key="local_ollama",
         provider_type=PROVIDER_LOCAL_OLLAMA,
-        display_name="Local Ollama",
+        display_name=PROVIDER_DISPLAY_NAMES["local_ollama"],
         enabled=_env_bool("AI_OLLAMA_ENABLED", True),
         external=False,
         base_url=_env_str("AI_OLLAMA_BASE_URL", LEGACY_OLLAMA_BASE_URL),
@@ -221,32 +230,32 @@ def _providers_from_env() -> dict[str, ProviderConfig]:
         "openrouter": _external_provider_from_env(
             key="openrouter",
             provider_type=PROVIDER_OPENAI_COMPATIBLE,
-            display_name="OpenRouter",
+            display_name=PROVIDER_DISPLAY_NAMES["openrouter"],
             prefix="AI_OPENROUTER",
             default_base_url="https://openrouter.ai/api/v1",
         ),
         "openai_compatible": _external_provider_from_env(
             key="openai_compatible",
             provider_type=PROVIDER_OPENAI_COMPATIBLE,
-            display_name="OpenAI-compatible provider",
+            display_name=PROVIDER_DISPLAY_NAMES["openai_compatible"],
             prefix="AI_OPENAI_COMPATIBLE",
         ),
         "azure_openai_compatible": _external_provider_from_env(
             key="azure_openai_compatible",
             provider_type=PROVIDER_AZURE_OPENAI_COMPATIBLE,
-            display_name="Azure OpenAI-compatible provider",
+            display_name=PROVIDER_DISPLAY_NAMES["azure_openai_compatible"],
             prefix="AI_AZURE_OPENAI_COMPATIBLE",
         ),
         "anthropic_compatible": _external_provider_from_env(
             key="anthropic_compatible",
             provider_type=PROVIDER_ANTHROPIC_COMPATIBLE,
-            display_name="Anthropic-compatible provider",
+            display_name=PROVIDER_DISPLAY_NAMES["anthropic_compatible"],
             prefix="AI_ANTHROPIC_COMPATIBLE",
         ),
         "custom_http_compatible": _external_provider_from_env(
             key="custom_http_compatible",
             provider_type=PROVIDER_CUSTOM_HTTP_COMPATIBLE,
-            display_name="Custom HTTP-compatible provider",
+            display_name=PROVIDER_DISPLAY_NAMES["custom_http_compatible"],
             prefix="AI_CUSTOM_HTTP_COMPATIBLE",
         ),
     }
@@ -301,7 +310,10 @@ def _apply_file_config(
                 external=provider_type != PROVIDER_LOCAL_OLLAMA,
             ),
             provider_type=provider_type,
-            display_name=str(item.get("display_name") or (existing.display_name if existing else key)),
+            display_name=PROVIDER_DISPLAY_NAMES.get(
+                key,
+                str(item.get("display_name") or (existing.display_name if existing else key)),
+            ),
             enabled=bool(item.get("enabled", existing.enabled if existing else False)),
             external=bool(item.get("external", provider_type != PROVIDER_LOCAL_OLLAMA)),
             base_url=_env_str(str(item.get("base_url_env") or "")) or item.get("base_url") or (existing.base_url if existing else None),

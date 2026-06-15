@@ -5,6 +5,7 @@ from unittest.mock import patch
 import pytest
 
 from ai_model_policy import AiTask
+from ai_provider_abstraction import build_provider_client
 from ai_provider_policy import external_block_reason, generate_with_provider
 from ai_provider_redaction import redact_text
 from ai_provider_registry import load_provider_registry, provider_public_dict
@@ -28,6 +29,12 @@ def test_local_ollama_is_default_and_external_is_disabled(monkeypatch):
     assert registry.default_provider == "local_ollama"
     assert registry.external_providers_enabled is False
     assert registry.providers["local_ollama"].enabled is True
+    assert registry.providers["local_ollama"].display_name == "Ollama"
+    assert registry.providers["openrouter"].display_name == "Openrouter"
+    assert registry.providers["openai_compatible"].display_name == "OpenAI"
+    assert registry.providers["azure_openai_compatible"].display_name == "MS Azure"
+    assert registry.providers["anthropic_compatible"].display_name == "Anthropic"
+    assert registry.providers["custom_http_compatible"].display_name == "Custom HTTP"
     assert registry.providers["openrouter"].enabled is False
     assert registry.providers["openrouter"].base_url == "https://openrouter.ai/api/v1"
     assert registry.providers["openai_compatible"].enabled is False
@@ -46,6 +53,28 @@ def test_public_provider_dict_never_returns_raw_api_key(monkeypatch):
     assert "secret-key-value" not in str(admin_payload)
     assert admin_payload["api_key_configured"] is True
     assert viewer_payload["api_key_configured"] is None
+
+
+def test_openrouter_health_reports_configured_model_and_availability(monkeypatch):
+    monkeypatch.setenv("AI_OPENROUTER_ENABLED", "true")
+    monkeypatch.setenv("AI_OPENROUTER_MODEL", "openai/gpt-4o-mini")
+    monkeypatch.setenv("AI_OPENROUTER_API_KEY", "test-key")
+
+    response = type(
+        "Response",
+        (),
+        {
+            "raise_for_status": lambda self: None,
+            "json": lambda self: {"data": [{"id": "openai/gpt-4o-mini"}]},
+        },
+    )()
+
+    with patch("ai_provider_abstraction.requests.get", return_value=response):
+        health = build_provider_client(load_provider_registry().providers["openrouter"]).health_check()
+
+    assert health.configured_model == "openai/gpt-4o-mini"
+    assert health.reachable is True
+    assert health.model_available is True
 
 
 def test_external_provider_blocked_when_global_flag_is_false(monkeypatch):

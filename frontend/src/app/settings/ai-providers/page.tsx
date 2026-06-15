@@ -42,6 +42,7 @@ type ProvidersResponse = {
 type ProviderHealth = {
   provider_key: string;
   provider_type: string;
+  configured_model: string | null;
   configured: boolean;
   enabled: boolean;
   reachable: boolean | null;
