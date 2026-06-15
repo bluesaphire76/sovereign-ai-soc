@@ -27,6 +27,25 @@ WAZUH_PASSWORD = os.getenv("WAZUH_PASSWORD")
 OLLAMA_MODEL = get_profile("standard").model
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "security_kb")
+GRAFANA_URL = os.getenv(
+    "GRAFANA_URL",
+    os.getenv("GRAFANA_ROOT_URL", "http://127.0.0.1:3002/grafana/"),
+)
+GRAFANA_HEALTH_URL = os.getenv(
+    "GRAFANA_HEALTH_URL",
+    f"{GRAFANA_URL.rstrip('/')}/api/health",
+)
+PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://127.0.0.1:9090")
+PROMETHEUS_HEALTH_URL = os.getenv(
+    "PROMETHEUS_HEALTH_URL",
+    f"{PROMETHEUS_URL.rstrip('/')}/-/ready",
+)
+ALERTMANAGER_URL = os.getenv("ALERTMANAGER_URL", "http://127.0.0.1:9093")
+ALERTMANAGER_HEALTH_URL = os.getenv(
+    "ALERTMANAGER_HEALTH_URL",
+    f"{ALERTMANAGER_URL.rstrip('/')}/-/ready",
+)
+NON_BLOCKING_OBSERVABILITY_COMPONENTS = {"grafana", "prometheus", "alertmanager"}
 AI_SOC_RAG_ENABLED = os.getenv("AI_SOC_RAG_ENABLED", "true").strip().lower() not in {
     "0",
     "false",
@@ -954,6 +973,136 @@ def check_qdrant():
         )
 
 
+def _response_body_preview(response):
+    content_type = response.headers.get("content-type", "")
+
+    if "application/json" in content_type:
+        try:
+            return response.json()
+        except Exception:
+            pass
+
+    return (response.text or "")[:240]
+
+
+def check_grafana():
+    started_at = time.perf_counter()
+
+    try:
+        response = requests.get(GRAFANA_HEALTH_URL, timeout=5)
+        body = _response_body_preview(response)
+        database_status = body.get("database") if isinstance(body, dict) else None
+        status = "OK" if response.ok and database_status != "fail" else "WARN"
+
+        return component_result(
+            component="grafana",
+            status=status,
+            message=(
+                "Grafana health endpoint is reachable."
+                if status == "OK"
+                else "Grafana health endpoint is not ready."
+            ),
+            started_at=started_at,
+            details={
+                "url": GRAFANA_HEALTH_URL,
+                "http_status": response.status_code,
+                "database": database_status,
+                "version": body.get("version") if isinstance(body, dict) else None,
+                "body_preview": body if not isinstance(body, dict) else None,
+                "non_blocking": True,
+            },
+        )
+
+    except Exception as exc:
+        return component_result(
+            component="grafana",
+            status="WARN",
+            message="Grafana health check failed. Observability is degraded but application health is not blocked.",
+            started_at=started_at,
+            details={
+                "url": GRAFANA_HEALTH_URL,
+                "error_type": type(exc).__name__,
+                "non_blocking": True,
+            },
+        )
+
+
+def check_prometheus():
+    started_at = time.perf_counter()
+
+    try:
+        response = requests.get(PROMETHEUS_HEALTH_URL, timeout=5)
+        status = "OK" if response.ok else "WARN"
+
+        return component_result(
+            component="prometheus",
+            status=status,
+            message=(
+                "Prometheus readiness endpoint is reachable."
+                if status == "OK"
+                else "Prometheus readiness endpoint is not ready."
+            ),
+            started_at=started_at,
+            details={
+                "url": PROMETHEUS_HEALTH_URL,
+                "http_status": response.status_code,
+                "body_preview": (response.text or "")[:240],
+                "non_blocking": True,
+            },
+        )
+
+    except Exception as exc:
+        return component_result(
+            component="prometheus",
+            status="WARN",
+            message="Prometheus health check failed. Observability is degraded but application health is not blocked.",
+            started_at=started_at,
+            details={
+                "url": PROMETHEUS_HEALTH_URL,
+                "error_type": type(exc).__name__,
+                "non_blocking": True,
+            },
+        )
+
+
+def check_alertmanager():
+    started_at = time.perf_counter()
+
+    try:
+        response = requests.get(ALERTMANAGER_HEALTH_URL, timeout=5)
+        status = "OK" if response.ok else "WARN"
+
+        return component_result(
+            component="alertmanager",
+            status=status,
+            message=(
+                "Alertmanager readiness endpoint is reachable."
+                if status == "OK"
+                else "Alertmanager readiness endpoint is not ready."
+            ),
+            started_at=started_at,
+            details={
+                "url": ALERTMANAGER_HEALTH_URL,
+                "http_status": response.status_code,
+                "body_preview": (response.text or "")[:240],
+                "non_blocking": True,
+            },
+        )
+
+    except Exception as exc:
+        return component_result(
+            component="alertmanager",
+            status="WARN",
+            message="Alertmanager health check failed. Observability is degraded but application health is not blocked.",
+            started_at=started_at,
+            details={
+                "url": ALERTMANAGER_HEALTH_URL,
+                "error_type": type(exc).__name__,
+                "non_blocking": True,
+            },
+        )
+
+
 
 def check_wazuh_ingest():
     started_at = time.perf_counter()
@@ -1115,7 +1264,16 @@ def latest_incident_snapshot():
 
 
 def overall_status(components):
-    statuses = {item["status"] for item in components}
+    blocking_components = [
+        item
+        for item in components
+        if not (
+            item.get("component") in NON_BLOCKING_OBSERVABILITY_COMPONENTS
+            and isinstance(item.get("details"), dict)
+            and item["details"].get("non_blocking") is True
+        )
+    ]
+    statuses = {item["status"] for item in blocking_components}
 
     if "ERROR" in statuses:
         return "ERROR"
@@ -1143,6 +1301,9 @@ def get_platform_health():
         check_latest_network_event_freshness(),
         check_latest_incident_freshness(),
         check_qdrant(),
+        check_grafana(),
+        check_prometheus(),
+        check_alertmanager(),
         check_worker(),
         check_cloudflare_tunnel(),
     ]
