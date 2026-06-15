@@ -166,6 +166,7 @@ def _external_provider_from_env(
     provider_type: str,
     display_name: str,
     prefix: str,
+    default_base_url: str | None = None,
 ) -> ProviderConfig:
     return ProviderConfig(
         key=key,
@@ -173,13 +174,23 @@ def _external_provider_from_env(
         display_name=display_name,
         enabled=_env_bool(f"{prefix}_ENABLED", False),
         external=True,
-        base_url=_env_str(f"{prefix}_BASE_URL"),
+        base_url=_env_str(f"{prefix}_BASE_URL", default_base_url),
         model=_env_str(f"{prefix}_MODEL"),
         api_key=_env_str(f"{prefix}_API_KEY"),
         timeout_seconds=_env_float(f"{prefix}_TIMEOUT_SECONDS", 30),
         max_tokens=_env_int(f"{prefix}_MAX_TOKENS", 800),
         feature_allowlist=_csv(_env_str(f"{prefix}_FEATURE_ALLOWLIST", "")),
         redaction_mode=_redaction_mode(_env_str(f"{prefix}_REDACTION_MODE"), REDACTION_BLOCK_EXTERNAL),
+        metadata={
+            "enabled_env": f"{prefix}_ENABLED",
+            "base_url_env": f"{prefix}_BASE_URL",
+            "model_env": f"{prefix}_MODEL",
+            "api_key_env": f"{prefix}_API_KEY",
+            "timeout_seconds_env": f"{prefix}_TIMEOUT_SECONDS",
+            "max_tokens_env": f"{prefix}_MAX_TOKENS",
+            "feature_allowlist_env": f"{prefix}_FEATURE_ALLOWLIST",
+            "redaction_mode_env": f"{prefix}_REDACTION_MODE",
+        },
     )
 
 
@@ -196,10 +207,24 @@ def _providers_from_env() -> dict[str, ProviderConfig]:
         timeout_seconds=_env_float("AI_OLLAMA_TIMEOUT_SECONDS", float(local_profile.timeout_seconds)),
         feature_allowlist=_csv(_env_str("AI_OLLAMA_FEATURE_ALLOWLIST")) or LOCAL_FEATURE_ALLOWLIST,
         redaction_mode=REDACTION_LOCAL_ONLY,
+        metadata={
+            "enabled_env": "AI_OLLAMA_ENABLED",
+            "base_url_env": "AI_OLLAMA_BASE_URL",
+            "model_env": "AI_OLLAMA_MODEL",
+            "timeout_seconds_env": "AI_OLLAMA_TIMEOUT_SECONDS",
+            "feature_allowlist_env": "AI_OLLAMA_FEATURE_ALLOWLIST",
+        },
     )
 
     providers = {
         local.key: local,
+        "openrouter": _external_provider_from_env(
+            key="openrouter",
+            provider_type=PROVIDER_OPENAI_COMPATIBLE,
+            display_name="OpenRouter",
+            prefix="AI_OPENROUTER",
+            default_base_url="https://openrouter.ai/api/v1",
+        ),
         "openai_compatible": _external_provider_from_env(
             key="openai_compatible",
             provider_type=PROVIDER_OPENAI_COMPATIBLE,
@@ -289,7 +314,7 @@ def _apply_file_config(
                 str(item.get("redaction_mode") or ""),
                 existing.redaction_mode if existing else REDACTION_BLOCK_EXTERNAL,
             ),
-            metadata=dict(item.get("metadata") or {}),
+            metadata={**(existing.metadata if existing else {}), **dict(item.get("metadata") or {})},
         )
 
     return configured
@@ -300,17 +325,18 @@ def load_provider_registry() -> ProviderRegistry:
     config_path = _env_str("AI_PROVIDER_CONFIG_PATH", "storage/config/ai_providers.json")
     file_config = _load_config_file(config_path)
     providers = _apply_file_config(providers, file_config)
-    default_provider = _env_str(
-        "AI_PROVIDER_DEFAULT",
-        str(file_config.get("default_provider") or "local_ollama") if isinstance(file_config, dict) else "local_ollama",
-    )
+    default_provider = (
+        str(file_config.get("default_provider") or "").strip()
+        if isinstance(file_config, dict)
+        else ""
+    ) or _env_str("AI_PROVIDER_DEFAULT", "local_ollama")
     if default_provider not in providers:
         default_provider = "local_ollama"
 
-    external_enabled = _env_bool(
-        "AI_EXTERNAL_PROVIDERS_ENABLED",
-        bool(file_config.get("external_providers_enabled", False)) if isinstance(file_config, dict) else False,
-    )
+    if isinstance(file_config, dict) and "external_providers_enabled" in file_config:
+        external_enabled = bool(file_config.get("external_providers_enabled"))
+    else:
+        external_enabled = _env_bool("AI_EXTERNAL_PROVIDERS_ENABLED", False)
 
     overrides = _feature_overrides_from_env()
     if isinstance(file_config, dict) and isinstance(file_config.get("feature_overrides"), dict):
@@ -338,6 +364,7 @@ def provider_public_dict(config: ProviderConfig, *, include_api_key_presence: bo
         "external": config.external,
         "configured": config.configured,
         "model": config.model,
+        "base_url": config.base_url if include_api_key_presence else None,
         "base_url_configured": config.base_url_configured,
         "api_key_configured": config.api_key_configured if include_api_key_presence else None,
         "timeout_seconds": config.timeout_seconds,
@@ -345,3 +372,108 @@ def provider_public_dict(config: ProviderConfig, *, include_api_key_presence: bo
         "feature_allowlist": list(config.feature_allowlist),
         "redaction_mode": config.redaction_mode,
     }
+
+
+def resolve_provider_config_path(path: str | None = None) -> Path:
+    configured = path or _env_str("AI_PROVIDER_CONFIG_PATH", "storage/config/ai_providers.json")
+    config_path = Path(configured)
+    if not config_path.is_absolute():
+        config_path = Path.cwd() / config_path
+    return config_path
+
+
+def _provider_file_item(config: ProviderConfig) -> dict[str, Any]:
+    item: dict[str, Any] = {
+        "key": config.key,
+        "type": config.provider_type,
+        "display_name": config.display_name,
+        "enabled": config.enabled,
+        "external": config.external,
+        "base_url": config.base_url,
+        "model": config.model,
+        "timeout_seconds": config.timeout_seconds,
+        "max_tokens": config.max_tokens,
+        "feature_allowlist": list(config.feature_allowlist),
+        "redaction_mode": config.redaction_mode,
+        "metadata": dict(config.metadata),
+    }
+    api_key_env = config.metadata.get("api_key_env")
+    if api_key_env:
+        item["api_key_env"] = api_key_env
+    return item
+
+
+def _write_registry_config(registry: ProviderRegistry) -> None:
+    path = resolve_provider_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "default_provider": registry.default_provider,
+        "external_providers_enabled": registry.external_providers_enabled,
+        "feature_overrides": dict(registry.feature_overrides),
+        "providers": [_provider_file_item(config) for config in registry.providers.values()],
+    }
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def save_registry_settings(
+    *,
+    default_provider: str | None = None,
+    external_providers_enabled: bool | None = None,
+    feature_overrides: dict[str, str] | None = None,
+) -> ProviderRegistry:
+    current = load_provider_registry()
+    updated = ProviderRegistry(
+        default_provider=default_provider if default_provider in current.providers else current.default_provider,
+        external_providers_enabled=(
+            current.external_providers_enabled
+            if external_providers_enabled is None
+            else bool(external_providers_enabled)
+        ),
+        providers=current.providers,
+        feature_overrides=dict(current.feature_overrides if feature_overrides is None else feature_overrides),
+    )
+    _write_registry_config(updated)
+    return load_provider_registry()
+
+
+def save_provider_settings(
+    provider_key: str,
+    updates: dict[str, Any],
+) -> ProviderRegistry:
+    current = load_provider_registry()
+    existing = current.get(provider_key)
+    if existing is None:
+        raise KeyError(provider_key)
+
+    redaction_mode = _redaction_mode(
+        str(updates.get("redaction_mode") or existing.redaction_mode),
+        existing.redaction_mode,
+    )
+    provider = replace(
+        existing,
+        enabled=bool(updates.get("enabled", existing.enabled)),
+        base_url=(str(updates.get("base_url")).strip() if updates.get("base_url") is not None else existing.base_url),
+        model=(str(updates.get("model")).strip() if updates.get("model") is not None else existing.model),
+        timeout_seconds=float(updates.get("timeout_seconds", existing.timeout_seconds)),
+        max_tokens=(
+            int(updates.get("max_tokens"))
+            if updates.get("max_tokens") not in {None, ""}
+            else existing.max_tokens
+        ),
+        feature_allowlist=[
+            str(value).strip()
+            for value in updates.get("feature_allowlist", existing.feature_allowlist)
+            if str(value).strip()
+        ],
+        redaction_mode=redaction_mode,
+    )
+    providers = dict(current.providers)
+    providers[provider_key] = provider
+    updated = ProviderRegistry(
+        default_provider=current.default_provider,
+        external_providers_enabled=current.external_providers_enabled,
+        providers=providers,
+        feature_overrides=dict(current.feature_overrides),
+    )
+    _write_registry_config(updated)
+    return load_provider_registry()

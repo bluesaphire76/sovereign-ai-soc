@@ -113,7 +113,7 @@ def test_llm_client_falls_back_to_fast_when_primary_profile_fails():
     def fake_get_profile(profile_name):
         return profiles[profile_name]
 
-    def fake_call_ollama(*, prompt, messages, profile, timeout_seconds):
+    def fake_call_ollama(*, feature, prompt, messages, profile, timeout_seconds):
         calls.append(profile.name)
 
         if profile.name == "standard":

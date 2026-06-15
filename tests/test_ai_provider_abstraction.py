@@ -2,15 +2,25 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
+
 from ai_model_policy import AiTask
 from ai_provider_policy import external_block_reason, generate_with_provider
 from ai_provider_redaction import redact_text
 from ai_provider_registry import load_provider_registry, provider_public_dict
 
 
+@pytest.fixture(autouse=True)
+def isolated_runtime_config(monkeypatch, tmp_path):
+    monkeypatch.setenv("AI_PROVIDER_CONFIG_PATH", str(tmp_path / "ai_providers.json"))
+    monkeypatch.setenv("AI_DATA_POLICY_CONFIG_PATH", str(tmp_path / "ai_data_control_policy.json"))
+
+
 def test_local_ollama_is_default_and_external_is_disabled(monkeypatch):
     monkeypatch.delenv("AI_PROVIDER_DEFAULT", raising=False)
     monkeypatch.delenv("AI_EXTERNAL_PROVIDERS_ENABLED", raising=False)
+    monkeypatch.delenv("AI_OPENROUTER_ENABLED", raising=False)
+    monkeypatch.delenv("AI_OPENROUTER_API_KEY", raising=False)
     monkeypatch.delenv("AI_OPENAI_COMPATIBLE_API_KEY", raising=False)
 
     registry = load_provider_registry()
@@ -18,6 +28,8 @@ def test_local_ollama_is_default_and_external_is_disabled(monkeypatch):
     assert registry.default_provider == "local_ollama"
     assert registry.external_providers_enabled is False
     assert registry.providers["local_ollama"].enabled is True
+    assert registry.providers["openrouter"].enabled is False
+    assert registry.providers["openrouter"].base_url == "https://openrouter.ai/api/v1"
     assert registry.providers["openai_compatible"].enabled is False
     assert registry.providers["openai_compatible"].feature_allowlist == []
     assert registry.providers["openai_compatible"].redaction_mode == "BLOCK_EXTERNAL"
@@ -127,4 +139,4 @@ def test_generate_with_provider_returns_safe_block_without_external_call(monkeyp
     assert response.text == ""
     assert response.used_external_provider is True
     assert response.safe_error == "ExternalProvidersGloballyDisabled"
-    audit.assert_called_once()
+    audit.assert_not_called()

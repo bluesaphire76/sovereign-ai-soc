@@ -5,6 +5,7 @@ from typing import Any
 
 import requests
 
+from ai_data_control_policy import enforce_ai_data_policy
 from ai_model_config import DEFAULT_LLM_MODE, LlmProfile, get_profile
 from ai_model_policy import AiTask, select_profile
 from ai_provider_abstraction import build_provider_client
@@ -51,6 +52,7 @@ def generate_ai_response(
         )
 
     return _call_ollama_with_fallback(
+        feature=feature,
         prompt=prompt,
         messages=messages,
         profile_name=profile_name,
@@ -60,6 +62,7 @@ def generate_ai_response(
 
 def _call_ollama_with_fallback(
     *,
+    feature: str,
     prompt: str | None,
     messages: list[dict[str, Any]] | None,
     profile_name: str,
@@ -70,6 +73,7 @@ def _call_ollama_with_fallback(
 
     try:
         text = _call_ollama(
+            feature=feature,
             prompt=prompt,
             messages=messages,
             profile=profile,
@@ -96,6 +100,7 @@ def _call_ollama_with_fallback(
 
         try:
             text = _call_ollama(
+                feature=feature,
                 prompt=prompt,
                 messages=messages,
                 profile=fallback,
@@ -120,6 +125,7 @@ def _call_ollama_with_fallback(
 
 def _call_ollama(
     *,
+    feature: str,
     prompt: str | None,
     messages: list[dict[str, Any]] | None,
     profile: LlmProfile,
@@ -130,14 +136,33 @@ def _call_ollama(
     if config is None:
         raise RuntimeError("Local Ollama provider configuration is missing.")
 
-    client = build_provider_client(config)
-    response = client.generate(
-        feature="local_ollama",
+    policy_decision = enforce_ai_data_policy(
+        feature_key=feature,
+        provider_config=config,
+        registry=registry,
         prompt=prompt,
         messages=messages,
         context=None,
+        current_user=None,
+    )
+    if not policy_decision.allowed:
+        raise RuntimeError(policy_decision.reason or "AIDataPolicyDenied")
+
+    client = build_provider_client(config)
+    response = client.generate(
+        feature=feature,
+        prompt=policy_decision.transformed_prompt,
+        messages=policy_decision.transformed_messages,
+        context=None,
         options=_profile_options(profile=profile, timeout_seconds=timeout_seconds),
-        data_control=None,
+        data_control={
+            "redaction_mode": policy_decision.mode,
+            "policy_preprocessed": True,
+            "policy_decision_id": policy_decision.decision_id,
+            "policy_redaction_applied": policy_decision.redaction_applied,
+            "policy_output_character_count": policy_decision.output_character_count,
+            "policy_replacements": dict(policy_decision.replacements),
+        },
     )
 
     if response.safe_error:

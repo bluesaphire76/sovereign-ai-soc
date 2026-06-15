@@ -1,0 +1,87 @@
+{
+  "version": "v0.7.0-step12-template",
+  "global_defaults": {
+    "audit_enabled": true,
+    "default_mode": "LOCAL_ONLY",
+    "external_default_policy": "EXTERNAL_AI_DISABLED",
+    "payload_preview_enabled": true,
+    "store_payload_hash": true,
+    "store_redacted_preview": false
+  },
+  "data_classes": [
+    "PUBLIC",
+    "INTERNAL",
+    "SENSITIVE_SOC",
+    "SECRET",
+    "CREDENTIAL",
+    "PERSONAL_DATA",
+    "RAW_SECURITY_TELEMETRY"
+  ],
+  "feature_policies": [
+    {
+      "feature_key": "incident_triage",
+      "mode": "LOCAL_ONLY",
+      "allowed_provider_keys": [],
+      "allowed_roles": ["ADMIN", "ANALYST"],
+      "require_confirmation": false,
+      "payload_preview_enabled": true,
+      "store_payload_hash": true,
+      "store_redacted_preview": false,
+      "allow_raw_telemetry": false,
+      "allow_personal_data": false,
+      "audit_level": "decision"
+    },
+    {
+      "feature_key": "incident_ai_analysis",
+      "mode": "LOCAL_ONLY",
+      "allowed_provider_keys": [],
+      "allowed_roles": ["ADMIN", "ANALYST"],
+      "require_confirmation": false,
+      "payload_preview_enabled": true,
+      "store_payload_hash": true,
+      "store_redacted_preview": false,
+      "allow_raw_telemetry": false,
+      "allow_personal_data": false,
+      "audit_level": "decision"
+    },
+    {
+      "feature_key": "case_ai_analysis",
+      "mode": "LOCAL_ONLY",
+      "allowed_provider_keys": [],
+      "allowed_roles": ["ADMIN", "ANALYST"],
+      "require_confirmation": false,
+      "payload_preview_enabled": true,
+      "store_payload_hash": true,
+      "store_redacted_preview": false,
+      "allow_raw_telemetry": false,
+      "allow_personal_data": false,
+      "audit_level": "decision"
+    },
+    {
+      "feature_key": "how_to_execute",
+      "mode": "LOCAL_ONLY",
+      "allowed_provider_keys": [],
+      "allowed_roles": ["ADMIN", "ANALYST"],
+      "require_confirmation": false,
+      "payload_preview_enabled": true,
+      "store_payload_hash": true,
+      "store_redacted_preview": false,
+      "allow_raw_telemetry": false,
+      "allow_personal_data": false,
+      "audit_level": "decision"
+    },
+    {
+      "feature_key": "provider_test",
+      "mode": "METADATA_ONLY",
+      "allowed_provider_keys": [],
+      "allowed_roles": ["ADMIN"],
+      "require_confirmation": true,
+      "payload_preview_enabled": true,
+      "store_payload_hash": true,
+      "store_redacted_preview": false,
+      "allow_raw_telemetry": false,
+      "allow_personal_data": false,
+      "audit_level": "decision"
+    }
+  ]
+}

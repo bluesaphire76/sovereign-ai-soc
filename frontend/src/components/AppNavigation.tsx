@@ -112,6 +112,12 @@ const SETTINGS_ITEMS: NavItem[] = [
     icon: <Cpu className="h-3.5 w-3.5" strokeWidth={1.75} />,
     match: "prefix",
   },
+  {
+    href: "/settings/ai-data-control",
+    label: "AI Data Control",
+    icon: <Shield className="h-3.5 w-3.5" strokeWidth={1.75} />,
+    match: "prefix",
+  },
 ];
 
 const SYSTEM_INFORMATION_ITEMS: NavItem[] = [
