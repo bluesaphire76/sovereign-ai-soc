@@ -6,7 +6,7 @@
     {
       "key": "local_ollama",
       "type": "LOCAL_OLLAMA",
-      "display_name": "Local Ollama",
+      "display_name": "Ollama",
       "enabled": true,
       "external": false,
       "base_url_env": "AI_OLLAMA_BASE_URL",
@@ -27,7 +27,7 @@
     {
       "key": "openrouter",
       "type": "OPENAI_COMPATIBLE",
-      "display_name": "OpenRouter",
+      "display_name": "Openrouter",
       "enabled": false,
       "external": true,
       "base_url": "https://openrouter.ai/api/v1",
@@ -42,7 +42,7 @@
     {
       "key": "openai_compatible",
       "type": "OPENAI_COMPATIBLE",
-      "display_name": "OpenAI-compatible provider",
+      "display_name": "OpenAI",
       "enabled": false,
       "external": true,
       "base_url_env": "AI_OPENAI_COMPATIBLE_BASE_URL",
@@ -56,7 +56,7 @@
     {
       "key": "azure_openai_compatible",
       "type": "AZURE_OPENAI_COMPATIBLE",
-      "display_name": "Azure OpenAI-compatible provider",
+      "display_name": "MS Azure",
       "enabled": false,
       "external": true,
       "base_url_env": "AI_AZURE_OPENAI_COMPATIBLE_BASE_URL",

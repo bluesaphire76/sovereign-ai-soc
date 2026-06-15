@@ -40,6 +40,7 @@ class AIProviderResponse:
 class AIProviderHealth:
     provider_key: str
     provider_type: str
+    configured_model: str | None
     configured: bool
     enabled: bool
     reachable: bool | None
@@ -67,6 +68,37 @@ class AIProviderClient(Protocol):
 
     def health_check(self) -> AIProviderHealth:
         ...
+
+
+def _openai_compatible_model_names(payload: Any) -> tuple[bool, list[str]]:
+    if isinstance(payload, dict):
+        raw_models = payload.get("data")
+    elif isinstance(payload, list):
+        raw_models = payload
+    else:
+        return False, []
+
+    if not isinstance(raw_models, list):
+        return False, []
+
+    model_names: list[str] = []
+    for item in raw_models:
+        if isinstance(item, dict):
+            name = item.get("id") or item.get("name") or item.get("model")
+        else:
+            name = item
+        if name:
+            model_names.append(str(name))
+
+    return True, model_names
+
+
+def _configured_model_available(configured_model: str | None, model_names: list[str]) -> bool:
+    model = str(configured_model or "").strip()
+    if not model:
+        return False
+
+    return any(str(name or "").strip() == model for name in model_names)
 
 
 class LocalOllamaProvider:
@@ -202,12 +234,13 @@ class LocalOllamaProvider:
             return AIProviderHealth(
                 provider_key=self.provider_key,
                 provider_type=self.provider_type,
+                configured_model=self.config.model,
                 configured=self.config.configured,
                 enabled=False,
                 reachable=None,
                 model_available=None,
                 latency_ms=None,
-                safe_message="Local Ollama provider is disabled.",
+                safe_message="Ollama provider is disabled.",
                 safe_error=None,
             )
 
@@ -230,24 +263,26 @@ class LocalOllamaProvider:
             return AIProviderHealth(
                 provider_key=self.provider_key,
                 provider_type=self.provider_type,
+                configured_model=self.config.model,
                 configured=self.config.configured,
                 enabled=self.config.enabled,
                 reachable=True,
                 model_available=model_available,
                 latency_ms=int((time.monotonic() - started) * 1000),
-                safe_message="Local Ollama provider is reachable.",
+                safe_message="Ollama provider is reachable.",
                 safe_error=None,
             )
         except Exception as exc:
             return AIProviderHealth(
                 provider_key=self.provider_key,
                 provider_type=self.provider_type,
+                configured_model=self.config.model,
                 configured=self.config.configured,
                 enabled=self.config.enabled,
                 reachable=False,
                 model_available=None,
                 latency_ms=int((time.monotonic() - started) * 1000),
-                safe_message="Local Ollama provider is unavailable.",
+                safe_message="Ollama provider is unavailable.",
                 safe_error=type(exc).__name__,
             )
 
@@ -356,6 +391,7 @@ class OpenAICompatibleProvider:
             return AIProviderHealth(
                 provider_key=self.provider_key,
                 provider_type=self.provider_type,
+                configured_model=self.config.model,
                 configured=self.config.configured,
                 enabled=False,
                 reachable=None,
@@ -369,6 +405,7 @@ class OpenAICompatibleProvider:
             return AIProviderHealth(
                 provider_key=self.provider_key,
                 provider_type=self.provider_type,
+                configured_model=self.config.model,
                 configured=False,
                 enabled=True,
                 reachable=None,
@@ -386,13 +423,20 @@ class OpenAICompatibleProvider:
                 timeout=min(self.config.timeout_seconds, 5),
             )
             response.raise_for_status()
+            models_listed, model_names = _openai_compatible_model_names(response.json())
+            model_available = (
+                _configured_model_available(self.config.model, model_names)
+                if models_listed
+                else None
+            )
             return AIProviderHealth(
                 provider_key=self.provider_key,
                 provider_type=self.provider_type,
+                configured_model=self.config.model,
                 configured=True,
                 enabled=True,
                 reachable=True,
-                model_available=None,
+                model_available=model_available,
                 latency_ms=int((time.monotonic() - started) * 1000),
                 safe_message="External provider models endpoint is reachable.",
                 safe_error=None,
@@ -401,6 +445,7 @@ class OpenAICompatibleProvider:
             return AIProviderHealth(
                 provider_key=self.provider_key,
                 provider_type=self.provider_type,
+                configured_model=self.config.model,
                 configured=True,
                 enabled=True,
                 reachable=False,
@@ -448,12 +493,13 @@ class UnsupportedProvider:
         return AIProviderHealth(
             provider_key=self.provider_key,
             provider_type=self.provider_type,
+            configured_model=self.config.model,
             configured=self.config.configured,
             enabled=self.config.enabled,
             reachable=None,
             model_available=None,
             latency_ms=None,
-            safe_message="Provider type is configuration-visible but adapter is not implemented in Step 11.",
+            safe_message="",
             safe_error=None,
         )
 

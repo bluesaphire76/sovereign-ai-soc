@@ -827,6 +827,30 @@ function ExecutiveMetric({
   );
 }
 
+const AI_PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+  local_ollama: "Ollama",
+  openrouter: "Openrouter",
+  openai_compatible: "OpenAI",
+  azure_openai_compatible: "MS Azure",
+  anthropic_compatible: "Anthropic",
+  custom_http_compatible: "Custom HTTP",
+};
+
+function aiProviderDisplayName(providerKey: string) {
+  return AI_PROVIDER_DISPLAY_NAMES[providerKey] ?? providerKey;
+}
+
+function aiProviderDescription(providerKey: string, providerType: string, message: string) {
+  const typeLabel =
+    providerType && providerType !== "-" && providerType !== providerKey.toUpperCase()
+      ? providerType
+      : "";
+
+  return [typeLabel, message]
+    .filter((item) => item && item !== "-")
+    .join(" · ");
+}
+
 function AiProviderRuntimePanel({
   components,
 }: {
@@ -843,6 +867,12 @@ function AiProviderRuntimePanel({
 
   const defaultProvider = readString(registry, ["default_provider"], "local_ollama");
   const externalEnabled = readUnknown(registry, ["external_providers_enabled"]) === true;
+  const externalProviders = providers.filter(
+    (provider) => readString(provider, ["provider_type"], "") !== "LOCAL_OLLAMA"
+  );
+  const enabledExternalProviders = externalProviders.filter(
+    (provider) => readUnknown(provider, ["enabled"]) === true
+  );
 
   return (
     <section className="rounded-xl border border-slate-800 bg-slate-900 p-3 shadow-sm">
@@ -859,11 +889,16 @@ function AiProviderRuntimePanel({
         </div>
 
         <div className="flex flex-wrap gap-1.5">
-          <StatusPill label="Default" value={defaultProvider} tone="neutral" />
+          <StatusPill label="Default" value={aiProviderDisplayName(defaultProvider)} tone="neutral" />
           <StatusPill
-            label="External"
+            label="External switch"
             value={externalEnabled ? "enabled" : "disabled"}
             tone={externalEnabled ? "WARN" : "OK"}
+          />
+          <StatusPill
+            label="External providers"
+            value={`${enabledExternalProviders.length}/${externalProviders.length} enabled`}
+            tone={enabledExternalProviders.length > 0 ? "WARN" : "OK"}
           />
         </div>
       </div>
@@ -871,22 +906,26 @@ function AiProviderRuntimePanel({
       <div className="grid gap-2 lg:grid-cols-3">
         {providers.map((provider) => {
           const key = readString(provider, ["provider_key"], "-");
+          const displayName = aiProviderDisplayName(key);
           const type = readString(provider, ["provider_type"], "-");
           const reachable = readUnknown(provider, ["reachable"]);
           const configured = readUnknown(provider, ["configured"]) === true;
           const enabled = readUnknown(provider, ["enabled"]) === true;
           const modelAvailable = readUnknown(provider, ["model_available"]);
+          const configuredModel = readString(provider, ["configured_model"], "-");
           const message = readString(provider, ["safe_message"], "-");
           const latency = readNumber(provider, ["latency_ms"]);
+          const description = aiProviderDescription(key, type, message);
 
           return (
             <MetricGroup
               key={key}
-              title={key}
-              description={`${type} · ${message}`}
+              title={displayName}
+              description={description}
             >
               <MetricRow label="Enabled" value={enabled ? "yes" : "no"} tone={enabled ? "OK" : "neutral"} />
               <MetricRow label="Configured" value={configured ? "yes" : "no"} tone={configured ? "OK" : "WARN"} />
+              <MetricRow label="Configured model" value={configuredModel || "-"} />
               <MetricRow
                 label="Reachable"
                 value={reachable === null || reachable === undefined ? "not checked" : reachable ? "yes" : "no"}
@@ -939,11 +978,15 @@ function MetricRow({
   tone?: HealthStatus | "neutral";
 }) {
   const status = statusClasses(tone);
+  const title = String(value);
 
   return (
     <div className="flex items-center justify-between gap-3 rounded-md border border-slate-800 bg-slate-900/70 px-2 py-1.5">
       <div className="truncate text-[11px] text-slate-400">{label}</div>
-      <div className={`shrink-0 rounded-md border px-2 py-0.5 text-[11px] font-medium ${status.badge}`}>
+      <div
+        className={`min-w-0 max-w-[13rem] truncate rounded-md border px-2 py-0.5 text-[11px] font-medium ${status.badge}`}
+        title={title}
+      >
         {value}
       </div>
     </div>
