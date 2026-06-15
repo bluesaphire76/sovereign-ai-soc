@@ -8,6 +8,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import AppNavigation from "../../../components/AppNavigation";
 import IncidentTimeline from "../../../components/incidents/IncidentTimeline";
+import InvestigationGraph from "../../../components/investigation-graph/InvestigationGraph";
 import {
   Brain,
   ClipboardList,
@@ -3406,6 +3407,14 @@ function IncidentCommandCenterRefoundation({
           </CompactDisclosure>
 
           <IncidentTimeline incidentId={incident.id} />
+
+          <CompactDisclosure
+            title="Investigation Graph"
+            description="Read-only relationship view across incidents, cases, alerts, entities, timeline and AI context."
+            icon={<Network className="h-3.5 w-3.5" />}
+          >
+            <InvestigationGraph scope="incident" scopeId={incident.id} />
+          </CompactDisclosure>
 
           <CompactDisclosure
             title="Remediation Governance"
