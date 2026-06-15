@@ -50,6 +50,7 @@ frontend/.env.*.local
 backups/
 reports/validation/*.pdf
 reports/validation/*.json
+reports/validation/*.md
 reports/retention/
 data/geoip/*.mmdb
 AGENTS.md
