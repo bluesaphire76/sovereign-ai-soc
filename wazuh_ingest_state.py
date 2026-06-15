@@ -74,7 +74,7 @@ def get_or_create_watermark(db) -> WazuhIngestWatermark:
     return watermark
 
 
-def compute_query_from_timestamp(watermark: WazuhIngestWatermark) -> str:
+def _build_query_range(watermark: WazuhIngestWatermark) -> tuple[dict[str, str], str]:
     now = datetime.now(timezone.utc)
     max_catchup_from = now - timedelta(minutes=WAZUH_MAX_CATCHUP_MINUTES)
 
@@ -82,35 +82,38 @@ def compute_query_from_timestamp(watermark: WazuhIngestWatermark) -> str:
         last_dt = parse_wazuh_timestamp(watermark.last_timestamp)
 
         if last_dt:
-            overlapped = last_dt - timedelta(seconds=WAZUH_WATERMARK_OVERLAP_SECONDS)
+            if last_dt < max_catchup_from:
+                return {"gte": iso_utc(max_catchup_from)}, "max_catchup_window"
 
-            if overlapped < max_catchup_from:
-                return iso_utc(max_catchup_from)
-
-            return iso_utc(overlapped)
+            return {"gt": iso_utc(last_dt)}, "watermark_strict"
 
     initial_from = now - timedelta(minutes=WAZUH_INITIAL_LOOKBACK_MINUTES)
 
     if initial_from < max_catchup_from:
-        return iso_utc(max_catchup_from)
+        return {"gte": iso_utc(max_catchup_from)}, "initial_max_catchup_window"
 
-    return iso_utc(initial_from)
+    return {"gte": iso_utc(initial_from)}, "initial_lookback_window"
+
+
+def compute_query_from_timestamp(watermark: WazuhIngestWatermark) -> str:
+    query_range, _ = _build_query_range(watermark)
+    return next(iter(query_range.values()))
 
 
 def build_wazuh_alert_query(watermark: WazuhIngestWatermark, limit: int | None = None):
     size = limit or WAZUH_BATCH_SIZE
-    query_from = compute_query_from_timestamp(watermark)
+    query_range, query_strategy = _build_query_range(watermark)
+    query_from = next(iter(query_range.values()))
 
     query = {
         "size": size,
         "sort": [
             {"@timestamp": {"order": "asc"}},
+            {"_id": {"order": "asc"}},
         ],
         "query": {
             "range": {
-                "@timestamp": {
-                    "gte": query_from,
-                }
+                "@timestamp": query_range,
             }
         },
     }
@@ -121,6 +124,8 @@ def build_wazuh_alert_query(watermark: WazuhIngestWatermark, limit: int | None =
         "last_timestamp": watermark.last_timestamp,
         "last_doc_id": watermark.last_doc_id,
         "overlap_seconds": WAZUH_WATERMARK_OVERLAP_SECONDS,
+        "query_strategy": query_strategy,
+        "query_range": query_range,
         "initial_lookback_minutes": WAZUH_INITIAL_LOOKBACK_MINUTES,
         "max_catchup_minutes": WAZUH_MAX_CATCHUP_MINUTES,
     }
