@@ -136,15 +136,12 @@ loki.process "platform" {
 
   stage.decolorize {}
 
-  // Strictly drop HTTP access logs because they may contain client IPs, ports, paths and user activity metadata.
+  // Drop HTTP access logs because they may contain client IPs, ports, paths and user activity metadata.
   // This keeps Loki focused on platform runtime troubleshooting, not access telemetry.
-  stage.match {
-    selector = "{service=~\"ai-soc-api|ai-soc-worker|ai-soc-frontend|nginx|cloudflared\"} |~ \"(?i).*(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)[[:space:]]+/.+[[:space:]]+HTTP/[0-9.]+.*\""
-    action   = "drop"
-
-    drop_counter_reason = "http_access_log_strict"
+  stage.drop {
+    expression          = "(?i)(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)[[:space:]]+/.+[[:space:]]+HTTP/[0-9.]"
+    drop_counter_reason = "http_access_log"
   }
-
 
   // Drop sensitive or investigation-heavy content globally.
   stage.drop {
@@ -160,7 +157,7 @@ loki.process "platform" {
 
   // Keep AI SOC application logs only when operationally useful.
   stage.match {
-    selector = "{service=~\"ai-soc-api|ai-soc-worker|ai-soc-frontend\"} !~ \"(?i)(error|warn|warning|exception|traceback|failed|failure|timeout|readtimeout|deadline|degraded|unhealthy|fallback|startup|shutdown|started|stopped)\""
+    selector = "{service=~\"ai-soc-api|ai-soc-worker|ai-soc-frontend\"} !~ \"(?i)(level=(error|warn)|\\b(error|warn|warning|exception|traceback|failed|failure|timeout|readtimeout|deadline|degraded|unhealthy|fallback|startup|shutdown|started|stopped)\\b)\""
     action   = "drop"
 
     drop_counter_reason = "non_operational_app_log"
@@ -184,8 +181,9 @@ loki.process "platform" {
   }
 
   // Support/observability containers: keep only operational errors/status.
+  // Avoid matching benign fields such as "errors=false".
   stage.match {
-    selector = "{source=\"docker\",service=~\"ai-soc-prometheus|ai-soc-grafana|ai-soc-alertmanager|ai-soc-ntfy-bridge|ai-soc-loki\"} !~ \"(?i)(error|warn|warning|failed|failure|exception|timeout|unhealthy|ready|started|stopped|alert|notification)\""
+    selector = "{source=\"docker\",service=~\"ai-soc-prometheus|ai-soc-grafana|ai-soc-alertmanager|ai-soc-ntfy-bridge|ai-soc-loki\"} !~ \"(?i)(level=(error|warn)|\\b(error|warn|warning|failed|failure|exception|timeout|unhealthy|ready|started|stopped|alert|notification)\\b)\""
     action   = "drop"
 
     drop_counter_reason = "non_operational_docker_log"
