@@ -7,15 +7,20 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import AppNavigation from "../../../components/AppNavigation";
+import IncidentTimeline from "../../../components/incidents/IncidentTimeline";
 import {
+  Brain,
   ClipboardList,
   Database,
   FileDown,
   FileText,
+  GitBranch,
+  NotebookPen,
   Network,
   Globe2,
   RefreshCw,
   ShieldAlert,
+  ShieldCheck,
 } from "lucide-react";
 
 type IncidentDetail = {
@@ -1371,14 +1376,17 @@ function LinkCommand({
 function ExecutiveBrief({
   lines,
   decision,
+  action,
 }: {
   lines: string[];
   decision: string;
+  action?: ReactNode;
 }) {
   const items = buildHierarchicalAiItems(lines);
   const flattenedLines = flattenAiItems(items);
   const summary = flattenedLines[0] ?? "No executive assessment available.";
   const keyFindings = flattenedLines.slice(1, 4);
+  const visibleKeyFindings = action ? keyFindings.slice(0, 2) : keyFindings;
 
   return (
     <div className="space-y-2">
@@ -1387,11 +1395,19 @@ function ExecutiveBrief({
         <DenseField label="Decision posture" value={decision} />
       </div>
 
-      {keyFindings.length > 0 && (
+      {(visibleKeyFindings.length > 0 || action) && (
         <div className="grid gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800 md:grid-cols-3">
-          {keyFindings.map((finding, index) => (
+          {visibleKeyFindings.map((finding, index) => (
             <DenseField key={`${finding}-${index}`} label="Key point" value={finding} />
           ))}
+          {action && (
+            <div className="min-w-0 bg-slate-950 px-2.5 py-2">
+              <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                AI brief
+              </div>
+              <div className="mt-1 flex items-center">{action}</div>
+            </div>
+          )}
         </div>
       )}
 
@@ -2598,7 +2614,7 @@ function CorrelationConsole({
       <div className="grid gap-2 xl:grid-cols-[1.05fr_0.95fr]">
         <div className="rounded-md border border-slate-800 bg-slate-950">
           <div className="border-b border-slate-800 bg-slate-900/70 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-300">
-            Event timeline
+            Correlation event sequence
           </div>
           <div className="divide-y divide-slate-800">
             {timelineEvents.length === 0 ? (
@@ -3098,26 +3114,37 @@ function DnsEvidencePanel({
 function CompactDisclosure({
   title,
   description,
+  icon,
   children,
   open = false,
 }: {
   title: string;
   description?: string;
+  icon?: ReactNode;
   children: ReactNode;
   open?: boolean;
 }) {
+  const [isOpen, setIsOpen] = useState(open);
+
   return (
-    <details open={open} className="rounded-md border border-slate-800 bg-slate-950">
+    <details
+      open={isOpen}
+      onToggle={(event) => setIsOpen(event.currentTarget.open)}
+      className="rounded-md border border-slate-800 bg-slate-950"
+    >
       <summary className="cursor-pointer list-none px-3 py-2 hover:bg-slate-900/60">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <div className="text-xs font-semibold text-slate-100">{title}</div>
+            <div className="flex items-center gap-2 text-xs font-semibold text-slate-100">
+              {icon && <span className="text-cyan-300">{icon}</span>}
+              <span>{title}</span>
+            </div>
             {description && (
               <p className="mt-0.5 text-[11px] leading-4 text-slate-500">{description}</p>
             )}
           </div>
           <span className="shrink-0 text-[10px] uppercase tracking-wide text-cyan-300">
-            open
+            {isOpen ? "Close" : "Open"}
           </span>
         </div>
       </summary>
@@ -3157,7 +3184,6 @@ function IncidentCommandCenterRefoundation({
   savingNote,
   canOperate,
   isViewer,
-  creatingCase,
   aiBrief,
   aiBriefLoading,
   aiBriefError,
@@ -3191,7 +3217,6 @@ function IncidentCommandCenterRefoundation({
   statusDraft,
   onStatusDraftChange,
   onApplyStatus,
-  onCreateCase,
   onGenerateAiBrief,
   onNoteDraftChange,
   onAddNote,
@@ -3204,7 +3229,6 @@ function IncidentCommandCenterRefoundation({
   savingNote: boolean;
   canOperate: boolean;
   isViewer: boolean;
-  creatingCase: boolean;
   aiBrief?: IncidentAiBriefPreview | null;
   aiBriefLoading?: boolean;
   aiBriefError?: string | null;
@@ -3238,7 +3262,6 @@ function IncidentCommandCenterRefoundation({
   statusDraft: string;
   onStatusDraftChange: (status: string) => void;
   onApplyStatus: () => void;
-  onCreateCase: () => void;
   onGenerateAiBrief: () => void;
   onNoteDraftChange: (value: string) => void;
   onAddNote: () => void;
@@ -3274,8 +3297,7 @@ function IncidentCommandCenterRefoundation({
   return (
     <div className="space-y-3">
       <section className="rounded-md border border-slate-800 bg-slate-950">
-        <div className="grid gap-px bg-slate-800 xl:grid-cols-[1fr_360px]">
-          <div className="bg-slate-950 p-4">
+        <div className="bg-slate-950 p-4">
             <div className="text-[10px] font-semibold uppercase tracking-wide text-cyan-300">
               Incident Command Center
             </div>
@@ -3285,16 +3307,8 @@ function IncidentCommandCenterRefoundation({
             <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-400">
               {briefSummary}
             </p>
-            <div className="mt-3 grid gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800 md:grid-cols-4">
-              <DenseField label="Risk" value={`${riskLabel(incident.risk_score)} · ${incident.risk_score ?? 0}`} />
-              <DenseField label="Status" value={currentStatus} />
-              <DenseField label="Host" value={incident.agent ?? "unknown"} />
-              <DenseField label="Detected" value={incident.timestamp_local ?? formatTimestamp(incident.timestamp)} />
-            </div>
-          </div>
 
-          <div className="space-y-3 bg-slate-950 p-4">
-            <div>
+            <div className="mt-3 max-w-xl rounded-md border border-slate-800 bg-slate-950 p-3">
               <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                 Lifecycle
               </label>
@@ -3320,29 +3334,20 @@ function IncidentCommandCenterRefoundation({
               </div>
             </div>
 
-            <div className="grid gap-1.5">
-              {canOperate && (
-                <CommandButton tone="success" disabled={creatingCase} onClick={onCreateCase}>
-                  {creatingCase ? "Creating case..." : "Create case"}
-                </CommandButton>
-              )}
-              {canOperate && (
-                <CommandButton disabled={aiBriefGenerating} onClick={onGenerateAiBrief}>
-                  <RefreshCw className={`h-3.5 w-3.5 ${aiBriefGenerating ? "animate-spin" : ""}`} />
-                  Refresh AI brief
-                </CommandButton>
-              )}
+            <div className="mt-3 grid gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800 md:grid-cols-4">
+              <DenseField label="Risk" value={`${riskLabel(incident.risk_score)} · ${incident.risk_score ?? 0}`} />
+              <DenseField label="Status" value={currentStatus} />
+              <DenseField label="Host" value={incident.agent ?? "unknown"} />
+              <DenseField label="Detected" value={incident.timestamp_local ?? formatTimestamp(incident.timestamp)} />
             </div>
-          </div>
         </div>
       </section>
 
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <div className="space-y-3">
+      <div className="min-w-0 space-y-3">
           <CompactDisclosure
-            open
             title="AI Situation Brief"
             description="Structured AI assessment, evidence, limitations and next checks."
+            icon={<Brain className="h-3.5 w-3.5" />}
           >
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
@@ -3352,6 +3357,14 @@ function IncidentCommandCenterRefoundation({
               <ExecutiveBrief
                 lines={briefSummary ? splitAiSentences(briefSummary) : sections[0]?.lines ?? []}
                 decision={decision}
+                action={
+                  canOperate ? (
+                    <CommandButton disabled={aiBriefGenerating} onClick={onGenerateAiBrief}>
+                      <RefreshCw className={`h-3.5 w-3.5 ${aiBriefGenerating ? "animate-spin" : ""}`} />
+                      Refresh AI brief
+                    </CommandButton>
+                  ) : null
+                }
               />
               <DecisionMatrix incident={incident} />
               <ResponseBoard
@@ -3373,9 +3386,9 @@ function IncidentCommandCenterRefoundation({
           </CompactDisclosure>
 
           <CompactDisclosure
-            open
             title="Evidence & Correlation"
             description="Correlation explanation, attack chain, related incidents and telemetry context."
+            icon={<GitBranch className="h-3.5 w-3.5" />}
           >
             <div className="space-y-3">
               <CorrelationConsole
@@ -3392,9 +3405,12 @@ function IncidentCommandCenterRefoundation({
             </div>
           </CompactDisclosure>
 
+          <IncidentTimeline incidentId={incident.id} />
+
           <CompactDisclosure
             title="Remediation Governance"
             description="Plan, dry-run, rollback, audit trail and controlled SOAR eligibility."
+            icon={<ShieldCheck className="h-3.5 w-3.5" />}
           >
             <div className="space-y-3">
               <div className="rounded-md border border-slate-800 bg-slate-950 p-3">
@@ -3440,8 +3456,46 @@ function IncidentCommandCenterRefoundation({
           </CompactDisclosure>
 
           <CompactDisclosure
+            title="Human Review Workspace"
+            description="Notes, analyst review and handoff."
+            icon={<NotebookPen className="h-3.5 w-3.5" />}
+          >
+            <AnalystNotesPanel
+              notes={notes}
+              noteDraft={noteDraft}
+              savingNote={savingNote}
+              canOperate={canOperate}
+              isViewer={isViewer}
+              onNoteDraftChange={onNoteDraftChange}
+              onAddNote={onAddNote}
+            />
+          </CompactDisclosure>
+
+          <CompactDisclosure
+            title="Audit"
+            description="Incident lifecycle audit events."
+            icon={<ClipboardList className="h-3.5 w-3.5" />}
+          >
+            <AuditTrail auditEvents={auditEvents} />
+          </CompactDisclosure>
+
+          <CompactDisclosure
+            title="Remediation audit"
+            description="Read-only remediation governance chain."
+            icon={<FileText className="h-3.5 w-3.5" />}
+          >
+            <RemediationAuditTrailPanel
+              auditTrail={remediationAuditTrail}
+              loading={remediationAuditTrailLoading}
+              error={remediationAuditTrailError}
+              waitingForPlan={Boolean(remediationLoading)}
+            />
+          </CompactDisclosure>
+
+          <CompactDisclosure
             title="Technical Evidence Appendix"
             description="MITRE metadata, raw alert and original payloads."
+            icon={<Database className="h-3.5 w-3.5" />}
           >
             <div className="grid gap-3 xl:grid-cols-2">
               <Panel title="MITRE / Metadata" icon={<Database className="h-3.5 w-3.5" />}>
@@ -3463,37 +3517,6 @@ function IncidentCommandCenterRefoundation({
               </div>
             </div>
           </CompactDisclosure>
-        </div>
-
-        <aside className="space-y-3">
-          <Panel title="Human Review Workspace" description="Notes, audit and handoff.">
-            <AnalystNotesPanel
-              notes={notes}
-              noteDraft={noteDraft}
-              savingNote={savingNote}
-              canOperate={canOperate}
-              isViewer={isViewer}
-              onNoteDraftChange={onNoteDraftChange}
-              onAddNote={onAddNote}
-            />
-          </Panel>
-
-          <Panel title="Audit" icon={<ClipboardList className="h-3.5 w-3.5" />}>
-            <AuditTrail auditEvents={auditEvents} />
-          </Panel>
-
-          <CompactDisclosure
-            title="Remediation audit"
-            description="Read-only remediation governance chain."
-          >
-            <RemediationAuditTrailPanel
-              auditTrail={remediationAuditTrail}
-              loading={remediationAuditTrailLoading}
-              error={remediationAuditTrailError}
-              waitingForPlan={Boolean(remediationLoading)}
-            />
-          </CompactDisclosure>
-        </aside>
       </div>
     </div>
   );
@@ -4113,7 +4136,6 @@ export default function IncidentDetailPage() {
             savingNote={savingNote}
             canOperate={canOperate}
             isViewer={isViewer}
-            creatingCase={creatingCase}
             aiBrief={aiBrief}
             aiBriefLoading={aiBriefLoading}
             aiBriefError={aiBriefError}
@@ -4147,7 +4169,6 @@ export default function IncidentDetailPage() {
             statusDraft={statusDraft}
             onStatusDraftChange={setStatusDraft}
             onApplyStatus={() => updateStatus(statusDraft)}
-            onCreateCase={createCaseFromIncident}
             onGenerateAiBrief={() => refreshAiBrief(true)}
             onNoteDraftChange={setNoteDraft}
             onAddNote={addNote}
