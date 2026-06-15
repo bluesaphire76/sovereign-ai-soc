@@ -6,6 +6,7 @@ import { authFetch } from "@/lib/auth";
 import { Component, useCallback, useEffect, useMemo, useState, type ErrorInfo, type ReactNode } from "react";
 import Link from "next/link";
 import AppNavigation from "../../../components/AppNavigation";
+import InvestigationGraph from "../../../components/investigation-graph/InvestigationGraph";
 import { fetchCurrentUser, getStoredUser, type AuthUser } from "../../../lib/auth";
 import { useParams } from "next/navigation";
 import {
@@ -15,6 +16,7 @@ import {
   Briefcase,
   CheckCircle2,
   CircleDashed,
+  Network,
   ShieldAlert,
 } from "lucide-react";
 
@@ -2016,6 +2018,7 @@ export default function CaseDetailPage() {
               }
 
               [data-case-focus="WORKBENCH"] #reports-center,
+              [data-case-focus="WORKBENCH"] #case-investigation-graph,
               [data-case-focus="WORKBENCH"] #case-timeline,
               [data-case-focus="WORKBENCH"] #case-audit,
               [data-case-focus="WORKBENCH"] #case-summary,
@@ -2033,6 +2036,7 @@ export default function CaseDetailPage() {
               [data-case-focus="REPORTS"] #case-workflow,
               [data-case-focus="REPORTS"] #case-action-plan,
               [data-case-focus="REPORTS"] #case-closure-checklist,
+              [data-case-focus="REPORTS"] #case-investigation-graph,
               [data-case-focus="REPORTS"] #case-timeline,
               [data-case-focus="REPORTS"] #case-audit,
               [data-case-focus="REPORTS"] #related-incidents {
@@ -2068,6 +2072,19 @@ export default function CaseDetailPage() {
               quickActionRunning={quickActionRunning}
               onAction={handleCaseQuickAction}
             />
+
+            <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-lg" id="case-investigation-graph">
+              <div className="mb-3 flex items-start gap-2">
+                <Network className="mt-0.5 h-4 w-4 text-cyan-300" />
+                <div>
+                  <h2 className="text-sm font-semibold">Investigation Graph</h2>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Read-only relationship view across linked incidents, alerts, entities, timeline and AI context.
+                  </p>
+                </div>
+              </div>
+              <InvestigationGraph scope="case" scopeId={caseData.id} />
+            </section>
 
             <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-lg" id="reports-center">
               <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">

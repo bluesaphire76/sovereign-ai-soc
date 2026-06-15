@@ -8,6 +8,7 @@ from routers.health import router as health_router
 from routers.incident_ai_brief import router as incident_ai_brief_router
 from routers.incident_timeline import router as incident_timeline_router
 from routers.incident_network_evidence import router as incident_network_evidence_router
+from routers.investigation_graph import router as investigation_graph_router
 from routers.network_events import router as network_events_router
 from routers.reports import router as reports_router
 from routers.remediation import router as remediation_router
@@ -24,6 +25,7 @@ def include_app_routers(app: FastAPI) -> None:
     app.include_router(incident_ai_brief_router)
     app.include_router(incident_timeline_router)
     app.include_router(incident_network_evidence_router)
+    app.include_router(investigation_graph_router)
     app.include_router(detection_control_router)
     app.include_router(detection_quality_router)
     app.include_router(dns_events_router)
