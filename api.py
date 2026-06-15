@@ -447,6 +447,7 @@ RBAC_RULES: list[tuple[str, str, set[str]]] = [
     ("GET", r"^/metrics/summary$", ALL_ROLES),
     ("GET", r"^/metrics/top-hosts$", ALL_ROLES),
     ("GET", r"^/metrics/risk-distribution$", ALL_ROLES),
+    ("GET", r"^/metrics/(incident-trend|queue-aging|detection-funnel)$", ALL_ROLES),
 
     # Cases
     ("GET", r"^/cases$", ALL_ROLES),
