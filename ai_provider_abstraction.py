@@ -105,6 +105,7 @@ class LocalOllamaProvider:
 
         started = time.monotonic()
         opts = options or {}
+        controls = data_control or {}
         model = str(opts.get("model") or self.config.model or "")
         timeout = float(opts.get("timeout_seconds") or self.config.timeout_seconds)
         keep_alive = opts.get("keep_alive")
@@ -162,12 +163,15 @@ class LocalOllamaProvider:
                 finish_reason=finish_reason,
                 latency_ms=latency_ms,
                 used_external_provider=False,
-                redaction_applied=False,
+                redaction_applied=bool(controls.get("policy_redaction_applied", False)),
                 fallback_used=False,
                 safe_error=None,
                 usage=None,
-                redaction_mode=REDACTION_LOCAL_ONLY,
-                input_character_count_after_redaction=len(prompt or "") + len(str(messages or "")),
+                redaction_mode=str(controls.get("redaction_mode") or REDACTION_LOCAL_ONLY),
+                input_character_count_after_redaction=int(
+                    controls.get("policy_output_character_count")
+                    or (len(prompt or "") + len(str(messages or "")))
+                ),
                 output_character_count=len(text),
             )
         except Exception as exc:
@@ -184,8 +188,11 @@ class LocalOllamaProvider:
                 fallback_used=False,
                 safe_error=type(exc).__name__,
                 usage=None,
-                redaction_mode=REDACTION_LOCAL_ONLY,
-                input_character_count_after_redaction=len(prompt or "") + len(str(messages or "")),
+                redaction_mode=str(controls.get("redaction_mode") or REDACTION_LOCAL_ONLY),
+                input_character_count_after_redaction=int(
+                    controls.get("policy_output_character_count")
+                    or (len(prompt or "") + len(str(messages or "")))
+                ),
                 output_character_count=0,
             )
 
@@ -262,15 +269,27 @@ class OpenAICompatibleProvider:
         data_control: dict[str, Any] | None,
     ) -> AIProviderResponse:
         started = time.monotonic()
-        redaction_mode = str((data_control or {}).get("redaction_mode") or self.config.redaction_mode)
+        controls = data_control or {}
+        redaction_mode = str(controls.get("redaction_mode") or self.config.redaction_mode)
         try:
-            redacted_prompt, redacted_messages, redaction = prepare_external_prompt(
-                feature=feature,
-                prompt=prompt,
-                messages=messages,
-                context=context,
-                redaction_mode=redaction_mode,
-            )
+            if controls.get("policy_preprocessed"):
+                redacted_prompt = prompt
+                redacted_messages = messages
+                redaction_applied = bool(controls.get("policy_redaction_applied", False))
+                redaction_output_count = int(
+                    controls.get("policy_output_character_count")
+                    or (len(prompt or "") + len(str(messages or "")))
+                )
+            else:
+                redacted_prompt, redacted_messages, redaction = prepare_external_prompt(
+                    feature=feature,
+                    prompt=prompt,
+                    messages=messages,
+                    context=context,
+                    redaction_mode=redaction_mode,
+                )
+                redaction_applied = redaction.applied
+                redaction_output_count = redaction.output_character_count
             chat_messages = redacted_messages or [{"role": "user", "content": redacted_prompt or ""}]
             payload = {
                 "model": self.config.model,
@@ -305,12 +324,12 @@ class OpenAICompatibleProvider:
                 finish_reason=choice.get("finish_reason"),
                 latency_ms=latency_ms,
                 used_external_provider=True,
-                redaction_applied=redaction.applied,
+                redaction_applied=redaction_applied,
                 fallback_used=False,
                 safe_error=None,
                 usage=data.get("usage") if isinstance(data.get("usage"), dict) else None,
                 redaction_mode=redaction_mode,
-                input_character_count_after_redaction=redaction.output_character_count,
+                input_character_count_after_redaction=redaction_output_count,
                 output_character_count=len(text),
             )
         except Exception as exc:

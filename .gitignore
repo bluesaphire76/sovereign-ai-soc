@@ -31,6 +31,7 @@ models/
 # Secrets
 secrets/
 storage/config/ai_providers.json
+storage/config/ai_data_control_policy.json
 # Docker overrides
 docker-compose.override.yml
 # Frontend

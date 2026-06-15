@@ -3,6 +3,12 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any
 
+from ai_data_control_policy import (
+    FEATURE_DEFINITIONS,
+    AiPolicyDecision,
+    enforce_ai_data_policy,
+    normalize_feature_key,
+)
 from ai_model_policy import AiTask
 from ai_provider_abstraction import AIProviderResponse, build_provider_client
 from ai_provider_audit import record_ai_provider_audit
@@ -73,6 +79,18 @@ def _blocked_response(
     )
 
 
+def _decision_data_control(decision: AiPolicyDecision, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    return {
+        **(extra or {}),
+        "redaction_mode": decision.mode,
+        "policy_preprocessed": True,
+        "policy_decision_id": decision.decision_id,
+        "policy_redaction_applied": decision.redaction_applied,
+        "policy_output_character_count": decision.output_character_count,
+        "policy_replacements": dict(decision.replacements),
+    }
+
+
 def external_block_reason(
     *,
     config: ProviderConfig,
@@ -91,7 +109,8 @@ def external_block_reason(
     if not config.configured:
         return "ProviderNotConfigured"
 
-    if feature not in set(config.feature_allowlist):
+    allowed_features = set(config.feature_allowlist)
+    if feature not in allowed_features and normalize_feature_key(feature) not in allowed_features:
         return "FeatureNotAllowlisted"
 
     if config.redaction_mode in {REDACTION_BLOCK_EXTERNAL, REDACTION_LOCAL_ONLY}:
@@ -113,16 +132,33 @@ def generate_with_provider(
     feature_key = normalize_feature(feature)
     registry = load_provider_registry()
     config = select_provider_config(feature=feature_key, registry=registry)
+    policy_decision = enforce_ai_data_policy(
+        feature_key=feature_key,
+        provider_config=config,
+        registry=registry,
+        prompt=prompt,
+        messages=messages,
+        context=context,
+        current_user=current_user,
+        confirmed=bool((data_control or {}).get("confirmed", False)),
+    )
+
+    if not policy_decision.allowed:
+        return _blocked_response(
+            config=config,
+            feature=feature_key,
+            safe_error=policy_decision.reason or "AIDataPolicyDenied",
+        )
 
     if config.provider_type == PROVIDER_LOCAL_OLLAMA:
         client = build_provider_client(config)
         return client.generate(
             feature=feature_key,
-            prompt=prompt,
-            messages=messages,
-            context=context,
+            prompt=policy_decision.transformed_prompt,
+            messages=policy_decision.transformed_messages,
+            context=policy_decision.transformed_context,
             options=options,
-            data_control={"redaction_mode": REDACTION_LOCAL_ONLY},
+            data_control=_decision_data_control(policy_decision, {"redaction_mode": REDACTION_LOCAL_ONLY}),
         )
 
     block_reason = external_block_reason(config=config, feature=feature_key, registry=registry)
@@ -152,11 +188,11 @@ def generate_with_provider(
     client = build_provider_client(config)
     response = client.generate(
         feature=feature_key,
-        prompt=prompt,
-        messages=messages,
-        context=context,
+        prompt=policy_decision.transformed_prompt,
+        messages=policy_decision.transformed_messages,
+        context=policy_decision.transformed_context,
         options=options,
-        data_control={**(data_control or {}), "redaction_mode": config.redaction_mode},
+        data_control=_decision_data_control(policy_decision, data_control),
     )
     record_ai_provider_audit(
         event_type="AI_PROVIDER_EXTERNAL_CALL",
@@ -197,7 +233,10 @@ def provider_capabilities() -> dict[str, Any]:
             "REDACTED_CONTEXT",
             "BLOCK_EXTERNAL",
         ],
-        "feature_keys": sorted(set(TASK_FEATURE_MAP.values())),
+        "feature_keys": sorted(
+            set(TASK_FEATURE_MAP.values())
+            | {item["feature_key"] for item in FEATURE_DEFINITIONS}
+        ),
         "external_provider_adapter_status": {
             "OPENAI_COMPATIBLE": "implemented",
             "AZURE_OPENAI_COMPATIBLE": "configuration_visible",
