@@ -22,6 +22,8 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  Line,
+  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -78,6 +80,7 @@ type IncidentCase = {
   has_closure_checklist: boolean | null;
   ready_to_close: boolean | null;
   queue_flags: string[] | null;
+  created_at?: string | null;
   updated_at: string | null;
 };
 
@@ -107,6 +110,46 @@ type RiskDistribution = {
   medium_31_60: number;
   high_61_80: number;
   critical_81_100: number;
+};
+
+type IncidentTrendBucket = {
+  date: string;
+  label: string;
+  total: number;
+  high_or_critical: number;
+  critical: number;
+  average_risk: number;
+};
+
+type IncidentTrendResponse = {
+  window_days: number;
+  start_date: string;
+  end_date: string;
+  items: IncidentTrendBucket[];
+};
+
+type QueueAgingBucket = {
+  name: string;
+  incidents: number;
+  cases: number;
+  total: number;
+  sla_breached: number;
+};
+
+type QueueAgingResponse = {
+  generated_at: string;
+  items: QueueAgingBucket[];
+};
+
+type DetectionFunnelItem = {
+  name: string;
+  value: number;
+};
+
+type DetectionFunnelResponse = {
+  items: DetectionFunnelItem[];
+  secondary_items: DetectionFunnelItem[];
+  status_counts: Record<string, number>;
 };
 
 type ChartRow = {
@@ -151,21 +194,21 @@ const ACTIVE_CASE_STATUSES = new Set([
 const TERMINAL_CASE_STATUSES = new Set(["CLOSED", "FALSE_POSITIVE"]);
 
 const CHART_COLORS = {
-  critical: "#ef4444",
-  high: "#f97316",
-  medium: "#f59e0b",
-  low: "#10b981",
-  primary: "#22d3ee",
-  secondary: "#60a5fa",
-  ai: "#a78bfa",
+  critical: "#dc2626",
+  high: "#b45309",
+  medium: "#ca8a04",
+  low: "#047857",
+  primary: "#2563eb",
+  secondary: "#0f766e",
+  ai: "#6d28d9",
   muted: "#64748b",
-  grid: "rgba(148, 163, 184, 0.14)",
+  grid: "rgba(100, 116, 139, 0.18)",
   axis: "#94a3b8",
   panel: "#020617",
-  tooltip: "#0f172a",
-  border: "#334155",
-  text: "#e2e8f0",
-  cursor: "rgba(15, 23, 42, 0.42)",
+  tooltip: "#111827",
+  border: "#475569",
+  text: "#e5e7eb",
+  cursor: "rgba(30, 41, 59, 0.42)",
 };
 
 const STATUS_CHART_COLORS: Record<string, string> = {
@@ -288,6 +331,169 @@ function compactYAxisNumber(value: string | number) {
   return String(numericValue);
 }
 
+function parseDateValue(value: string | null | undefined) {
+  if (!value) return null;
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  return parsed;
+}
+
+function startOfUtcDay(date: Date) {
+  return new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())
+  );
+}
+
+function addUtcDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+}
+
+function chartDateLabel(date: Date) {
+  return date.toLocaleDateString("it-CH", {
+    timeZone: "Europe/Zurich",
+    day: "2-digit",
+    month: "2-digit",
+  });
+}
+
+function hasTrendValues(items: IncidentTrendBucket[]) {
+  return items.some(
+    (item) => item.total > 0 || item.high_or_critical > 0 || item.critical > 0
+  );
+}
+
+function hasQueueValues(items: QueueAgingBucket[]) {
+  return items.some((item) => item.total > 0 || item.sla_breached > 0);
+}
+
+function hasChartValues(items: ChartRow[]) {
+  return items.some((item) => item.value > 0);
+}
+
+function buildFallbackIncidentTrend(incidents: Incident[]) {
+  const datedIncidents = incidents
+    .map((incident) => ({
+      incident,
+      timestamp: parseDateValue(incident.timestamp_local ?? incident.timestamp),
+    }))
+    .filter(
+      (item): item is { incident: Incident; timestamp: Date } =>
+        item.timestamp !== null
+    );
+
+  if (datedIncidents.length === 0) return [];
+
+  const anchorDate = startOfUtcDay(
+    new Date(
+      Math.max(...datedIncidents.map((item) => item.timestamp.getTime()))
+    )
+  );
+  const startDate = addUtcDays(anchorDate, -6);
+
+  const buckets = Array.from({ length: 7 }, (_, index) => {
+    const date = addUtcDays(startDate, index);
+
+    return {
+      date: date.toISOString().slice(0, 10),
+      label: chartDateLabel(date),
+      total: 0,
+      high_or_critical: 0,
+      critical: 0,
+      average_risk: 0,
+      riskSum: 0,
+      riskCount: 0,
+    };
+  });
+  const bucketByDate = new Map(buckets.map((bucket) => [bucket.date, bucket]));
+
+  for (const item of datedIncidents) {
+    const bucket = bucketByDate.get(startOfUtcDay(item.timestamp).toISOString().slice(0, 10));
+    if (!bucket) continue;
+
+    const riskScore = item.incident.risk_score ?? 0;
+    bucket.total += 1;
+    bucket.riskSum += riskScore;
+    bucket.riskCount += 1;
+
+    if (riskScore >= 60) bucket.high_or_critical += 1;
+    if (riskScore >= 80) bucket.critical += 1;
+  }
+
+  return buckets.map(({ riskSum, riskCount, ...bucket }) => ({
+    ...bucket,
+    average_risk: riskCount > 0 ? Math.round((riskSum / riskCount) * 100) / 100 : 0,
+  }));
+}
+
+function queueAgeBucket(timestamp: Date | null, now: Date) {
+  if (!timestamp) return "Unknown";
+
+  const ageDays = Math.max(now.getTime() - timestamp.getTime(), 0) / 86_400_000;
+
+  if (ageDays <= 1) return "0-24h";
+  if (ageDays <= 3) return "1-3d";
+  if (ageDays <= 7) return "3-7d";
+  return ">7d";
+}
+
+function buildFallbackQueueAging(incidents: Incident[], cases: IncidentCase[]) {
+  const orderedBuckets = ["0-24h", "1-3d", "3-7d", ">7d", "Unknown"];
+  const now = new Date();
+  const buckets = new Map(
+    orderedBuckets.map((name) => [
+      name,
+      {
+        name,
+        incidents: 0,
+        cases: 0,
+        total: 0,
+        sla_breached: 0,
+      },
+    ])
+  );
+
+  for (const incident of incidents) {
+    if (TERMINAL_CASE_STATUSES.has(incident.status ?? "NEW")) continue;
+
+    const bucketName = queueAgeBucket(
+      parseDateValue(incident.timestamp_local ?? incident.timestamp),
+      now
+    );
+    const bucket = buckets.get(bucketName);
+    if (!bucket) continue;
+
+    bucket.incidents += 1;
+    bucket.total += 1;
+  }
+
+  for (const item of cases) {
+    if (TERMINAL_CASE_STATUSES.has(item.status ?? "OPEN")) continue;
+
+    const bucketName = queueAgeBucket(
+      parseDateValue(item.created_at ?? item.updated_at),
+      now
+    );
+    const bucket = buckets.get(bucketName);
+    if (!bucket) continue;
+
+    bucket.cases += 1;
+    bucket.total += 1;
+
+    if (item.sla_status === "BREACHED") {
+      bucket.sla_breached += 1;
+    }
+  }
+
+  return orderedBuckets
+    .map((name) => buckets.get(name))
+    .filter((bucket): bucket is QueueAgingBucket => Boolean(bucket))
+    .filter((bucket) => bucket.total > 0 || bucket.name !== "Unknown");
+}
+
 async function fetchJson<T>(path: string): Promise<T> {
   const response = await authFetch(path, {
     cache: "no-store",
@@ -310,6 +516,11 @@ export default function Home() {
   const [topHosts, setTopHosts] = useState<TopHost[]>([]);
   const [riskDistribution, setRiskDistribution] =
     useState<RiskDistribution | null>(null);
+  const [incidentTrend, setIncidentTrend] =
+    useState<IncidentTrendResponse | null>(null);
+  const [queueAging, setQueueAging] = useState<QueueAgingResponse | null>(null);
+  const [detectionFunnel, setDetectionFunnel] =
+    useState<DetectionFunnelResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -387,12 +598,22 @@ export default function Home() {
         casesResponse,
         topHostsData,
         riskData,
+        incidentTrendData,
+        queueAgingData,
+        detectionFunnelData,
       ] = await Promise.all([
         fetchJson<Summary>("/metrics/summary"),
         fetchJson<IncidentsResponse>(`/incidents?${incidentParams.toString()}`),
         fetchJson<CasesResponse>("/cases?limit=100"),
         fetchJson<TopHost[]>("/metrics/top-hosts?limit=8"),
         fetchJson<RiskDistribution>("/metrics/risk-distribution"),
+        fetchJson<IncidentTrendResponse>("/metrics/incident-trend?days=7").catch(
+          () => null
+        ),
+        fetchJson<QueueAgingResponse>("/metrics/queue-aging").catch(() => null),
+        fetchJson<DetectionFunnelResponse>("/metrics/detection-funnel").catch(
+          () => null
+        ),
       ]);
 
       setSummary(summaryData);
@@ -400,6 +621,9 @@ export default function Home() {
       setCasesData(casesResponse);
       setTopHosts(topHostsData);
       setRiskDistribution(riskData);
+      setIncidentTrend(incidentTrendData);
+      setQueueAging(queueAgingData);
+      setDetectionFunnel(detectionFunnelData);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
@@ -536,6 +760,67 @@ export default function Home() {
       },
     ];
   }, [caseMetrics]);
+
+  const incidentTrendItems = useMemo(() => {
+    const apiItems = incidentTrend?.items ?? [];
+
+    if (hasTrendValues(apiItems) || incidents.length === 0) {
+      return apiItems;
+    }
+
+    return buildFallbackIncidentTrend(incidents);
+  }, [incidentTrend, incidents]);
+
+  const queueAgingItems = useMemo(() => {
+    const apiItems = queueAging?.items ?? [];
+
+    if (hasQueueValues(apiItems) || (incidents.length === 0 && cases.length === 0)) {
+      return apiItems;
+    }
+
+    return buildFallbackQueueAging(incidents, cases);
+  }, [cases, incidents, queueAging]);
+
+  const detectionFunnelChartData = useMemo<ChartRow[]>(() => {
+    const colors = [
+      CHART_COLORS.primary,
+      CHART_COLORS.secondary,
+      CHART_COLORS.high,
+      CHART_COLORS.ai,
+    ];
+
+    const apiItems = (detectionFunnel?.items ?? []).map((item, index) => ({
+      name: item.name,
+      value: item.value,
+      color: colors[index] ?? CHART_COLORS.muted,
+    }));
+
+    if (
+      hasChartValues(apiItems) ||
+      (!summary && incidents.length === 0 && totalCases === 0)
+    ) {
+      return apiItems;
+    }
+
+    return [
+      {
+        name: "Incidents",
+        value: summary?.total_incidents ?? incidentsData?.total ?? incidents.length,
+        color: CHART_COLORS.high,
+      },
+      {
+        name: "Cases",
+        value: totalCases,
+        color: CHART_COLORS.ai,
+      },
+    ].filter((item) => item.value > 0);
+  }, [
+    detectionFunnel,
+    incidents.length,
+    incidentsData?.total,
+    summary,
+    totalCases,
+  ]);
 
   const highPriorityCases = useMemo(() => {
     return [...cases]
@@ -677,7 +962,7 @@ export default function Home() {
               <EnterpriseChartCard
                 title="Incident Risk Distribution"
                 description="Current incident distribution by calculated risk band."
-                height="h-36"
+                height="h-32"
               >
                 <DashboardBarChart data={riskChartData} valueLabel="Incidents" />
               </EnterpriseChartCard>
@@ -685,7 +970,7 @@ export default function Home() {
               <EnterpriseChartCard
                 title="Case Status Distribution"
                 description="Investigation cases grouped by operational status."
-                height="h-36"
+                height="h-32"
               >
                 <DashboardBarChart data={caseStatusChartData} valueLabel="Cases" />
               </EnterpriseChartCard>
@@ -693,9 +978,38 @@ export default function Home() {
               <EnterpriseChartCard
                 title="Operational Backlog"
                 description="SLA, actions, AI coverage and closure readiness."
-                height="h-36"
+                height="h-32"
               >
                 <DashboardBarChart data={operationsChartData} valueLabel="Cases" />
+              </EnterpriseChartCard>
+            </section>
+
+            <section className="grid gap-2 xl:grid-cols-3">
+              <EnterpriseChartCard
+                title="Incident Trend"
+                description="Seven-day volume with high and critical risk pressure."
+                height="h-32"
+              >
+                <DashboardIncidentTrendChart data={incidentTrendItems} />
+              </EnterpriseChartCard>
+
+              <EnterpriseChartCard
+                title="Queue Aging"
+                description="Open incidents and cases grouped by operational age."
+                height="h-32"
+              >
+                <DashboardQueueAgingChart data={queueAgingItems} />
+              </EnterpriseChartCard>
+
+              <EnterpriseChartCard
+                title="Detection Funnel"
+                description="Event pipeline conversion from raw telemetry to cases."
+                height="h-32"
+              >
+                <DashboardBarChart
+                  data={detectionFunnelChartData}
+                  valueLabel="Items"
+                />
               </EnterpriseChartCard>
             </section>
 
@@ -1164,17 +1478,21 @@ function DashboardBarChart({
   data: ChartRow[];
   valueLabel: string;
 }) {
+  if (data.length === 0) {
+    return <DashboardChartEmpty label="No chart data available." />;
+  }
+
   return (
     <ResponsiveContainer width="100%" height="100%">
       <BarChart
         data={data}
-        barCategoryGap="30%"
-        margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
+        barCategoryGap="34%"
+        margin={{ top: 6, right: 10, left: 0, bottom: 0 }}
       >
         <CartesianGrid
           vertical={false}
           stroke={CHART_COLORS.grid}
-          strokeDasharray="2 4"
+          strokeDasharray="3 6"
         />
         <XAxis
           dataKey="name"
@@ -1198,9 +1516,10 @@ function DashboardBarChart({
           contentStyle={{
             backgroundColor: CHART_COLORS.tooltip,
             border: `1px solid ${CHART_COLORS.border}`,
-            borderRadius: "3px",
+            borderRadius: "4px",
             color: CHART_COLORS.text,
             fontSize: "12px",
+            boxShadow: "0 12px 28px rgba(2, 6, 23, 0.32)",
           }}
           itemStyle={{ color: CHART_COLORS.text }}
           labelStyle={{ color: CHART_COLORS.primary }}
@@ -1209,8 +1528,8 @@ function DashboardBarChart({
         <Bar
           dataKey="value"
           name={valueLabel}
-          radius={[2, 2, 0, 0]}
-          maxBarSize={42}
+          radius={[1, 1, 0, 0]}
+          maxBarSize={34}
         >
           {data.map((entry) => (
             <Cell key={entry.name} fill={entry.color} />
@@ -1218,6 +1537,179 @@ function DashboardBarChart({
         </Bar>
       </BarChart>
     </ResponsiveContainer>
+  );
+}
+
+function DashboardIncidentTrendChart({
+  data,
+}: {
+  data: IncidentTrendBucket[];
+}) {
+  if (data.length === 0) {
+    return <DashboardChartEmpty label="No incident trend available." />;
+  }
+
+  const labelMap: Record<string, string> = {
+    total: "Total",
+    high_or_critical: "High + critical",
+  };
+
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <LineChart
+        data={data}
+        margin={{ top: 8, right: 14, left: 0, bottom: 0 }}
+      >
+        <CartesianGrid
+          vertical={false}
+          stroke={CHART_COLORS.grid}
+          strokeDasharray="3 6"
+        />
+        <XAxis
+          dataKey="label"
+          tick={{ fill: CHART_COLORS.axis, fontSize: 10 }}
+          axisLine={{ stroke: CHART_COLORS.grid }}
+          tickLine={false}
+          minTickGap={4}
+        />
+        <YAxis
+          allowDecimals={false}
+          tick={{ fill: CHART_COLORS.axis, fontSize: 10 }}
+          axisLine={false}
+          tickLine={false}
+          tickFormatter={compactYAxisNumber}
+          tickMargin={4}
+          width={44}
+        />
+        <Tooltip
+          cursor={{ fill: CHART_COLORS.cursor }}
+          contentStyle={{
+            backgroundColor: CHART_COLORS.tooltip,
+            border: `1px solid ${CHART_COLORS.border}`,
+            borderRadius: "4px",
+            color: CHART_COLORS.text,
+            fontSize: "12px",
+            boxShadow: "0 12px 28px rgba(2, 6, 23, 0.32)",
+          }}
+          itemStyle={{ color: CHART_COLORS.text }}
+          labelStyle={{ color: CHART_COLORS.primary }}
+          formatter={(value, name) => [
+            value,
+            labelMap[String(name)] ?? String(name),
+          ]}
+        />
+        <Line
+          type="monotone"
+          dataKey="total"
+          name="total"
+          stroke={CHART_COLORS.primary}
+          strokeWidth={2}
+          dot={false}
+          activeDot={{ r: 4, strokeWidth: 0 }}
+        />
+        <Line
+          type="monotone"
+          dataKey="high_or_critical"
+          name="high_or_critical"
+          stroke={CHART_COLORS.high}
+          strokeWidth={2}
+          dot={false}
+          activeDot={{ r: 4, strokeWidth: 0 }}
+        />
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
+function DashboardQueueAgingChart({ data }: { data: QueueAgingBucket[] }) {
+  if (data.length === 0) {
+    return <DashboardChartEmpty label="No open queue aging data." />;
+  }
+
+  const labelMap: Record<string, string> = {
+    incidents: "Incidents",
+    cases: "Cases",
+    sla_breached: "SLA breached",
+  };
+
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <BarChart
+        data={data}
+        barCategoryGap="32%"
+        margin={{ top: 6, right: 10, left: 0, bottom: 0 }}
+      >
+        <CartesianGrid
+          vertical={false}
+          stroke={CHART_COLORS.grid}
+          strokeDasharray="3 6"
+        />
+        <XAxis
+          dataKey="name"
+          tick={{ fill: CHART_COLORS.axis, fontSize: 10 }}
+          axisLine={{ stroke: CHART_COLORS.grid }}
+          tickLine={false}
+          minTickGap={4}
+        />
+        <YAxis
+          allowDecimals={false}
+          tick={{ fill: CHART_COLORS.axis, fontSize: 10 }}
+          axisLine={false}
+          tickLine={false}
+          tickFormatter={compactYAxisNumber}
+          tickMargin={4}
+          width={44}
+        />
+        <Tooltip
+          cursor={{ fill: CHART_COLORS.cursor }}
+          contentStyle={{
+            backgroundColor: CHART_COLORS.tooltip,
+            border: `1px solid ${CHART_COLORS.border}`,
+            borderRadius: "4px",
+            color: CHART_COLORS.text,
+            fontSize: "12px",
+            boxShadow: "0 12px 28px rgba(2, 6, 23, 0.32)",
+          }}
+          itemStyle={{ color: CHART_COLORS.text }}
+          labelStyle={{ color: CHART_COLORS.primary }}
+          formatter={(value, name) => [
+            value,
+            labelMap[String(name)] ?? String(name),
+          ]}
+        />
+        <Bar
+          dataKey="incidents"
+          name="incidents"
+          stackId="queue"
+          fill={CHART_COLORS.primary}
+          radius={[0, 0, 0, 0]}
+          maxBarSize={32}
+        />
+        <Bar
+          dataKey="cases"
+          name="cases"
+          stackId="queue"
+          fill={CHART_COLORS.secondary}
+          radius={[1, 1, 0, 0]}
+          maxBarSize={32}
+        />
+        <Bar
+          dataKey="sla_breached"
+          name="sla_breached"
+          fill={CHART_COLORS.critical}
+          radius={[1, 1, 0, 0]}
+          maxBarSize={20}
+        />
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+function DashboardChartEmpty({ label }: { label: string }) {
+  return (
+    <div className="flex h-full items-center justify-center rounded-sm border border-dashed border-slate-800 bg-slate-950/70 text-xs text-slate-500">
+      {label}
+    </div>
   );
 }
 
