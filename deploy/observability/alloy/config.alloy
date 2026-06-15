@@ -1,0 +1,205 @@
+// AI SOC minimal Loki logging foundation.
+// Scope: platform observability only.
+// Explicitly excludes Wazuh, Suricata, raw security telemetry, AI prompts/responses and secrets.
+
+logging {
+  level  = "info"
+  format = "logfmt"
+}
+
+discovery.docker "local" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "docker_allowlist" {
+  targets = discovery.docker.local.targets
+
+  // Keep only explicit observability/support containers.
+  // Docker container names usually include a leading slash.
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(ai-soc-prometheus|ai-soc-grafana|ai-soc-alertmanager|ai-soc-ntfy-bridge|ai-soc-loki)"
+    action        = "keep"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.+)"
+    target_label  = "service"
+    replacement   = "$1"
+  }
+
+  rule {
+    target_label = "job"
+    replacement  = "ai-soc-platform"
+  }
+
+  rule {
+    target_label = "source"
+    replacement  = "docker"
+  }
+
+  rule {
+    target_label = "host"
+    replacement  = "darkstar"
+  }
+}
+
+loki.source.docker "platform_containers" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.docker_allowlist.output
+  labels     = {
+    job    = "ai-soc-platform",
+    source = "docker",
+    host   = "darkstar",
+  }
+  forward_to = [loki.process.platform.receiver]
+}
+
+// Explicit systemd allowlist.
+// Do not add Wazuh, Suricata, ai-soc-suricata-ingest or ai-soc-dns-normalizer here.
+
+loki.source.journal "ai_soc_api" {
+  matches    = "_SYSTEMD_UNIT=ai-soc-api.service"
+  max_age    = "2h"
+  labels     = {
+    job     = "ai-soc-platform",
+    service = "ai-soc-api",
+    source  = "journal",
+    host    = "darkstar",
+  }
+  forward_to = [loki.process.platform.receiver]
+}
+
+loki.source.journal "ai_soc_worker" {
+  matches    = "_SYSTEMD_UNIT=ai-soc-worker.service"
+  max_age    = "2h"
+  labels     = {
+    job     = "ai-soc-platform",
+    service = "ai-soc-worker",
+    source  = "journal",
+    host    = "darkstar",
+  }
+  forward_to = [loki.process.platform.receiver]
+}
+
+loki.source.journal "ai_soc_frontend" {
+  matches    = "_SYSTEMD_UNIT=ai-soc-frontend.service"
+  max_age    = "2h"
+  labels     = {
+    job     = "ai-soc-platform",
+    service = "ai-soc-frontend",
+    source  = "journal",
+    host    = "darkstar",
+  }
+  forward_to = [loki.process.platform.receiver]
+}
+
+loki.source.journal "nginx" {
+  matches    = "_SYSTEMD_UNIT=nginx.service"
+  max_age    = "2h"
+  labels     = {
+    job     = "ai-soc-platform",
+    service = "nginx",
+    source  = "journal",
+    host    = "darkstar",
+  }
+  forward_to = [loki.process.platform.receiver]
+}
+
+loki.source.journal "cloudflared" {
+  matches    = "_SYSTEMD_UNIT=cloudflared.service"
+  max_age    = "2h"
+  labels     = {
+    job     = "ai-soc-platform",
+    service = "cloudflared",
+    source  = "journal",
+    host    = "darkstar",
+  }
+  forward_to = [loki.process.platform.receiver]
+}
+
+loki.source.journal "ollama" {
+  matches    = "_SYSTEMD_UNIT=ollama.service"
+  max_age    = "2h"
+  labels     = {
+    job     = "ai-soc-platform",
+    service = "ollama",
+    source  = "journal",
+    host    = "darkstar",
+  }
+  forward_to = [loki.process.platform.receiver]
+}
+
+loki.process "platform" {
+  forward_to = [loki.write.local.receiver]
+
+  stage.decolorize {}
+
+  // Strictly drop HTTP access logs because they may contain client IPs, ports, paths and user activity metadata.
+  // This keeps Loki focused on platform runtime troubleshooting, not access telemetry.
+  stage.match {
+    selector = "{service=~\"ai-soc-api|ai-soc-worker|ai-soc-frontend|nginx|cloudflared\"} |~ \"(?i).*(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)[[:space:]]+/.+[[:space:]]+HTTP/[0-9.]+.*\""
+    action   = "drop"
+
+    drop_counter_reason = "http_access_log_strict"
+  }
+
+
+  // Drop sensitive or investigation-heavy content globally.
+  stage.drop {
+    expression          = "(?i)(authorization:|bearer[[:space:]]+|cookie:|set-cookie:|jwt|password|passwd|secret|api[_-]?key|cloudflare.*token|ntfy.*topic|raw_alert|raw_event|security_alert|incident_id|case_id|prompt|response|messages|access_token|refresh_token)"
+    drop_counter_reason = "sensitive_or_investigation_payload"
+  }
+
+  // Extra defensive drop if forbidden source names ever slip into log content.
+  stage.drop {
+    expression          = "(?i)(wazuh|suricata|ossec|eve\\.json)"
+    drop_counter_reason = "forbidden_security_source_content"
+  }
+
+  // Keep AI SOC application logs only when operationally useful.
+  stage.match {
+    selector = "{service=~\"ai-soc-api|ai-soc-worker|ai-soc-frontend\"} !~ \"(?i)(error|warn|warning|exception|traceback|failed|failure|timeout|readtimeout|deadline|degraded|unhealthy|fallback|startup|shutdown|started|stopped)\""
+    action   = "drop"
+
+    drop_counter_reason = "non_operational_app_log"
+  }
+
+  // Keep proxy logs only when operationally useful.
+  stage.match {
+    selector = "{service=~\"nginx|cloudflared\"} !~ \"(?i)(error|warn|warning|failed|failure|timeout|deadline|unhealthy|started|stopped)\""
+    action   = "drop"
+
+    drop_counter_reason = "non_operational_proxy_log"
+  }
+
+  // Ollama must be timeout-only.
+  // This prevents accidental prompt/response collection.
+  stage.match {
+    selector = "{service=\"ollama\"} !~ \"(?i)(timeout|readtimeout|deadline exceeded|context deadline|timed out)\""
+    action   = "drop"
+
+    drop_counter_reason = "ollama_non_timeout_log"
+  }
+
+  // Support/observability containers: keep only operational errors/status.
+  stage.match {
+    selector = "{source=\"docker\",service=~\"ai-soc-prometheus|ai-soc-grafana|ai-soc-alertmanager|ai-soc-ntfy-bridge|ai-soc-loki\"} !~ \"(?i)(error|warn|warning|failed|failure|exception|timeout|unhealthy|ready|started|stopped|alert|notification)\""
+    action   = "drop"
+
+    drop_counter_reason = "non_operational_docker_log"
+  }
+
+  // Drop very long lines.
+  stage.drop {
+    longer_than         = "8KB"
+    drop_counter_reason = "line_too_long"
+  }
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
