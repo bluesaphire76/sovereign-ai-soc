@@ -61,6 +61,9 @@ const COMPONENT_ORDER = [
   "postgres",
   "ollama",
   "qdrant",
+  "grafana",
+  "prometheus",
+  "alertmanager",
   "wazuh_indexer",
   "wazuh_ingest",
   "suricata_sensor",
@@ -127,6 +130,9 @@ function componentIcon(component: string) {
   if (component.includes("freshness")) return <Shield className="h-3.5 w-3.5" />;
   if (component.includes("suricata")) return <Shield className="h-3.5 w-3.5" />;
   if (component.includes("wazuh")) return <Server className="h-3.5 w-3.5" />;
+  if (component.includes("grafana")) return <Server className="h-3.5 w-3.5" />;
+  if (component.includes("prometheus")) return <Activity className="h-3.5 w-3.5" />;
+  if (component.includes("alertmanager")) return <AlertTriangle className="h-3.5 w-3.5" />;
   if (component.includes("ollama")) return <Cpu className="h-3.5 w-3.5" />;
   if (component.includes("qdrant")) return <Database className="h-3.5 w-3.5" />;
   return <Activity className="h-3.5 w-3.5" />;
@@ -147,6 +153,9 @@ function componentLabel(component: string) {
     .replace("suricata_sensor", "Suricata sensor")
     .replace("suricata_ingest", "Suricata ingest")
     .replace("postgres", "Postgres")
+    .replace("grafana", "Grafana")
+    .replace("prometheus", "Prometheus")
+    .replace("alertmanager", "Alert Manager")
     .replace("ai_runtime", "AI Runtime")
     .replace("ollama", "Ollama")
     .replace("qdrant", "Qdrant")
@@ -921,6 +930,7 @@ function StatusTile({
 
 function ComponentTile({ item }: { item: HealthComponent }) {
   const status = statusClasses(item.status);
+  const nonBlocking = item.details?.non_blocking === true;
 
   return (
     <article className={`rounded-sm border p-2.5 shadow-sm ${status.card}`}>
@@ -937,6 +947,11 @@ function ComponentTile({ item }: { item: HealthComponent }) {
             <div className="text-[11px] text-slate-500">
               {item.latency_ms} ms
             </div>
+            {nonBlocking && (
+              <div className="text-[10px] text-slate-500">
+                non-blocking
+              </div>
+            )}
           </div>
         </div>
 
