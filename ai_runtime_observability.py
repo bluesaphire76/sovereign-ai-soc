@@ -8,6 +8,9 @@ import requests
 
 from ai_model_config import PROFILES, get_profile
 from ai_model_policy import AiTask
+from ai_provider_abstraction import build_provider_client
+from ai_provider_policy import health_to_dict
+from ai_provider_registry import load_provider_registry
 from llm_client import generate_ai_response
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
@@ -146,5 +149,15 @@ def get_ai_runtime_health_details() -> dict[str, Any]:
 
     if chat_probe is not None:
         snapshot["chat_probe"] = chat_probe
+
+    registry = load_provider_registry()
+    snapshot["provider_registry"] = {
+        "default_provider": registry.default_provider,
+        "external_providers_enabled": registry.external_providers_enabled,
+        "providers": [
+            health_to_dict(build_provider_client(config).health_check())
+            for config in registry.providers.values()
+        ],
+    }
 
     return snapshot

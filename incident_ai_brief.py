@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from sqlalchemy import text as sql_text
 
 from ai_model_policy import AiTask
-from ai_triage_hardening import call_ollama_chat
+from ai_triage_hardening import call_ollama_chat, get_last_llm_call_metadata
 from database import SessionLocal
 from llm_output import is_invalid_llm_output, sanitize_llm_output
 from models import Incident, IncidentAudit, utc_now
@@ -1404,6 +1404,17 @@ def generate_ai_brief(incident_id: int) -> dict[str, Any]:
         parsed = None
         retry_attempted = False
         error_type = None
+        provider_metadata: dict[str, Any] = {
+            "provider_key": "local_ollama",
+            "provider_type": "LOCAL_OLLAMA",
+            "used_external_provider": False,
+            "redaction_applied": False,
+            "redaction_mode": "LOCAL_ONLY",
+            "model": None,
+            "llm_profile": None,
+            "llm_fallback_used": False,
+            "llm_latency_ms": None,
+        }
 
         try:
             raw_output = call_ollama_chat(
@@ -1472,6 +1483,10 @@ def generate_ai_brief(incident_id: int) -> dict[str, Any]:
                 "the local AI call failed or timed out",
             )
 
+        provider_metadata.update(get_last_llm_call_metadata())
+        if provider_metadata.get("used_external_provider") and source == "local_ai":
+            source = "external_ai"
+
         brief = normalize_brief(parsed, incident_payload.get("extracted_entities") or {})
         brief = enrich_brief_with_dns_context(brief, incident_payload)
 
@@ -1497,6 +1512,7 @@ def generate_ai_brief(incident_id: int) -> dict[str, Any]:
             "model_timeout_seconds": AI_BRIEF_TIMEOUT_SECONDS,
             "retry_attempted": retry_attempted,
             "error_type": error_type,
+            "provider_metadata": provider_metadata,
             "brief": brief,
         }
 

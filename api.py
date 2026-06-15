@@ -412,6 +412,8 @@ RBAC_RULES: list[tuple[str, str, set[str]]] = [
     # Platform / operations
     ("GET", r"^/platform/health$", ALL_ROLES),
     ("GET", r"^/platform/ingest/wazuh$", ALL_ROLES),
+    ("GET", r"^/ai-providers(?:/(capabilities|health|effective-policy))?$", ALL_ROLES),
+    ("POST", r"^/ai-providers/[^/]+/test$", {ROLE_ADMIN}),
     ("GET", r"^/service-operations/services(?:/[^/]+/status)?$", ALL_ROLES),
     ("POST", r"^/service-operations/services/[^/]+/restart-preview$", OPERATOR_ROLES),
     ("POST", r"^/service-operations/services/[^/]+/restart$", {ROLE_ADMIN}),

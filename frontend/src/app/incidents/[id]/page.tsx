@@ -455,6 +455,17 @@ type IncidentAiBriefPreview = {
   source?: string | null;
   generated_at?: string | null;
   incident?: Record<string, unknown> | null;
+  provider_metadata?: {
+    provider_key?: string | null;
+    provider_type?: string | null;
+    model?: string | null;
+    llm_profile?: string | null;
+    llm_fallback_used?: boolean | null;
+    llm_latency_ms?: number | null;
+    used_external_provider?: boolean | null;
+    redaction_applied?: boolean | null;
+    redaction_mode?: string | null;
+  } | null;
   brief?: {
     situation_summary?: string | null;
     risk_rationale?: string | null;
@@ -3367,6 +3378,30 @@ function IncidentCommandCenterRefoundation({
                   ) : null
                 }
               />
+              {aiBrief?.provider_metadata ? (
+                <div className="grid gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800 md:grid-cols-4">
+                  <DenseField
+                    label="Provider"
+                    value={aiBrief.provider_metadata.provider_key || "local_ollama"}
+                  />
+                  <DenseField
+                    label="Model"
+                    value={aiBrief.provider_metadata.model || "unknown"}
+                  />
+                  <DenseField
+                    label="External AI"
+                    value={aiBrief.provider_metadata.used_external_provider ? "yes" : "no"}
+                  />
+                  <DenseField
+                    label="Redaction"
+                    value={
+                      aiBrief.provider_metadata.redaction_applied
+                        ? aiBrief.provider_metadata.redaction_mode || "applied"
+                        : "not applied"
+                    }
+                  />
+                </div>
+              ) : null}
               <DecisionMatrix incident={incident} />
               <ResponseBoard
                 incident={incident}

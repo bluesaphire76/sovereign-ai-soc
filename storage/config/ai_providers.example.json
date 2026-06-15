@@ -1,0 +1,56 @@
+{
+  "default_provider": "local_ollama",
+  "external_providers_enabled": false,
+  "feature_overrides": {},
+  "providers": [
+    {
+      "key": "local_ollama",
+      "type": "LOCAL_OLLAMA",
+      "display_name": "Local Ollama",
+      "enabled": true,
+      "external": false,
+      "base_url_env": "AI_OLLAMA_BASE_URL",
+      "model_env": "AI_OLLAMA_MODEL",
+      "timeout_seconds": 30,
+      "feature_allowlist": [
+        "incident_triage",
+        "incident_ai_analysis",
+        "incident_command_brief",
+        "case_ai_analysis",
+        "detection_quality_how_to_execute",
+        "executive_insights",
+        "report_support",
+        "remediation_explanation"
+      ],
+      "redaction_mode": "LOCAL_ONLY"
+    },
+    {
+      "key": "openai_compatible",
+      "type": "OPENAI_COMPATIBLE",
+      "display_name": "OpenAI-compatible provider",
+      "enabled": false,
+      "external": true,
+      "base_url_env": "AI_OPENAI_COMPATIBLE_BASE_URL",
+      "model_env": "AI_OPENAI_COMPATIBLE_MODEL",
+      "api_key_env": "AI_OPENAI_COMPATIBLE_API_KEY",
+      "timeout_seconds": 30,
+      "max_tokens": 800,
+      "feature_allowlist": [],
+      "redaction_mode": "BLOCK_EXTERNAL"
+    },
+    {
+      "key": "azure_openai_compatible",
+      "type": "AZURE_OPENAI_COMPATIBLE",
+      "display_name": "Azure OpenAI-compatible provider",
+      "enabled": false,
+      "external": true,
+      "base_url_env": "AI_AZURE_OPENAI_COMPATIBLE_BASE_URL",
+      "model_env": "AI_AZURE_OPENAI_COMPATIBLE_MODEL",
+      "api_key_env": "AI_AZURE_OPENAI_COMPATIBLE_API_KEY",
+      "timeout_seconds": 30,
+      "max_tokens": 800,
+      "feature_allowlist": [],
+      "redaction_mode": "BLOCK_EXTERNAL"
+    }
+  ]
+}
