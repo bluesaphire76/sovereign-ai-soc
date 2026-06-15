@@ -111,6 +111,11 @@ def _record_llm_call_metadata(result: dict[str, Any]) -> None:
                 "fallback_used": result.get("fallback_used"),
                 "error_type": result.get("error_type"),
                 "latency_ms": result.get("latency_ms"),
+                "provider_key": result.get("provider_key"),
+                "provider_type": result.get("provider_type"),
+                "used_external_provider": result.get("used_external_provider"),
+                "redaction_applied": result.get("redaction_applied"),
+                "redaction_mode": result.get("redaction_mode"),
             }
         )
 

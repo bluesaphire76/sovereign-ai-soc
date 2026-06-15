@@ -5,8 +5,11 @@ from typing import Any
 
 import requests
 
-from ai_model_config import DEFAULT_LLM_MODE, OLLAMA_BASE_URL, LlmProfile, get_profile
+from ai_model_config import DEFAULT_LLM_MODE, LlmProfile, get_profile
 from ai_model_policy import AiTask, select_profile
+from ai_provider_abstraction import build_provider_client
+from ai_provider_policy import generate_with_provider, normalize_feature, select_provider_config
+from ai_provider_registry import PROVIDER_LOCAL_OLLAMA, load_provider_registry
 
 
 def generate_ai_response(
@@ -28,6 +31,24 @@ def generate_ai_response(
         requested_mode=requested_mode or DEFAULT_LLM_MODE,
         user_triggered=user_triggered,
     )
+    feature = normalize_feature(task)
+    registry = load_provider_registry()
+    provider = select_provider_config(feature=feature, registry=registry)
+
+    if provider.provider_type != PROVIDER_LOCAL_OLLAMA:
+        profile = get_profile(profile_name)
+        response = generate_with_provider(
+            feature=feature,
+            prompt=prompt,
+            messages=messages,
+            options=_profile_options(profile=profile, timeout_seconds=timeout_seconds),
+        )
+        return _provider_result(
+            response=response,
+            profile=profile,
+            fallback_used=False,
+            error_type=response.safe_error,
+        )
 
     return _call_ollama_with_fallback(
         prompt=prompt,
@@ -104,49 +125,32 @@ def _call_ollama(
     profile: LlmProfile,
     timeout_seconds: float | None,
 ) -> str:
-    timeout = timeout_seconds or profile.timeout_seconds
+    registry = load_provider_registry()
+    config = registry.get("local_ollama")
+    if config is None:
+        raise RuntimeError("Local Ollama provider configuration is missing.")
 
-    if messages:
-        payload = {
-            "model": profile.model,
-            "messages": messages,
-            "stream": False,
-            "keep_alive": profile.keep_alive,
-            "options": {
-                "num_ctx": profile.num_ctx,
-                "temperature": profile.temperature,
-            },
-        }
-        response = requests.post(
-            f"{OLLAMA_BASE_URL}/api/chat",
-            json=payload,
-            timeout=timeout,
-        )
-        response.raise_for_status()
-        data = response.json()
-        message = data.get("message") or {}
-
-        return str(message.get("content") or "")
-
-    payload = {
-        "model": profile.model,
-        "prompt": prompt,
-        "stream": False,
-        "keep_alive": profile.keep_alive,
-        "options": {
-            "num_ctx": profile.num_ctx,
-            "temperature": profile.temperature,
-        },
-    }
-    response = requests.post(
-        f"{OLLAMA_BASE_URL}/api/generate",
-        json=payload,
-        timeout=timeout,
+    client = build_provider_client(config)
+    response = client.generate(
+        feature="local_ollama",
+        prompt=prompt,
+        messages=messages,
+        context=None,
+        options=_profile_options(profile=profile, timeout_seconds=timeout_seconds),
+        data_control=None,
     )
-    response.raise_for_status()
-    data = response.json()
 
-    return str(data.get("response") or "")
+    if response.safe_error:
+        if response.safe_error in {
+            "ReadTimeout",
+            "Timeout",
+            "TimeoutError",
+            "TimeoutException",
+        }:
+            raise requests.exceptions.Timeout(response.safe_error)
+        raise RuntimeError(response.safe_error)
+
+    return response.text
 
 
 def _result(
@@ -164,4 +168,44 @@ def _result(
         "fallback_used": fallback_used,
         "error_type": error_type,
         "latency_ms": int((time.monotonic() - started) * 1000),
+        "provider_key": "local_ollama",
+        "provider_type": PROVIDER_LOCAL_OLLAMA,
+        "used_external_provider": False,
+        "redaction_applied": False,
+        "redaction_mode": "LOCAL_ONLY",
+        "safe_error": error_type,
+    }
+
+
+def _profile_options(*, profile: LlmProfile, timeout_seconds: float | None) -> dict[str, Any]:
+    return {
+        "model": profile.model,
+        "num_ctx": profile.num_ctx,
+        "temperature": profile.temperature,
+        "timeout_seconds": timeout_seconds or profile.timeout_seconds,
+        "keep_alive": profile.keep_alive,
+    }
+
+
+def _provider_result(
+    *,
+    response,
+    profile: LlmProfile,
+    fallback_used: bool,
+    error_type: str | None,
+) -> dict[str, Any]:
+    return {
+        "text": response.text,
+        "profile": profile.name,
+        "model": response.model or profile.model,
+        "fallback_used": fallback_used or response.fallback_used,
+        "error_type": error_type,
+        "latency_ms": response.latency_ms or 0,
+        "provider_key": response.provider_key,
+        "provider_type": response.provider_type,
+        "used_external_provider": response.used_external_provider,
+        "redaction_applied": response.redaction_applied,
+        "redaction_mode": response.redaction_mode,
+        "safe_error": response.safe_error,
+        "usage": response.usage,
     }

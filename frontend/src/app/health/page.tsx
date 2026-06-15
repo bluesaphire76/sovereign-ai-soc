@@ -60,6 +60,7 @@ const COMPONENT_ORDER = [
   "api",
   "postgres",
   "ollama",
+  "ai_runtime",
   "qdrant",
   "grafana",
   "prometheus",
@@ -556,6 +557,7 @@ export default function HealthPage() {
             )}
 
             <WorkerIngestMetricsPanel components={sortedComponents} />
+            <AiProviderRuntimePanel components={sortedComponents} />
 
             <section className="rounded-sm border border-slate-800 bg-slate-900 p-3 shadow-sm">
               <div className="mb-2 flex items-center justify-between gap-3">
@@ -822,6 +824,85 @@ function ExecutiveMetric({
       </div>
       <div className={`h-1.5 w-1.5 shrink-0 rounded-full ${status.dot}`} />
     </div>
+  );
+}
+
+function AiProviderRuntimePanel({
+  components,
+}: {
+  components: HealthComponent[];
+}) {
+  const aiRuntime = components.find((item) => item.component === "ai_runtime");
+  const registry = readRecord(aiRuntime?.details, ["provider_registry"]);
+  const providersValue = readUnknown(registry, ["providers"]);
+  const providers = Array.isArray(providersValue)
+    ? providersValue.filter(isRecord)
+    : [];
+
+  if (!aiRuntime && providers.length === 0) return null;
+
+  const defaultProvider = readString(registry, ["default_provider"], "local_ollama");
+  const externalEnabled = readUnknown(registry, ["external_providers_enabled"]) === true;
+
+  return (
+    <section className="rounded-xl border border-slate-800 bg-slate-900 p-3 shadow-sm">
+      <div className="mb-3 flex flex-col gap-2 xl:flex-row xl:items-start xl:justify-between">
+        <div>
+          <div className="mb-1 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wide text-cyan-300">
+            <Cpu className="h-3.5 w-3.5" />
+            AI providers
+          </div>
+          <h2 className="text-sm font-semibold">Provider registry</h2>
+          <p className="mt-0.5 max-w-3xl text-[11px] leading-4 text-slate-500">
+            Local runtime status with external provider controls.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-1.5">
+          <StatusPill label="Default" value={defaultProvider} tone="neutral" />
+          <StatusPill
+            label="External"
+            value={externalEnabled ? "enabled" : "disabled"}
+            tone={externalEnabled ? "WARN" : "OK"}
+          />
+        </div>
+      </div>
+
+      <div className="grid gap-2 lg:grid-cols-3">
+        {providers.map((provider) => {
+          const key = readString(provider, ["provider_key"], "-");
+          const type = readString(provider, ["provider_type"], "-");
+          const reachable = readUnknown(provider, ["reachable"]);
+          const configured = readUnknown(provider, ["configured"]) === true;
+          const enabled = readUnknown(provider, ["enabled"]) === true;
+          const modelAvailable = readUnknown(provider, ["model_available"]);
+          const message = readString(provider, ["safe_message"], "-");
+          const latency = readNumber(provider, ["latency_ms"]);
+
+          return (
+            <MetricGroup
+              key={key}
+              title={key}
+              description={`${type} · ${message}`}
+            >
+              <MetricRow label="Enabled" value={enabled ? "yes" : "no"} tone={enabled ? "OK" : "neutral"} />
+              <MetricRow label="Configured" value={configured ? "yes" : "no"} tone={configured ? "OK" : "WARN"} />
+              <MetricRow
+                label="Reachable"
+                value={reachable === null || reachable === undefined ? "not checked" : reachable ? "yes" : "no"}
+                tone={reachable === false ? "ERROR" : reachable === true ? "OK" : "neutral"}
+              />
+              <MetricRow
+                label="Model available"
+                value={modelAvailable === null || modelAvailable === undefined ? "not checked" : modelAvailable ? "yes" : "no"}
+                tone={modelAvailable === false ? "WARN" : modelAvailable === true ? "OK" : "neutral"}
+              />
+              <MetricRow label="Latency" value={formatNumber(latency, "ms")} />
+            </MetricGroup>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 

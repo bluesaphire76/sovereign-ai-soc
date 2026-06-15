@@ -106,6 +106,11 @@ type DetectionQualityActionGuidance = {
   llm_profile?: string | null;
   llm_fallback_used?: boolean;
   llm_latency_ms?: number | null;
+  provider_key?: string | null;
+  provider_type?: string | null;
+  used_external_provider?: boolean;
+  redaction_applied?: boolean;
+  redaction_mode?: string | null;
   generated_at: string | null;
   error_type: string | null;
   cache_hit?: boolean;
@@ -1678,6 +1683,11 @@ function DetectionQualityBrief({
                 {actionGuidance.model ? ` (${actionGuidance.model})` : ""}
                 {typeof actionGuidance.llm_latency_ms === "number"
                   ? ` · ${actionGuidance.llm_latency_ms} ms`
+                  : ""}
+                {` · Provider: ${actionGuidance.provider_key || "local_ollama"}`}
+                {` · External AI: ${actionGuidance.used_external_provider ? "yes" : "no"}`}
+                {actionGuidance.redaction_applied
+                  ? ` · Redaction: ${actionGuidance.redaction_mode || "applied"}`
                   : ""}
               </div>
             </>

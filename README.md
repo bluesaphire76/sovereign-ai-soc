@@ -347,6 +347,7 @@ Existing release and validation notes:
 - [v0.5 Suricata Network Telemetry](docs/v0.5-suricata-network-telemetry.md)
 - [v0.5 DNS Telemetry Pilot](docs/v0.5-dns-telemetry-pilot.md)
 - [v0.7 Expanded Validation Harness](docs/v0.7-expanded-validation-harness.md)
+- [v0.7 External AI Provider Abstraction](docs/v0.7-external-ai-provider-abstraction.md)
 
 ## Roadmap
 

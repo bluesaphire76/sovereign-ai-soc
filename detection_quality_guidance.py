@@ -103,6 +103,11 @@ def _llm_metadata(result: dict[str, Any] | None) -> dict[str, Any]:
         "llm_profile": result.get("profile"),
         "llm_fallback_used": bool(result.get("fallback_used", False)),
         "llm_latency_ms": result.get("latency_ms"),
+        "provider_key": result.get("provider_key") or "local_ollama",
+        "provider_type": result.get("provider_type") or "LOCAL_OLLAMA",
+        "used_external_provider": bool(result.get("used_external_provider", False)),
+        "redaction_applied": bool(result.get("redaction_applied", False)),
+        "redaction_mode": result.get("redaction_mode") or "LOCAL_ONLY",
     }
 
 
@@ -125,6 +130,11 @@ def fallback_guidance(
         "llm_profile": metadata["llm_profile"],
         "llm_fallback_used": metadata["llm_fallback_used"],
         "llm_latency_ms": metadata["llm_latency_ms"],
+        "provider_key": metadata["provider_key"],
+        "provider_type": metadata["provider_type"],
+        "used_external_provider": metadata["used_external_provider"],
+        "redaction_applied": metadata["redaction_applied"],
+        "redaction_mode": metadata["redaction_mode"],
         "how_to_execute": [
             "Open the synthetic scenario breakdown and identify the weakest coverage signal.",
             "Review the latest synthetic incidents linked to the affected scenario.",
@@ -196,13 +206,18 @@ def normalize_guidance(
         validation_notes = "Human analyst validation is required before detection tuning or release decisions."
 
     return {
-        "source": "local_ai",
+        "source": "external_ai" if metadata["used_external_provider"] else "local_ai",
         "model": metadata["model"],
         "generated_at": _utc_now_iso(),
         "error_type": llm_result.get("error_type"),
         "llm_profile": metadata["llm_profile"],
         "llm_fallback_used": metadata["llm_fallback_used"],
         "llm_latency_ms": metadata["llm_latency_ms"],
+        "provider_key": metadata["provider_key"],
+        "provider_type": metadata["provider_type"],
+        "used_external_provider": metadata["used_external_provider"],
+        "redaction_applied": metadata["redaction_applied"],
+        "redaction_mode": metadata["redaction_mode"],
         "how_to_execute": steps,
         "validation_notes": validation_notes[:360],
         "recommended_action": source_payload.get("recommended_action"),

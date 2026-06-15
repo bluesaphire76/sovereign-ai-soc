@@ -9,6 +9,7 @@ import {
   Briefcase,
   ChevronDown,
   Columns3,
+  Cpu,
   Globe2,
   HeartPulse,
   History,
@@ -103,6 +104,12 @@ const SETTINGS_ITEMS: NavItem[] = [
     href: "/settings/detection-control",
     label: "Detection Control Plane",
     icon: <ShieldCheck className="h-3.5 w-3.5" strokeWidth={1.75} />,
+    match: "prefix",
+  },
+  {
+    href: "/settings/ai-providers",
+    label: "AI Providers",
+    icon: <Cpu className="h-3.5 w-3.5" strokeWidth={1.75} />,
     match: "prefix",
   },
 ];
