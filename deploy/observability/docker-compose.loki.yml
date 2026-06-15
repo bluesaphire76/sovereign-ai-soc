@@ -1,0 +1,47 @@
+services:
+  loki:
+    image: grafana/loki:latest
+    container_name: ai-soc-loki
+    command:
+      - -config.file=/etc/loki/loki.local.yml
+    ports:
+      - "127.0.0.1:3100:3100"
+    volumes:
+      - ./loki/loki.local.yml:/etc/loki/loki.local.yml:ro
+      - loki_data:/loki
+    restart: unless-stopped
+    networks:
+      - ai_soc_observability
+
+  alloy:
+    image: grafana/alloy:latest
+    container_name: ai-soc-alloy
+    user: root
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+    ports:
+      - "127.0.0.1:12345:12345"
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - alloy_data:/var/lib/alloy/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/log/journal:/var/log/journal:ro
+      - /run/log/journal:/run/log/journal:ro
+      - /etc/machine-id:/etc/machine-id:ro
+    restart: unless-stopped
+    depends_on:
+      - loki
+    networks:
+      - ai_soc_observability
+
+volumes:
+  loki_data:
+  alloy_data:
+
+networks:
+  ai_soc_observability:
+    external: true
+    name: ai_soc_observability
