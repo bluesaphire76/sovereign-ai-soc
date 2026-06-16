@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 from uuid import NAMESPACE_URL, uuid5
@@ -48,6 +48,14 @@ class QdrantKnowledgeConfig:
     score_threshold: float | None = None
     knowledge_base_path: Path = Path("knowledge_base")
     chunk_max_chars: int = 900
+
+
+@dataclass(frozen=True)
+class SemanticMemoryRecord:
+    source_type: str
+    source: str
+    text: str
+    payload: dict[str, Any] = field(default_factory=dict)
 
 
 def _env_bool(name: str, default: bool = True) -> bool:
@@ -173,11 +181,34 @@ def _point_id(source: str, chunk_index: int, text: str) -> str:
     return str(uuid5(NAMESPACE_URL, f"ai-soc-qdrant:{source}:{chunk_index}:{digest}"))
 
 
+def stable_memory_point_id(source_type: str, source: str, content_hash: str) -> str:
+    """Return a deterministic Qdrant point id for a semantic memory record."""
+
+    return str(
+        uuid5(
+            NAMESPACE_URL,
+            f"ai-soc-semantic-memory:{source_type}:{source}:{content_hash}",
+        )
+    )
+
+
 def _short_text(value: str, *, max_chars: int = 900) -> str:
     text = " ".join(value.split())
     if len(text) <= max_chars:
         return text
     return f"{text[: max_chars - 3].rstrip()}..."
+
+
+def _payload_source_type(payload: dict[str, Any]) -> str:
+    source_type = safe_text(payload.get("source_type"))
+    if source_type:
+        return source_type
+
+    source = safe_text(payload.get("source"))
+    if source.startswith("knowledge_base/") or source.startswith("knowledge_base\\"):
+        return "knowledge_base"
+
+    return "unknown"
 
 
 class QdrantKnowledgeBase:
@@ -259,6 +290,7 @@ class QdrantKnowledgeBase:
                         id=_point_id(source, chunk_index, chunk),
                         vector=vector,
                         payload={
+                            "source_type": "knowledge_base",
                             "source": source,
                             "text": chunk,
                             "chunk_index": chunk_index,
@@ -281,6 +313,50 @@ class QdrantKnowledgeBase:
             "documents": len(files),
             "indexed_points": len(points),
             "recreated": recreate,
+        }
+
+    def index_memory_records(self, records: list[SemanticMemoryRecord]) -> dict[str, Any]:
+        from qdrant_client.models import PointStruct
+
+        points: list[Any] = []
+        vector_size: int | None = None
+
+        for record in records:
+            text = safe_text(record.text)
+            source_type = safe_text(record.source_type)
+            source = safe_text(record.source)
+
+            if not text or not source_type or not source:
+                continue
+
+            content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+            vector = self.embed(text)
+            vector_size = vector_size or len(vector)
+            payload = {
+                **record.payload,
+                "source_type": source_type,
+                "source": source,
+                "text": text,
+                "content_hash": content_hash,
+            }
+            points.append(
+                PointStruct(
+                    id=stable_memory_point_id(source_type, source, content_hash),
+                    vector=vector,
+                    payload=payload,
+                )
+            )
+
+        if vector_size is not None:
+            self.ensure_collection(vector_size=vector_size)
+
+        if points:
+            self.client.upsert(collection_name=self.config.collection_name, points=points)
+
+        return {
+            "collection": self.config.collection_name,
+            "records_received": len(records),
+            "indexed_points": len(points),
         }
 
     def retrieve_contexts(self, query: str, *, limit: int | None = None) -> list[dict[str, Any]]:
@@ -311,6 +387,7 @@ class QdrantKnowledgeBase:
             contexts.append(
                 {
                     "id": str(getattr(point, "id", "")),
+                    "source_type": _payload_source_type(payload),
                     "source": payload.get("source"),
                     "text": payload.get("text"),
                     "chunk_index": payload.get("chunk_index"),
@@ -444,6 +521,7 @@ class QdrantKnowledgeBase:
                 "collection": self.config.collection_name,
                 "documents_count": 0,
                 "documents": [],
+                "source_type_counts": {},
                 "points_scanned": 0,
                 "indexing_mode": "manual_cli_only",
                 "indexing_command": "PYTHONPATH=. .venv/bin/python rag_index.py --recreate",
@@ -464,6 +542,7 @@ class QdrantKnowledgeBase:
                 "collection_info": collection,
                 "documents_count": 0,
                 "documents": [],
+                "source_type_counts": {},
                 "points_scanned": 0,
                 "indexing_mode": "manual_cli_only",
                 "indexing_command": "PYTHONPATH=. .venv/bin/python rag_index.py --recreate",
@@ -475,6 +554,7 @@ class QdrantKnowledgeBase:
             }
 
         documents: dict[str, dict[str, Any]] = {}
+        source_type_counts: dict[str, int] = {}
         scanned = 0
         next_offset: Any = None
 
@@ -495,12 +575,15 @@ class QdrantKnowledgeBase:
                 for point in points:
                     payload = getattr(point, "payload", None) or {}
                     source = str(payload.get("source") or "unknown")
+                    source_type = _payload_source_type(payload)
                     chunk_index = payload.get("chunk_index")
                     content_hash = payload.get("content_hash")
+                    source_type_counts[source_type] = source_type_counts.get(source_type, 0) + 1
 
                     doc = documents.setdefault(
                         source,
                         {
+                            "source_type": source_type,
                             "source": source,
                             "chunks": 0,
                             "first_chunk_index": None,
@@ -544,6 +627,7 @@ class QdrantKnowledgeBase:
                 "max_points": max_points,
                 "documents_count": len(public_documents),
                 "documents": public_documents,
+                "source_type_counts": source_type_counts,
                 "indexing_mode": "manual_cli_only",
                 "indexing_command": "PYTHONPATH=. .venv/bin/python rag_index.py --recreate",
                 "message": (
@@ -563,6 +647,7 @@ class QdrantKnowledgeBase:
                 "collection": self.config.collection_name,
                 "documents_count": 0,
                 "documents": [],
+                "source_type_counts": {},
                 "points_scanned": scanned,
                 "indexing_mode": "manual_cli_only",
                 "indexing_command": "PYTHONPATH=. .venv/bin/python rag_index.py --recreate",
