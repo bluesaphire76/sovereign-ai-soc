@@ -1,4 +1,5 @@
 import json
+import os
 from datetime import datetime, timedelta, timezone
 
 from dotenv import load_dotenv
@@ -13,6 +14,19 @@ from models import CaseAIAnalysis, CaseAction, CaseIncident, Incident, IncidentC
 load_dotenv()
 
 OLLAMA_MODEL = get_profile("standard").model
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(str(os.getenv(name, str(default))).strip())
+    except Exception:
+        return default
+
+
+CASE_AI_ACTION_PLAN_TIMEOUT_SECONDS = _env_int(
+    "CASE_AI_ACTION_PLAN_TIMEOUT_SECONDS",
+    _env_int("CASE_AI_GENERATION_TIMEOUT_SECONDS", 180),
+)
 
 VALID_CATEGORIES = {
     "INVESTIGATION",
@@ -286,6 +300,7 @@ def generate_raw_suggestions(prompt: str) -> tuple[dict, dict]:
         task=AiTask.CASE_ANALYSIS,
         requested_mode="auto",
         user_triggered=True,
+        timeout_seconds=CASE_AI_ACTION_PLAN_TIMEOUT_SECONDS,
     )
 
     raw_output = str(llm_result.get("text") or "")
@@ -315,6 +330,7 @@ def generate_raw_suggestions(prompt: str) -> tuple[dict, dict]:
             task=AiTask.CASE_ANALYSIS,
             requested_mode="auto",
             user_triggered=True,
+            timeout_seconds=CASE_AI_ACTION_PLAN_TIMEOUT_SECONDS,
         )
 
         raw_output = str(llm_result.get("text") or "")

@@ -1,4 +1,5 @@
 import json
+import os
 
 from dotenv import load_dotenv
 
@@ -13,6 +14,19 @@ from llm_output import is_invalid_llm_output, sanitize_llm_output
 load_dotenv()
 
 OLLAMA_MODEL = get_profile("standard").model
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(str(os.getenv(name, str(default))).strip())
+    except Exception:
+        return default
+
+
+CASE_AI_ANALYSIS_TIMEOUT_SECONDS = _env_int(
+    "CASE_AI_ANALYSIS_TIMEOUT_SECONDS",
+    _env_int("CASE_AI_GENERATION_TIMEOUT_SECONDS", 180),
+)
 
 
 def safe_json_loads(value: str | None):
@@ -225,6 +239,7 @@ def generate_case_ai_analysis(case_id: int) -> CaseAIAnalysis:
             task=AiTask.CASE_ANALYSIS,
             requested_mode="auto",
             user_triggered=True,
+            timeout_seconds=CASE_AI_ANALYSIS_TIMEOUT_SECONDS,
         )
 
         raw_analysis_text = str(llm_result.get("text") or "")
@@ -258,6 +273,7 @@ def generate_case_ai_analysis(case_id: int) -> CaseAIAnalysis:
                 task=AiTask.CASE_ANALYSIS,
                 requested_mode="auto",
                 user_triggered=True,
+                timeout_seconds=CASE_AI_ANALYSIS_TIMEOUT_SECONDS,
             )
 
             raw_analysis_text = str(llm_result.get("text") or "")

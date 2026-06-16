@@ -19,6 +19,8 @@ import {
   Briefcase,
   CheckCircle2,
   CircleDashed,
+  FileText,
+  Loader2,
   Network,
   ShieldAlert,
   ShieldCheck,
@@ -175,6 +177,29 @@ type CaseActionSuggestion = {
   suggested_due_at?: string | null;
 };
 
+type CaseGenerationJobType = "analysis" | "action-suggestions";
+
+type CaseGenerationJobStatus = "PENDING" | "RUNNING" | "SUCCESS" | "ERROR";
+
+type CaseGenerationJob = {
+  job_id: string;
+  case_id: number;
+  job_type: CaseGenerationJobType;
+  status: CaseGenerationJobStatus;
+  requested_by_username?: string | null;
+  result_reference_id?: number | null;
+  result?: unknown;
+  error?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+type CaseGenerationJobResponse = {
+  item: CaseGenerationJob | null;
+};
+
 
 type WorkflowForm = {
   owner: string;
@@ -192,13 +217,6 @@ type ActionForm = {
   priority: string;
   due_at: string;
 };
-
-type CaseSectionFocus =
-  | "ALL"
-  | "OVERVIEW"
-  | "WORKBENCH"
-  | "EVIDENCE"
-  | "REPORTS";
 
 function severityClass(value: string | null | undefined) {
   const severity = value ?? "LOW";
@@ -373,17 +391,6 @@ function formatTimestamp(value: string | null | undefined) {
     timeZoneName: "short",
   });
 }
-
-function prettyJson(value: string | null) {
-  if (!value) return "";
-
-  try {
-    return JSON.stringify(JSON.parse(value), null, 2);
-  } catch {
-    return value;
-  }
-}
-
 
 async function extractApiErrorMessage(
   response: Response,
@@ -575,22 +582,126 @@ async function fetchCaseActions(id: string): Promise<CaseAction[]> {
 }
 
 
-async function generateCaseActionSuggestions(
-  id: string
-): Promise<CaseActionSuggestion[]> {
-  const response = await authFetch(`/cases/${id}/actions/suggestions`, {
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function isRunningCaseGenerationJob(job: CaseGenerationJob | null): job is CaseGenerationJob {
+  return job?.status === "PENDING" || job?.status === "RUNNING";
+}
+
+function caseGenerationJobError(job: CaseGenerationJob) {
+  return job.error || `Generation job ${job.status.toLowerCase()}`;
+}
+
+function caseGenerationJobResultAsRecord(job: CaseGenerationJob) {
+  if (!job.result || typeof job.result !== "object") {
+    throw new Error("Generation job completed without a readable result.");
+  }
+
+  return job.result as Record<string, unknown>;
+}
+
+function caseAnalysisFromJob(job: CaseGenerationJob): CaseAIAnalysis {
+  return caseGenerationJobResultAsRecord(job) as unknown as CaseAIAnalysis;
+}
+
+function actionSuggestionsFromJob(job: CaseGenerationJob): CaseActionSuggestion[] {
+  const result = job.result;
+
+  if (Array.isArray(result)) {
+    return result as CaseActionSuggestion[];
+  }
+
+  const payload = caseGenerationJobResultAsRecord(job);
+
+  if (Array.isArray(payload.actions)) {
+    return payload.actions as CaseActionSuggestion[];
+  }
+
+  throw new Error("Generation job completed without action suggestions.");
+}
+
+async function startCaseGenerationJob(
+  id: string,
+  jobType: CaseGenerationJobType
+): Promise<CaseGenerationJob> {
+  const response = await authFetch(`/cases/${id}/ai-generation/${jobType}`, {
     method: "POST",
   });
 
   if (!response.ok) {
     const payload = await response.json().catch(() => null);
-    throw new Error(
-      payload?.detail || `API error ${response.status}`
-    );
+    throw new Error(payload?.detail || `API error ${response.status}`);
   }
 
-  const payload = await response.json();
-  return payload.actions || [];
+  return response.json();
+}
+
+async function fetchLatestCaseGenerationJob(
+  id: string,
+  jobType: CaseGenerationJobType
+): Promise<CaseGenerationJob | null> {
+  const response = await authFetch(`/cases/${id}/ai-generation/${jobType}/latest`, {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.detail || `API error ${response.status}`);
+  }
+
+  const payload = (await response.json()) as CaseGenerationJobResponse;
+  return payload.item;
+}
+
+async function fetchCaseGenerationJob(
+  id: string,
+  jobId: string
+): Promise<CaseGenerationJob> {
+  const response = await authFetch(`/cases/${id}/ai-generation/jobs/${jobId}`, {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.detail || `API error ${response.status}`);
+  }
+
+  return response.json();
+}
+
+async function waitForCaseGenerationJob(
+  id: string,
+  initialJob: CaseGenerationJob
+): Promise<CaseGenerationJob> {
+  let job = initialJob;
+
+  for (let attempt = 0; attempt < 900; attempt += 1) {
+    if (job.status === "SUCCESS") {
+      return job;
+    }
+
+    if (job.status === "ERROR") {
+      throw new Error(caseGenerationJobError(job));
+    }
+
+    await sleep(2000);
+    job = await fetchCaseGenerationJob(id, job.job_id);
+  }
+
+  throw new Error("Generation job is still running after the client wait limit.");
+}
+
+async function generateCaseActionSuggestions(
+  id: string
+): Promise<CaseActionSuggestion[]> {
+  const job = await waitForCaseGenerationJob(
+    id,
+    await startCaseGenerationJob(id, "action-suggestions")
+  );
+
+  return actionSuggestionsFromJob(job);
 }
 
 async function createCaseAction(
@@ -644,28 +755,13 @@ async function updateCaseAction(
 }
 
 async function generateCaseAnalysis(id: string): Promise<CaseAIAnalysis> {
-  const response = await authFetch(`/cases/${id}/analysis`, {
-    method: "POST",
-  });
+  const job = await waitForCaseGenerationJob(
+    id,
+    await startCaseGenerationJob(id, "analysis")
+  );
 
-  if (!response.ok) {
-    throw new Error(`API error ${response.status}`);
-  }
-
-  return response.json();
+  return caseAnalysisFromJob(job);
 }
-
-
-
-
-type CaseAiAnalysisInput = {
-  analysis: string | null;
-  model?: string | null;
-  recommended_status?: string | null;
-  recommended_severity?: string | null;
-  created_at?: string | null;
-  created_by?: string | null;
-};
 
 type CaseJsonValue =
   | string
@@ -716,131 +812,313 @@ function humanizeCaseAiKey(key: string): string {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function caseAiSectionTone(key: string): string {
-  const normalized = key.toLowerCase();
+type CaseAiDecisionSectionId =
+  | "executive_summary"
+  | "risk_assessment"
+  | "key_evidence"
+  | "soc_hypothesis"
+  | "recommended_immediate_actions"
+  | "suggested_remediation"
+  | "operational_recommendation";
 
-  if (normalized.includes("risk") || normalized.includes("severity")) {
-    return "border-orange-800 bg-orange-950/20";
-  }
+type CaseAiDecisionSectionDefinition = {
+  id: CaseAiDecisionSectionId;
+  title: string;
+  description: string;
+  keywords: string[];
+  tone: string;
+};
 
-  if (normalized.includes("remediation") || normalized.includes("action")) {
-    return "border-emerald-800 bg-emerald-950/20";
-  }
+type CaseAiDecisionSection = CaseAiDecisionSectionDefinition & {
+  items: string[];
+};
 
-  if (normalized.includes("evidence") || normalized.includes("hypothesis")) {
-    return "border-cyan-800 bg-cyan-950/20";
-  }
+const CASE_AI_DECISION_SECTIONS: CaseAiDecisionSectionDefinition[] = [
+  {
+    id: "executive_summary",
+    title: "Executive summary",
+    description: "Short analyst-ready summary of the case.",
+    keywords: ["executive summary", "summary"],
+    tone: "border-violet-800 bg-violet-950/20",
+  },
+  {
+    id: "risk_assessment",
+    title: "Risk assessment",
+    description: "Severity, impact and confidence drivers.",
+    keywords: ["risk assessment", "risk", "severity", "impact"],
+    tone: "border-orange-800 bg-orange-950/20",
+  },
+  {
+    id: "key_evidence",
+    title: "Key evidence",
+    description: "Signals, incidents and correlations supporting the assessment.",
+    keywords: ["key evidence", "evidence", "incidents", "mitre", "attack"],
+    tone: "border-cyan-800 bg-cyan-950/20",
+  },
+  {
+    id: "soc_hypothesis",
+    title: "SOC hypothesis",
+    description: "Possible interpretation, false positive angle and missing evidence.",
+    keywords: ["soc hypothesis", "hypothesis", "false positive", "missing evidence", "legitimate"],
+    tone: "border-slate-700 bg-slate-950",
+  },
+  {
+    id: "recommended_immediate_actions",
+    title: "Recommended immediate actions",
+    description: "Checks the analyst should perform next.",
+    keywords: ["recommended immediate actions", "immediate actions", "recommended actions", "actions"],
+    tone: "border-emerald-800 bg-emerald-950/20",
+  },
+  {
+    id: "suggested_remediation",
+    title: "Suggested remediation",
+    description: "Defensive improvements requiring human validation.",
+    keywords: ["suggested remediation", "remediation", "hardening", "containment"],
+    tone: "border-emerald-800 bg-emerald-950/20",
+  },
+  {
+    id: "operational_recommendation",
+    title: "Operational recommendation",
+    description: "Recommended status, severity and single next step.",
+    keywords: ["operational recommendation", "recommended status", "recommended severity", "next step"],
+    tone: "border-blue-800 bg-blue-950/20",
+  },
+];
 
-  if (normalized.includes("summary") || normalized.includes("executive")) {
-    return "border-violet-800 bg-violet-950/20";
-  }
-
-  return "border-slate-800 bg-slate-950";
+function normalizeCaseAiText(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
-function renderCaseScalar(value: string | number | boolean | null) {
-  if (value === null) {
-    return <span className="text-slate-500">-</span>;
-  }
-
-  if (typeof value === "boolean") {
-    return (
-      <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-0.5 text-xs text-slate-300">
-        {value ? "Yes" : "No"}
-      </span>
-    );
-  }
-
-  return <span>{String(value)}</span>;
+function cleanCaseAiLine(value: string) {
+  return value
+    .replace(/^[-*•]\s+/, "")
+    .replace(/^\d+[.)]\s+/, "")
+    .replace(/^#{1,6}\s*/, "")
+    .replace(/^["']|["']$/g, "")
+    .replace(/^\*\*(.*)\*\*$/, "$1")
+    .trim();
 }
 
-function CaseJsonValueRenderer({
-  value,
-  depth = 0,
-}: {
-  value: CaseJsonValue;
-  depth?: number;
-}) {
-  if (isCaseEmptyJsonValue(value)) {
-    return null;
+function matchCaseAiSection(value: string): CaseAiDecisionSectionDefinition | null {
+  const normalized = normalizeCaseAiText(cleanCaseAiLine(value));
+
+  if (!normalized) return null;
+
+  return (
+    CASE_AI_DECISION_SECTIONS.find((section) =>
+      section.keywords.some((keyword) => {
+        const normalizedKeyword = normalizeCaseAiText(keyword);
+        return (
+          normalized === normalizedKeyword ||
+          normalized.startsWith(`${normalizedKeyword} `) ||
+          normalized.startsWith(`${normalizedKeyword}:`) ||
+          normalized.includes(normalizedKeyword)
+        );
+      })
+    ) ?? null
+  );
+}
+
+function emptyCaseAiDecisionSections(): CaseAiDecisionSection[] {
+  return CASE_AI_DECISION_SECTIONS.map((section) => ({
+    ...section,
+    items: [],
+  }));
+}
+
+function pushCaseAiDecisionItem(
+  sections: CaseAiDecisionSection[],
+  sectionId: CaseAiDecisionSectionId,
+  value: string
+) {
+  const cleaned = cleanCaseAiLine(value);
+
+  if (!cleaned || ["{", "}", "[", "]", ",", ":"].includes(cleaned)) {
+    return;
   }
+
+  const section = sections.find((item) => item.id === sectionId);
+
+  if (section && !section.items.includes(cleaned)) {
+    section.items.push(cleaned);
+  }
+}
+
+function caseJsonValueToDecisionLines(value: CaseJsonValue): string[] {
+  if (isCaseEmptyJsonValue(value)) return [];
 
   if (typeof value !== "object" || value === null) {
-    return (
-      <p className="text-sm leading-6 text-slate-300">
-        {renderCaseScalar(value)}
-      </p>
-    );
+    return [String(value)];
   }
 
   if (Array.isArray(value)) {
-    const items = value.filter((item) => !isCaseEmptyJsonValue(item));
-
-    if (items.length === 0) return null;
-
-    return (
-      <div className="space-y-2">
-        {items.map((item, index) => {
-          if (isCaseJsonObject(item)) {
-            return (
-              <div
-                key={`array-object-${index}`}
-                className="rounded-lg border border-slate-800 bg-slate-900/70 p-3"
-              >
-                <CaseJsonValueRenderer value={item} depth={depth + 1} />
-              </div>
-            );
-          }
-
-          return (
-            <div
-              key={`array-item-${index}`}
-              className="flex items-start gap-3 rounded-lg border border-slate-800 bg-slate-900/70 p-3"
-            >
-              <span className="mt-[0.55rem] h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-400" />
-              <div className="text-sm leading-6 text-slate-300">
-                <CaseJsonValueRenderer value={item} depth={depth + 1} />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    );
+    return value.flatMap(caseJsonValueToDecisionLines);
   }
 
-  const entries = Object.entries(value).filter(([, entryValue]) => !isCaseEmptyJsonValue(entryValue));
+  return Object.entries(value).flatMap(([key, entryValue]) => {
+    const lines = caseJsonValueToDecisionLines(entryValue);
+    const title = humanizeCaseAiKey(key);
 
-  if (entries.length === 0) return null;
+    if (lines.length === 0) return [];
+
+    if (lines.length === 1) {
+      return [`${title}: ${lines[0]}`];
+    }
+
+    return [`${title}:`, ...lines];
+  });
+}
+
+function buildCaseAiDecisionSectionsFromJson(value: CaseJsonValue): CaseAiDecisionSection[] {
+  const sections = emptyCaseAiDecisionSections();
+
+  if (!isCaseJsonObject(value)) {
+    for (const line of caseJsonValueToDecisionLines(value)) {
+      pushCaseAiDecisionItem(sections, "executive_summary", line);
+    }
+
+    return sections;
+  }
+
+  for (const [key, entryValue] of Object.entries(value)) {
+    const matchedSection = matchCaseAiSection(key);
+    const targetSectionId = matchedSection?.id ?? "key_evidence";
+
+    for (const line of caseJsonValueToDecisionLines(entryValue)) {
+      pushCaseAiDecisionItem(sections, targetSectionId, line);
+    }
+  }
+
+  return sections;
+}
+
+function stripCaseAiSectionHeadingRemainder(
+  line: string,
+  section: CaseAiDecisionSectionDefinition
+) {
+  const cleaned = cleanCaseAiLine(line);
+  const normalizedLine = normalizeCaseAiText(cleaned);
+
+  for (const keyword of section.keywords) {
+    const normalizedKeyword = normalizeCaseAiText(keyword);
+
+    if (normalizedLine === normalizedKeyword) {
+      return "";
+    }
+
+    const colonPattern = new RegExp(`^${keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*:\\s*`, "i");
+    const withoutColonHeading = cleaned.replace(colonPattern, "").trim();
+
+    if (withoutColonHeading !== cleaned) {
+      return withoutColonHeading;
+    }
+  }
+
+  return "";
+}
+
+function buildCaseAiDecisionSectionsFromText(value: string): CaseAiDecisionSection[] {
+  const sections = emptyCaseAiDecisionSections();
+  const lines = value
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map(cleanCaseAiLine)
+    .filter(Boolean);
+  let currentSectionId: CaseAiDecisionSectionId = "executive_summary";
+
+  if (lines.length === 0) return sections;
+
+  for (const line of lines) {
+    const matchedSection = matchCaseAiSection(line);
+
+    if (matchedSection) {
+      currentSectionId = matchedSection.id;
+      const remainder = stripCaseAiSectionHeadingRemainder(line, matchedSection);
+
+      if (remainder) {
+        pushCaseAiDecisionItem(sections, currentSectionId, remainder);
+      }
+
+      continue;
+    }
+
+    pushCaseAiDecisionItem(sections, currentSectionId, line);
+  }
+
+  if (sections.every((section) => section.items.length === 0)) {
+    for (const line of splitCasePlainTextAnalysis(value)) {
+      pushCaseAiDecisionItem(sections, "executive_summary", line);
+    }
+  }
+
+  return sections;
+}
+
+function buildCaseAiDecisionSections(
+  analysis: string,
+  parsedJson: CaseJsonValue | null
+): CaseAiDecisionSection[] {
+  return parsedJson
+    ? buildCaseAiDecisionSectionsFromJson(parsedJson)
+    : buildCaseAiDecisionSectionsFromText(analysis);
+}
+
+function CaseAiDecisionSupportRenderer({
+  analysis,
+  parsedJson,
+}: {
+  analysis: string;
+  parsedJson: CaseJsonValue | null;
+}) {
+  const sections = buildCaseAiDecisionSections(analysis, parsedJson);
 
   return (
-    <div className={depth === 0 ? "grid gap-3 xl:grid-cols-2" : "space-y-3"}>
-      {entries.map(([key, entryValue]) => {
-        const title = humanizeCaseAiKey(key);
-        const isNestedObject = isCaseJsonObject(entryValue) || Array.isArray(entryValue);
-
-        return (
-          <div
-            key={key}
-            className={`rounded-xl border p-4 shadow-sm ${caseAiSectionTone(key)}`}
-          >
-            <div className="mb-3 flex items-center justify-between gap-3 border-b border-slate-800 pb-2">
+    <div className="grid gap-3 xl:grid-cols-2">
+      {sections.map((section) => (
+        <div
+          key={section.id}
+          className={`rounded-xl border p-4 shadow-sm ${section.tone}`}
+        >
+          <div className="mb-3 border-b border-slate-800 pb-2">
+            <div className="flex items-center justify-between gap-3">
               <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-300">
-                {title}
+                {section.title}
               </h4>
-
-              {isNestedObject && (
-                <span className="rounded-full border border-slate-700 bg-slate-950 px-2 py-0.5 text-[10px] text-slate-400">
-                  Structured
-                </span>
-              )}
+              <span className="rounded-full border border-slate-700 bg-slate-950 px-2 py-0.5 text-[10px] text-slate-400">
+                {section.items.length || "-"}
+              </span>
             </div>
-
-            <div className="text-sm leading-6 text-slate-300">
-              <CaseJsonValueRenderer value={entryValue} depth={depth + 1} />
-            </div>
+            <p className="mt-1 text-[11px] leading-4 text-slate-500">
+              {section.description}
+            </p>
           </div>
-        );
-      })}
+
+          {section.items.length > 0 ? (
+            <div className="space-y-2">
+              {section.items.map((item, index) => (
+                <div
+                  key={`${section.id}-${index}-${item}`}
+                  className="flex items-start gap-2 rounded-lg border border-slate-800 bg-slate-950/80 p-3"
+                >
+                  <span className="mt-[0.45rem] h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-400" />
+                  <p className="break-words text-sm leading-6 text-slate-300">
+                    {item}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-slate-800 bg-slate-950/80 p-3 text-xs leading-5 text-slate-500">
+              Not explicitly provided by the model output.
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
@@ -869,34 +1147,6 @@ function splitCasePlainTextAnalysis(value: string): string[] {
     .split(/(?<=[.!?])\s+(?=[A-Z0-9])/)
     .map((line) => line.trim())
     .filter(Boolean);
-}
-
-function CasePlainTextAnalysis({ value }: { value: string }) {
-  const lines = splitCasePlainTextAnalysis(value);
-
-  if (lines.length === 0) {
-    return (
-      <div className="rounded-lg border border-slate-800 bg-slate-950 p-3 text-xs text-slate-500">
-        No readable AI analysis available.
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-3">
-      {lines.map((line, index) => (
-        <div
-          key={`${line}-${index}`}
-          className="flex gap-3 rounded-lg border border-slate-800 bg-slate-950 p-3"
-        >
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-cyan-800 bg-cyan-950 text-xs font-semibold text-cyan-200">
-            {index + 1}
-          </div>
-          <p className="text-sm leading-6 text-slate-300">{line}</p>
-        </div>
-      ))}
-    </div>
-  );
 }
 
 type CaseAiAnalysisBoundaryProps = {
@@ -987,8 +1237,10 @@ function CaseDecisionField({
 
 function EnterpriseCaseAiAnalysis({
   caseAnalysis,
+  action,
 }: {
-  caseAnalysis: CaseAiAnalysisInput;
+  caseAnalysis: CaseAIAnalysis;
+  action?: ReactNode;
 }) {
   const analysis = (caseAnalysis.analysis ?? "").trim();
 
@@ -1019,18 +1271,17 @@ function EnterpriseCaseAiAnalysis({
               </p>
             </div>
 
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="rounded-full border border-violet-700 bg-violet-950 px-3 py-1 text-xs font-medium text-violet-200">
                 AI-assisted
               </span>
               <span className="rounded-full border border-orange-700 bg-orange-950 px-3 py-1 text-xs font-medium text-orange-200">
                 Human approval required
               </span>
-              {parsedJson && (
-                <span className="rounded-full border border-cyan-700 bg-cyan-950 px-3 py-1 text-xs font-medium text-cyan-200">
-                  Structured JSON
-                </span>
-              )}
+              <span className="rounded-full border border-cyan-700 bg-cyan-950 px-3 py-1 text-xs font-medium text-cyan-200">
+                Normalized view
+              </span>
+              {action}
             </div>
           </div>
 
@@ -1043,11 +1294,7 @@ function EnterpriseCaseAiAnalysis({
         </div>
 
         <div className="p-4">
-          {parsedJson ? (
-            <CaseJsonValueRenderer value={parsedJson} />
-          ) : (
-            <CasePlainTextAnalysis value={analysis} />
-          )}
+          <CaseAiDecisionSupportRenderer analysis={analysis} parsedJson={parsedJson} />
         </div>
       </div>
 
@@ -1067,6 +1314,62 @@ function reportId(value: string | number) {
   return String(value).padStart(6, "0");
 }
 
+function CaseCollapsibleSection({
+  id,
+  title,
+  description,
+  icon,
+  open,
+  onOpenChange,
+  children,
+}: {
+  id: string;
+  title: string;
+  description?: string;
+  icon?: ReactNode;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  children: ReactNode;
+}) {
+  return (
+    <details
+      open={open}
+      onToggle={(event) => onOpenChange(event.currentTarget.open)}
+      className="rounded-md border border-slate-800 bg-slate-950"
+      id={id}
+    >
+      <summary className="cursor-pointer list-none px-3 py-2 hover:bg-slate-900/60">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2 text-xs font-semibold text-slate-100">
+              {icon && <span className="text-cyan-300">{icon}</span>}
+              <span>{title}</span>
+            </div>
+            {description && (
+              <p className="mt-0.5 text-[11px] leading-4 text-slate-500">{description}</p>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <span className="text-[10px] uppercase tracking-wide text-cyan-300">
+              {open ? "Close" : "Open"}
+            </span>
+          </div>
+        </div>
+      </summary>
+
+      {open && (
+        <div
+          className="border-t border-slate-800 p-3"
+          data-case-section-body="true"
+          id={`${id}-body`}
+        >
+          {children}
+        </div>
+      )}
+    </details>
+  );
+}
+
 export default function CaseDetailPage() {
   const params = useParams();
   const caseId = String(params.id);
@@ -1079,12 +1382,10 @@ export default function CaseDetailPage() {
   const [caseActions, setCaseActions] = useState<CaseAction[]>([]);
   const [caseClosure, setCaseClosure] = useState<CaseClosureResponse | null>(null);
   const [caseTimeline, setCaseTimeline] = useState<CaseTimelineItem[]>([]);
-  const [timelineOpen, setTimelineOpen] = useState(false);
   const [timelineExpanded, setTimelineExpanded] = useState(false);
-  const [auditTrailOpen, setAuditTrailOpen] = useState(false);
   const [auditTrailExpanded, setAuditTrailExpanded] = useState(false);
-  const [relatedIncidentsOpen, setRelatedIncidentsOpen] = useState(false);
   const [relatedIncidentsExpanded, setRelatedIncidentsExpanded] = useState(false);
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
   const [closureForm, setClosureForm] = useState<ClosureForm>({
     root_cause: "",
     evidence_reviewed: "",
@@ -1126,7 +1427,6 @@ export default function CaseDetailPage() {
   const [savingWorkflow, setSavingWorkflow] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [sectionFocus, setSectionFocus] = useState<CaseSectionFocus>("ALL");
   const [quickActionRunning, setQuickActionRunning] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const canOperate =
@@ -1154,6 +1454,8 @@ export default function CaseDetailPage() {
         actionsResponse,
         closureResponse,
         timelineResponse,
+        latestAnalysisJob,
+        latestSuggestionsJob,
       ] = await Promise.all([
         fetchCase(caseId),
         fetchCaseIncidents(caseId),
@@ -1162,14 +1464,23 @@ export default function CaseDetailPage() {
         fetchCaseActions(caseId),
         fetchCaseClosure(caseId),
         fetchCaseTimeline(caseId),
+        fetchLatestCaseGenerationJob(caseId, "analysis").catch(() => null),
+        fetchLatestCaseGenerationJob(caseId, "action-suggestions").catch(() => null),
       ]);
 
       setCaseData(caseResponse);
       setWorkflowForm(workflowFormFromCase(caseResponse));
       setIncidents(incidentsResponse);
-      setCaseAnalysis(analysisResponse);
+      setCaseAnalysis(
+        latestAnalysisJob?.status === "SUCCESS"
+          ? caseAnalysisFromJob(latestAnalysisJob)
+          : analysisResponse
+      );
       setAuditTrail(auditResponse);
       setCaseActions(actionsResponse);
+      if (latestSuggestionsJob?.status === "SUCCESS") {
+        setAiActionSuggestions(actionSuggestionsFromJob(latestSuggestionsJob));
+      }
       setCaseClosure(closureResponse);
       setClosureForm(closureFormFromResponse(closureResponse));
       setCaseTimeline(timelineResponse.items || []);
@@ -1180,9 +1491,7 @@ export default function CaseDetailPage() {
     }
   }, [caseId]);
 
-  async function handleGenerateActionSuggestions() {
-    if (!assertCanOperate()) return;
-
+  async function runCaseActionSuggestionGeneration() {
     try {
       setGeneratingSuggestions(true);
       setSuggestionError(null);
@@ -1195,6 +1504,12 @@ export default function CaseDetailPage() {
     } finally {
       setGeneratingSuggestions(false);
     }
+  }
+
+  async function handleGenerateActionSuggestions() {
+    if (!assertCanOperate()) return;
+
+    await runCaseActionSuggestionGeneration();
   }
 
   async function handleCreateActionFromSuggestion(
@@ -1378,9 +1693,7 @@ export default function CaseDetailPage() {
     }
   }
 
-  async function handleGenerateAnalysis() {
-    if (!assertCanOperate()) return;
-
+  async function runCaseAnalysisGeneration() {
     try {
       setGeneratingAnalysis(true);
       setError(null);
@@ -1394,6 +1707,12 @@ export default function CaseDetailPage() {
     }
   }
 
+  async function handleGenerateAnalysis() {
+    if (!assertCanOperate()) return;
+
+    await runCaseAnalysisGeneration();
+  }
+
   function scrollToCaseSection(sectionId: string) {
     window.setTimeout(() => {
       document.getElementById(sectionId)?.scrollIntoView({
@@ -1401,6 +1720,18 @@ export default function CaseDetailPage() {
         block: "start",
       });
     }, 50);
+  }
+
+  function setCaseSectionOpen(sectionId: string, open: boolean) {
+    setOpenSections((current) => ({
+      ...current,
+      [sectionId]: open,
+    }));
+  }
+
+  function openAndScrollToCaseSection(sectionId: string) {
+    setCaseSectionOpen(sectionId, true);
+    scrollToCaseSection(sectionId);
   }
 
   async function handleCaseQuickAction(
@@ -1422,24 +1753,19 @@ export default function CaseDetailPage() {
       setError(null);
 
       if (action === "GENERATE_AI_ANALYSIS") {
-        const result = await generateCaseAnalysis(caseId);
-        setCaseAnalysis(result);
-        setSectionFocus("WORKBENCH");
+        await runCaseAnalysisGeneration();
         scrollToCaseSection("case-ai-analysis");
         return;
       }
 
       if (action === "GENERATE_AI_ACTION_PLAN") {
-        const suggestions = await generateCaseActionSuggestions(caseId);
-        setAiActionSuggestions(suggestions);
-        setSectionFocus("WORKBENCH");
-        scrollToCaseSection("case-action-plan");
+        await runCaseActionSuggestionGeneration();
+        openAndScrollToCaseSection("case-action-plan");
         return;
       }
 
       if (action === "PREPARE_CLOSURE") {
-        setSectionFocus("WORKBENCH");
-        scrollToCaseSection("case-closure-checklist");
+        openAndScrollToCaseSection("case-closure-checklist");
         return;
       }
 
@@ -1496,12 +1822,11 @@ export default function CaseDetailPage() {
         action === "START_INVESTIGATION" ||
         action === "ESCALATE_CASE"
       ) {
-        setSectionFocus("WORKBENCH");
-        scrollToCaseSection("case-workflow");
+        openAndScrollToCaseSection("case-workflow");
       }
 
       if (action === "CLOSE_CASE") {
-        setSectionFocus("OVERVIEW");
+        openAndScrollToCaseSection("case-workflow");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
@@ -1533,24 +1858,24 @@ export default function CaseDetailPage() {
     const style = document.createElement("style");
     style.id = styleId;
     style.textContent = `
-      #case-workflow input,
-      #case-workflow select,
-      #case-workflow textarea,
-      #case-workflow button,
-      #case-action-plan input,
-      #case-action-plan select,
-      #case-action-plan textarea,
-      #case-action-plan button,
-      #case-closure-checklist input,
-      #case-closure-checklist select,
-      #case-closure-checklist textarea,
-      #case-closure-checklist button {
+      #case-workflow [data-case-section-body] input,
+      #case-workflow [data-case-section-body] select,
+      #case-workflow [data-case-section-body] textarea,
+      #case-workflow [data-case-section-body] button,
+      #case-action-plan [data-case-section-body] input,
+      #case-action-plan [data-case-section-body] select,
+      #case-action-plan [data-case-section-body] textarea,
+      #case-action-plan [data-case-section-body] button,
+      #case-closure-checklist [data-case-section-body] input,
+      #case-closure-checklist [data-case-section-body] select,
+      #case-closure-checklist [data-case-section-body] textarea,
+      #case-closure-checklist [data-case-section-body] button {
         display: none !important;
       }
 
-      #case-workflow::before,
-      #case-action-plan::before,
-      #case-closure-checklist::before {
+      #case-workflow [data-case-section-body]::before,
+      #case-action-plan [data-case-section-body]::before,
+      #case-closure-checklist [data-case-section-body]::before {
         content: "Read-only access: your role can review this section but cannot modify it.";
         display: block;
         margin-bottom: 0.75rem;
@@ -1579,21 +1904,74 @@ export default function CaseDetailPage() {
     return () => window.clearTimeout(timer);
   }, [loadCase]);
 
-  const summary = useMemo(() => {
-    return prettyJson(caseData?.summary ?? null);
-  }, [caseData]);
+  useEffect(() => {
+    let active = true;
 
-  const visibleTimeline = useMemo(() => {
-    if (!timelineOpen) {
-      return [];
+    async function reattachGenerationJobs() {
+      try {
+        const [analysisJob, suggestionsJob] = await Promise.all([
+          fetchLatestCaseGenerationJob(caseId, "analysis").catch(() => null),
+          fetchLatestCaseGenerationJob(caseId, "action-suggestions").catch(() => null),
+        ]);
+
+        if (!active) return;
+
+        if (analysisJob?.status === "SUCCESS") {
+          setCaseAnalysis(caseAnalysisFromJob(analysisJob));
+        } else if (isRunningCaseGenerationJob(analysisJob)) {
+          setGeneratingAnalysis(true);
+          waitForCaseGenerationJob(caseId, analysisJob)
+            .then((job) => {
+              if (!active) return;
+              setCaseAnalysis(caseAnalysisFromJob(job));
+            })
+            .catch((err) => {
+              if (!active) return;
+              setError(err instanceof Error ? err.message : "Unknown error");
+            })
+            .finally(() => {
+              if (active) setGeneratingAnalysis(false);
+            });
+        }
+
+        if (suggestionsJob?.status === "SUCCESS") {
+          setAiActionSuggestions(actionSuggestionsFromJob(suggestionsJob));
+        } else if (isRunningCaseGenerationJob(suggestionsJob)) {
+          setGeneratingSuggestions(true);
+          setSuggestionError(null);
+          waitForCaseGenerationJob(caseId, suggestionsJob)
+            .then((job) => {
+              if (!active) return;
+              setAiActionSuggestions(actionSuggestionsFromJob(job));
+            })
+            .catch((err) => {
+              if (!active) return;
+              setSuggestionError(err instanceof Error ? err.message : "Unknown error");
+            })
+            .finally(() => {
+              if (active) setGeneratingSuggestions(false);
+            });
+        }
+      } catch (err) {
+        if (!active) return;
+        setError(err instanceof Error ? err.message : "Unknown error");
+      }
     }
 
+    void reattachGenerationJobs();
+
+    return () => {
+      active = false;
+    };
+  }, [caseId]);
+
+  const visibleTimeline = useMemo(() => {
     if (timelineExpanded) {
       return caseTimeline;
     }
 
     return caseTimeline.slice(-12);
-  }, [caseTimeline, timelineExpanded, timelineOpen]);
+  }, [caseTimeline, timelineExpanded]);
 
   const hiddenTimelineEvents = Math.max(
     caseTimeline.length - visibleTimeline.length,
@@ -1601,16 +1979,12 @@ export default function CaseDetailPage() {
   );
 
   const visibleAuditTrail = useMemo(() => {
-    if (!auditTrailOpen) {
-      return [];
-    }
-
     if (auditTrailExpanded) {
       return auditTrail;
     }
 
     return auditTrail.slice(-10);
-  }, [auditTrail, auditTrailExpanded, auditTrailOpen]);
+  }, [auditTrail, auditTrailExpanded]);
 
   const hiddenAuditEvents = Math.max(
     auditTrail.length - visibleAuditTrail.length,
@@ -1618,16 +1992,12 @@ export default function CaseDetailPage() {
   );
 
   const visibleRelatedIncidents = useMemo(() => {
-    if (!relatedIncidentsOpen) {
-      return [];
-    }
-
     if (relatedIncidentsExpanded) {
       return incidents;
     }
 
     return incidents.slice(-15);
-  }, [incidents, relatedIncidentsExpanded, relatedIncidentsOpen]);
+  }, [incidents, relatedIncidentsExpanded]);
 
   const hiddenRelatedIncidents = Math.max(
     incidents.length - visibleRelatedIncidents.length,
@@ -1646,6 +2016,16 @@ export default function CaseDetailPage() {
 
   const closureReady = Boolean(caseClosure?.ready_to_close);
   const hasAIAnalysis = Boolean(caseAnalysis);
+  const caseAnalysisAction = canOperate ? (
+    <button
+      onClick={handleGenerateAnalysis}
+      disabled={generatingAnalysis}
+      className="inline-flex items-center gap-2 rounded-md border border-cyan-500 bg-cyan-500 px-3 py-1.5 text-xs font-medium text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
+    >
+      {generatingAnalysis && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+      {generatingAnalysis ? "Generating..." : caseAnalysis ? "Regenerate AI analysis" : "Generate AI analysis"}
+    </button>
+  ) : null;
   const governedRecommendations: GovernedRemediationRecommendation[] = [
     ...aiActionSuggestions.map((suggestion) => ({
       title: suggestion.title,
@@ -1723,12 +2103,12 @@ export default function CaseDetailPage() {
 
         {error && (
           <div className="whitespace-pre-wrap rounded-lg border border-red-800 bg-red-950/60 p-3 text-sm text-red-200">
-            API error: {error}
+            Operation error: {error}
           </div>
         )}
 
         {caseData && (
-          <div className="space-y-3" data-case-focus={sectionFocus}>
+          <div className="space-y-3" data-case-focus="ALL">
             <style>{`
               /*
                 AI SOC case detail enterprise alignment.
@@ -2043,7 +2423,6 @@ export default function CaseDetailPage() {
               [data-case-focus="WORKBENCH"] #case-investigation-graph,
               [data-case-focus="WORKBENCH"] #case-timeline,
               [data-case-focus="WORKBENCH"] #case-audit,
-              [data-case-focus="WORKBENCH"] #case-summary,
               [data-case-focus="WORKBENCH"] #related-incidents {
                 display: none;
               }
@@ -2080,11 +2459,6 @@ export default function CaseDetailPage() {
               hasAIAnalysis={hasAIAnalysis}
             />
 
-            <CaseFocusMode
-              value={sectionFocus}
-              onChange={setSectionFocus}
-            />
-
             <CaseQuickActions
               caseData={caseData}
               actionCount={caseActions.length}
@@ -2092,249 +2466,48 @@ export default function CaseDetailPage() {
               closureReady={closureReady}
               hasAIAnalysis={hasAIAnalysis}
               quickActionRunning={quickActionRunning}
+              generatingAnalysis={generatingAnalysis}
+              generatingSuggestions={generatingSuggestions}
               onAction={handleCaseQuickAction}
             />
 
-            <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-lg" id="case-governed-remediation">
-              <div className="mb-3 flex items-start gap-2">
-                <ShieldCheck className="mt-0.5 h-4 w-4 text-cyan-300" />
-                <div>
-                  <h2 className="text-sm font-semibold">Governed Remediation</h2>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Create, review, approve and convert remediation proposals linked to this case.
-                  </p>
-                </div>
-              </div>
-              <GovernedRemediationPanel
-                scope="case"
-                caseId={caseData.id}
-                currentUser={currentUser}
-                canOperate={canOperate}
-                aiRecommendations={governedRecommendations}
-                onChanged={loadCase}
-              />
-            </section>
-
-            <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-lg" id="case-investigation-graph">
-              <div className="mb-3 flex items-start gap-2">
-                <Network className="mt-0.5 h-4 w-4 text-cyan-300" />
-                <div>
-                  <h2 className="text-sm font-semibold">Investigation Graph</h2>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Read-only relationship view across linked incidents, alerts, entities, timeline and AI context.
-                  </p>
-                </div>
-              </div>
-              <InvestigationGraph scope="case" scopeId={caseData.id} />
-            </section>
-
-            <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-lg" id="reports-center">
-              <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                <div>
-                  <h2 className="text-sm font-semibold">Reports Center</h2>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Export executive, analyst and machine-readable reports for this case.
-                  </p>
-                </div>
-
-                <span className="w-fit rounded-full border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-300">
-                  4 exports
-                </span>
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                <ReportDownloadCard
-                  title="Executive PDF"
-                  description="Board-ready PDF with executive summary, risk, actions and closure readiness."
-                  href={`/reports/cases/${caseId}/executive-pdf`}
-                  fallbackFilename={`case-${caseReportId}-executive-ai-soc-report.pdf`}
-                  format="PDF"
-                  tone="executive"
-                />
-
-                <ReportDownloadCard
-                  title="Analyst Evidence Pack"
-                  description="Detailed evidence package with raw alerts, action plan, audit trail and closure evidence."
-                  href={`/reports/cases/${caseId}/evidence-pack?format=markdown`}
-                  fallbackFilename={`case-${caseReportId}-evidence-pack.md`}
-                  format="MD"
-                  tone="evidence"
-                />
-
-                <ReportDownloadCard
-                  title="Markdown Case Report"
-                  description="Readable case report suitable for review, notes, ticketing systems and documentation."
-                  href={`/reports/cases/${caseId}?format=markdown`}
-                  fallbackFilename={`case-${caseReportId}-enterprise-report.md`}
-                  format="MD"
-                  tone="standard"
-                />
-
-                <ReportDownloadCard
-                  title="JSON Case Payload"
-                  description="Structured export for automation, integrations, testing or downstream processing."
-                  href={`/reports/cases/${caseId}?format=json`}
-                  fallbackFilename={`case-${caseReportId}-enterprise-report.json`}
-                  format="JSON"
-                  tone="json"
-                />
-              </div>
-            </section>
-
-            <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-lg" id="case-timeline">
-              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                <div>
-                  <h2 className="text-sm font-semibold">Case timeline</h2>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Chronological view of incidents, AI analysis, actions, workflow updates and closure events.
-                  </p>
-
-                  {!timelineOpen && caseTimeline.length > 12 && (
-                    <p className="mt-2 text-xs text-slate-500">
-                      Timeline is collapsed to avoid long scrolling. Open it to review the latest events.
-                    </p>
-                  )}
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="w-fit rounded-full border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-300">
-                    {caseTimeline.length} events
-                  </span>
-
-                  <button
-                    onClick={() => setTimelineOpen((current) => !current)}
-                    className="rounded-md border border-cyan-700 bg-slate-950 px-3 py-1.5 text-xs text-cyan-200 hover:bg-slate-800"
-                  >
-                    {timelineOpen ? "Hide timeline" : "Show timeline"}
-                  </button>
-                </div>
-              </div>
-
-              {timelineOpen && caseTimeline.length > 0 && (
-                <div className="mt-3">
-                  <div className="mb-2 flex flex-col gap-3 rounded-md border border-slate-800 bg-slate-950 p-3 md:flex-row md:items-center md:justify-between">
-                    <div className="text-xs text-slate-300">
-                      {timelineExpanded ? (
-                        <>Showing all {caseTimeline.length} events.</>
-                      ) : (
-                        <>
-                          Showing latest {visibleTimeline.length} of {caseTimeline.length} events.
-                          {hiddenTimelineEvents > 0 && (
-                            <> {hiddenTimelineEvents} older events are hidden.</>
-                          )}
-                        </>
-                      )}
+            <section id="case-ai-analysis">
+              {!caseAnalysis ? (
+                <div className="flex flex-col gap-3 rounded-md border border-slate-800 bg-slate-950 p-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <div className="text-xs text-slate-500">
+                      No AI analysis available yet for this case.
                     </div>
-
-                    {caseTimeline.length > 12 && (
-                      <button
-                        onClick={() => setTimelineExpanded((current) => !current)}
-                        className="w-fit rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800"
-                      >
-                        {timelineExpanded ? "Show latest only" : "Show all events"}
-                      </button>
+                    {generatingAnalysis && (
+                      <div className="mt-2 inline-flex items-center gap-2 rounded-md border border-cyan-900/60 bg-cyan-950/30 px-3 py-2 text-xs text-cyan-100">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        AI analysis generation is running in background.
+                      </div>
                     )}
                   </div>
-
-                  <div className="relative space-y-3 border-l border-slate-700 pl-5">
-                    {visibleTimeline.map((item, index) => (
-                      <div
-                        key={`${item.event_type}-${item.reference_id ?? index}-${index}`}
-                        className="relative"
-                      >
-                        <span
-                          className={`absolute -left-[29px] top-1 h-3 w-3 rounded-full border-2 ${timelineEventClass(
-                            item.event_type
-                          )}`}
-                        />
-
-                        <div className="rounded-md border border-slate-800 bg-slate-950 p-4">
-                          <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                            <div>
-                              <div className="text-sm font-medium text-slate-100">
-                                {item.title}
-                              </div>
-                              <div className="mt-1 text-xs uppercase tracking-wide text-slate-500">
-                                {timelineEventLabel(item.event_type)}
-                              </div>
-                            </div>
-
-                            <div className="text-xs text-slate-500">
-                              {formatTimestamp(item.timestamp)}
-                            </div>
-                          </div>
-
-                          {item.description && (
-                            <p className="mt-3 whitespace-pre-wrap text-xs text-slate-300">
-                              {item.description}
-                            </p>
-                          )}
-
-                          <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                            {item.status && (
-                              <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">
-                                Status: {item.status}
-                              </span>
-                            )}
-
-                            {item.severity && (
-                              <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">
-                                Severity: {item.severity}
-                              </span>
-                            )}
-
-                            {item.actor && (
-                              <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">
-                                Actor: {item.actor}
-                              </span>
-                            )}
-
-                            {item.source && (
-                              <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">
-                                Source: {item.source}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                  {caseAnalysisAction}
                 </div>
-              )}
-
-              {timelineOpen && caseTimeline.length === 0 && (
-                <div className="mt-3 rounded-md border border-slate-800 bg-slate-950 p-3 text-xs text-slate-500">
-                  No timeline events available.
-                </div>
+              ) : (
+                <CaseAiAnalysisBoundary
+                  resetKey={caseAnalysis.id}
+                  fallback={<CaseAiAnalysisFallback analysis={caseAnalysis.analysis} />}
+                >
+                  <EnterpriseCaseAiAnalysis
+                    caseAnalysis={caseAnalysis}
+                    action={caseAnalysisAction}
+                  />
+                </CaseAiAnalysisBoundary>
               )}
             </section>
 
-            <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-lg" id="case-workflow">
-              <div className="mb-2 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <h2 className="text-sm font-semibold">Case workflow</h2>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Assign ownership, review severity and track SLA for the investigation.
-                  </p>
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  <span
-                    className={`w-fit rounded-full border px-3 py-1.5 text-xs ${slaClass(
-                      caseData.sla_status
-                    )}`}
-                  >
-                    SLA {slaLabel(caseData.sla_status)}
-                  </span>
-                  <span
-                    className={`w-fit rounded-full border px-3 py-1.5 text-xs ${slaRiskClass(
-                      caseData.sla_breach_risk
-                    )}`}
-                  >
-                    Breach risk {slaRiskLabel(caseData.sla_breach_risk)}
-                  </span>
-                </div>
-              </div>
+            <CaseCollapsibleSection
+              id="case-workflow"
+              title="Case workflow"
+              description="Assign ownership, review severity and track SLA for the investigation."
+              icon={<Briefcase className="h-3.5 w-3.5" />}
+              open={Boolean(openSections["case-workflow"])}
+              onOpenChange={(open) => setCaseSectionOpen("case-workflow", open)}
+            >
 
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="block">
@@ -2465,151 +2638,15 @@ export default function CaseDetailPage() {
                   {savingWorkflow ? "Saving..." : "Save workflow"}
                 </button>
               </div>
-            </section>
-
-            <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-lg" id="case-audit">
-              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                <div>
-                  <h2 className="text-sm font-semibold">Case workflow audit</h2>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Chronological audit events for workflow updates, actions and closure checklist changes.
-                  </p>
-
-                  {!auditTrailOpen && auditTrail.length > 10 && (
-                    <p className="mt-2 text-xs text-slate-500">
-                      Audit trail is collapsed to avoid long scrolling. Open it to review the latest audit events.
-                    </p>
-                  )}
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="w-fit rounded-full border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-300">
-                    {auditTrail.length} audit events
-                  </span>
-
-                  <button
-                    onClick={() => setAuditTrailOpen((current) => !current)}
-                    className="rounded-md border border-cyan-700 bg-slate-950 px-3 py-1.5 text-xs text-cyan-200 hover:bg-slate-800"
-                  >
-                    {auditTrailOpen ? "Hide audit trail" : "Show audit trail"}
-                  </button>
-                </div>
-              </div>
-
-              {auditTrailOpen && auditTrail.length === 0 && (
-                <div className="mt-3 rounded-md border border-slate-800 bg-slate-950 p-3 text-xs text-slate-500">
-                  No audit events available for this case.
-                </div>
-              )}
-
-              {auditTrailOpen && auditTrail.length > 0 && (
-                <div className="mt-3">
-                  <div className="mb-2 flex flex-col gap-3 rounded-md border border-slate-800 bg-slate-950 p-3 md:flex-row md:items-center md:justify-between">
-                    <div className="text-xs text-slate-300">
-                      {auditTrailExpanded ? (
-                        <>Showing all {auditTrail.length} audit events.</>
-                      ) : (
-                        <>
-                          Showing latest {visibleAuditTrail.length} of {auditTrail.length} audit events.
-                          {hiddenAuditEvents > 0 && (
-                            <> {hiddenAuditEvents} older audit events are hidden.</>
-                          )}
-                        </>
-                      )}
-                    </div>
-
-                    {auditTrail.length > 10 && (
-                      <button
-                        onClick={() => setAuditTrailExpanded((current) => !current)}
-                        className="w-fit rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800"
-                      >
-                        {auditTrailExpanded ? "Show latest only" : "Show all audit events"}
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="space-y-3">
-                    {visibleAuditTrail.map((event) => (
-                      <div
-                        key={event.id}
-                        className="rounded-md border border-slate-800 bg-slate-950 p-4"
-                      >
-                        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                          <div>
-                            <div className="text-sm font-medium text-slate-100">
-                              {event.event_type}
-                            </div>
-                            <div className="mt-1 text-xs text-slate-500">
-                              Created by {event.created_by ?? "-"}
-                            </div>
-                          </div>
-
-                          <div className="text-xs text-slate-500">
-                            {formatTimestamp(event.created_at)}
-                          </div>
-                        </div>
-
-                        {event.comment && (
-                          <p className="mt-3 whitespace-pre-wrap text-xs text-slate-300">
-                            {event.comment}
-                          </p>
-                        )}
-
-                        {(event.old_value || event.new_value) && (
-                          <div className="mt-3 grid gap-3 md:grid-cols-2">
-                            <div className="rounded-lg border border-slate-800 bg-slate-900 p-3">
-                              <div className="mb-1 text-xs uppercase tracking-wide text-slate-500">
-                                Old value
-                              </div>
-                              <pre className="max-h-48 overflow-auto whitespace-pre-wrap text-xs text-slate-400">
-                                {event.old_value ?? "-"}
-                              </pre>
-                            </div>
-
-                            <div className="rounded-lg border border-slate-800 bg-slate-900 p-3">
-                              <div className="mb-1 text-xs uppercase tracking-wide text-slate-500">
-                                New value
-                              </div>
-                              <pre className="max-h-48 overflow-auto whitespace-pre-wrap text-xs text-slate-400">
-                                {event.new_value ?? "-"}
-                              </pre>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </section>
-
-            <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-lg" id="case-action-plan">
-              <div className="mb-2 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <h2 className="text-sm font-semibold">Case action plan</h2>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Track concrete analyst tasks required to investigate, contain, escalate or close the case.
-                  </p>
-                </div>
-
-                <div className="flex flex-wrap gap-2 text-xs">
-                  <span className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-slate-300">
-                    {caseActions.length} total
-                  </span>
-                  <span className="rounded-full border border-cyan-700 bg-cyan-950 px-3 py-1 text-cyan-200">
-                    {
-                      caseActions.filter(
-                        (action) =>
-                          action.status !== "DONE" &&
-                          action.status !== "CANCELLED"
-                      ).length
-                    } open
-                  </span>
-                  <span className="rounded-full border border-emerald-700 bg-emerald-950 px-3 py-1 text-emerald-200">
-                    {caseActions.filter((action) => action.status === "DONE").length} done
-                  </span>
-                </div>
-              </div>
+            </CaseCollapsibleSection>
+            <CaseCollapsibleSection
+              id="case-action-plan"
+              title="Case action plan"
+              description="Track concrete analyst tasks required to investigate, contain, escalate or close the case."
+              icon={<CheckCircle2 className="h-3.5 w-3.5" />}
+              open={Boolean(openSections["case-action-plan"])}
+              onOpenChange={(open) => setCaseSectionOpen("case-action-plan", open)}
+            >
 
               <div className="mb-3 rounded-md border border-cyan-900/60 bg-cyan-950/20 p-4">
                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -2626,11 +2663,19 @@ export default function CaseDetailPage() {
                   <button
                     onClick={handleGenerateActionSuggestions}
                     disabled={generatingSuggestions}
-                    className="rounded-md border border-cyan-500 bg-cyan-500 px-3 py-1.5 text-xs font-medium text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
+                    className="inline-flex items-center gap-2 rounded-md border border-cyan-500 bg-cyan-500 px-3 py-1.5 text-xs font-medium text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
                   >
+                    {generatingSuggestions && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                     {generatingSuggestions ? "Generating..." : "Generate AI action plan"}
                   </button>
                 </div>
+
+                {generatingSuggestions && (
+                  <div className="mt-3 inline-flex items-center gap-2 rounded-md border border-cyan-900/60 bg-slate-950 px-3 py-2 text-xs text-cyan-100">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    AI action plan generation is running in background.
+                  </div>
+                )}
 
                 {suggestionError && (
                   <div className="mt-2 rounded-md border border-red-800 bg-red-950/60 p-3 text-sm text-red-200">
@@ -2894,27 +2939,257 @@ export default function CaseDetailPage() {
                   ))}
                 </div>
               )}
-            </section>
+            </CaseCollapsibleSection>
+            <CaseCollapsibleSection
+              id="case-timeline"
+              title="Case timeline"
+              description="Chronological view of incidents, AI analysis, actions, workflow updates and closure events."
+              icon={<CircleDashed className="h-3.5 w-3.5" />}
+              open={Boolean(openSections["case-timeline"])}
+              onOpenChange={(open) => setCaseSectionOpen("case-timeline", open)}
+            >
 
-            <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-lg" id="case-closure-checklist">
-              <div className="mb-2 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              {caseTimeline.length > 0 && (
                 <div>
-                  <h2 className="text-sm font-semibold">Case closure checklist</h2>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Document the minimum evidence required before closing or marking the case as false positive.
-                  </p>
-                </div>
+                  <div className="mb-2 flex flex-col gap-3 rounded-md border border-slate-800 bg-slate-950 p-3 md:flex-row md:items-center md:justify-between">
+                    <div className="text-xs text-slate-300">
+                      {timelineExpanded ? (
+                        <>Showing all {caseTimeline.length} events.</>
+                      ) : (
+                        <>
+                          Showing latest {visibleTimeline.length} of {caseTimeline.length} events.
+                          {hiddenTimelineEvents > 0 && (
+                            <> {hiddenTimelineEvents} older events are hidden.</>
+                          )}
+                        </>
+                      )}
+                    </div>
 
-                <span
-                  className={`w-fit rounded-full border px-3 py-1.5 text-xs ${
-                    caseClosure?.ready_to_close
-                      ? "border-emerald-700 bg-emerald-950 text-emerald-200"
-                      : "border-orange-700 bg-orange-950 text-orange-200"
-                  }`}
-                >
-                  {caseClosure?.ready_to_close ? "Ready to close" : "Closure blocked"}
-                </span>
-              </div>
+                    {caseTimeline.length > 12 && (
+                      <button
+                        onClick={() => setTimelineExpanded((current) => !current)}
+                        className="w-fit rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800"
+                      >
+                        {timelineExpanded ? "Show latest only" : "Show all events"}
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="relative space-y-3 border-l border-slate-700 pl-5">
+                    {visibleTimeline.map((item, index) => (
+                      <div
+                        key={`${item.event_type}-${item.reference_id ?? index}-${index}`}
+                        className="relative"
+                      >
+                        <span
+                          className={`absolute -left-[29px] top-1 h-3 w-3 rounded-full border-2 ${timelineEventClass(
+                            item.event_type
+                          )}`}
+                        />
+
+                        <div className="rounded-md border border-slate-800 bg-slate-950 p-4">
+                          <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                            <div>
+                              <div className="text-sm font-medium text-slate-100">
+                                {item.title}
+                              </div>
+                              <div className="mt-1 text-xs uppercase tracking-wide text-slate-500">
+                                {timelineEventLabel(item.event_type)}
+                              </div>
+                            </div>
+
+                            <div className="text-xs text-slate-500">
+                              {formatTimestamp(item.timestamp)}
+                            </div>
+                          </div>
+
+                          {item.description && (
+                            <p className="mt-3 whitespace-pre-wrap text-xs text-slate-300">
+                              {item.description}
+                            </p>
+                          )}
+
+                          <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                            {item.status && (
+                              <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">
+                                Status: {item.status}
+                              </span>
+                            )}
+
+                            {item.severity && (
+                              <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">
+                                Severity: {item.severity}
+                              </span>
+                            )}
+
+                            {item.actor && (
+                              <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">
+                                Actor: {item.actor}
+                              </span>
+                            )}
+
+                            {item.source && (
+                              <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">
+                                Source: {item.source}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {caseTimeline.length === 0 && (
+                <div className="rounded-md border border-slate-800 bg-slate-950 p-3 text-xs text-slate-500">
+                  No timeline events available.
+                </div>
+              )}
+            </CaseCollapsibleSection>
+            <CaseCollapsibleSection
+              id="related-incidents"
+              title="Related incidents"
+              description="Linked alerts and detections associated with this investigation case."
+              icon={<ShieldAlert className="h-3.5 w-3.5" />}
+              open={Boolean(openSections["related-incidents"])}
+              onOpenChange={(open) => setCaseSectionOpen("related-incidents", open)}
+            >
+
+              {incidents.length === 0 && (
+                <div className="rounded-md border border-slate-800 bg-slate-950 p-3 text-xs text-slate-500">
+                  No incidents linked to this case.
+                </div>
+              )}
+
+              {incidents.length > 0 && (
+                <div>
+                  <div className="mb-2 flex flex-col gap-3 rounded-md border border-slate-800 bg-slate-950 p-3 md:flex-row md:items-center md:justify-between">
+                    <div className="text-xs text-slate-300">
+                      {relatedIncidentsExpanded ? (
+                        <>Showing all {incidents.length} linked incidents.</>
+                      ) : (
+                        <>
+                          Showing latest {visibleRelatedIncidents.length} of {incidents.length} linked incidents.
+                          {hiddenRelatedIncidents > 0 && (
+                            <> {hiddenRelatedIncidents} older incidents are hidden.</>
+                          )}
+                        </>
+                      )}
+                    </div>
+
+                    {incidents.length > 15 && (
+                      <button
+                        onClick={() =>
+                          setRelatedIncidentsExpanded((current) => !current)
+                        }
+                        className="w-fit rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800"
+                      >
+                        {relatedIncidentsExpanded ? "Show latest only" : "Show all incidents"}
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm">
+                      <thead className="border-b border-slate-800 text-xs uppercase text-slate-500">
+                        <tr>
+                          <th className="py-3 pr-4">ID</th>
+                          <th className="py-3 pr-4">Status</th>
+                          <th className="py-3 pr-4">Time</th>
+                          <th className="py-3 pr-4">Rule</th>
+                          <th className="py-3 pr-4">Level</th>
+                          <th className="py-3 pr-4">Risk</th>
+                          <th className="py-3 pr-4">Priority</th>
+                        </tr>
+                      </thead>
+
+                      <tbody>
+                        {visibleRelatedIncidents.map((incident) => (
+                          <tr
+                            key={incident.id}
+                            className="border-b border-slate-800/70"
+                          >
+                            <td className="py-3 pr-4">
+                              <Link
+                                href={`/incidents/${incident.id}`}
+                                className="text-cyan-300 hover:text-cyan-200"
+                              >
+                                #{incident.id}
+                              </Link>
+                            </td>
+
+                            <td className="py-3 pr-4">
+                              <span
+                                className={`rounded-full border px-2 py-0.5 text-[11px] ${statusClass(
+                                  incident.status
+                                )}`}
+                              >
+                                {incident.status ?? "NEW"}
+                              </span>
+                            </td>
+
+                            <td className="py-3 pr-4 text-slate-400">
+                              {incident.timestamp_local ??
+                                formatTimestamp(incident.timestamp)}
+                            </td>
+
+                            <td className="max-w-xl py-3 pr-4 text-slate-300">
+                              {incident.rule ?? "-"}
+                            </td>
+
+                            <td className="py-3 pr-4">{incident.level ?? 0}</td>
+
+                            <td className="py-3 pr-4">
+                              {incident.risk_score ?? 0}
+                            </td>
+
+                            <td className="py-3 pr-4 text-slate-400">
+                              {incident.recommended_priority ?? "-"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </CaseCollapsibleSection>
+            <CaseCollapsibleSection
+              id="case-investigation-graph"
+              title="Investigation Graph"
+              description="Read-only relationship view across linked incidents, alerts, entities, timeline and AI context."
+              icon={<Network className="h-3.5 w-3.5" />}
+              open={Boolean(openSections["case-investigation-graph"])}
+              onOpenChange={(open) => setCaseSectionOpen("case-investigation-graph", open)}
+            >
+              <InvestigationGraph scope="case" scopeId={caseData.id} />
+            </CaseCollapsibleSection>
+            <CaseCollapsibleSection
+              id="case-governed-remediation"
+              title="Governed Remediation"
+              description="Create, review, approve and convert remediation proposals linked to this case."
+              icon={<ShieldCheck className="h-3.5 w-3.5" />}
+              open={Boolean(openSections["case-governed-remediation"])}
+              onOpenChange={(open) => setCaseSectionOpen("case-governed-remediation", open)}
+            >
+              <GovernedRemediationPanel
+                scope="case"
+                caseId={caseData.id}
+                currentUser={currentUser}
+                canOperate={canOperate}
+                aiRecommendations={governedRecommendations}
+                onChanged={loadCase}
+              />
+            </CaseCollapsibleSection>
+            <CaseCollapsibleSection
+              id="case-closure-checklist"
+              title="Case closure checklist"
+              description="Document the minimum evidence required before closing or marking the case as false positive."
+              icon={<ShieldCheck className="h-3.5 w-3.5" />}
+              open={Boolean(openSections["case-closure-checklist"])}
+              onOpenChange={(open) => setCaseSectionOpen("case-closure-checklist", open)}
+            >
 
               {caseClosure && !caseClosure.ready_to_close && (
                 <div className="mb-3 rounded-md border border-orange-800 bg-orange-950/50 p-4">
@@ -3171,245 +3446,148 @@ export default function CaseDetailPage() {
                   {savingClosureChecklist ? "Saving..." : "Save closure checklist"}
                 </button>
               </div>
-            </section>
+            </CaseCollapsibleSection>
+            <CaseCollapsibleSection
+              id="case-audit"
+              title="Case workflow audit"
+              description="Chronological audit events for workflow updates, actions and closure checklist changes."
+              icon={<ShieldAlert className="h-3.5 w-3.5" />}
+              open={Boolean(openSections["case-audit"])}
+              onOpenChange={(open) => setCaseSectionOpen("case-audit", open)}
+            >
 
-            <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-lg">
-              <div className="mb-2 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <h2 className="text-sm font-semibold">Case status</h2>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Current grouped investigation status and severity.
-                  </p>
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  <span
-                    className={`rounded-full border px-3 py-1.5 text-xs ${statusClass(
-                      caseData.status
-                    )}`}
-                  >
-                    {caseData.status ?? "OPEN"}
-                  </span>
-
-                  <span
-                    className={`rounded-full border px-3 py-1.5 text-xs ${severityClass(
-                      caseData.severity
-                    )}`}
-                  >
-                    {caseData.severity ?? "LOW"} · {caseData.risk_score ?? 0}
-                  </span>
-                </div>
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-2">
-                <DetailRow
-                  label="Correlation type"
-                  value={caseData.correlation_type ?? "-"}
-                />
-                <DetailRow label="Group key" value={caseData.group_key} />
-                <DetailRow
-                  label="Created"
-                  value={formatTimestamp(caseData.created_at)}
-                />
-                <DetailRow
-                  label="Created by"
-                  value={caseData.created_by ?? "system"}
-                />
-              </div>
-            </section>
-
-            <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-lg">
-              <div className="mb-2 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <h2 className="text-sm font-semibold">Case AI analysis</h2>
-                  <p className="mt-1 text-xs text-slate-500">
-                    LLM-generated investigation summary, risk interpretation and recommended next actions.
-                  </p>
-                </div>
-
-                {canOperate && (
-                <button
-                  onClick={handleGenerateAnalysis}
-                  disabled={generatingAnalysis}
-                  className="rounded-md border border-cyan-500 bg-cyan-500 px-3 py-1.5 text-xs font-medium text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {generatingAnalysis ? "Generating..." : caseAnalysis ? "Regenerate AI analysis" : "Generate AI analysis"}
-                </button>
-                )}
-              </div>
-
-              {!caseAnalysis ? (
+              {auditTrail.length === 0 && (
                 <div className="rounded-md border border-slate-800 bg-slate-950 p-3 text-xs text-slate-500">
-                  No AI analysis available yet for this case.
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <div className="grid gap-3 md:grid-cols-3">
-                    <DetailRow label="Model" value={caseAnalysis.model ?? "-"} />
-                    <DetailRow
-                      label="Recommended status"
-                      value={caseAnalysis.recommended_status ?? "-"}
-                    />
-                    <DetailRow
-                      label="Recommended severity"
-                      value={caseAnalysis.recommended_severity ?? "-"}
-                    />
-                  </div>
-
-                  <div className="text-xs text-slate-500">
-                    Generated {formatTimestamp(caseAnalysis.created_at)} by{" "}
-                    {caseAnalysis.created_by ?? "llm"}
-                  </div>
-
-                  <CaseAiAnalysisBoundary
-                    resetKey={caseAnalysis.id}
-                    fallback={<CaseAiAnalysisFallback analysis={caseAnalysis.analysis} />}
-                  >
-                    <EnterpriseCaseAiAnalysis caseAnalysis={caseAnalysis} />
-                  </CaseAiAnalysisBoundary>
+                  No audit events available for this case.
                 </div>
               )}
-            </section>
 
-            <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-lg">
-              <h2 className="mb-2 text-sm font-semibold">Case summary</h2>
-
-              <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-md border border-slate-800 bg-slate-950 p-3 text-xs text-slate-300">
-                {summary || "No case summary available."}
-              </pre>
-            </section>
-
-            <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-lg" id="related-incidents">
-              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+              {auditTrail.length > 0 && (
                 <div>
-                  <div className="flex items-center gap-2">
-                    <ShieldAlert className="h-5 w-5 text-cyan-300" />
-                    <h2 className="text-sm font-semibold">Related incidents</h2>
-                  </div>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Linked alerts and detections associated with this investigation case.
-                  </p>
-
-                  {!relatedIncidentsOpen && incidents.length > 15 && (
-                    <p className="mt-2 text-xs text-slate-500">
-                      Incident list is collapsed to avoid long scrolling. Open it to review the latest linked incidents.
-                    </p>
-                  )}
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="w-fit rounded-full border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-300">
-                    {incidents.length} incidents
-                  </span>
-
-                  <button
-                    onClick={() => setRelatedIncidentsOpen((current) => !current)}
-                    className="rounded-md border border-cyan-700 bg-slate-950 px-3 py-1.5 text-xs text-cyan-200 hover:bg-slate-800"
-                  >
-                    {relatedIncidentsOpen ? "Hide related incidents" : "Show related incidents"}
-                  </button>
-                </div>
-              </div>
-
-              {relatedIncidentsOpen && incidents.length === 0 && (
-                <div className="mt-3 rounded-md border border-slate-800 bg-slate-950 p-3 text-xs text-slate-500">
-                  No incidents linked to this case.
-                </div>
-              )}
-
-              {relatedIncidentsOpen && incidents.length > 0 && (
-                <div className="mt-3">
                   <div className="mb-2 flex flex-col gap-3 rounded-md border border-slate-800 bg-slate-950 p-3 md:flex-row md:items-center md:justify-between">
                     <div className="text-xs text-slate-300">
-                      {relatedIncidentsExpanded ? (
-                        <>Showing all {incidents.length} linked incidents.</>
+                      {auditTrailExpanded ? (
+                        <>Showing all {auditTrail.length} audit events.</>
                       ) : (
                         <>
-                          Showing latest {visibleRelatedIncidents.length} of {incidents.length} linked incidents.
-                          {hiddenRelatedIncidents > 0 && (
-                            <> {hiddenRelatedIncidents} older incidents are hidden.</>
+                          Showing latest {visibleAuditTrail.length} of {auditTrail.length} audit events.
+                          {hiddenAuditEvents > 0 && (
+                            <> {hiddenAuditEvents} older audit events are hidden.</>
                           )}
                         </>
                       )}
                     </div>
 
-                    {incidents.length > 15 && (
+                    {auditTrail.length > 10 && (
                       <button
-                        onClick={() =>
-                          setRelatedIncidentsExpanded((current) => !current)
-                        }
+                        onClick={() => setAuditTrailExpanded((current) => !current)}
                         className="w-fit rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800"
                       >
-                        {relatedIncidentsExpanded ? "Show latest only" : "Show all incidents"}
+                        {auditTrailExpanded ? "Show latest only" : "Show all audit events"}
                       </button>
                     )}
                   </div>
 
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm">
-                      <thead className="border-b border-slate-800 text-xs uppercase text-slate-500">
-                        <tr>
-                          <th className="py-3 pr-4">ID</th>
-                          <th className="py-3 pr-4">Status</th>
-                          <th className="py-3 pr-4">Time</th>
-                          <th className="py-3 pr-4">Rule</th>
-                          <th className="py-3 pr-4">Level</th>
-                          <th className="py-3 pr-4">Risk</th>
-                          <th className="py-3 pr-4">Priority</th>
-                        </tr>
-                      </thead>
+                  <div className="space-y-3">
+                    {visibleAuditTrail.map((event) => (
+                      <div
+                        key={event.id}
+                        className="rounded-md border border-slate-800 bg-slate-950 p-4"
+                      >
+                        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                          <div>
+                            <div className="text-sm font-medium text-slate-100">
+                              {event.event_type}
+                            </div>
+                            <div className="mt-1 text-xs text-slate-500">
+                              Created by {event.created_by ?? "-"}
+                            </div>
+                          </div>
 
-                      <tbody>
-                        {visibleRelatedIncidents.map((incident) => (
-                          <tr
-                            key={incident.id}
-                            className="border-b border-slate-800/70"
-                          >
-                            <td className="py-3 pr-4">
-                              <Link
-                                href={`/incidents/${incident.id}`}
-                                className="text-cyan-300 hover:text-cyan-200"
-                              >
-                                #{incident.id}
-                              </Link>
-                            </td>
+                          <div className="text-xs text-slate-500">
+                            {formatTimestamp(event.created_at)}
+                          </div>
+                        </div>
 
-                            <td className="py-3 pr-4">
-                              <span
-                                className={`rounded-full border px-2 py-0.5 text-[11px] ${statusClass(
-                                  incident.status
-                                )}`}
-                              >
-                                {incident.status ?? "NEW"}
-                              </span>
-                            </td>
+                        {event.comment && (
+                          <p className="mt-3 whitespace-pre-wrap text-xs text-slate-300">
+                            {event.comment}
+                          </p>
+                        )}
 
-                            <td className="py-3 pr-4 text-slate-400">
-                              {incident.timestamp_local ??
-                                formatTimestamp(incident.timestamp)}
-                            </td>
+                        {(event.old_value || event.new_value) && (
+                          <div className="mt-3 grid gap-3 md:grid-cols-2">
+                            <div className="rounded-lg border border-slate-800 bg-slate-900 p-3">
+                              <div className="mb-1 text-xs uppercase tracking-wide text-slate-500">
+                                Old value
+                              </div>
+                              <pre className="max-h-48 overflow-auto whitespace-pre-wrap text-xs text-slate-400">
+                                {event.old_value ?? "-"}
+                              </pre>
+                            </div>
 
-                            <td className="max-w-xl py-3 pr-4 text-slate-300">
-                              {incident.rule ?? "-"}
-                            </td>
-
-                            <td className="py-3 pr-4">{incident.level ?? 0}</td>
-
-                            <td className="py-3 pr-4">
-                              {incident.risk_score ?? 0}
-                            </td>
-
-                            <td className="py-3 pr-4 text-slate-400">
-                              {incident.recommended_priority ?? "-"}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                            <div className="rounded-lg border border-slate-800 bg-slate-900 p-3">
+                              <div className="mb-1 text-xs uppercase tracking-wide text-slate-500">
+                                New value
+                              </div>
+                              <pre className="max-h-48 overflow-auto whitespace-pre-wrap text-xs text-slate-400">
+                                {event.new_value ?? "-"}
+                              </pre>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
-            </section>
+            </CaseCollapsibleSection>
+            <CaseCollapsibleSection
+              id="reports-center"
+              title="Reports Center"
+              description="Export executive, analyst and machine-readable reports for this case."
+              icon={<FileText className="h-3.5 w-3.5" />}
+              open={Boolean(openSections["reports-center"])}
+              onOpenChange={(open) => setCaseSectionOpen("reports-center", open)}
+            >
+              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                <ReportDownloadCard
+                  title="Executive PDF"
+                  description="Board-ready PDF with summary, risk, actions and closure readiness."
+                  href={`/reports/cases/${caseId}/executive-pdf`}
+                  fallbackFilename={`case-${caseReportId}-executive-ai-soc-report.pdf`}
+                  format="PDF"
+                  tone="executive"
+                />
+
+                <ReportDownloadCard
+                  title="Analyst Evidence Pack"
+                  description="Evidence package with alerts, actions, audit trail and closure evidence."
+                  href={`/reports/cases/${caseId}/evidence-pack?format=markdown`}
+                  fallbackFilename={`case-${caseReportId}-evidence-pack.md`}
+                  format="MD"
+                  tone="evidence"
+                />
+
+                <ReportDownloadCard
+                  title="Markdown Case Report"
+                  description="Readable case report for review, notes, ticketing and documentation."
+                  href={`/reports/cases/${caseId}?format=markdown`}
+                  fallbackFilename={`case-${caseReportId}-enterprise-report.md`}
+                  format="MD"
+                  tone="standard"
+                />
+
+                <ReportDownloadCard
+                  title="JSON Case Payload"
+                  description="Structured export for automation, integrations and downstream processing."
+                  href={`/reports/cases/${caseId}?format=json`}
+                  fallbackFilename={`case-${caseReportId}-enterprise-report.json`}
+                  format="JSON"
+                  tone="json"
+                />
+              </div>
+            </CaseCollapsibleSection>
 
           </div>
         )}
@@ -3429,6 +3607,8 @@ function CaseQuickActions({
   closureReady,
   hasAIAnalysis,
   quickActionRunning,
+  generatingAnalysis,
+  generatingSuggestions,
   onAction,
 }: {
   caseData: IncidentCase;
@@ -3437,6 +3617,8 @@ function CaseQuickActions({
   closureReady: boolean;
   hasAIAnalysis: boolean;
   quickActionRunning: string | null;
+  generatingAnalysis: boolean;
+  generatingSuggestions: boolean;
   onAction: (
     action:
       | "ASSIGN_TO_ME"
@@ -3466,7 +3648,7 @@ function CaseQuickActions({
         </span>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8">
         <QuickActionButton
           title="Assign to me"
           description="Take ownership as the signed-in user."
@@ -3503,7 +3685,7 @@ function CaseQuickActions({
               : "Create the first AI assessment for this case."
           }
           action="GENERATE_AI_ANALYSIS"
-          running={quickActionRunning}
+          running={quickActionRunning ?? (generatingAnalysis ? "GENERATE_AI_ANALYSIS" : null)}
           disabled={false}
           onAction={onAction}
         />
@@ -3512,7 +3694,7 @@ function CaseQuickActions({
           title="Generate AI action plan"
           description="Suggest analyst tasks from the current case evidence."
           action="GENERATE_AI_ACTION_PLAN"
-          running={quickActionRunning}
+          running={quickActionRunning ?? (generatingSuggestions ? "GENERATE_AI_ACTION_PLAN" : null)}
           disabled={isTerminal}
           onAction={onAction}
         />
@@ -3541,12 +3723,12 @@ function CaseQuickActions({
           onAction={onAction}
         />
 
-        <div className="rounded-md border border-slate-800 bg-slate-950 p-4">
-          <div className="text-sm font-medium text-slate-200">Current blockers</div>
-          <div className="mt-2 space-y-1 text-xs leading-5 text-slate-500">
-            <div>Actions: {actionCount} total · {openActionCount} open</div>
-            <div>AI analysis: {hasAIAnalysis ? "available" : "missing"}</div>
-            <div>Closure: {closureReady ? "ready" : "blocked"}</div>
+        <div className="flex min-h-20 flex-col justify-between rounded-md border border-slate-800 bg-slate-950 p-2.5">
+          <div className="truncate text-xs font-semibold text-slate-200">Current blockers</div>
+          <div className="mt-1 space-y-0.5 text-[11px] leading-4 text-slate-500">
+            <div className="truncate">Actions: {actionCount} total · {openActionCount} open</div>
+            <div className="truncate">AI: {hasAIAnalysis ? "available" : "missing"}</div>
+            <div className="truncate">Closure: {closureReady ? "ready" : "blocked"}</div>
           </div>
         </div>
       </div>
@@ -3603,117 +3785,20 @@ function QuickActionButton({
       type="button"
       onClick={() => onAction(action)}
       disabled={disabled || isAnyRunning}
-      className={`rounded-md border p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-40 ${className}`}
+      className={`flex min-h-20 flex-col justify-between rounded-md border p-2.5 text-left transition disabled:cursor-not-allowed disabled:opacity-40 ${className}`}
     >
-      <div className="text-sm font-medium">
-        {isRunning ? "Working..." : title}
+      <div className="flex items-center gap-1.5 truncate text-xs font-semibold">
+        {isRunning && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />}
+        <span className="truncate">{isRunning ? "Working..." : title}</span>
       </div>
       <div
-        className={`mt-2 text-xs leading-5 ${
+        className={`mt-1 line-clamp-2 text-[11px] leading-4 ${
           success ? "text-slate-800" : danger ? "text-red-300" : "text-slate-500"
         }`}
       >
         {description}
       </div>
     </button>
-  );
-}
-
-function DetailRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: string | number | null | undefined;
-}) {
-  return (
-    <div className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2">
-      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-        {label}
-      </div>
-      <div className="min-w-0 truncate text-xs font-medium text-slate-200">
-        {value ?? "-"}
-      </div>
-    </div>
-  );
-}
-
-function CaseFocusMode({
-  value,
-  onChange,
-}: {
-  value: CaseSectionFocus;
-  onChange: (value: CaseSectionFocus) => void;
-}) {
-  const modes: {
-    value: CaseSectionFocus;
-    label: string;
-    description: string;
-  }[] = [
-    {
-      value: "ALL",
-      label: "All sections",
-      description: "Show the full case detail page.",
-    },
-    {
-      value: "OVERVIEW",
-      label: "Overview",
-      description: "Summary, reports and AI analysis.",
-    },
-    {
-      value: "WORKBENCH",
-      label: "Analyst workbench",
-      description: "Workflow, actions, closure and AI analysis.",
-    },
-    {
-      value: "EVIDENCE",
-      label: "Evidence review",
-      description: "Timeline, audit trail, related incidents and evidence.",
-    },
-    {
-      value: "REPORTS",
-      label: "Reports",
-      description: "Exports, executive report and machine-readable payload.",
-    },
-  ];
-
-  const activeMode = modes.find((mode) => mode.value === value) ?? modes[0];
-
-  return (
-    <section className="rounded-xl border border-slate-800 bg-slate-900/80 p-3 shadow-lg">
-      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-300">
-              Focus mode
-            </h2>
-            <span className="rounded-full border border-cyan-800 bg-cyan-950/70 px-2 py-0.5 text-[10px] text-cyan-200">
-              {activeMode.label}
-            </span>
-          </div>
-          <p className="mt-1 text-[11px] text-slate-500">
-            Collapse non-relevant sections and keep the current analyst workflow in focus.
-          </p>
-        </div>
-
-        <div className="grid w-full grid-cols-2 gap-1.5 sm:grid-cols-5 lg:w-auto lg:min-w-[36rem]">
-          {modes.map((mode) => (
-            <button
-              key={mode.value}
-              onClick={() => onChange(mode.value)}
-              title={mode.description}
-              className={`flex h-7 min-w-0 items-center justify-center rounded-md border px-2 text-center text-[11px] font-medium transition ${
-                value === mode.value
-                  ? "border-cyan-400 bg-cyan-500 text-slate-950"
-                  : "border-slate-800 bg-slate-950 text-slate-300 hover:border-cyan-800 hover:bg-slate-800 hover:text-cyan-200"
-              }`}
-            >
-              <span className="truncate">{mode.label}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-    </section>
   );
 }
 
@@ -3757,7 +3842,7 @@ function CaseCommandCenter({
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
         <CommandMetric
           title="Owner"
           value={caseData.owner ?? "unassigned"}
@@ -3798,22 +3883,6 @@ function CaseCommandCenter({
         />
       </div>
 
-      <div className="mt-3 rounded-md border border-slate-800 bg-slate-950 p-4">
-        <div className="mb-3 text-xs uppercase tracking-wide text-slate-500">
-          Quick navigation
-        </div>
-
-        <div className="mt-2 grid gap-1.5 sm:grid-cols-4 xl:grid-cols-8">
-          <QuickAnchor href="#reports-center" label="Reports" />
-          <QuickAnchor href="#case-workflow" label="Workflow" />
-          <QuickAnchor href="#case-action-plan" label="Actions" />
-          <QuickAnchor href="#case-closure-checklist" label="Closure" />
-          <QuickAnchor href="#case-ai-analysis" label="AI analysis" />
-          <QuickAnchor href="#case-timeline" label="Timeline" />
-          <QuickAnchor href="#case-audit" label="Audit" />
-          <QuickAnchor href="#related-incidents" label="Incidents" />
-        </div>
-      </div>
     </section>
   );
 }
@@ -3846,35 +3915,23 @@ function CommandMetric({
         : "text-slate-400";
 
   return (
-    <div className={`flex h-20 min-w-0 flex-col justify-between rounded-lg border px-3 py-2 ${toneClass}`}>
+    <div className={`flex h-14 min-w-0 items-center justify-between gap-3 rounded-md border px-2.5 py-2 ${toneClass}`}>
+      <div className="min-w-0">
+        <div className="truncate text-[10px] uppercase tracking-wide text-slate-500">{title}</div>
+        <div className="truncate text-sm font-semibold text-slate-100">
+          {value}
+        </div>
+        <div className="truncate text-[10px] leading-3 text-slate-500">
+          {description}
+        </div>
+      </div>
       <div className="flex items-center justify-between gap-2">
-        <div className="truncate text-[11px] text-slate-500">{title}</div>
         {icon === "check" && <CheckCircle2 className={`h-3.5 w-3.5 shrink-0 ${iconClass}`} />}
         {icon === "warning" && <AlertTriangle className={`h-3.5 w-3.5 shrink-0 ${iconClass}`} />}
         {icon === "progress" && <CircleDashed className={`h-3.5 w-3.5 shrink-0 ${iconClass}`} />}
         {icon === "bot" && <Bot className={`h-3.5 w-3.5 shrink-0 ${iconClass}`} />}
       </div>
-
-      <div className="truncate text-base font-semibold text-slate-100">
-        {value}
-      </div>
-
-      <div className="truncate text-[11px] text-slate-500">
-        {description}
-      </div>
     </div>
-  );
-}
-
-function QuickAnchor({ href, label }: { href: string; label: string }) {
-  return (
-    <a
-      href={href}
-      title={label}
-      className="flex h-7 w-full min-w-0 items-center justify-center rounded-md border border-slate-800 bg-slate-950 px-2 text-center text-[11px] font-medium text-slate-300 transition hover:border-cyan-700 hover:bg-slate-800 hover:text-cyan-200"
-    >
-      <span className="min-w-0 truncate">{label}</span>
-    </a>
   );
 }
 
@@ -3912,27 +3969,27 @@ function ReportDownloadCard({
           : "border-cyan-700 bg-cyan-500 text-slate-950 hover:bg-cyan-400";
 
   return (
-    <div className={`flex h-full flex-col rounded-md border p-3 ${toneClass}`}>
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-semibold text-slate-100">{title}</h3>
-          <p className="mt-2 text-sm leading-6 text-slate-400">
+    <div className={`flex h-full min-h-28 flex-col rounded-md border p-2.5 ${toneClass}`}>
+      <div className="mb-2 flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h3 className="truncate text-xs font-semibold text-slate-100">{title}</h3>
+          <p className="mt-1 text-[11px] leading-4 text-slate-400">
             {description}
           </p>
         </div>
 
-        <span className="shrink-0 rounded-full border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-300">
+        <span className="shrink-0 rounded-full border border-slate-700 bg-slate-950 px-1.5 py-0.5 text-[10px] text-slate-300">
           {format}
         </span>
       </div>
 
-      <div className="mt-auto pt-3">
+      <div className="mt-auto pt-2">
         <button
           type="button"
           onClick={() =>
             downloadBackendFile(href, fallbackFilename).catch((error) => alert(error.message))
           }
-          className={`inline-flex w-full items-center justify-center gap-2 rounded-md border px-3 py-1.5 text-xs font-medium shadow-sm ${buttonClass}`}
+          className={`inline-flex h-7 w-full items-center justify-center gap-2 rounded-md border px-2 text-[11px] font-medium shadow-sm ${buttonClass}`}
         >
           Download
         </button>

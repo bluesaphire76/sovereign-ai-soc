@@ -2,12 +2,19 @@ from datetime import datetime, timedelta, timezone
 import json
 import uuid
 import re
-from fastapi import FastAPI, HTTPException, Query, Response, Depends, Header, Request
+from fastapi import FastAPI, HTTPException, Query, Response, Depends, Header, Request, BackgroundTasks
 from sqlalchemy import func, or_, case as sql_case
 
 from database import SessionLocal
 from case_ai_analysis import generate_case_ai_analysis
 from case_action_suggestions import generate_case_action_suggestions
+from case_ai_generation_jobs import (
+    create_or_get_running_generation_job,
+    get_generation_job,
+    get_latest_generation_job,
+    run_case_generation_job,
+    serialize_generation_job,
+)
 from case_timeline import build_case_timeline
 from models import Incident, IncidentAudit, IncidentNote, IncidentCase, CaseIncident, CaseAIAnalysis, CaseAudit, CaseAction, CaseClosureChecklist, AppUser, SecurityAuditEvent, RawEvent, SecurityAlert, EventAggregate, utc_now
 from timezone_utils import APP_TIMEZONE, format_timestamp_local, normalize_timestamp_utc
@@ -478,6 +485,9 @@ RBAC_RULES: list[tuple[str, str, set[str]]] = [
     ("POST", r"^/cases/\d+/actions$", OPERATOR_ROLES),
     ("PATCH", r"^/cases/\d+/actions/\d+$", OPERATOR_ROLES),
     ("GET", r"^/cases/\d+/incidents$", ALL_ROLES),
+    ("POST", r"^/cases/\d+/ai-generation/(analysis|action-suggestions)$", OPERATOR_ROLES),
+    ("GET", r"^/cases/\d+/ai-generation/(analysis|action-suggestions)/latest$", ALL_ROLES),
+    ("GET", r"^/cases/\d+/ai-generation/jobs/[^/]+$", ALL_ROLES),
     ("GET", r"^/cases/\d+/analysis$", ALL_ROLES),
     ("POST", r"^/cases/\d+/analysis$", OPERATOR_ROLES),
     ("GET", r"^/network-events$", ALL_ROLES),
@@ -3403,6 +3413,116 @@ def suggest_case_action_plan(case_id: int, request: Request):
             status_code=500,
             detail="Failed to generate case action suggestions.",
         )
+
+
+def run_case_generation_job_with_audit(job_id: str, current_user: dict | None = None):
+    result = run_case_generation_job(job_id)
+
+    if not result:
+        return
+
+    status = result.get("status")
+    write_security_audit(
+        event_type="CASE_AI_GENERATION_JOB_COMPLETED",
+        outcome="SUCCESS" if status == "SUCCESS" else "FAILURE",
+        current_user=current_user,
+        target_type="CASE",
+        target_id=result.get("case_id"),
+        details={
+            "job_id": result.get("job_id"),
+            "job_type": result.get("job_type"),
+            "status": status,
+            "result_reference_id": result.get("result_reference_id"),
+            "error": result.get("error"),
+        },
+    )
+
+
+@app.post("/cases/{case_id}/ai-generation/{job_type}")
+def start_case_ai_generation_job(
+    case_id: int,
+    job_type: str,
+    background_tasks: BackgroundTasks,
+    request: Request,
+):
+    db = SessionLocal()
+    current_user = security_audit_actor(request)
+
+    try:
+        job, created = create_or_get_running_generation_job(
+            db,
+            case_id=case_id,
+            job_type=job_type,
+            current_user=current_user,
+        )
+        payload = serialize_generation_job(job)
+
+        if created:
+            background_tasks.add_task(
+                run_case_generation_job_with_audit,
+                payload["job_id"],
+                current_user,
+            )
+
+        write_security_audit(
+            event_type="CASE_AI_GENERATION_JOB_STARTED" if created else "CASE_AI_GENERATION_JOB_REUSED",
+            outcome="SUCCESS",
+            current_user=current_user,
+            target_type="CASE",
+            target_id=case_id,
+            request=request,
+            details={
+                "job_id": payload["job_id"],
+                "job_type": payload["job_type"],
+                "status": payload["status"],
+            },
+        )
+
+        return payload
+
+    except ValueError as exc:
+        if "Unsupported" in str(exc):
+            raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=404, detail="Resource not found.")
+
+    finally:
+        db.close()
+
+
+@app.get("/cases/{case_id}/ai-generation/{job_type}/latest")
+def get_latest_case_ai_generation_job(case_id: int, job_type: str):
+    db = SessionLocal()
+
+    try:
+        job = get_latest_generation_job(db, case_id=case_id, job_type=job_type)
+        return {"item": serialize_generation_job(job) if job else None}
+
+    except ValueError as exc:
+        if "Unsupported" in str(exc):
+            raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=404, detail="Resource not found.")
+
+    finally:
+        db.close()
+
+
+@app.get("/cases/{case_id}/ai-generation/jobs/{job_id}")
+def get_case_ai_generation_job(case_id: int, job_id: str):
+    db = SessionLocal()
+
+    try:
+        job = get_generation_job(db, case_id=case_id, job_id=job_id)
+
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found.")
+
+        return serialize_generation_job(job)
+
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Resource not found.")
+
+    finally:
+        db.close()
 
 
 @app.get("/cases/{case_id}/timeline")
