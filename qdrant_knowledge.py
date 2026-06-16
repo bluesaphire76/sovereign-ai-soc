@@ -211,6 +211,23 @@ def _payload_source_type(payload: dict[str, Any]) -> str:
     return "unknown"
 
 
+def _source_type_query_filter(source_type: str | None) -> Any | None:
+    source_type_text = safe_text(source_type)
+    if not source_type_text:
+        return None
+
+    from qdrant_client.models import FieldCondition, Filter, MatchValue
+
+    return Filter(
+        must=[
+            FieldCondition(
+                key="source_type",
+                match=MatchValue(value=source_type_text),
+            )
+        ]
+    )
+
+
 class QdrantKnowledgeBase:
     def __init__(
         self,
@@ -359,7 +376,14 @@ class QdrantKnowledgeBase:
             "indexed_points": len(points),
         }
 
-    def retrieve_contexts(self, query: str, *, limit: int | None = None) -> list[dict[str, Any]]:
+    def retrieve_contexts(
+        self,
+        query: str,
+        *,
+        limit: int | None = None,
+        source_type: str | None = None,
+        payload_fields: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
         if not self.config.enabled:
             return []
 
@@ -372,11 +396,14 @@ class QdrantKnowledgeBase:
         results = self.client.query_points(
             collection_name=self.config.collection_name,
             query=vector,
+            query_filter=_source_type_query_filter(source_type),
             limit=resolved_limit,
             with_payload=True,
         )
 
         contexts: list[dict[str, Any]] = []
+        requested_payload_fields = payload_fields or []
+
         for point in getattr(results, "points", []):
             score = getattr(point, "score", None)
             if self.config.score_threshold is not None and score is not None:
@@ -384,17 +411,21 @@ class QdrantKnowledgeBase:
                     continue
 
             payload = getattr(point, "payload", None) or {}
-            contexts.append(
-                {
-                    "id": str(getattr(point, "id", "")),
-                    "source_type": _payload_source_type(payload),
-                    "source": payload.get("source"),
-                    "text": payload.get("text"),
-                    "chunk_index": payload.get("chunk_index"),
-                    "score": score,
-                    "collection": self.config.collection_name,
-                }
-            )
+            context = {
+                "id": str(getattr(point, "id", "")),
+                "source_type": _payload_source_type(payload),
+                "source": payload.get("source"),
+                "text": payload.get("text"),
+                "chunk_index": payload.get("chunk_index"),
+                "score": score,
+                "collection": self.config.collection_name,
+            }
+
+            for field in requested_payload_fields:
+                if field not in context:
+                    context[field] = payload.get(field)
+
+            contexts.append(context)
 
         return contexts
 
