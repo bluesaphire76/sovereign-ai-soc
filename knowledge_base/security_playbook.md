@@ -1,142 +1,238 @@
-# Security Playbook Base
+# AI SOC Security Knowledge Base
 
-## SSH brute force
-Indicatori:
-- molteplici login falliti
-- invalid user
-- failed password
-- tentativi da IP esterni
+This knowledge base provides local SOC playbook context for Qdrant-backed semantic retrieval and RAG-enabled AI workflows.
 
-Azioni consigliate:
-- verificare login riusciti dopo i fallimenti
-- bloccare IP sorgente se confermato malevolo
-- disabilitare root login via SSH
-- abilitare MFA dove possibile
-- applicare rate limiting o fail2ban
-- controllare utenti privilegiati
+Qdrant is used only as a semantic memory and decision-support layer. It must not be used as the primary source for severity decisions, operational deduplication, automatic noise suppression, incident closure or replacement of deterministic correlation rules.
 
-MITRE ATT&CK:
-- T1110 Brute Force
-- T1078 Valid Accounts
+---
 
-## Privilege escalation via sudo
-Indicatori:
-- uso anomalo di sudo
-- comandi eseguiti come root
-- escalation dopo login sospetto
+## SSH Brute Force Investigation Playbook
 
-Azioni consigliate:
-- verificare utente
-- controllare comandi eseguiti
-- revisionare sudoers
-- controllare sessioni recenti
-- validare attività con owner del sistema
+Use this playbook when an incident shows repeated failed SSH authentication attempts, suspicious login activity or brute-force indicators.
 
-MITRE ATT&CK:
-- T1548 Abuse Elevation Control Mechanism
+Typical indicators:
 
-## Suspicious PowerShell execution
-Indicatori:
-- PowerShell con parametri encodedcommand o bypass
-- download di script da URL esterni
-- esecuzione da percorsi temporanei o profili utente
-- child process anomali da Office, browser o interpreti script
+- multiple failed SSH login attempts from the same source IP;
+- failed login attempts against privileged or common usernames;
+- authentication failures followed by a successful login;
+- repeated access attempts across a short time window;
+- source IP not previously observed in the environment.
 
-Azioni consigliate:
-- recuperare command line completa e parent process
-- verificare hash e percorso dello script
-- controllare connessioni di rete vicine all'esecuzione
-- validare se l'attivita e stata pianificata da amministratori
-- isolare l'host solo dopo conferma analyst e impatto business
+Analyst checks:
 
-MITRE ATT&CK:
-- T1059.001 PowerShell
-- T1105 Ingress Tool Transfer
+1. Review the source IP address and determine whether it is internal, external, known or expected.
+2. Check whether any successful authentication happened after the failed attempts.
+3. Identify the targeted user accounts.
+4. Review the affected host for privilege escalation, sudo activity or new processes after the login window.
+5. Check whether similar SSH brute force incidents were observed previously.
+6. Decide whether the incident is a true positive, benign scanner activity or an approved test.
 
-## Wazuh agent stopped or disconnected
-Indicatori:
-- agent disconnected o stopped
-- assenza improvvisa di eventi da host critico
-- service restart non pianificato
-- heartbeat worker o source freshness degradati
+Recommended response:
 
-Azioni consigliate:
-- verificare stato del servizio Wazuh agent sull'host
-- controllare manutenzioni pianificate o reboot
-- confrontare ultimo evento, ultimo heartbeat e finestra di ingest
-- validare con owner del sistema prima di trattarlo come evasione
-- aprire follow-up se l'host resta cieco oltre la soglia operativa
+- increase monitoring on the affected account and host;
+- rotate credentials if a successful login occurred;
+- block or restrict the source IP only after human approval;
+- open a case if there is evidence of successful access, lateral movement or privilege escalation.
 
-MITRE ATT&CK:
-- T1562 Impair Defenses
+Decision boundary:
 
-## DNS beaconing or suspicious domain lookup
-Indicatori:
-- query DNS ripetute verso domini rari o appena osservati
-- pattern periodico con intervalli regolari
-- domini con entropia elevata o sottodomini lunghi
-- query vicine a un alert host o network
+SSH brute force similarity retrieved through Qdrant is contextual support only. It must not automatically confirm compromise or determine final severity.
 
-Azioni consigliate:
-- verificare top domains, client IP e host associato
-- correlare con Suricata flow, HTTP o TLS nello stesso intervallo
-- controllare se il dominio appartiene a servizi aziendali noti
-- non inferire causalita senza evidenza di connessione o payload
-- conservare dominio, client IP e finestra temporale nel case
+---
 
-MITRE ATT&CK:
-- T1071.004 DNS
+## Sudo Privilege Escalation Review Playbook
 
-## Suricata high severity IDS alert
-Indicatori:
-- alert Suricata ad alta severita
-- signature associata a exploit, C2 o malware
-- flussi ripetuti tra stesso host e destinazione
-- match temporale con Wazuh, DNS o incidente correlato
+Use this playbook when an incident includes suspicious sudo activity, privilege escalation indicators or unexpected administrative commands.
 
-Azioni consigliate:
-- leggere signature, category, src/dst IP, porta e protocollo
-- verificare se ci sono eventi Wazuh sullo stesso host
-- distinguere alert IDS da prova di compromissione
-- cercare flow, TLS SNI, HTTP host e DNS query correlate
-- escalare solo se piu sorgenti supportano la stessa ipotesi
+Typical indicators:
 
-MITRE ATT&CK:
-- T1041 Exfiltration Over C2 Channel
-- T1071 Application Layer Protocol
+- sudo command executed by a non-standard user;
+- sudo activity outside normal maintenance windows;
+- package installation or service modification after sudo;
+- privilege escalation after authentication anomalies;
+- repeated sudo attempts or denied sudo usage.
 
-## Suspicious package or software installation
-Indicatori:
-- installazione pacchetti fuori finestra manutentiva
-- nuovi binari in percorsi non standard
-- package manager eseguito da account inatteso
-- installazione vicina a escalation sudo o login sospetto
+Analyst checks:
 
-Azioni consigliate:
-- identificare pacchetto, versione, repository e utente
-- verificare ticket, change request o attivita amministrativa
-- controllare processi avviati dopo l'installazione
-- confrontare hash e path con baseline aziendale
-- se non autorizzato, pianificare containment con approvazione
+1. Identify the user, host, command and timestamp.
+2. Verify whether the activity matches an approved maintenance or operational task.
+3. Review preceding authentication activity.
+4. Review following process, package, service or file changes.
+5. Check whether the user normally performs administrative operations.
+6. Compare with similar historical incidents or known false-positive patterns.
 
-MITRE ATT&CK:
-- T1105 Ingress Tool Transfer
-- T1547 Boot or Logon Autostart Execution
+Recommended response:
 
-## Multiple failed logins followed by success
-Indicatori:
-- molteplici fallimenti di autenticazione
-- login riuscito dallo stesso utente, host o IP dopo i fallimenti
-- source IP esterno o non usuale
-- accesso seguito da sudo, shell interattiva o modifica file
+- document whether the sudo action was authorized;
+- create a case action if ownership or approval is unclear;
+- escalate if sudo activity follows suspicious login activity;
+- consider detection tuning only if the event is confirmed as recurring operational noise.
 
-Azioni consigliate:
-- verificare successful login dopo la sequenza di fallimenti
-- controllare geolocalizzazione, ASN e reputazione IP
-- confrontare con storico utente e orario normale di lavoro
-- controllare comandi, sessioni e processi successivi al login
-- richiedere reset credenziali o MFA step-up se confermato rischio
+Decision boundary:
 
-MITRE ATT&CK:
-- T1110 Brute Force
-- T1078 Valid Accounts
+Qdrant may retrieve similar sudo cases or procedures, but final classification must remain analyst-led and supported by deterministic evidence.
+
+---
+
+## Suricata Suspicious DNS Investigation Playbook
+
+Use this playbook when Suricata or network telemetry reports suspicious DNS activity, unusual domains, DNS tunneling indicators or suspicious name resolution patterns.
+
+Typical indicators:
+
+- unusual DNS query volume;
+- long or random-looking domain names;
+- DNS queries associated with threat intelligence;
+- repeated failed lookups for suspicious domains;
+- DNS activity without clear endpoint compromise evidence;
+- Suricata alerts correlated with DNS telemetry.
+
+Analyst checks:
+
+1. Identify source host, queried domain, timestamp and alert signature.
+2. Review whether the domain is internal, approved, known SaaS or external.
+3. Check whether endpoint telemetry shows compromise, malware, suspicious process execution or persistence.
+4. Review related network events around the DNS activity.
+5. Search for similar historical Suricata or DNS incidents.
+6. Determine whether the activity is malicious, suspicious but unconfirmed, benign, or a false positive.
+
+Recommended response:
+
+- enrich the domain with threat intelligence if available;
+- monitor the source host for follow-up activity;
+- open a case if DNS activity correlates with endpoint compromise or repeated suspicious behavior;
+- avoid automatic containment when DNS evidence is isolated and unconfirmed.
+
+Decision boundary:
+
+Suspicious DNS context retrieved by Qdrant is not sufficient to confirm endpoint compromise. Deterministic evidence and analyst review are required.
+
+---
+
+## False Positive Case Closure Policy
+
+Use this procedure when an incident or case may be closed as a false positive.
+
+Required conditions:
+
+- the alert was reviewed by an analyst;
+- supporting evidence was checked;
+- the reason for false positive classification is documented;
+- any related detection tuning or exception is reviewed separately;
+- there is no unresolved evidence of compromise;
+- closure does not hide recurring operational risk.
+
+Recommended closure fields:
+
+- root cause;
+- reviewed evidence;
+- false-positive rationale;
+- residual risk;
+- related tuning recommendation, if applicable;
+- analyst name and review timestamp.
+
+Examples of valid false-positive reasons:
+
+- approved maintenance activity;
+- expected administrative operation;
+- known scanner or lab validation;
+- benign software update;
+- detection rule too broad but no malicious activity found.
+
+Decision boundary:
+
+Qdrant can retrieve previous false-positive examples and closure guidance, but must not automatically close incidents or cases.
+
+---
+
+## Noise Suppression and Exception Tuning Guidance
+
+Use this guidance when recurring alerts create operational noise and may require suppression, exception tuning or detection control review.
+
+Valid tuning candidates:
+
+- recurring low-value operational events;
+- known approved administrative activity;
+- repeated maintenance events;
+- noisy rules with documented business justification;
+- false positives validated through analyst review.
+
+Required checks before tuning:
+
+1. Confirm the event is recurring and low-value.
+2. Verify that the scope is narrow enough.
+3. Confirm business justification and owner.
+4. Define expiration or review date.
+5. Validate that suppression does not hide meaningful attack behavior.
+6. Keep audit history and rollback capability.
+
+Unsafe tuning examples:
+
+- broad host-wide suppression without justification;
+- user-wide suppression for privileged accounts;
+- suppression of high-severity alerts without approval;
+- automatic suppression based only on semantic similarity;
+- disabling correlation logic because a previous incident looked similar.
+
+Decision boundary:
+
+Qdrant may suggest similar suppression examples or related procedures, but Detection Control Plane validation, RBAC and human approval remain authoritative.
+
+---
+
+## Incident Similarity Review Guidance
+
+Use semantic similarity to support historical investigation, not to make final decisions.
+
+Useful similarity signals:
+
+- same host or asset group;
+- same rule or alert type;
+- similar MITRE technique;
+- similar authentication pattern;
+- similar network behavior;
+- similar analyst decision or case closure rationale.
+
+Limitations:
+
+- semantically similar incidents may have different risk;
+- similar wording does not prove same root cause;
+- historical false positives do not guarantee current benign activity;
+- similarity must be validated against deterministic evidence.
+
+Analyst use:
+
+- compare the new incident with retrieved historical context;
+- identify repeated patterns;
+- reuse relevant investigation steps;
+- check whether previous tuning exists;
+- document why the current case is similar or different.
+
+Decision boundary:
+
+Semantic similarity is context. It is not operational deduplication, final classification or severity assignment.
+
+---
+
+## Case Escalation and Closure Readiness
+
+A case should remain open when:
+
+- ownership is unclear;
+- evidence review is incomplete;
+- recommended actions are unresolved;
+- severity has not been reviewed;
+- containment or remediation status is unknown;
+- closure approval is missing.
+
+A case can move toward closure when:
+
+- evidence was reviewed;
+- root cause or false-positive rationale is documented;
+- recommended actions are completed or explicitly deferred;
+- residual risk is documented;
+- closure approval is recorded where required.
+
+Decision boundary:
+
+Qdrant may retrieve closure policy or similar cases, but case closure must remain human-approved and audit-backed.
