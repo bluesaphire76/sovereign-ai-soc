@@ -234,6 +234,29 @@ class CaseAIAnalysis(Base):
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
 
 
+class CaseAiGenerationJob(Base):
+    __tablename__ = "case_ai_generation_jobs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_id = Column(String, unique=True, index=True, nullable=False)
+    case_id = Column(Integer, ForeignKey("incident_cases.id"), index=True, nullable=False)
+
+    job_type = Column(String, index=True, nullable=False)
+    status = Column(String, index=True, nullable=False)
+
+    requested_by_user_id = Column(Integer, index=True)
+    requested_by_username = Column(String, index=True)
+
+    result_reference_id = Column(Integer, index=True)
+    result_json = Column(Text)
+    error = Column(Text)
+
+    started_at = Column(DateTime(timezone=True))
+    finished_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
 class EventAggregate(Base):
     __tablename__ = "event_aggregates"
 
