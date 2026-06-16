@@ -9,6 +9,9 @@ import { useParams, useRouter } from "next/navigation";
 import AppNavigation from "../../../components/AppNavigation";
 import IncidentTimeline from "../../../components/incidents/IncidentTimeline";
 import InvestigationGraph from "../../../components/investigation-graph/InvestigationGraph";
+import GovernedRemediationPanel, {
+  type GovernedRemediationRecommendation,
+} from "../../../components/remediation/GovernedRemediationPanel";
 import {
   Brain,
   ClipboardList,
@@ -3196,6 +3199,7 @@ function IncidentCommandCenterRefoundation({
   savingNote,
   canOperate,
   isViewer,
+  currentUser,
   aiBrief,
   aiBriefLoading,
   aiBriefError,
@@ -3233,6 +3237,7 @@ function IncidentCommandCenterRefoundation({
   onNoteDraftChange,
   onAddNote,
   onExecuteApprovedAction,
+  onGovernedRemediationChanged,
 }: {
   incident: IncidentDetail;
   auditEvents: AuditEvent[];
@@ -3241,6 +3246,7 @@ function IncidentCommandCenterRefoundation({
   savingNote: boolean;
   canOperate: boolean;
   isViewer: boolean;
+  currentUser: AuthUser | null;
   aiBrief?: IncidentAiBriefPreview | null;
   aiBriefLoading?: boolean;
   aiBriefError?: string | null;
@@ -3278,6 +3284,7 @@ function IncidentCommandCenterRefoundation({
   onNoteDraftChange: (value: string) => void;
   onAddNote: () => void;
   onExecuteApprovedAction: (actionId: string) => void;
+  onGovernedRemediationChanged: () => void;
 }) {
   const analysis = (incident.ai_analysis ?? "").trim();
   const sections = analysis ? parseAiAnalysis(analysis) : [];
@@ -3305,6 +3312,21 @@ function IncidentCommandCenterRefoundation({
     supportedAction && controlledExecutionResult?.action_id === supportedAction.action_id
       ? controlledExecutionResult
       : null;
+  const governedRecommendations: GovernedRemediationRecommendation[] = [
+    ...(remediationPlan?.plan?.recommended_actions ?? []).map((action) => ({
+      title: action.title || action.description || "AI recommended remediation action",
+      description: action.description || action.evidence_basis?.join("; ") || null,
+      action_type: action.action_type || null,
+      risk_level: action.risk_level || null,
+      reason: action.evidence_basis?.join("; ") || "Recommended by remediation intelligence.",
+    })),
+    ...(brief?.recommended_actions ?? []).map((action) => ({
+      title: action.action || "AI recommended action",
+      description: action.reason || null,
+      risk_level: action.risk || null,
+      reason: action.reason || "Recommended by AI Situation Brief.",
+    })),
+  ].filter((item) => item.title);
 
   return (
     <div className="space-y-3">
@@ -3449,6 +3471,21 @@ function IncidentCommandCenterRefoundation({
             icon={<Network className="h-3.5 w-3.5" />}
           >
             <InvestigationGraph scope="incident" scopeId={incident.id} />
+          </CompactDisclosure>
+
+          <CompactDisclosure
+            title="Governed Remediation"
+            description="Create, review, approve and convert governed remediation proposals."
+            icon={<ShieldCheck className="h-3.5 w-3.5" />}
+          >
+            <GovernedRemediationPanel
+              scope="incident"
+              incidentId={incident.id}
+              currentUser={currentUser}
+              canOperate={canOperate}
+              aiRecommendations={governedRecommendations}
+              onChanged={onGovernedRemediationChanged}
+            />
           </CompactDisclosure>
 
           <CompactDisclosure
@@ -4180,6 +4217,7 @@ export default function IncidentDetailPage() {
             savingNote={savingNote}
             canOperate={canOperate}
             isViewer={isViewer}
+            currentUser={currentUser}
             aiBrief={aiBrief}
             aiBriefLoading={aiBriefLoading}
             aiBriefError={aiBriefError}
@@ -4217,6 +4255,7 @@ export default function IncidentDetailPage() {
             onNoteDraftChange={setNoteDraft}
             onAddNote={addNote}
             onExecuteApprovedAction={executeControlledWorkflowAction}
+            onGovernedRemediationChanged={loadIncident}
           />
         )}
       </div>

@@ -480,6 +480,79 @@ class ServiceOperation(Base):
     updated_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
 
 
+class RemediationProposal(Base):
+    __tablename__ = "remediation_proposals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    proposal_key = Column(String, unique=True, index=True, nullable=False)
+
+    title = Column(String, nullable=False)
+    description = Column(Text)
+    action_type = Column(String, index=True, nullable=False)
+    status = Column(String, index=True, nullable=False)
+    risk_level = Column(String, index=True, nullable=False)
+    execution_mode = Column(String, index=True, nullable=False)
+    connector_key = Column(String, index=True, nullable=False)
+
+    source_type = Column(String, index=True)
+    source_reference_id = Column(String, index=True)
+    incident_id = Column(Integer, ForeignKey("incidents.id"), index=True)
+    case_id = Column(Integer, ForeignKey("incident_cases.id"), index=True)
+
+    related_alert_ids_json = Column(Text)
+    related_event_ids_json = Column(Text)
+    related_timeline_event_ids_json = Column(Text)
+    related_graph_node_ids_json = Column(Text)
+
+    recommended_by_ai = Column(Boolean, default=False, nullable=False)
+    ai_feature_key = Column(String, index=True)
+    ai_decision_id = Column(String, index=True)
+    ai_data_policy_decision_id = Column(String, index=True)
+
+    reason = Column(Text)
+    business_justification = Column(Text)
+    expected_impact = Column(Text)
+    safety_notes = Column(Text)
+    required_approval_role = Column(String)
+
+    created_by_user_id = Column(Integer, index=True)
+    created_by_username = Column(String, index=True)
+    submitted_by_user_id = Column(Integer, index=True)
+    submitted_at = Column(DateTime(timezone=True))
+    approved_by_user_id = Column(Integer, index=True)
+    approved_by_username = Column(String, index=True)
+    approved_at = Column(DateTime(timezone=True))
+    rejected_by_user_id = Column(Integer, index=True)
+    rejected_by_username = Column(String, index=True)
+    rejected_at = Column(DateTime(timezone=True))
+    rejection_reason = Column(Text)
+    converted_by_user_id = Column(Integer, index=True)
+    converted_at = Column(DateTime(timezone=True))
+    converted_target_type = Column(String, index=True)
+    converted_target_id = Column(String, index=True)
+
+    payload_json = Column(Text)
+    safe_summary = Column(Text)
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class RemediationProposalEvent(Base):
+    __tablename__ = "remediation_proposal_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    proposal_id = Column(Integer, ForeignKey("remediation_proposals.id"), index=True, nullable=False)
+
+    event_type = Column(String, index=True, nullable=False)
+    from_status = Column(String, index=True)
+    to_status = Column(String, index=True)
+    actor_user_id = Column(Integer, index=True)
+    actor_username = Column(String, index=True)
+    comment = Column(Text)
+    metadata_json = Column(Text)
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
 class InvestigationSessionRecord(Base):
     __tablename__ = "investigation_sessions"
 

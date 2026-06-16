@@ -406,6 +406,13 @@ RBAC_RULES: list[tuple[str, str, set[str]]] = [
     ("GET", r"^/incidents/\d+/remediation-audit-trail$", ALL_ROLES),
     ("GET", r"^/incidents/\d+/remediation-replay$", ALL_ROLES),
     ("POST", r"^/incidents/\d+/remediation-actions/[^/]+/execute-approved$", OPERATOR_ROLES),
+    ("GET", r"^/remediation/catalog/(actions|connectors|playbooks)$", ALL_ROLES),
+    ("GET", r"^/remediation/(proposals(?:/\d+(?:/history)?)?|incidents/\d+/proposals|cases/\d+/proposals)$", ALL_ROLES),
+    ("POST", r"^/remediation/proposals$", OPERATOR_ROLES),
+    ("PATCH", r"^/remediation/proposals/\d+$", OPERATOR_ROLES),
+    ("POST", r"^/remediation/proposals/(from-ai-recommendation|from-playbook)$", OPERATOR_ROLES),
+    ("POST", r"^/remediation/proposals/\d+/(submit|cancel|convert)$", OPERATOR_ROLES),
+    ("POST", r"^/remediation/proposals/\d+/(approve|reject)$", {ROLE_ADMIN}),
     ("PATCH", r"^/incidents/\d+/status$", OPERATOR_ROLES),
     ("POST", r"^/incidents/\d+/(notes|case|ai-brief)$", OPERATOR_ROLES),
 
