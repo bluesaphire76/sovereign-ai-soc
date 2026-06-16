@@ -313,6 +313,134 @@ class QdrantKnowledgeBase:
 
         return contexts
 
+
+    def capabilities(self) -> dict[str, Any]:
+        """Return safe, non-secret Qdrant semantic memory capabilities."""
+
+        return {
+            "enabled": self.config.enabled,
+            "mode": "semantic_memory_support_only",
+            "provider": "qdrant",
+            "collection": self.config.collection_name,
+            "url": self.config.url,
+            "embedding_model": self.config.embedding_model,
+            "default_limit": self.config.default_limit,
+            "score_threshold": self.config.score_threshold,
+            "knowledge_base_path": str(self.config.knowledge_base_path),
+            "chunk_max_chars": self.config.chunk_max_chars,
+            "allowed_uses": [
+                "semantic_search_historical_context",
+                "playbook_retrieval",
+                "soc_documentation_rag",
+                "ai_analysis_context_enrichment",
+                "detection_quality_decision_support",
+            ],
+            "forbidden_uses": [
+                "primary_operational_deduplication",
+                "final_severity_decision",
+                "automatic_noise_suppression",
+                "automatic_incident_closure",
+                "final_classification_without_deterministic_verification",
+                "replacement_of_correlation_rules",
+            ],
+            "decision_boundary": (
+                "Qdrant provides semantic context and decision support only. "
+                "Deterministic rules, RBAC, audit and human review remain authoritative."
+            ),
+        }
+
+    def collection_info(self) -> dict[str, Any]:
+        """Return collection status without loading the embedding model."""
+
+        if not self.config.enabled:
+            return {
+                "enabled": False,
+                "status": "DISABLED",
+                "collection": self.config.collection_name,
+                "exists": False,
+                "message": "Semantic memory is disabled by configuration.",
+            }
+
+        try:
+            collections = self.client.get_collections().collections
+            collection_names = [
+                str(getattr(item, "name", ""))
+                for item in collections
+                if getattr(item, "name", None)
+            ]
+            exists = self.config.collection_name in collection_names
+
+            details: dict[str, Any] = {
+                "enabled": True,
+                "status": "OK" if exists else "WARN",
+                "collection": self.config.collection_name,
+                "exists": exists,
+                "collections": collection_names,
+                "collection_count": len(collection_names),
+                "points_count": None,
+                "indexed_vectors_count": None,
+                "vectors_count": None,
+                "collection_status": None,
+            }
+
+            if not exists:
+                details["message"] = "Configured Qdrant collection is missing."
+                return details
+
+            info = self.client.get_collection(self.config.collection_name)
+            details.update(
+                {
+                    "points_count": getattr(info, "points_count", None),
+                    "indexed_vectors_count": getattr(info, "indexed_vectors_count", None),
+                    "vectors_count": getattr(info, "vectors_count", None),
+                    "collection_status": str(getattr(info, "status", None) or ""),
+                }
+            )
+
+            if not details["points_count"]:
+                details["status"] = "WARN"
+                details["message"] = "Configured Qdrant collection exists but appears empty."
+            else:
+                details["message"] = "Configured Qdrant collection is available."
+
+            return details
+
+        except Exception as exc:
+            logger.warning(
+                "qdrant_collection_info_failed",
+                extra={"reason": exc.__class__.__name__},
+            )
+            return {
+                "enabled": self.config.enabled,
+                "status": "ERROR",
+                "collection": self.config.collection_name,
+                "exists": False,
+                "message": "Qdrant collection inspection failed.",
+                "error_type": exc.__class__.__name__,
+            }
+
+    def health_check(self) -> dict[str, Any]:
+        """Return a compact health view for semantic memory."""
+
+        capabilities = self.capabilities()
+        collection = self.collection_info()
+
+        return {
+            "status": collection.get("status", "UNKNOWN"),
+            "enabled": self.config.enabled,
+            "component": "semantic_memory",
+            "provider": "qdrant",
+            "collection": self.config.collection_name,
+            "message": collection.get("message"),
+            "collection": collection,
+            "capabilities": {
+                "allowed_uses": capabilities["allowed_uses"],
+                "forbidden_uses": capabilities["forbidden_uses"],
+                "decision_boundary": capabilities["decision_boundary"],
+            },
+        }
+
+
     def build_investigation_query(
         self,
         request: InvestigationRetrievalRequest,

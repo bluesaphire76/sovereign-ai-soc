@@ -15,6 +15,7 @@ from routers.network_events import router as network_events_router
 from routers.reports import router as reports_router
 from routers.remediation import router as remediation_router
 from routers.service_operations import router as service_operations_router
+from routers.semantic_memory import router as semantic_memory_router
 from routers.metrics import metrics_router, prometheus_metrics_middleware
 
 
@@ -36,3 +37,4 @@ def include_app_routers(app: FastAPI) -> None:
     app.include_router(network_events_router)
     app.include_router(remediation_router)
     app.include_router(service_operations_router)
+    app.include_router(semantic_memory_router)
