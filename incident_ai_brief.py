@@ -214,6 +214,74 @@ def serialize_incident(incident: Incident) -> dict[str, Any]:
     return payload
 
 
+SEMANTIC_MEMORY_DECISION_BOUNDARY = (
+    "Retrieved semantic memory context is advisory only. It may help identify "
+    "similar playbooks, historical patterns or investigation guidance, but it "
+    "must not be used as primary operational deduplication, final severity, "
+    "automatic noise suppression, incident closure or replacement for "
+    "deterministic correlation rules. Deterministic evidence and human analyst "
+    "validation remain authoritative."
+)
+
+
+def _format_score(value: Any) -> str:
+    try:
+        return f"{float(value):.3f}"
+    except Exception:
+        return "-"
+
+
+def format_retrieved_semantic_memory_context(
+    security_context: list[dict[str, Any]],
+    *,
+    max_items: int = 4,
+    max_text_chars: int = 900,
+) -> str:
+    """Format retrieved Qdrant context for the AI brief prompt.
+
+    The formatted block is intentionally labelled as advisory semantic memory,
+    not as deterministic evidence or a decision source.
+    """
+
+    header = [
+        "Retrieved semantic memory is available only as analyst decision support.",
+        f"Decision boundary: {SEMANTIC_MEMORY_DECISION_BOUNDARY}",
+    ]
+
+    if not security_context:
+        return "\n".join(
+            [
+                *header,
+                "No semantic memory context was retrieved for this incident.",
+            ]
+        )
+
+    blocks = []
+    for index, item in enumerate(security_context[:max_items], start=1):
+        source = safe_text(item.get("source"))
+        chunk_index = safe_text(item.get("chunk_index"))
+        score = _format_score(item.get("score"))
+        body = safe_text(item.get("text")).strip()
+
+        if len(body) > max_text_chars:
+            body = body[:max_text_chars].rstrip() + "..."
+
+        blocks.append(
+            "\n".join(
+                [
+                    f"Retrieved item {index}:",
+                    f"- source: {source}",
+                    f"- chunk_index: {chunk_index}",
+                    f"- semantic_score: {score}",
+                    "- context_excerpt:",
+                    body or "-",
+                ]
+            )
+        )
+
+    return "\n\n".join(["\n".join(header), *blocks])
+
+
 def build_security_context(incident_payload: dict[str, Any]) -> list[dict[str, Any]]:
     if retrieve_security_context is None:
         return []
@@ -682,12 +750,7 @@ def build_prompt(
     incident_payload: dict[str, Any],
     security_context: list[dict[str, Any]],
 ) -> str:
-    context_text = "\n\n".join(
-        [
-            f"Source: {item.get('source')}\n{item.get('text')}"
-            for item in security_context
-        ]
-    )
+    context_text = format_retrieved_semantic_memory_context(security_context)
 
     required_schema = {
         "situation_summary": "string",
@@ -779,8 +842,18 @@ Your goal:
 - Do not propose offensive actions.
 - Do not perform or suggest automatic remediation without human approval.
 
-Knowledge base context:
+Retrieved Semantic Memory Context:
 {context_text}
+
+Semantic memory usage rules:
+- Treat retrieved semantic memory as advisory context only.
+- Use it to identify similar playbooks, historical patterns or investigation guidance.
+- Do not use semantic memory as primary evidence of compromise.
+- Do not use semantic memory to decide final severity.
+- Do not use semantic memory for operational deduplication.
+- Do not use semantic memory for automatic noise suppression.
+- Do not use semantic memory for incident or case closure.
+- Do not replace deterministic correlation, RBAC, audit or human validation.
 
 Incident data:
 {json.dumps(incident_payload, ensure_ascii=False, indent=2, default=str)}
@@ -1355,6 +1428,81 @@ def enrich_brief_with_dns_context(
     return brief
 
 
+def enrich_brief_with_semantic_memory_context(
+    brief: dict[str, Any],
+    security_context: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Add visible, support-only semantic memory context to the AI brief.
+
+    This enrichment does not alter severity, lifecycle status, deduplication,
+    suppression, closure or remediation decisions.
+    """
+
+    if not security_context:
+        return brief
+
+    top_items = security_context[:4]
+    sources = sorted(
+        {
+            safe_text(item.get("source"))
+            for item in top_items
+            if item.get("source")
+        }
+    )
+    top_score = _format_score(top_items[0].get("score")) if top_items else "-"
+    source_text = ", ".join(sources) if sources else "semantic memory collection"
+
+    evidence_used = brief.setdefault("evidence_used", [])
+    evidence_overview = brief.setdefault("evidence_overview", [])
+    recommended_actions = brief.setdefault("recommended_actions", [])
+
+    append_unique_dict(
+        evidence_used,
+        "label",
+        "Retrieved semantic memory context",
+        {
+            "label": "Retrieved semantic memory context",
+            "count": len(top_items),
+            "description": (
+                f"{len(top_items)} Qdrant semantic memory item(s) were retrieved "
+                f"from {source_text}. Top semantic score: {top_score}. "
+                "This context is advisory only and must not be used as primary "
+                "evidence, final severity, deduplication, suppression or closure logic."
+            ),
+        },
+    )
+
+    append_unique_dict(
+        evidence_overview,
+        "source",
+        "Semantic memory (Qdrant)",
+        {
+            "time": safe_text(brief.get("generated_at") or "Current analysis"),
+            "description": (
+                "Qdrant returned related SOC playbook or historical guidance for analyst review. "
+                "The retrieved content can support investigation planning, but deterministic "
+                "incident evidence and human validation remain authoritative."
+            ),
+            "source": "Semantic memory (Qdrant)",
+            "verification": "Context only",
+        },
+    )
+
+    append_unique_dict(
+        recommended_actions,
+        "action",
+        "Review retrieved semantic memory context as advisory guidance only",
+        {
+            "action": "Review retrieved semantic memory context as advisory guidance only",
+            "owner": "SOC analyst",
+            "impact": "Informational",
+            "requires_approval": True,
+        },
+    )
+
+    return brief
+
+
 def load_incident_payload(db, incident_id: int) -> dict[str, Any]:
     incident = db.query(Incident).filter(Incident.id == incident_id).first()
 
@@ -1488,6 +1636,7 @@ def generate_ai_brief(incident_id: int) -> dict[str, Any]:
             source = "external_ai"
 
         brief = normalize_brief(parsed, incident_payload.get("extracted_entities") or {})
+        brief = enrich_brief_with_semantic_memory_context(brief, security_context)
         brief = enrich_brief_with_dns_context(brief, incident_payload)
 
         audit = IncidentAudit(
