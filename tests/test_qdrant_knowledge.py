@@ -12,7 +12,13 @@ from investigation_ai.retrieval import (
     InvestigationRetrievalRequest,
     InvestigationRetrievalType,
 )
-from qdrant_knowledge import QdrantKnowledgeBase, QdrantKnowledgeConfig, chunk_text
+from qdrant_knowledge import (
+    SEMANTIC_MEMORY_DECISION_BOUNDARY,
+    QdrantKnowledgeBase,
+    QdrantKnowledgeConfig,
+    chunk_text,
+    format_semantic_memory_context_for_prompt,
+)
 
 
 class FakeEncoder:
@@ -129,9 +135,37 @@ Indicatori:
             InvestigationClaimClassification.INFERRED,
         )
         self.assertIn("AUTH_ACTIVITY", evidence[0].summary)
+        self.assertIn("Advisory-only semantic memory context", evidence[0].summary)
         self.assertIn("endpoint-51", encoder.inputs[0])
         self.assertEqual(client.queries[0]["collection_name"], "security_kb")
         self.assertEqual(client.queries[0]["limit"], 2)
+
+    def test_semantic_memory_prompt_formatter_marks_context_advisory_only(self):
+        formatted = format_semantic_memory_context_for_prompt(
+            [
+                {
+                    "source": "knowledge_base/security_playbook.md",
+                    "text": "SSH brute force playbook: verify accepted logins.",
+                    "chunk_index": 3,
+                    "score": 0.77,
+                }
+            ],
+            max_items=1,
+        )
+
+        self.assertIn("Retrieved Semantic Memory Context (Qdrant)", formatted)
+        self.assertIn(SEMANTIC_MEMORY_DECISION_BOUNDARY, formatted)
+        self.assertIn("source: knowledge_base/security_playbook.md", formatted)
+        self.assertIn("chunk_index: 3", formatted)
+        self.assertIn("semantic_score: 0.770", formatted)
+        self.assertIn("advisory_context", formatted)
+
+    def test_semantic_memory_prompt_formatter_handles_empty_context(self):
+        formatted = format_semantic_memory_context_for_prompt([])
+
+        self.assertIn("Retrieved Semantic Memory Context (Qdrant)", formatted)
+        self.assertIn("advisory only", formatted)
+        self.assertIn("No semantic memory context was retrieved.", formatted)
 
     def test_disabled_retrieval_does_not_query_qdrant(self):
         encoder = FakeEncoder()
