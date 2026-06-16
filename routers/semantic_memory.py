@@ -29,6 +29,19 @@ def semantic_memory_collection() -> dict[str, Any]:
     return _knowledge_base().collection_info()
 
 
+@router.get("/index-status")
+def semantic_memory_index_status(
+    max_points: int = Query(default=5000, ge=1, le=20000),
+) -> dict[str, Any]:
+    """Return read-only semantic memory index governance metadata.
+
+    This endpoint does not trigger indexing. Indexing remains an explicit
+    manual CLI operation through rag_index.py.
+    """
+
+    return _knowledge_base().index_status(max_points=max_points)
+
+
 @router.get("/search")
 def semantic_memory_search(
     query: str = Query(..., min_length=1, max_length=500),

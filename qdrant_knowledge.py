@@ -419,6 +419,154 @@ class QdrantKnowledgeBase:
                 "error_type": exc.__class__.__name__,
             }
 
+
+    def index_status(self, *, max_points: int = 5000) -> dict[str, Any]:
+        """Return read-only governance metadata about the Qdrant semantic index.
+
+        This method intentionally does not index, delete, recreate or mutate
+        Qdrant data. It only summarizes payload metadata already stored in the
+        configured collection.
+        """
+
+        if not self.config.enabled:
+            return {
+                "enabled": False,
+                "status": "DISABLED",
+                "provider": "qdrant",
+                "collection": self.config.collection_name,
+                "documents_count": 0,
+                "documents": [],
+                "points_scanned": 0,
+                "indexing_mode": "manual_cli_only",
+                "indexing_command": "PYTHONPATH=. .venv/bin/python rag_index.py --recreate",
+                "message": "Semantic memory is disabled.",
+                "decision_boundary": (
+                    "Index status is operational metadata only. It does not "
+                    "make or change SOC decisions."
+                ),
+            }
+
+        collection = self.collection_info()
+        if not collection.get("exists"):
+            return {
+                "enabled": True,
+                "status": collection.get("status", "WARN"),
+                "provider": "qdrant",
+                "collection": self.config.collection_name,
+                "collection_info": collection,
+                "documents_count": 0,
+                "documents": [],
+                "points_scanned": 0,
+                "indexing_mode": "manual_cli_only",
+                "indexing_command": "PYTHONPATH=. .venv/bin/python rag_index.py --recreate",
+                "message": collection.get("message", "Configured collection is not available."),
+                "decision_boundary": (
+                    "Index status is operational metadata only. It does not "
+                    "make or change SOC decisions."
+                ),
+            }
+
+        documents: dict[str, dict[str, Any]] = {}
+        scanned = 0
+        next_offset: Any = None
+
+        try:
+            while scanned < max_points:
+                batch_limit = min(250, max_points - scanned)
+                points, next_offset = self.client.scroll(
+                    collection_name=self.config.collection_name,
+                    limit=batch_limit,
+                    offset=next_offset,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+
+                if not points:
+                    break
+
+                for point in points:
+                    payload = getattr(point, "payload", None) or {}
+                    source = str(payload.get("source") or "unknown")
+                    chunk_index = payload.get("chunk_index")
+                    content_hash = payload.get("content_hash")
+
+                    doc = documents.setdefault(
+                        source,
+                        {
+                            "source": source,
+                            "chunks": 0,
+                            "first_chunk_index": None,
+                            "last_chunk_index": None,
+                            "content_hashes_count": 0,
+                            "_content_hashes": set(),
+                        },
+                    )
+
+                    doc["chunks"] += 1
+
+                    if isinstance(chunk_index, int):
+                        if doc["first_chunk_index"] is None or chunk_index < doc["first_chunk_index"]:
+                            doc["first_chunk_index"] = chunk_index
+                        if doc["last_chunk_index"] is None or chunk_index > doc["last_chunk_index"]:
+                            doc["last_chunk_index"] = chunk_index
+
+                    if content_hash:
+                        doc["_content_hashes"].add(str(content_hash))
+
+                    scanned += 1
+
+                if next_offset is None:
+                    break
+
+            public_documents = []
+            for source in sorted(documents):
+                doc = documents[source]
+                hashes = doc.pop("_content_hashes", set())
+                doc["content_hashes_count"] = len(hashes)
+                public_documents.append(doc)
+
+            return {
+                "enabled": True,
+                "status": collection.get("status", "OK"),
+                "provider": "qdrant",
+                "collection": self.config.collection_name,
+                "collection_info": collection,
+                "points_count": collection.get("points_count"),
+                "points_scanned": scanned,
+                "max_points": max_points,
+                "documents_count": len(public_documents),
+                "documents": public_documents,
+                "indexing_mode": "manual_cli_only",
+                "indexing_command": "PYTHONPATH=. .venv/bin/python rag_index.py --recreate",
+                "message": (
+                    "Semantic memory index metadata retrieved successfully. "
+                    "Indexing remains an explicit manual CLI operation."
+                ),
+                "decision_boundary": (
+                    "Index status is operational metadata only. It does not "
+                    "perform indexing and does not make or change SOC decisions."
+                ),
+            }
+        except Exception as exc:
+            return {
+                "enabled": True,
+                "status": "ERROR",
+                "provider": "qdrant",
+                "collection": self.config.collection_name,
+                "documents_count": 0,
+                "documents": [],
+                "points_scanned": scanned,
+                "indexing_mode": "manual_cli_only",
+                "indexing_command": "PYTHONPATH=. .venv/bin/python rag_index.py --recreate",
+                "message": "Failed to retrieve semantic memory index metadata.",
+                "error_type": exc.__class__.__name__,
+                "decision_boundary": (
+                    "Index status is operational metadata only. It does not "
+                    "make or change SOC decisions."
+                ),
+            }
+
+
     def health_check(self) -> dict[str, Any]:
         """Return a compact health view for semantic memory."""
 
