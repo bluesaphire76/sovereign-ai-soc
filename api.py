@@ -401,6 +401,7 @@ RBAC_RULES: list[tuple[str, str, set[str]]] = [
     ("GET", r"^/synthetic-tests/scenarios$", OPERATOR_ROLES),
     ("POST", r"^/synthetic-tests/run$", OPERATOR_ROLES),
     ("POST", r"^/detection-quality/action-guidance$", ALL_ROLES),
+    ("POST", r"^/detection-quality/semantic-context$", OPERATOR_ROLES),
 
     # Incidents
     ("GET", r"^/incidents$", ALL_ROLES),
