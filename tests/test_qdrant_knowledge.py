@@ -176,6 +176,39 @@ Indicatori:
         self.assertEqual(client.queries, [])
         self.assertEqual(encoder.inputs, [])
 
+    def test_retrieve_contexts_supports_source_type_filter_and_payload_fields(self):
+        encoder = FakeEncoder()
+        client = FakeClient(
+            [
+                FakePoint(
+                    "point-historical",
+                    {
+                        "source_type": "historical_incident",
+                        "source": "incident:4210",
+                        "incident_id": 4210,
+                        "status": "CLOSED",
+                        "text": "Historical Incident Memory: similar SSH failures.",
+                    },
+                    score=0.81,
+                )
+            ]
+        )
+        kb = QdrantKnowledgeBase(config(), client=client, encoder=encoder)
+
+        contexts = kb.retrieve_contexts(
+            "ssh brute force",
+            limit=1,
+            source_type="historical_incident",
+            payload_fields=["incident_id", "status"],
+        )
+
+        self.assertEqual(len(contexts), 1)
+        self.assertEqual(contexts[0]["source_type"], "historical_incident")
+        self.assertEqual(contexts[0]["incident_id"], 4210)
+        self.assertEqual(contexts[0]["status"], "CLOSED")
+        self.assertIsNotNone(client.queries[0]["query_filter"])
+        self.assertIn("historical_incident", str(client.queries[0]["query_filter"]))
+
     def test_legacy_retrieve_security_context_uses_default_knowledge_base(self):
         old_default = qdrant_knowledge._DEFAULT_KNOWLEDGE_BASE
         encoder = FakeEncoder()
