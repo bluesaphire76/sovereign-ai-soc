@@ -10,6 +10,7 @@ import {
   ChevronDown,
   Columns3,
   Cpu,
+  Database,
   Globe2,
   HeartPulse,
   History,
@@ -116,6 +117,15 @@ const SETTINGS_ITEMS: NavItem[] = [
     href: "/settings/ai-data-control",
     label: "AI Data Control",
     icon: <Shield className="h-3.5 w-3.5" strokeWidth={1.75} />,
+    match: "prefix",
+  },
+];
+
+const SETTINGS_OPERATOR_ITEMS: NavItem[] = [
+  {
+    href: "/settings/semantic-memory",
+    label: "Semantic Memory",
+    icon: <Database className="h-3.5 w-3.5" strokeWidth={1.75} />,
     match: "prefix",
   },
 ];
@@ -238,6 +248,12 @@ export default function AppNavigation() {
     ...(user?.role === "ADMIN" ? SYSTEM_INFORMATION_ADMIN_ITEMS : []),
     ...SYSTEM_INFORMATION_ITEMS,
   ];
+  const settingsItems = [
+    ...SETTINGS_ITEMS,
+    ...(user?.role === "ADMIN" || user?.role === "ANALYST"
+      ? SETTINGS_OPERATOR_ITEMS
+      : []),
+  ];
 
   const navItems: NavItem[] = user
     ? [
@@ -309,7 +325,7 @@ export default function AppNavigation() {
               {settingsOpen && (
                 <div className="w-full min-w-0 border-l border-slate-800 pl-2">
                   <div className="flex w-full min-w-0 flex-col gap-1">
-                    {SETTINGS_ITEMS.map((item) => (
+                    {settingsItems.map((item) => (
                       <NavLink
                         key={item.href}
                         item={item}
