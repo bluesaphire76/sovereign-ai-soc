@@ -26,6 +26,7 @@ from ai_triage_hardening import (
     get_last_llm_call_metadata,
     is_timeout_exception,
 )
+from qdrant_knowledge import format_semantic_memory_context_for_prompt
 from rag_retriever import retrieve_security_context
 from llm_output import is_invalid_llm_output, sanitize_llm_output
 from event_aggregation import (
@@ -186,7 +187,7 @@ def _build_alert_prompt(alert, context_text, context_warning=None):
     context_note = (
         context_warning
         if context_warning
-        else "Knowledge base context retrieved successfully or not required."
+        else "Semantic memory context retrieved successfully or not required."
     )
 
     return f"""
@@ -194,14 +195,22 @@ def _build_alert_prompt(alert, context_text, context_warning=None):
 
 You are a defensive AI SOC Assistant.
 
-Use the knowledge base context when relevant.
-If the context is insufficient, state that clearly.
+Use retrieved semantic memory context only as advisory analyst guidance when relevant.
+If the context is insufficient, state that clearly and rely on deterministic alert evidence.
 
-Knowledge base context status:
+Semantic memory context status:
 {context_note}
 
-Knowledge base context:
 {context_text}
+
+Semantic memory usage rules:
+- Treat retrieved semantic memory as advisory context only.
+- Do not use semantic memory as primary evidence.
+- Do not use semantic memory to decide final severity.
+- Do not use semantic memory for operational deduplication.
+- Do not use semantic memory for automatic noise suppression.
+- Do not use semantic memory for incident or case closure.
+- Deterministic alert evidence and human validation remain authoritative.
 
 Analyze the following Wazuh alert.
 
@@ -315,18 +324,18 @@ def analyze_alert_result(alert):
     except Exception as exc:
         security_context = []
         context_warning = (
-            "Knowledge base context retrieval failed; continuing with alert-only triage."
+            "Semantic memory context retrieval failed; continuing with alert-only triage."
         )
         print(
             "[yellow]Security context retrieval failed during AI triage; "
             f"continuing without RAG context: {type(exc).__name__}[/yellow]"
         )
 
-    context_text = "\n\n".join(
-        [
-            f"Source: {item['source']}\n{item['text']}"
-            for item in security_context
-        ]
+    context_text = format_semantic_memory_context_for_prompt(
+        security_context,
+        empty_message=context_warning
+        or "No semantic memory context was retrieved for this alert.",
+        max_items=3,
     )
 
     prompt = _build_alert_prompt(

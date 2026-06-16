@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 
 from dotenv import load_dotenv
@@ -8,12 +9,14 @@ from ai_model_policy import AiTask
 from database import SessionLocal
 from llm_client import generate_ai_response
 from models import CaseAIAnalysis, CaseIncident, Incident, IncidentCase
+from qdrant_knowledge import format_semantic_memory_context_for_prompt
 from rag_retriever import retrieve_security_context
 from llm_output import is_invalid_llm_output, sanitize_llm_output
 
 load_dotenv()
 
 OLLAMA_MODEL = get_profile("standard").model
+logger = logging.getLogger(__name__)
 
 
 def _env_int(name: str, default: int) -> int:
@@ -73,13 +76,24 @@ def build_case_prompt(case: IncidentCase, incidents: list[Incident]) -> str:
         ]
     )
 
-    security_context = retrieve_security_context(rag_query, limit=4)
+    context_empty_message = "No semantic memory context was retrieved for this case."
 
-    context_text = "\n\n".join(
-        [
-            f"Source: {item['source']}\n{item['text']}"
-            for item in security_context
-        ]
+    try:
+        security_context = retrieve_security_context(rag_query, limit=4)
+    except Exception as exc:
+        security_context = []
+        context_empty_message = (
+            "Semantic memory retrieval failed; continuing with case-only context."
+        )
+        logger.warning(
+            "case_semantic_memory_retrieval_failed",
+            extra={"reason": exc.__class__.__name__},
+        )
+
+    context_text = format_semantic_memory_context_for_prompt(
+        security_context,
+        empty_message=context_empty_message,
+        max_items=4,
     )
 
     incident_summaries = []
@@ -128,8 +142,16 @@ You are a professional defensive AI SOC Assistant.
 You must analyze an investigation CASE composed of multiple correlated Wazuh incidents.
 Your task is to help a human SOC analyst understand what is happening, assess the risk, and decide what to do next.
 
-Knowledge base context:
 {context_text}
+
+Semantic memory usage rules:
+- Treat retrieved semantic memory as advisory context only.
+- Do not use semantic memory as primary evidence.
+- Do not use semantic memory to decide final severity.
+- Do not use semantic memory for operational deduplication.
+- Do not use semantic memory for automatic noise suppression.
+- Do not use semantic memory for incident or case closure.
+- Deterministic evidence, RBAC, audit, approval workflow and human validation remain authoritative.
 
 CASE DATA:
 {json.dumps(payload, ensure_ascii=False, indent=2)}

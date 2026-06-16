@@ -23,6 +23,14 @@ from investigation_ai.retrieval import (
 
 logger = logging.getLogger(__name__)
 
+SEMANTIC_MEMORY_DECISION_BOUNDARY = (
+    "Retrieved semantic memory context is advisory only. It may support analyst "
+    "review, but it must not be used as primary evidence, final severity, "
+    "operational deduplication, automatic noise suppression, incident or case "
+    "closure, or replacement for deterministic correlation, RBAC, audit, "
+    "approval workflow or human validation."
+)
+
 
 class EmbeddingModel(Protocol):
     def encode(self, text: str) -> Any:
@@ -646,10 +654,16 @@ class QdrantKnowledgeBase:
             f"{self.config.collection_name}:{source}:{point_id}:{text}".encode("utf-8")
         ).hexdigest()[:16]
 
-        summary = _short_text(text, max_chars=700)
+        base_summary = _short_text(text, max_chars=600)
         if request is not None:
             summary = _short_text(
-                f"Knowledge base context for {request.request_type.value}: {summary}",
+                "Advisory-only semantic memory context for "
+                f"{request.request_type.value}: {base_summary}",
+                max_chars=700,
+            )
+        else:
+            summary = _short_text(
+                f"Advisory-only semantic memory context: {base_summary}",
                 max_chars=700,
             )
 
@@ -694,9 +708,51 @@ def qdrant_retrieval_fetcher(
     return get_knowledge_base().fetch_investigation_evidence(request, retrieval_context)
 
 
+def format_semantic_memory_context_for_prompt(
+    contexts: list[dict[str, Any]],
+    *,
+    empty_message: str = "No semantic memory context was retrieved.",
+    max_items: int = 4,
+) -> str:
+    """Format Qdrant context with explicit prompt-visible decision boundaries."""
+
+    lines = [
+        "Retrieved Semantic Memory Context (Qdrant)",
+        f"Decision boundary: {SEMANTIC_MEMORY_DECISION_BOUNDARY}",
+    ]
+
+    if not contexts:
+        lines.append(empty_message)
+        return "\n".join(lines)
+
+    added_items = 0
+
+    for index, item in enumerate(contexts[:max_items], start=1):
+        text = safe_text(item.get("text"))
+        if not text:
+            continue
+
+        source = safe_text(item.get("source")) or "semantic_memory"
+        chunk_index = item.get("chunk_index")
+        score = item.get("score")
+        score_text = f"{score:.3f}" if isinstance(score, (int, float)) else "unknown"
+        added_items += 1
+
+        lines.extend(
+            [
+                "",
+                f"[{index}] source: {source}",
+                f"[{index}] chunk_index: {chunk_index if chunk_index is not None else 'unknown'}",
+                f"[{index}] semantic_score: {score_text}",
+                f"[{index}] advisory_context: {_short_text(text, max_chars=900)}",
+            ]
+        )
+
+    if added_items == 0:
+        lines.append(empty_message)
+
+    return "\n".join(lines)
+
+
 def contexts_to_legacy_text(contexts: list[dict[str, Any]]) -> str:
-    return "\n\n".join(
-        f"Source: {item.get('source')}\n{item.get('text')}"
-        for item in contexts
-        if safe_text(item.get("text"))
-    )
+    return format_semantic_memory_context_for_prompt(contexts)
