@@ -87,7 +87,7 @@ class SemanticMemoryIndexStatusTests(unittest.TestCase):
         self.assertEqual(result["collection"], "security_kb")
         self.assertEqual(result["documents_count"], 2)
         self.assertEqual(result["points_scanned"], 3)
-        self.assertEqual(result["indexing_mode"], "manual_cli_only")
+        self.assertEqual(result["indexing_mode"], "manual_cli_plus_best_effort_auto")
         self.assertEqual(result["source_type_counts"], {"knowledge_base": 3})
 
         documents = {item["source"]: item for item in result["documents"]}
@@ -112,7 +112,7 @@ class SemanticMemoryIndexStatusTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "DISABLED")
         self.assertEqual(result["documents"], [])
-        self.assertEqual(result["indexing_mode"], "manual_cli_only")
+        self.assertEqual(result["indexing_mode"], "manual_cli_plus_best_effort_auto")
 
 
 if __name__ == "__main__":

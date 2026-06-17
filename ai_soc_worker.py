@@ -27,6 +27,7 @@ from ai_triage_hardening import (
     is_timeout_exception,
 )
 from qdrant_knowledge import format_semantic_memory_context_for_prompt
+from qdrant_auto_index import schedule_incident_auto_index
 from rag_retriever import retrieve_security_context
 from llm_output import is_invalid_llm_output, sanitize_llm_output
 from event_aggregation import (
@@ -482,6 +483,7 @@ def save_incident(alert, analysis, event_record_ids=None):
         db.commit()
         db.refresh(incident)
         incident_id = incident.id
+        schedule_incident_auto_index(incident_id, reason="incident_created")
         return incident_id
 
     finally:

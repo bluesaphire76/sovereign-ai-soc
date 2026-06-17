@@ -103,9 +103,75 @@ type SemanticOperationResult = {
   requested_by?: string | null;
 };
 
+type AutoIndexSourceState = {
+  last_attempt_at?: string | null;
+  last_success_at?: string | null;
+  last_error_at?: string | null;
+  last_source?: string | null;
+  last_reason?: string | null;
+  last_status?: string | null;
+  last_result?: Record<string, unknown> | null;
+  last_error?: string | null;
+  success_count?: number;
+  failure_count?: number;
+  skipped_count?: number;
+};
+
+type AutoIndexRecentEvent = {
+  at: string;
+  source_type: string;
+  source: string;
+  status: string;
+  reason: string;
+  result?: Record<string, unknown>;
+  error?: string | null;
+};
+
+type AutoIndexStatusResponse = {
+  status: string;
+  mode: string;
+  config: {
+    configured_enabled: boolean;
+    semantic_memory_enabled: boolean;
+    enabled: boolean;
+    async_enabled: boolean;
+    include_open_incidents: boolean;
+    collection: string;
+    state_path: string;
+  };
+  state: {
+    last_attempt_at?: string | null;
+    last_success_at?: string | null;
+    last_error_at?: string | null;
+    last_error?: string | null;
+    pending_operations?: number;
+    success_count?: number;
+    failure_count?: number;
+    skipped_count?: number;
+    source_types?: Record<string, AutoIndexSourceState>;
+    recent_events?: AutoIndexRecentEvent[];
+  };
+  message: string;
+  decision_boundary: string;
+};
+
 function formatNumber(value: number | null | undefined) {
   if (value === null || value === undefined) return "-";
   return new Intl.NumberFormat("en-US").format(value);
+}
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return "-";
+
+  try {
+    return new Intl.DateTimeFormat("en-GB", {
+      dateStyle: "medium",
+      timeStyle: "short",
+      timeZone: "Europe/Zurich",
+    }).format(new Date(value));
+  } catch {
+    return value;
+  }
 }
 
 function formatScore(value: number | null | undefined) {
@@ -510,10 +576,143 @@ function OperationResultCard({ result }: { result: SemanticOperationResult }) {
   );
 }
 
+const AUTO_INDEX_SOURCE_LABELS: Record<string, string> = {
+  historical_incident: "Incident Memory",
+  detection_control: "Detection Control",
+  case_closure: "Case Closure",
+};
+
+function AutoIndexSourceCard({
+  sourceType,
+  state,
+}: {
+  sourceType: string;
+  state: AutoIndexSourceState | undefined;
+}) {
+  const status = state?.last_status || "IDLE";
+  const label = AUTO_INDEX_SOURCE_LABELS[sourceType] || titleCase(sourceType);
+
+  return (
+    <article className="rounded-md border border-slate-800 bg-slate-950 p-2.5">
+      <div className="mb-2 flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate text-xs font-semibold text-slate-100">{label}</div>
+          <div className="mt-0.5 truncate text-[11px] text-slate-500">
+            {state?.last_source || "No automatic refresh recorded"}
+          </div>
+        </div>
+        <span className={`rounded-md border px-1.5 py-0.5 text-[10px] ${statusTone(status)}`}>
+          {status}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-3 gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800">
+        <MiniStat label="Success" value={formatNumber(state?.success_count)} />
+        <MiniStat label="Skipped" value={formatNumber(state?.skipped_count)} />
+        <MiniStat label="Errors" value={formatNumber(state?.failure_count)} />
+      </div>
+
+      <div className="mt-2 space-y-1 text-[11px] leading-4 text-slate-500">
+        <div>Last success: {formatDateTime(state?.last_success_at)}</div>
+        <div>Last attempt: {formatDateTime(state?.last_attempt_at)}</div>
+        {state?.last_reason && <div>Reason: {titleCase(state.last_reason)}</div>}
+        {state?.last_error && (
+          <div className="text-amber-200">Last error: {state.last_error}</div>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function AutoIndexFreshnessPanel({ status }: { status: AutoIndexStatusResponse }) {
+  const sourceStates = status.state.source_types || {};
+  const recentEvents = status.state.recent_events || [];
+
+  return (
+    <div className="space-y-3">
+      <div className="grid gap-1.5 text-xs sm:grid-cols-2 xl:grid-cols-4">
+        <MetricCard
+          title="Auto Index"
+          value={<span className={`rounded-md border px-1.5 py-0.5 text-[10px] leading-none ${statusTone(status.status)}`}>{status.status}</span>}
+          subtitle={status.mode}
+          icon={<RefreshCw className="h-3.5 w-3.5" />}
+        />
+        <MetricCard
+          title="Pending"
+          value={formatNumber(status.state.pending_operations)}
+          subtitle="Queued/running"
+          icon={<Play className="h-3.5 w-3.5" />}
+        />
+        <MetricCard
+          title="Last Success"
+          value={formatDateTime(status.state.last_success_at)}
+          subtitle="Automatic refresh"
+          icon={<CheckCircle2 className="h-3.5 w-3.5" />}
+        />
+        <MetricCard
+          title="Failures"
+          value={formatNumber(status.state.failure_count)}
+          subtitle={status.state.last_error || "No last error"}
+          icon={<AlertTriangle className="h-3.5 w-3.5" />}
+        />
+      </div>
+
+      <div className="grid gap-2 lg:grid-cols-3">
+        {["historical_incident", "detection_control", "case_closure"].map((sourceType) => (
+          <AutoIndexSourceCard
+            key={sourceType}
+            sourceType={sourceType}
+            state={sourceStates[sourceType]}
+          />
+        ))}
+      </div>
+
+      {recentEvents.length > 0 ? (
+        <div className="overflow-hidden rounded-md border border-slate-800 bg-slate-950">
+          <div className="border-b border-slate-800 px-2.5 py-2 text-xs font-semibold text-slate-100">
+            Recent automatic refresh events
+          </div>
+          <div className="divide-y divide-slate-800">
+            {recentEvents.slice(0, 5).map((event, index) => (
+              <div
+                key={`${event.at}-${event.source}-${index}`}
+                className="grid gap-1 px-2.5 py-2 text-xs md:grid-cols-[160px_minmax(0,1fr)_120px]"
+              >
+                <div className="text-slate-500">{formatDateTime(event.at)}</div>
+                <div className="min-w-0">
+                  <div className="truncate text-slate-200">
+                    {AUTO_INDEX_SOURCE_LABELS[event.source_type] || titleCase(event.source_type)} · {event.source}
+                  </div>
+                  <div className="truncate text-[11px] text-slate-500">
+                    {titleCase(event.reason)}
+                    {event.error ? ` · ${event.error}` : ""}
+                  </div>
+                </div>
+                <div>
+                  <span className={`rounded-md border px-1.5 py-0.5 text-[10px] ${statusTone(event.status)}`}>
+                    {event.status}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-md border border-slate-800 bg-slate-950 p-3 text-xs text-slate-500">
+          No automatic refresh event has been recorded yet.
+        </div>
+      )}
+
+      <Boundary text={status.decision_boundary} />
+    </div>
+  );
+}
+
 export default function SemanticMemoryPage() {
   const [user, setUser] = useState<AuthUser | null>(() => getStoredUser());
   const [indexStatus, setIndexStatus] = useState<IndexStatusResponse | null>(null);
   const [capabilities, setCapabilities] = useState<CapabilitiesResponse | null>(null);
+  const [autoIndexStatus, setAutoIndexStatus] = useState<AutoIndexStatusResponse | null>(null);
   const [search, setSearch] = useState("");
   const [searchSourceType, setSearchSourceType] = useState("");
   const [searchResult, setSearchResult] = useState<SearchResponse | null>(null);
@@ -542,13 +741,15 @@ export default function SemanticMemoryPage() {
       if (current.role !== "ADMIN" && current.role !== "ANALYST") {
         setIndexStatus(null);
         setCapabilities(null);
+        setAutoIndexStatus(null);
         setError("Forbidden: Semantic Memory is available only to ADMIN and ANALYST users.");
         return;
       }
 
-      const [indexResponse, capabilitiesResponse] = await Promise.all([
+      const [indexResponse, capabilitiesResponse, autoIndexResponse] = await Promise.all([
         authFetch("/semantic-memory/index-status"),
         authFetch("/semantic-memory/capabilities"),
+        authFetch("/semantic-memory/auto-index-status"),
       ]);
 
       if (!indexResponse.ok) {
@@ -559,8 +760,13 @@ export default function SemanticMemoryPage() {
         throw new Error(`Capabilities API error ${capabilitiesResponse.status}`);
       }
 
+      if (!autoIndexResponse.ok) {
+        throw new Error(`Auto-index status API error ${autoIndexResponse.status}`);
+      }
+
       setIndexStatus(await indexResponse.json());
       setCapabilities(await capabilitiesResponse.json());
+      setAutoIndexStatus(await autoIndexResponse.json());
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "Unable to load semantic memory.");
     } finally {
@@ -746,7 +952,7 @@ export default function SemanticMemoryPage() {
             <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 text-xs text-slate-300">
               Loading semantic memory...
             </section>
-          ) : canView && indexStatus && capabilities ? (
+          ) : canView && indexStatus && capabilities && autoIndexStatus ? (
             <div className="space-y-3">
               <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-6">
                 <MetricCard
@@ -868,6 +1074,15 @@ export default function SemanticMemoryPage() {
                     icon={<ShieldCheck className="h-3.5 w-3.5" />}
                   />
                 </div>
+              </Section>
+
+              <Section
+                title="Auto Indexing Freshness"
+                icon={<RefreshCw className="h-3.5 w-3.5" />}
+                description={autoIndexStatus.message}
+                collapsible
+              >
+                <AutoIndexFreshnessPanel status={autoIndexStatus} />
               </Section>
 
               <Section
