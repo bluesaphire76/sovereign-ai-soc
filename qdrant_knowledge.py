@@ -450,6 +450,7 @@ class QdrantKnowledgeBase:
                 "soc_documentation_rag",
                 "ai_analysis_context_enrichment",
                 "detection_quality_decision_support",
+                "governed_detection_case_memory_review",
             ],
             "forbidden_uses": [
                 "primary_operational_deduplication",

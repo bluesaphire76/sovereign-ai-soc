@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from qdrant_knowledge import QdrantKnowledgeBase, config_from_env
+from scripts.index_detection_case_memory_to_qdrant import run_indexing as run_detection_case_indexing
 from scripts.index_historical_incidents_to_qdrant import run_indexing
 from scripts.qdrant_memory_retention import run_retention
 
@@ -39,6 +40,14 @@ class HistoricalBackfillRequest(BaseModel):
     limit: int = Field(default=10000, ge=1, le=50000)
     since_days: int | None = Field(default=None, ge=0, le=3650)
     include_open: bool = False
+
+
+class DetectionCaseBackfillRequest(BaseModel):
+    apply: bool = False
+    confirm: bool = False
+    limit: int = Field(default=1000, ge=1, le=50000)
+    include_detection_control: bool = True
+    include_case_closure: bool = True
 
 
 class RetentionCleanupRequest(BaseModel):
@@ -81,6 +90,7 @@ def semantic_memory_index_status(
 def semantic_memory_search(
     query: str = Query(..., min_length=1, max_length=500),
     limit: int = Query(default=4, ge=1, le=25),
+    source_type: str | None = Query(default=None, max_length=80),
 ) -> dict[str, Any]:
     """Run a read-only semantic search against the configured Qdrant collection.
 
@@ -95,6 +105,7 @@ def semantic_memory_search(
             "enabled": False,
             "query": query,
             "collection": kb.config.collection_name,
+            "source_type": source_type,
             "result_count": 0,
             "results": [],
             "decision_boundary": (
@@ -103,7 +114,7 @@ def semantic_memory_search(
         }
 
     try:
-        results = kb.retrieve_contexts(query, limit=limit)
+        results = kb.retrieve_contexts(query, limit=limit, source_type=source_type)
     except Exception as exc:
         raise HTTPException(
             status_code=503,
@@ -118,6 +129,7 @@ def semantic_memory_search(
         "query": query,
         "collection": kb.config.collection_name,
         "limit": limit,
+        "source_type": source_type,
         "result_count": len(results),
         "results": results,
         "decision_boundary": (
@@ -164,6 +176,43 @@ def semantic_memory_historical_backfill(
     return {
         **result,
         "operation": "historical_backfill",
+        "applied": payload.apply,
+        "confirm_required_for_apply": True,
+        "requested_by": _current_user(request).get("username"),
+    }
+
+
+@router.post("/detection-case-backfill")
+def semantic_memory_detection_case_backfill(
+    payload: DetectionCaseBackfillRequest,
+    request: Request,
+) -> dict[str, Any]:
+    """Run governed Detection Control and Case Closure semantic memory backfill."""
+
+    if not _is_admin(request):
+        raise HTTPException(status_code=403, detail="ADMIN role is required.")
+
+    _require_apply_confirmation(apply=payload.apply, confirm=payload.confirm)
+
+    try:
+        result = run_detection_case_indexing(
+            limit=payload.limit,
+            include_detection_control=payload.include_detection_control,
+            include_case_closure=payload.include_case_closure,
+            apply=payload.apply,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "message": "Detection Control and Case Closure semantic memory backfill failed.",
+                "error_type": exc.__class__.__name__,
+            },
+        ) from exc
+
+    return {
+        **result,
+        "operation": "detection_case_backfill",
         "applied": payload.apply,
         "confirm_required_for_apply": True,
         "requested_by": _current_user(request).get("username"),

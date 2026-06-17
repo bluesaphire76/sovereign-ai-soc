@@ -1,0 +1,11 @@
+[Unit]
+Description=AI SOC Qdrant detection control and case closure memory backfill
+After=ai-soc-api.service
+Wants=ai-soc-api.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/lele/lab/ai-soc-assistant
+Environment=PYTHONPATH=/home/lele/lab/ai-soc-assistant
+ExecStart=/home/lele/lab/ai-soc-assistant/.venv/bin/python /home/lele/lab/ai-soc-assistant/scripts/index_detection_case_memory_to_qdrant.py --apply --limit 1000
+User=lele

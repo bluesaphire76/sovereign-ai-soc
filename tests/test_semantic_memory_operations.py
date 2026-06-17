@@ -5,8 +5,10 @@ from unittest.mock import patch
 from fastapi import HTTPException
 
 from routers.semantic_memory import (
+    DetectionCaseBackfillRequest,
     HistoricalBackfillRequest,
     RetentionCleanupRequest,
+    semantic_memory_detection_case_backfill,
     semantic_memory_historical_backfill,
     semantic_memory_retention_cleanup,
 )
@@ -97,6 +99,39 @@ class SemanticMemoryOperationsTests(unittest.TestCase):
         self.assertEqual(result["operation"], "retention_cleanup")
         self.assertTrue(result["applied"])
         self.assertEqual(result["deleted"], 2)
+
+    def test_detection_case_backfill_apply_runs_with_confirmation(self):
+        with patch(
+            "routers.semantic_memory.run_detection_case_indexing",
+            return_value={
+                "mode": "apply",
+                "records_prepared": 3,
+                "detection_control_records": 1,
+                "case_closure_records": 2,
+                "indexed_points": 3,
+                "decision_boundary": "advisory only",
+            },
+        ) as runner:
+            result = semantic_memory_detection_case_backfill(
+                DetectionCaseBackfillRequest(
+                    apply=True,
+                    confirm=True,
+                    limit=250,
+                    include_detection_control=True,
+                    include_case_closure=False,
+                ),
+                request_for(),
+            )
+
+        runner.assert_called_once_with(
+            limit=250,
+            include_detection_control=True,
+            include_case_closure=False,
+            apply=True,
+        )
+        self.assertEqual(result["operation"], "detection_case_backfill")
+        self.assertTrue(result["applied"])
+        self.assertEqual(result["indexed_points"], 3)
 
 
 if __name__ == "__main__":

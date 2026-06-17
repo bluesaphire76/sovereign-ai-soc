@@ -433,7 +433,7 @@ RBAC_RULES: list[tuple[str, str, set[str]]] = [
     ("PATCH", r"^/ai-providers/[^/]+/config$", {ROLE_ADMIN}),
     ("POST", r"^/ai-providers/[^/]+/test$", {ROLE_ADMIN}),
     ("GET", r"^/semantic-memory/(capabilities|health|collection|index-status|search)$", OPERATOR_ROLES),
-    ("POST", r"^/semantic-memory/(historical-backfill|retention-cleanup)$", {ROLE_ADMIN}),
+    ("POST", r"^/semantic-memory/(historical-backfill|detection-case-backfill|retention-cleanup)$", {ROLE_ADMIN}),
     ("GET", r"^/ai-data-control/(capabilities|policies|decisions)$", ALL_ROLES),
     ("GET", r"^/ai-data-control/policies/[^/]+$", ALL_ROLES),
     ("PATCH", r"^/ai-data-control/policies/[^/]+$", {ROLE_ADMIN}),
