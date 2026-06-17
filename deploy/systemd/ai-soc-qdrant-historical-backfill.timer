@@ -1,0 +1,10 @@
+[Unit]
+Description=Run AI SOC Qdrant historical memory backfill daily
+
+[Timer]
+OnCalendar=*-*-* 03:20:00
+AccuracySec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

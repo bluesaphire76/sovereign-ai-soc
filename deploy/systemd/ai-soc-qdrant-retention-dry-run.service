@@ -1,0 +1,11 @@
+[Unit]
+Description=AI SOC Qdrant historical memory retention dry-run
+After=ai-soc-api.service
+Wants=ai-soc-api.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/lele/lab/ai-soc-assistant
+Environment=PYTHONPATH=/home/lele/lab/ai-soc-assistant
+ExecStart=/home/lele/lab/ai-soc-assistant/.venv/bin/python /home/lele/lab/ai-soc-assistant/scripts/qdrant_memory_retention.py --dry-run
+User=lele
