@@ -24,7 +24,8 @@ def main() -> None:
     args = parse_args()
     result = QdrantKnowledgeBase().index_documents(path=args.path, recreate=args.recreate)
     print(
-        "Indexed {indexed_points} chunk(s) from {documents} document(s) into {collection}.".format(
+        "Indexed {indexed_points} chunk(s) from {documents} document(s) into {collection}; "
+        "excluded {excluded_documents} document(s).".format(
             **result
         )
     )
