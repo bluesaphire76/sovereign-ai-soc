@@ -13,6 +13,7 @@ from routers.incident_timeline import router as incident_timeline_router
 from routers.incident_network_evidence import router as incident_network_evidence_router
 from routers.investigation_graph import router as investigation_graph_router
 from routers.network_events import router as network_events_router
+from routers.playbook_recommendations import router as playbook_recommendations_router
 from routers.reports import router as reports_router
 from routers.remediation import router as remediation_router
 from routers.service_operations import router as service_operations_router
@@ -30,6 +31,7 @@ def include_app_routers(app: FastAPI) -> None:
     app.include_router(incident_ai_brief_router)
     app.include_router(incident_timeline_router)
     app.include_router(similar_incidents_router)
+    app.include_router(playbook_recommendations_router)
     app.include_router(case_closure_semantic_context_router)
     app.include_router(incident_network_evidence_router)
     app.include_router(investigation_graph_router)
