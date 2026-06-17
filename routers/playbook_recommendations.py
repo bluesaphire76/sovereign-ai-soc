@@ -29,7 +29,27 @@ PLAYBOOK_RECOMMENDATION_DECISION_BOUNDARY = (
     "close cases or incidents, suppress alerts, apply Detection Control changes "
     "or replace RBAC, audit, deterministic checks and human validation."
 )
-PLAYBOOK_PAYLOAD_FIELDS = ["content_hash"]
+PLAYBOOK_PAYLOAD_FIELDS = [
+    "content_hash",
+    "doc_type",
+    "kb_type",
+    "title",
+    "domain",
+    "playbook_source",
+    "incident_types",
+    "severity_hint",
+    "mitre_tactics",
+    "mitre_techniques",
+    "applicability",
+    "not_applicable_when",
+    "recommended_for_pages",
+    "tags",
+    "section",
+    "section_order",
+    "file_path",
+    "content_kind",
+    "content_preview",
+]
 ACTION_HEADING_MARKERS = (
     "analyst checks",
     "analyst actions",
@@ -80,6 +100,21 @@ CATEGORY_KEYWORDS = {
         "account",
         "user",
     ],
+    "linux_host": [
+        "linux",
+        "systemd",
+        "service",
+        "daemon",
+        "package",
+        "apt",
+        "rpm",
+        "yum",
+        "dpkg",
+        "persistence",
+        "process",
+        "host",
+        "privilege escalation",
+    ],
     "closure": [
         "closure",
         "close",
@@ -116,13 +151,21 @@ CATEGORY_KEYWORDS = {
     ],
 }
 MIN_RELEVANCE_SCORE = 2
-INCIDENT_PLAYBOOK_CATEGORIES = {"authentication", "network"}
+INCIDENT_PLAYBOOK_CATEGORIES = {"authentication", "network", "linux_host", "closure"}
 CASE_PLAYBOOK_CATEGORIES = {
     "authentication",
     "network",
+    "linux_host",
     "closure",
     "remediation",
     "detection_control",
+}
+DOMAIN_CATEGORY_MAP = {
+    "authentication": "authentication",
+    "dns": "network",
+    "network_suricata": "network",
+    "linux_host": "linux_host",
+    "governance": "closure",
 }
 
 
@@ -200,6 +243,28 @@ def _playbook_category(text: str, source: str) -> str:
     return scores.most_common(1)[0][0]
 
 
+def _metadata_category(context: dict[str, Any], text: str, source: str) -> str:
+    domain = safe_text(context.get("domain")).lower()
+    if domain in DOMAIN_CATEGORY_MAP:
+        return DOMAIN_CATEGORY_MAP[domain]
+    return _playbook_category(text, source)
+
+
+def _metadata_list(context: dict[str, Any], field_name: str) -> list[str]:
+    value = context.get(field_name)
+    if isinstance(value, list):
+        return [safe_text(item) for item in value if safe_text(item)]
+    text = safe_text(value)
+    return [text] if text else []
+
+
+def _recommended_for_playbooks(context: dict[str, Any]) -> bool:
+    targets = [item.lower() for item in _metadata_list(context, "recommended_for_pages")]
+    if not targets:
+        return True
+    return "recommended_playbooks" in targets
+
+
 def _target_profile(
     text: str,
     *,
@@ -224,6 +289,7 @@ def _target_profile(
         "allowed_categories": sorted(allowed_categories or CATEGORY_KEYWORDS.keys()),
         "categories": categories,
         "scores": dict(scores),
+        "text": text,
     }
 
 
@@ -241,6 +307,7 @@ def _relevance_score(
     text: str,
     source: str,
     target_profile: dict[str, Any],
+    context: dict[str, Any] | None = None,
 ) -> int:
     target_scores = Counter(target_profile.get("scores") or {})
     playbook_scores = _category_scores(text, title=title, source=source)
@@ -253,6 +320,28 @@ def _relevance_score(
 
     if category in target_profile.get("categories", []):
         score += 4
+
+    target_text = safe_text(target_profile.get("text")).lower()
+    metadata_context = context or {}
+    metadata_values: list[str] = [
+        title,
+        safe_text(metadata_context.get("domain")),
+        safe_text(metadata_context.get("playbook_source")),
+        *_metadata_list(metadata_context, "incident_types"),
+        *_metadata_list(metadata_context, "tags"),
+        *_metadata_list(metadata_context, "mitre_tactics"),
+        *_metadata_list(metadata_context, "mitre_techniques"),
+        *_metadata_list(metadata_context, "applicability"),
+    ]
+    for value in metadata_values:
+        normalized = safe_text(value).lower()
+        if not normalized:
+            continue
+        tokens = [token for token in re.findall(r"[a-z0-9.]+", normalized) if len(token) >= 3]
+        if normalized in target_text:
+            score += 4
+        elif any(token in target_text for token in tokens):
+            score += 2
 
     return score
 
@@ -272,6 +361,13 @@ def _default_checks(category: str, target_type: str) -> list[str]:
             "Identify targeted accounts, source host, destination host and privileged identities.",
             "Compare with maintenance windows, scanners, lab tests and historical false positives.",
             f"Escalate the {case_or_incident} only when deterministic evidence supports compromise or misuse.",
+        ]
+    if category == "linux_host":
+        return [
+            "Review host-level process, package, service and persistence evidence around the detection window.",
+            "Confirm whether the change maps to approved maintenance, deployment or configuration management.",
+            "Correlate package or systemd activity with authentication anomalies and outbound network behavior.",
+            f"Escalate the {case_or_incident} when host changes are unauthorized, persistent or linked to compromise.",
         ]
     if category == "closure":
         return [
@@ -360,6 +456,8 @@ def _gui_targets(category: str, target_type: str) -> list[str]:
     common = ["Evidence & Correlation", "Investigation Graph", "Technical Evidence Appendix"]
     if category == "network":
         return ["DNS Evidence", "Network Evidence", *common]
+    if category == "linux_host":
+        return ["Technical Evidence Appendix", "Evidence & Correlation", "Investigation Graph"]
     if category == "remediation":
         return ["Governed Remediation", "Remediation Governance", "Remediation audit"]
     return common
@@ -391,6 +489,8 @@ def _why_suggested(
         reasons.append("The retrieved guidance is relevant to DNS, Suricata or network telemetry review.")
     elif category == "authentication":
         reasons.append("The retrieved guidance is relevant to authentication, SSH, sudo or credential-access review.")
+    elif category == "linux_host":
+        reasons.append("The retrieved guidance is relevant to Linux host activity, packages, services or persistence review.")
     elif category == "closure":
         reasons.append("The retrieved guidance is relevant to closure readiness, false-positive rationale or residual-risk review.")
     elif category == "remediation":
@@ -408,6 +508,8 @@ def _operational_use(category: str) -> str:
         return "Use it to decide which DNS, Suricata and network evidence to inspect next."
     if category == "authentication":
         return "Use it to structure authentication triage and decide whether escalation evidence exists."
+    if category == "linux_host":
+        return "Use it to structure Linux host triage for package, service, process or persistence evidence."
     if category == "closure":
         return "Use it to check closure readiness and documentation quality before human approval."
     if category == "remediation":
@@ -516,14 +618,15 @@ def _recommendation_item(
 ) -> dict[str, Any]:
     text = safe_text(context.get("text"))
     source = safe_text(context.get("source"))
-    title = _markdown_title(text, source)
-    category = _playbook_category(text, source)
+    title = safe_text(context.get("title")) or _markdown_title(text, source)
+    category = _metadata_category(context, text, source)
     relevance_score = _relevance_score(
         category=category,
         title=title,
         text=text,
         source=source,
         target_profile=target_profile,
+        context=context,
     )
     return {
         "card_type": "playbook_action_card",
@@ -545,6 +648,22 @@ def _recommendation_item(
         "operational_use": _operational_use(category),
         "source_type": safe_text(context.get("source_type")) or KNOWLEDGE_BASE_SOURCE_TYPE,
         "source": source,
+        "file_path": safe_text(context.get("file_path")) or source,
+        "doc_type": safe_text(context.get("doc_type")),
+        "kb_type": safe_text(context.get("kb_type")),
+        "content_kind": safe_text(context.get("content_kind")),
+        "domain": safe_text(context.get("domain")),
+        "playbook_source": safe_text(context.get("playbook_source")),
+        "incident_types": _metadata_list(context, "incident_types"),
+        "severity_hint": _metadata_list(context, "severity_hint"),
+        "mitre_tactics": _metadata_list(context, "mitre_tactics"),
+        "mitre_techniques": _metadata_list(context, "mitre_techniques"),
+        "applicability": _metadata_list(context, "applicability"),
+        "not_applicable_when": _metadata_list(context, "not_applicable_when"),
+        "recommended_for_pages": _metadata_list(context, "recommended_for_pages"),
+        "tags": _metadata_list(context, "tags"),
+        "section": safe_text(context.get("section")),
+        "section_order": context.get("section_order"),
         "score": context.get("score"),
         "excerpt": _short_text(text, max_chars=520),
         "chunk_index": context.get("chunk_index"),
@@ -601,8 +720,40 @@ def _retrieve_playbooks(
             query,
             limit=25,
             source_type=KNOWLEDGE_BASE_SOURCE_TYPE,
+            payload_filter={
+                "doc_type": "playbook",
+                "content_kind": "playbook_section",
+            },
             payload_fields=PLAYBOOK_PAYLOAD_FIELDS,
         )
+        metadata_contexts = [
+            context for context in contexts if _recommended_for_playbooks(context)
+        ]
+        if len(metadata_contexts) < limit:
+            fallback_contexts = kb.retrieve_contexts(
+                query,
+                limit=25,
+                source_type=KNOWLEDGE_BASE_SOURCE_TYPE,
+                payload_fields=PLAYBOOK_PAYLOAD_FIELDS,
+            )
+            seen_context_keys = {
+                (
+                    safe_text(context.get("source")),
+                    str(context.get("chunk_index")),
+                    safe_text(context.get("content_hash")),
+                )
+                for context in metadata_contexts
+            }
+            for context in fallback_contexts:
+                key = (
+                    safe_text(context.get("source")),
+                    str(context.get("chunk_index")),
+                    safe_text(context.get("content_hash")),
+                )
+                if key not in seen_context_keys:
+                    metadata_contexts.append(context)
+                    seen_context_keys.add(key)
+        contexts = metadata_contexts
     except Exception as exc:
         return {
             **base_response,
