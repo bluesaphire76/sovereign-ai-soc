@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
@@ -50,6 +51,21 @@ DEFAULT_KNOWLEDGE_BASE_EXCLUDED_DIRS = frozenset(
     }
 )
 DEFAULT_KNOWLEDGE_BASE_EXCLUDED_FILENAMES = frozenset({"README.md"})
+PLAYBOOK_REQUIRED_METADATA_FIELDS = (
+    "title",
+    "type",
+    "domain",
+    "source",
+    "incident_types",
+    "severity_hint",
+    "mitre_tactics",
+    "mitre_techniques",
+    "applicability",
+    "not_applicable_when",
+    "recommended_for_pages",
+    "tags",
+)
+PLAYBOOK_DEFAULT_RECOMMENDED_FOR_PAGES = ["recommended_playbooks"]
 
 
 class EmbeddingModel(Protocol):
@@ -82,6 +98,32 @@ class SemanticMemoryRecord:
     source: str
     text: str
     payload: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class MarkdownChunk:
+    text: str
+    section: str
+    section_order: int
+    section_chunk_index: int
+
+
+@dataclass(frozen=True)
+class KnowledgeBaseIndexChunk:
+    file_path: Path
+    text: str
+    payload: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class KnowledgeBaseIndexPlan:
+    base_path: Path
+    chunks: list[KnowledgeBaseIndexChunk]
+    documents: list[Path]
+    excluded_files: list[Path]
+    skipped_files: list[dict[str, str]]
+    missing_metadata: list[dict[str, Any]]
+    fallback_chunked_files: list[Path]
 
 
 def _env_bool(name: str, default: bool = True) -> bool:
@@ -189,17 +231,127 @@ def _split_long_section(lines: list[str], max_chars: int) -> list[str]:
     return chunks
 
 
+def _markdown_h1(text: str) -> str:
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if line.startswith("# "):
+            return line[2:].strip()
+    return ""
+
+
+def _title_from_filename(file_path: Path) -> str:
+    return file_path.stem.replace("_", " ").replace("-", " ").title()
+
+
+def _normalize_metadata_scalar(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (str, int, float, bool)):
+        return safe_text(value)
+    return safe_text(str(value))
+
+
+def _normalize_metadata_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list | tuple | set):
+        values = value
+    else:
+        values = [value]
+
+    normalized: list[str] = []
+    for item in values:
+        text = _normalize_metadata_scalar(item)
+        if text:
+            normalized.append(text)
+    return normalized
+
+
+def _parse_front_matter(text: str) -> tuple[dict[str, Any], str, list[str]]:
+    normalized = text.replace("\r\n", "\n")
+    if not normalized.startswith("---\n"):
+        return {}, normalized, []
+
+    lines = normalized.split("\n")
+    closing_index: int | None = None
+    for index, line in enumerate(lines[1:], start=1):
+        if line.strip() == "---":
+            closing_index = index
+            break
+
+    if closing_index is None:
+        return {}, normalized, ["front_matter_not_closed"]
+
+    raw_front_matter = "\n".join(lines[1:closing_index])
+    body = "\n".join(lines[closing_index + 1 :]).lstrip("\n")
+    try:
+        import yaml  # type: ignore
+
+        parsed = yaml.safe_load(raw_front_matter) or {}
+    except Exception as exc:
+        return {}, body, [f"front_matter_parse_failed:{exc.__class__.__name__}"]
+
+    if not isinstance(parsed, dict):
+        return {}, body, ["front_matter_not_mapping"]
+
+    return parsed, body, []
+
+
+def _relative_source_path(file_path: Path) -> str:
+    try:
+        return str(file_path.relative_to(Path.cwd()))
+    except ValueError:
+        return str(file_path)
+
+
+def _is_playbook_document(file_path: Path) -> bool:
+    parts = {part.lower() for part in file_path.parts}
+    return "playbooks" in parts and "_templates" not in parts
+
+
+def _playbook_domain_from_path(file_path: Path) -> str:
+    parts = list(file_path.parts)
+    lowered = [part.lower() for part in parts]
+    if "playbooks" in lowered:
+        index = lowered.index("playbooks")
+        if index + 1 < len(parts):
+            return parts[index + 1]
+    return file_path.parent.name
+
+
+def _section_name(lines: list[str]) -> str:
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("## "):
+            return stripped[3:].strip()
+    return "Document"
+
+
+def _chunk_markdown_sections(text: str, max_chars: int) -> tuple[list[MarkdownChunk], bool]:
+    sections = _split_markdown_sections(text)
+    if not sections and text.strip():
+        sections = [[line.strip() for line in text.splitlines() if line.strip()]]
+
+    chunks: list[MarkdownChunk] = []
+    has_h2 = any(any(line.strip().startswith("## ") for line in section) for section in sections)
+    for section_order, section in enumerate(sections, start=1):
+        section_name = _section_name(section)
+        for section_chunk_index, chunk in enumerate(_split_long_section(section, max_chars)):
+            if chunk.strip():
+                chunks.append(
+                    MarkdownChunk(
+                        text=chunk,
+                        section=section_name,
+                        section_order=section_order,
+                        section_chunk_index=section_chunk_index,
+                    )
+                )
+
+    return chunks, not has_h2
+
+
 def chunk_text(text: str, max_chars: int = 900) -> list[str]:
-    chunks: list[str] = []
-
-    for section in _split_markdown_sections(text):
-        section_text = "\n".join(section)
-        if len(section_text) <= max_chars:
-            chunks.append(section_text)
-        else:
-            chunks.extend(_split_long_section(section, max_chars))
-
-    return [chunk for chunk in chunks if chunk.strip()]
+    return [chunk.text for chunk in _chunk_markdown_sections(text, max_chars)[0]]
 
 
 def _is_excluded_knowledge_document(
@@ -250,6 +402,147 @@ def discover_knowledge_base_documents(
     return documents, excluded
 
 
+def _playbook_payload_metadata(
+    file_path: Path,
+    body_text: str,
+    front_matter: dict[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    title = (
+        _normalize_metadata_scalar(front_matter.get("title"))
+        or _markdown_h1(body_text)
+        or _title_from_filename(file_path)
+    )
+    domain = (
+        _normalize_metadata_scalar(front_matter.get("domain"))
+        or _playbook_domain_from_path(file_path)
+    )
+    doc_type = _normalize_metadata_scalar(front_matter.get("type")) or "playbook"
+    playbook_source = _normalize_metadata_scalar(front_matter.get("source")) or "knowledge_base"
+    recommended_for_pages = (
+        _normalize_metadata_list(front_matter.get("recommended_for_pages"))
+        or PLAYBOOK_DEFAULT_RECOMMENDED_FOR_PAGES
+    )
+
+    missing = [
+        field_name
+        for field_name in PLAYBOOK_REQUIRED_METADATA_FIELDS
+        if not _normalize_metadata_list(front_matter.get(field_name))
+        and not _normalize_metadata_scalar(front_matter.get(field_name))
+    ]
+
+    metadata = {
+        "doc_type": doc_type,
+        "kb_type": doc_type,
+        "title": title,
+        "domain": domain,
+        "playbook_source": playbook_source,
+        "incident_types": _normalize_metadata_list(front_matter.get("incident_types")),
+        "severity_hint": _normalize_metadata_list(front_matter.get("severity_hint")),
+        "mitre_tactics": _normalize_metadata_list(front_matter.get("mitre_tactics")),
+        "mitre_techniques": _normalize_metadata_list(front_matter.get("mitre_techniques")),
+        "applicability": _normalize_metadata_list(front_matter.get("applicability")),
+        "not_applicable_when": _normalize_metadata_list(front_matter.get("not_applicable_when")),
+        "recommended_for_pages": recommended_for_pages,
+        "tags": _normalize_metadata_list(front_matter.get("tags")),
+    }
+    return metadata, missing
+
+
+def build_knowledge_base_index_plan(
+    base_path: Path,
+    *,
+    chunk_max_chars: int = 900,
+    excluded_dirs: frozenset[str] = DEFAULT_KNOWLEDGE_BASE_EXCLUDED_DIRS,
+    excluded_filenames: frozenset[str] = DEFAULT_KNOWLEDGE_BASE_EXCLUDED_FILENAMES,
+    playbooks_only: bool = False,
+) -> KnowledgeBaseIndexPlan:
+    documents, excluded_files = discover_knowledge_base_documents(
+        base_path,
+        excluded_dirs=excluded_dirs,
+        excluded_filenames=excluded_filenames,
+    )
+    chunks: list[KnowledgeBaseIndexChunk] = []
+    indexed_documents: list[Path] = []
+    skipped_files: list[dict[str, str]] = []
+    missing_metadata: list[dict[str, Any]] = []
+    fallback_chunked_files: list[Path] = []
+
+    for file_path in documents:
+        is_playbook = _is_playbook_document(file_path)
+        if playbooks_only and not is_playbook:
+            skipped_files.append(
+                {"file_path": str(file_path), "reason": "not_playbook_document"}
+            )
+            continue
+
+        try:
+            raw_text = file_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            skipped_files.append(
+                {"file_path": str(file_path), "reason": f"read_failed:{exc.__class__.__name__}"}
+            )
+            continue
+
+        front_matter, body_text, parse_warnings = _parse_front_matter(raw_text)
+        source_path = _relative_source_path(file_path)
+        body = body_text or raw_text
+        markdown_chunks, used_fallback = _chunk_markdown_sections(body, chunk_max_chars)
+        if used_fallback:
+            fallback_chunked_files.append(file_path)
+
+        if is_playbook:
+            metadata, missing = _playbook_payload_metadata(file_path, body, front_matter)
+            if missing or parse_warnings:
+                missing_metadata.append(
+                    {
+                        "file_path": source_path,
+                        "missing_fields": missing,
+                        "warnings": parse_warnings,
+                    }
+                )
+            content_kind = "playbook_section"
+        else:
+            metadata = {
+                "doc_type": "knowledge_base",
+                "kb_type": "knowledge_base",
+                "title": _markdown_h1(body) or _title_from_filename(file_path),
+                "domain": file_path.parent.name,
+                "recommended_for_pages": ["ai_analysis", "incident_detail"],
+                "tags": [],
+            }
+            content_kind = "knowledge_base_section"
+
+        indexed_documents.append(file_path)
+        for chunk_index, chunk in enumerate(markdown_chunks):
+            payload = {
+                **metadata,
+                "source_type": "knowledge_base",
+                "source": source_path,
+                "file_path": source_path,
+                "text": chunk.text,
+                "section": chunk.section,
+                "section_order": chunk.section_order,
+                "section_chunk_index": chunk.section_chunk_index,
+                "chunk_index": chunk_index,
+                "content_hash": hashlib.sha256(chunk.text.encode("utf-8")).hexdigest(),
+                "content_preview": _short_text(chunk.text, max_chars=240),
+                "chunk_text_preview": _short_text(chunk.text, max_chars=240),
+                "content_kind": content_kind,
+                "front_matter_present": bool(front_matter),
+            }
+            chunks.append(KnowledgeBaseIndexChunk(file_path=file_path, text=chunk.text, payload=payload))
+
+    return KnowledgeBaseIndexPlan(
+        base_path=base_path,
+        chunks=chunks,
+        documents=indexed_documents,
+        excluded_files=excluded_files,
+        skipped_files=skipped_files,
+        missing_metadata=missing_metadata,
+        fallback_chunked_files=fallback_chunked_files,
+    )
+
+
 def _vector_from_encoded(value: Any) -> list[float]:
     if hasattr(value, "tolist"):
         value = value.tolist()
@@ -291,20 +584,46 @@ def _payload_source_type(payload: dict[str, Any]) -> str:
     return "unknown"
 
 
-def _source_type_query_filter(source_type: str | None) -> Any | None:
+def _payload_is_playbook(payload: dict[str, Any]) -> bool:
+    source = safe_text(payload.get("source"))
+    return (
+        safe_text(payload.get("doc_type")).lower() == "playbook"
+        or safe_text(payload.get("kb_type")).lower() == "playbook"
+        or safe_text(payload.get("content_kind")).lower() == "playbook_section"
+        or source.startswith("knowledge_base/playbooks/")
+        or source.startswith("knowledge_base\\playbooks\\")
+    )
+
+
+def _source_type_query_filter(
+    source_type: str | None,
+    *,
+    payload_filter: dict[str, Any] | None = None,
+) -> Any | None:
     source_type_text = safe_text(source_type)
-    if not source_type_text:
+    normalized_payload_filter = {
+        safe_text(key): value
+        for key, value in (payload_filter or {}).items()
+        if safe_text(key) and value is not None
+    }
+    if not source_type_text and not normalized_payload_filter:
         return None
 
     from qdrant_client.models import FieldCondition, Filter, MatchValue
 
-    return Filter(
-        must=[
+    conditions = []
+    if source_type_text:
+        conditions.append(
             FieldCondition(
                 key="source_type",
                 match=MatchValue(value=source_type_text),
             )
-        ]
+        )
+    for key, value in normalized_payload_filter.items():
+        conditions.append(FieldCondition(key=key, match=MatchValue(value=value)))
+
+    return Filter(
+        must=conditions
     )
 
 
@@ -370,35 +689,27 @@ class QdrantKnowledgeBase:
         from qdrant_client.models import PointStruct
 
         base_path = Path(path) if path is not None else self.config.knowledge_base_path
-        files, excluded_files = discover_knowledge_base_documents(
+        plan = build_knowledge_base_index_plan(
             base_path,
+            chunk_max_chars=self.config.chunk_max_chars,
             excluded_dirs=self.config.excluded_dirs,
             excluded_filenames=self.config.excluded_filenames,
         )
         points: list[Any] = []
         vector_size: int | None = None
 
-        for file_path in files:
-            text = file_path.read_text(encoding="utf-8")
-            for chunk_index, chunk in enumerate(
-                chunk_text(text, max_chars=self.config.chunk_max_chars)
-            ):
-                vector = self.embed(chunk)
-                vector_size = vector_size or len(vector)
-                source = str(file_path)
-                points.append(
-                    PointStruct(
-                        id=_point_id(source, chunk_index, chunk),
-                        vector=vector,
-                        payload={
-                            "source_type": "knowledge_base",
-                            "source": source,
-                            "text": chunk,
-                            "chunk_index": chunk_index,
-                            "content_hash": hashlib.sha256(chunk.encode("utf-8")).hexdigest(),
-                        },
-                    )
+        for chunk in plan.chunks:
+            vector = self.embed(chunk.text)
+            vector_size = vector_size or len(vector)
+            source = safe_text(chunk.payload.get("source"))
+            chunk_index = int(chunk.payload.get("chunk_index") or 0)
+            points.append(
+                PointStruct(
+                    id=_point_id(source, chunk_index, chunk.text),
+                    vector=vector,
+                    payload=chunk.payload,
                 )
+            )
 
         if recreate:
             self.recreate_collection(vector_size=vector_size)
@@ -411,10 +722,110 @@ class QdrantKnowledgeBase:
         return {
             "collection": self.config.collection_name,
             "path": str(base_path),
-            "documents": len(files),
-            "excluded_documents": len(excluded_files),
+            "documents": len(plan.documents),
+            "excluded_documents": len(plan.excluded_files),
+            "skipped_documents": len(plan.skipped_files),
+            "missing_metadata_documents": len(plan.missing_metadata),
+            "fallback_chunked_documents": len(plan.fallback_chunked_files),
             "indexed_points": len(points),
             "recreated": recreate,
+        }
+
+    def delete_playbook_points(self, *, max_points: int = 10000) -> dict[str, Any]:
+        if not self.config.enabled:
+            return {"deleted_points": 0, "skip_reason": "semantic_memory_disabled"}
+        if not self.collection_exists():
+            return {"deleted_points": 0, "skip_reason": "collection_missing"}
+
+        point_ids: list[str] = []
+        scanned = 0
+        next_offset: Any = None
+        source_filter = _source_type_query_filter("knowledge_base")
+
+        while scanned < max_points:
+            batch_limit = min(250, max_points - scanned)
+            points, next_offset = self.client.scroll(
+                collection_name=self.config.collection_name,
+                scroll_filter=source_filter,
+                limit=batch_limit,
+                offset=next_offset,
+                with_payload=True,
+                with_vectors=False,
+            )
+            if not points:
+                break
+
+            for point in points:
+                scanned += 1
+                payload = getattr(point, "payload", None) or {}
+                point_id = safe_text(getattr(point, "id", ""))
+                if point_id and _payload_is_playbook(payload):
+                    point_ids.append(point_id)
+
+            if next_offset is None:
+                break
+
+        if point_ids:
+            self.client.delete(
+                collection_name=self.config.collection_name,
+                points_selector=point_ids,
+                wait=True,
+            )
+
+        return {"deleted_points": len(point_ids), "points_scanned": scanned}
+
+    def index_playbook_documents(
+        self,
+        *,
+        path: str | Path | None = None,
+        replace_existing: bool = True,
+    ) -> dict[str, Any]:
+        from qdrant_client.models import PointStruct
+
+        base_path = Path(path) if path is not None else self.config.knowledge_base_path
+        plan = build_knowledge_base_index_plan(
+            base_path,
+            chunk_max_chars=self.config.chunk_max_chars,
+            excluded_dirs=self.config.excluded_dirs,
+            excluded_filenames=self.config.excluded_filenames,
+            playbooks_only=True,
+        )
+        points: list[Any] = []
+        vector_size: int | None = None
+
+        for chunk in plan.chunks:
+            vector = self.embed(chunk.text)
+            vector_size = vector_size or len(vector)
+            source = safe_text(chunk.payload.get("source"))
+            chunk_index = int(chunk.payload.get("chunk_index") or 0)
+            points.append(
+                PointStruct(
+                    id=_point_id(source, chunk_index, chunk.text),
+                    vector=vector,
+                    payload=chunk.payload,
+                )
+            )
+
+        delete_result = {"deleted_points": 0, "points_scanned": 0}
+        if vector_size is not None:
+            self.ensure_collection(vector_size=vector_size)
+            if replace_existing:
+                delete_result = self.delete_playbook_points()
+
+        if points:
+            self.client.upsert(collection_name=self.config.collection_name, points=points)
+
+        return {
+            "collection": self.config.collection_name,
+            "path": str(base_path),
+            "documents": len(plan.documents),
+            "excluded_documents": len(plan.excluded_files),
+            "skipped_documents": len(plan.skipped_files),
+            "missing_metadata_documents": len(plan.missing_metadata),
+            "fallback_chunked_documents": len(plan.fallback_chunked_files),
+            "indexed_points": len(points),
+            "replace_existing": replace_existing,
+            **delete_result,
         }
 
     def index_memory_records(self, records: list[SemanticMemoryRecord]) -> dict[str, Any]:
@@ -467,6 +878,7 @@ class QdrantKnowledgeBase:
         *,
         limit: int | None = None,
         source_type: str | None = None,
+        payload_filter: dict[str, Any] | None = None,
         payload_fields: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         if not self.config.enabled:
@@ -481,7 +893,7 @@ class QdrantKnowledgeBase:
         results = self.client.query_points(
             collection_name=self.config.collection_name,
             query=vector,
-            query_filter=_source_type_query_filter(source_type),
+            query_filter=_source_type_query_filter(source_type, payload_filter=payload_filter),
             limit=resolved_limit,
             with_payload=True,
         )

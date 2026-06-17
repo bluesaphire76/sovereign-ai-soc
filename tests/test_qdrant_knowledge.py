@@ -18,6 +18,7 @@ from qdrant_knowledge import (
     SEMANTIC_MEMORY_DECISION_BOUNDARY,
     QdrantKnowledgeBase,
     QdrantKnowledgeConfig,
+    build_knowledge_base_index_plan,
     chunk_text,
     discover_knowledge_base_documents,
     format_semantic_memory_context_for_prompt,
@@ -179,6 +180,71 @@ Indicatori:
         ]
         self.assertEqual(indexed_sources, [str(active_nested)])
 
+    def test_playbook_front_matter_becomes_payload_metadata_not_embedded_text(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base_path = Path(temp_dir) / "knowledge_base"
+            playbook_path = (
+                base_path
+                / "playbooks"
+                / "authentication"
+                / "ssh_bruteforce_investigation_playbook.md"
+            )
+            playbook_path.parent.mkdir(parents=True)
+            playbook_path.write_text(
+                """---
+title: SSH Brute Force Investigation Playbook
+type: playbook
+domain: authentication
+source: wazuh
+incident_types:
+  - ssh_bruteforce
+severity_hint:
+  - high
+mitre_tactics:
+  - Credential Access
+mitre_techniques:
+  - T1110
+applicability:
+  - Multiple failed SSH login attempts
+not_applicable_when:
+  - Known vulnerability scanner
+recommended_for_pages:
+  - recommended_playbooks
+  - incident_detail
+tags:
+  - ssh
+  - brute-force
+---
+# SSH Brute Force Investigation Playbook
+
+## Investigation Steps
+
+- Review failed authentication attempts.
+""",
+                encoding="utf-8",
+            )
+
+            plan = build_knowledge_base_index_plan(base_path, playbooks_only=True)
+
+        self.assertEqual(len(plan.documents), 1)
+        self.assertEqual(len(plan.missing_metadata), 0)
+        self.assertEqual(len(plan.chunks), 1)
+        payload = plan.chunks[0].payload
+        self.assertEqual(payload["doc_type"], "playbook")
+        self.assertEqual(payload["kb_type"], "playbook")
+        self.assertEqual(payload["title"], "SSH Brute Force Investigation Playbook")
+        self.assertEqual(payload["domain"], "authentication")
+        self.assertEqual(payload["playbook_source"], "wazuh")
+        self.assertEqual(payload["incident_types"], ["ssh_bruteforce"])
+        self.assertEqual(payload["mitre_techniques"], ["T1110"])
+        self.assertEqual(payload["recommended_for_pages"], ["recommended_playbooks", "incident_detail"])
+        self.assertEqual(payload["tags"], ["ssh", "brute-force"])
+        self.assertEqual(payload["section"], "Investigation Steps")
+        self.assertEqual(payload["section_order"], 1)
+        self.assertEqual(payload["content_kind"], "playbook_section")
+        self.assertNotIn("title:", payload["text"])
+        self.assertNotIn("---", payload["text"])
+
     def test_fetch_investigation_evidence_returns_contextual_evidence(self):
         encoder = FakeEncoder()
         client = FakeClient(
@@ -281,6 +347,7 @@ Indicatori:
             "ssh brute force",
             limit=1,
             source_type="historical_incident",
+            payload_filter={"status": "CLOSED"},
             payload_fields=["incident_id", "status"],
         )
 
@@ -290,6 +357,7 @@ Indicatori:
         self.assertEqual(contexts[0]["status"], "CLOSED")
         self.assertIsNotNone(client.queries[0]["query_filter"])
         self.assertIn("historical_incident", str(client.queries[0]["query_filter"]))
+        self.assertIn("CLOSED", str(client.queries[0]["query_filter"]))
 
     def test_legacy_retrieve_security_context_uses_default_knowledge_base(self):
         old_default = qdrant_knowledge._DEFAULT_KNOWLEDGE_BASE

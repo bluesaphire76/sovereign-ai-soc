@@ -76,12 +76,21 @@ class FakeKnowledgeBase:
         self.calls = []
         self.mutation_calls = []
 
-    def retrieve_contexts(self, query, *, limit=None, source_type=None, payload_fields=None):
+    def retrieve_contexts(
+        self,
+        query,
+        *,
+        limit=None,
+        source_type=None,
+        payload_filter=None,
+        payload_fields=None,
+    ):
         self.calls.append(
             {
                 "query": query,
                 "limit": limit,
                 "source_type": source_type,
+                "payload_filter": payload_filter,
                 "payload_fields": payload_fields,
             }
         )
@@ -185,6 +194,37 @@ def playbook_context(source="knowledge_base/security_playbook.md"):
     }
 
 
+def metadata_playbook_context():
+    return {
+        "source_type": KNOWLEDGE_BASE_SOURCE_TYPE,
+        "source": "knowledge_base/playbooks/authentication/ssh_bruteforce_investigation_playbook.md",
+        "file_path": "knowledge_base/playbooks/authentication/ssh_bruteforce_investigation_playbook.md",
+        "score": 0.91,
+        "chunk_index": 5,
+        "content_hash": "metadata123",
+        "doc_type": "playbook",
+        "kb_type": "playbook",
+        "content_kind": "playbook_section",
+        "title": "SSH Brute Force Investigation Playbook",
+        "domain": "authentication",
+        "playbook_source": "wazuh",
+        "incident_types": ["ssh_bruteforce", "credential_attack"],
+        "severity_hint": ["medium", "high"],
+        "mitre_tactics": ["Credential Access"],
+        "mitre_techniques": ["T1110"],
+        "recommended_for_pages": ["recommended_playbooks", "incident_detail"],
+        "tags": ["ssh", "brute-force", "authentication"],
+        "section": "Investigation Steps",
+        "section_order": 6,
+        "text": (
+            "# SSH Brute Force Investigation Playbook\n\n"
+            "## Investigation Steps\n\n"
+            "- review failed and successful authentication attempts;\n"
+            "- identify targeted accounts and source host.\n"
+        ),
+    }
+
+
 def dns_playbook_context():
     return {
         "source_type": KNOWLEDGE_BASE_SOURCE_TYPE,
@@ -265,6 +305,29 @@ class PlaybookRecommendationTests(unittest.TestCase):
         self.assertEqual(kb.mutation_calls, [])
         self.assertEqual(kb.calls[0]["source_type"], KNOWLEDGE_BASE_SOURCE_TYPE)
         self.assertIn("Multiple failed SSH logins", kb.calls[0]["query"])
+
+    def test_incident_recommendations_prioritize_metadata_playbook_sections(self):
+        kb = FakeKnowledgeBase(contexts=[metadata_playbook_context()])
+
+        result = build_incident_playbook_recommendations(
+            FakeDb(incident=incident()),
+            42,
+            knowledge_base_factory=lambda: kb,
+        )
+
+        recommendation = result["recommendations"][0]
+
+        self.assertEqual(recommendation["title"], "SSH Brute Force Investigation Playbook")
+        self.assertEqual(recommendation["domain"], "authentication")
+        self.assertEqual(recommendation["playbook_source"], "wazuh")
+        self.assertEqual(recommendation["section"], "Investigation Steps")
+        self.assertEqual(recommendation["mitre_techniques"], ["T1110"])
+        self.assertIn("ssh_bruteforce", recommendation["incident_types"])
+        self.assertEqual(
+            kb.calls[0]["payload_filter"],
+            {"doc_type": "playbook", "content_kind": "playbook_section"},
+        )
+        self.assertIn("recommended_for_pages", kb.calls[0]["payload_fields"])
 
     def test_case_recommendations_include_case_context_without_mutating_state(self):
         kb = FakeKnowledgeBase(contexts=[playbook_context("knowledge_base/bruteforce.md")])
@@ -363,7 +426,10 @@ class PlaybookRecommendationTests(unittest.TestCase):
         self.assertIn("authentication", categories)
         self.assertNotIn("remediation", categories)
         self.assertNotIn("Governed Remediation Playbook", titles)
-        self.assertEqual(result["target_profile"]["allowed_categories"], ["authentication", "network"])
+        self.assertEqual(
+            result["target_profile"]["allowed_categories"],
+            ["authentication", "closure", "linux_host", "network"],
+        )
 
     def test_incident_returns_empty_when_only_generic_operational_playbooks_match(self):
         kb = FakeKnowledgeBase(contexts=[remediation_playbook_context()])

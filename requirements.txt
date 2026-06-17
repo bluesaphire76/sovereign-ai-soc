@@ -4,3 +4,4 @@ prometheus-client
 pydantic>=2,<3
 qdrant-client
 sentence-transformers
+PyYAML
