@@ -1,5 +1,7 @@
+import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 import qdrant_knowledge
 from investigation_ai.adapters import normalize_investigation_context
@@ -17,6 +19,7 @@ from qdrant_knowledge import (
     QdrantKnowledgeBase,
     QdrantKnowledgeConfig,
     chunk_text,
+    discover_knowledge_base_documents,
     format_semantic_memory_context_for_prompt,
 )
 
@@ -46,10 +49,17 @@ class FakeClient:
     def __init__(self, points):
         self.points = points
         self.queries = []
+        self.upserts = []
 
     def query_points(self, **kwargs):
         self.queries.append(kwargs)
         return FakeQueryResult(self.points)
+
+    def get_collections(self):
+        return SimpleNamespace(collections=[SimpleNamespace(name="security_kb")])
+
+    def upsert(self, **kwargs):
+        self.upserts.append(kwargs)
 
 
 def config(enabled=True):
@@ -96,6 +106,78 @@ Indicatori:
         self.assertEqual(len(chunks), 2)
         self.assertIn("SSH brute force", chunks[0])
         self.assertIn("Privilege escalation via sudo", chunks[1])
+
+    def test_discover_knowledge_base_documents_is_recursive_and_excludes_non_operational_docs(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base_path = Path(temp_dir) / "knowledge_base"
+            (base_path / "playbooks" / "authentication").mkdir(parents=True)
+            (base_path / "playbooks" / "_templates").mkdir(parents=True)
+            (base_path / "archive" / "legacy_playbooks").mkdir(parents=True)
+            (base_path / "playbooks" / "README.md").write_text(
+                "# Maintainer README\n",
+                encoding="utf-8",
+            )
+            active_top_level = base_path / "case_closure_policy.md"
+            active_nested = (
+                base_path
+                / "playbooks"
+                / "authentication"
+                / "ssh_bruteforce_investigation_playbook.md"
+            )
+            template_doc = base_path / "playbooks" / "_templates" / "playbook_template.md"
+            archived_doc = (
+                base_path / "archive" / "legacy_playbooks" / "security_playbook.md"
+            )
+            active_top_level.write_text("# Case Closure\n\n## Purpose\nClose safely.\n", encoding="utf-8")
+            active_nested.write_text("# SSH\n\n## Purpose\nInvestigate SSH.\n", encoding="utf-8")
+            template_doc.write_text("# Template\n\n## Purpose\nAuthoring only.\n", encoding="utf-8")
+            archived_doc.write_text("# Legacy\n\n## Purpose\nRetired.\n", encoding="utf-8")
+
+            documents, excluded = discover_knowledge_base_documents(base_path)
+
+        self.assertEqual(documents, [active_top_level, active_nested])
+        self.assertEqual(
+            excluded,
+            [
+                archived_doc,
+                base_path / "playbooks" / "README.md",
+                template_doc,
+            ],
+        )
+
+    def test_index_documents_indexes_recursive_playbooks_and_reports_exclusions(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base_path = Path(temp_dir) / "knowledge_base"
+            (base_path / "playbooks" / "dns").mkdir(parents=True)
+            (base_path / "playbooks" / "_templates").mkdir(parents=True)
+            active_nested = base_path / "playbooks" / "dns" / "dns_c2_beaconing_playbook.md"
+            excluded_readme = base_path / "playbooks" / "README.md"
+            excluded_template = base_path / "playbooks" / "_templates" / "playbook_template.md"
+            active_nested.write_text(
+                "# DNS C2\n\n## Purpose\nInvestigate suspicious DNS beaconing.\n",
+                encoding="utf-8",
+            )
+            excluded_readme.write_text("# README\n", encoding="utf-8")
+            excluded_template.write_text("# Template\n", encoding="utf-8")
+
+            encoder = FakeEncoder()
+            client = FakeClient([])
+            kb = QdrantKnowledgeBase(
+                config(),
+                client=client,
+                encoder=encoder,
+            )
+
+            result = kb.index_documents(path=base_path)
+
+        self.assertEqual(result["documents"], 1)
+        self.assertEqual(result["excluded_documents"], 2)
+        self.assertEqual(result["indexed_points"], 1)
+        self.assertEqual(len(client.upserts), 1)
+        indexed_sources = [
+            point.payload["source"] for point in client.upserts[0]["points"]
+        ]
+        self.assertEqual(indexed_sources, [str(active_nested)])
 
     def test_fetch_investigation_evidence_returns_contextual_evidence(self):
         encoder = FakeEncoder()

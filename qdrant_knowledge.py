@@ -36,6 +36,20 @@ INDEX_STATUS_DECISION_BOUNDARY = (
     "indexing, when enabled, is handled separately as best-effort semantic "
     "memory refresh."
 )
+DEFAULT_KNOWLEDGE_BASE_EXCLUDED_DIRS = frozenset(
+    {
+        ".git",
+        "__pycache__",
+        "_archive",
+        "_excluded",
+        "_legacy",
+        "_templates",
+        "archive",
+        "excluded",
+        "legacy",
+    }
+)
+DEFAULT_KNOWLEDGE_BASE_EXCLUDED_FILENAMES = frozenset({"README.md"})
 
 
 class EmbeddingModel(Protocol):
@@ -54,6 +68,12 @@ class QdrantKnowledgeConfig:
     score_threshold: float | None = None
     knowledge_base_path: Path = Path("knowledge_base")
     chunk_max_chars: int = 900
+    excluded_dirs: frozenset[str] = field(
+        default_factory=lambda: DEFAULT_KNOWLEDGE_BASE_EXCLUDED_DIRS
+    )
+    excluded_filenames: frozenset[str] = field(
+        default_factory=lambda: DEFAULT_KNOWLEDGE_BASE_EXCLUDED_FILENAMES
+    )
 
 
 @dataclass(frozen=True)
@@ -182,6 +202,54 @@ def chunk_text(text: str, max_chars: int = 900) -> list[str]:
     return [chunk for chunk in chunks if chunk.strip()]
 
 
+def _is_excluded_knowledge_document(
+    file_path: Path,
+    base_path: Path,
+    *,
+    excluded_dirs: frozenset[str],
+    excluded_filenames: frozenset[str],
+) -> bool:
+    try:
+        relative_path = file_path.relative_to(base_path)
+    except ValueError:
+        relative_path = file_path
+
+    excluded_dir_names = {name.lower() for name in excluded_dirs}
+    relative_dirs = [part.lower() for part in relative_path.parts[:-1]]
+    if any(part in excluded_dir_names for part in relative_dirs):
+        return True
+
+    excluded_file_names = {name.lower() for name in excluded_filenames}
+    return file_path.name.lower() in excluded_file_names
+
+
+def discover_knowledge_base_documents(
+    base_path: Path,
+    *,
+    excluded_dirs: frozenset[str] = DEFAULT_KNOWLEDGE_BASE_EXCLUDED_DIRS,
+    excluded_filenames: frozenset[str] = DEFAULT_KNOWLEDGE_BASE_EXCLUDED_FILENAMES,
+) -> tuple[list[Path], list[Path]]:
+    if base_path.is_file():
+        candidate_files = [base_path] if base_path.suffix.lower() == ".md" else []
+    else:
+        candidate_files = sorted(base_path.rglob("*.md"))
+
+    documents: list[Path] = []
+    excluded: list[Path] = []
+    for file_path in candidate_files:
+        if _is_excluded_knowledge_document(
+            file_path,
+            base_path,
+            excluded_dirs=excluded_dirs,
+            excluded_filenames=excluded_filenames,
+        ):
+            excluded.append(file_path)
+            continue
+        documents.append(file_path)
+
+    return documents, excluded
+
+
 def _vector_from_encoded(value: Any) -> list[float]:
     if hasattr(value, "tolist"):
         value = value.tolist()
@@ -302,7 +370,11 @@ class QdrantKnowledgeBase:
         from qdrant_client.models import PointStruct
 
         base_path = Path(path) if path is not None else self.config.knowledge_base_path
-        files = sorted(base_path.glob("*.md"))
+        files, excluded_files = discover_knowledge_base_documents(
+            base_path,
+            excluded_dirs=self.config.excluded_dirs,
+            excluded_filenames=self.config.excluded_filenames,
+        )
         points: list[Any] = []
         vector_size: int | None = None
 
@@ -340,6 +412,7 @@ class QdrantKnowledgeBase:
             "collection": self.config.collection_name,
             "path": str(base_path),
             "documents": len(files),
+            "excluded_documents": len(excluded_files),
             "indexed_points": len(points),
             "recreated": recreate,
         }
