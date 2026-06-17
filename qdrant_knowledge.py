@@ -66,6 +66,7 @@ PLAYBOOK_REQUIRED_METADATA_FIELDS = (
     "tags",
 )
 PLAYBOOK_DEFAULT_RECOMMENDED_FOR_PAGES = ["recommended_playbooks"]
+DEFAULT_MEMORY_UPSERT_BATCH_SIZE = 256
 
 
 class EmbeddingModel(Protocol):
@@ -145,6 +146,10 @@ def _env_int(name: str, default: int) -> int:
         return int(os.getenv(name, str(default)))
     except (TypeError, ValueError):
         return default
+
+
+def _memory_upsert_batch_size() -> int:
+    return max(1, _env_int("QDRANT_MEMORY_UPSERT_BATCH_SIZE", DEFAULT_MEMORY_UPSERT_BATCH_SIZE))
 
 
 def _indexing_mode() -> str:
@@ -863,13 +868,21 @@ class QdrantKnowledgeBase:
         if vector_size is not None:
             self.ensure_collection(vector_size=vector_size)
 
+        upsert_batches = 0
         if points:
-            self.client.upsert(collection_name=self.config.collection_name, points=points)
+            batch_size = _memory_upsert_batch_size()
+            for index in range(0, len(points), batch_size):
+                self.client.upsert(
+                    collection_name=self.config.collection_name,
+                    points=points[index : index + batch_size],
+                )
+                upsert_batches += 1
 
         return {
             "collection": self.config.collection_name,
             "records_received": len(records),
             "indexed_points": len(points),
+            "upsert_batches": upsert_batches,
         }
 
     def retrieve_contexts(

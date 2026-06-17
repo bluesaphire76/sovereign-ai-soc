@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import qdrant_knowledge
 from investigation_ai.adapters import normalize_investigation_context
@@ -18,6 +19,7 @@ from qdrant_knowledge import (
     SEMANTIC_MEMORY_DECISION_BOUNDARY,
     QdrantKnowledgeBase,
     QdrantKnowledgeConfig,
+    SemanticMemoryRecord,
     build_knowledge_base_index_plan,
     chunk_text,
     discover_knowledge_base_documents,
@@ -145,6 +147,25 @@ Indicatori:
                 template_doc,
             ],
         )
+
+    def test_memory_records_are_upserted_in_batches(self):
+        records = [
+            SemanticMemoryRecord(
+                source_type="historical_incident",
+                source=f"incident:{index}",
+                text=f"Historical memory {index}",
+            )
+            for index in range(3)
+        ]
+        client = FakeClient([])
+        kb = QdrantKnowledgeBase(config(), client=client, encoder=FakeEncoder())
+
+        with patch.dict("os.environ", {"QDRANT_MEMORY_UPSERT_BATCH_SIZE": "2"}):
+            result = kb.index_memory_records(records)
+
+        self.assertEqual(result["indexed_points"], 3)
+        self.assertEqual(result["upsert_batches"], 2)
+        self.assertEqual([len(call["points"]) for call in client.upserts], [2, 1])
 
     def test_index_documents_indexes_recursive_playbooks_and_reports_exclusions(self):
         with tempfile.TemporaryDirectory() as temp_dir:
