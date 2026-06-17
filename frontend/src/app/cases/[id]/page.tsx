@@ -141,6 +141,54 @@ type CaseClosureResponse = {
   checklist: CaseClosureChecklist | null;
 };
 
+type CaseClosureSemanticItem = {
+  source_type: string;
+  source: string;
+  score: number | null;
+  excerpt: string;
+  case_id?: number | null;
+  case_title?: string | null;
+  case_status?: string | null;
+  case_severity?: string | null;
+  closure_decision?: string | null;
+  final_severity?: string | null;
+  closure_approved?: boolean | null;
+  incident_count?: number | null;
+  rule_id?: string | null;
+  rule_type?: string | null;
+  name?: string | null;
+  status?: string | null;
+  enabled?: boolean | null;
+  scope?: string | null;
+  matcher_kind?: string | null;
+  owner?: string | null;
+  incident_id?: number | null;
+  risk_score?: number | null;
+  rule?: string | null;
+  agent?: string | null;
+  mitre?: string | null;
+  correlation_type?: string | null;
+  recommended_priority?: string | null;
+};
+
+type CaseClosureSemanticContextResponse = {
+  case_id: number;
+  enabled: boolean;
+  status: string;
+  ready_to_close: boolean;
+  missing_items: string[];
+  open_action_count: number;
+  similar_closures: CaseClosureSemanticItem[];
+  related_detection_controls: CaseClosureSemanticItem[];
+  similar_historical_incidents: CaseClosureSemanticItem[];
+  related_playbooks: CaseClosureSemanticItem[];
+  warnings: string[];
+  result_count: number;
+  decision_boundary: string;
+  message: string;
+  error_type?: string | null;
+};
+
 type ClosureForm = {
   root_cause: string;
   evidence_reviewed: string;
@@ -392,6 +440,11 @@ function formatTimestamp(value: string | null | undefined) {
   });
 }
 
+function formatSemanticScore(value: number | null | undefined) {
+  if (value === null || value === undefined) return "-";
+  return Number(value).toFixed(3);
+}
+
 async function extractApiErrorMessage(
   response: Response,
   fallback: string
@@ -534,6 +587,22 @@ async function fetchCaseTimeline(id: string): Promise<CaseTimelineResponse> {
 
 async function fetchCaseClosure(id: string): Promise<CaseClosureResponse> {
   const response = await authFetch(`/cases/${id}/closure`, {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      await extractApiErrorMessage(response, `API error ${response.status}`)
+    );
+  }
+
+  return response.json();
+}
+
+async function fetchCaseClosureSemanticContext(
+  id: string
+): Promise<CaseClosureSemanticContextResponse> {
+  const response = await authFetch(`/cases/${id}/closure/semantic-context`, {
     cache: "no-store",
   });
 
@@ -1370,6 +1439,230 @@ function CaseCollapsibleSection({
   );
 }
 
+function semanticItemTitle(item: CaseClosureSemanticItem) {
+  if (item.case_id) {
+    return `Case #${item.case_id}${item.case_title ? ` · ${item.case_title}` : ""}`;
+  }
+
+  if (item.rule_id || item.name) {
+    return [item.rule_id, item.name].filter(Boolean).join(" · ");
+  }
+
+  if (item.incident_id) {
+    return `Incident #${item.incident_id}${item.rule ? ` · ${item.rule}` : ""}`;
+  }
+
+  return item.source || "Semantic memory result";
+}
+
+function semanticItemMeta(item: CaseClosureSemanticItem) {
+  const values = [
+    item.closure_decision,
+    item.final_severity,
+    item.case_status,
+    item.rule_type,
+    item.status,
+    item.enabled === undefined || item.enabled === null
+      ? null
+      : item.enabled
+        ? "Enabled"
+        : "Disabled",
+    item.risk_score === undefined || item.risk_score === null
+      ? null
+      : `Risk ${item.risk_score}`,
+    item.recommended_priority,
+  ];
+
+  return values.filter(Boolean).slice(0, 4) as string[];
+}
+
+function SemanticContextList({
+  title,
+  items,
+  emptyLabel,
+}: {
+  title: string;
+  items: CaseClosureSemanticItem[];
+  emptyLabel: string;
+}) {
+  return (
+    <div className="rounded-md border border-slate-800 bg-slate-950 p-2.5">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="text-xs font-semibold text-slate-100">{title}</div>
+        <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
+          {items.length}
+        </span>
+      </div>
+
+      {items.length === 0 ? (
+        <div className="text-xs leading-5 text-slate-500">{emptyLabel}</div>
+      ) : (
+        <div className="space-y-2">
+          {items.slice(0, 3).map((item, index) => (
+            <article
+              key={`${title}-${item.source}-${index}`}
+              className="rounded-md border border-slate-800 bg-slate-900/70 p-2"
+            >
+              <div className="flex min-w-0 items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="truncate text-xs font-semibold text-slate-100">
+                    {semanticItemTitle(item)}
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
+                      {item.source_type.replaceAll("_", " ")}
+                    </span>
+                    <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
+                      Score {formatSemanticScore(item.score)}
+                    </span>
+                    {semanticItemMeta(item).map((value) => (
+                      <span
+                        key={value}
+                        className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400"
+                      >
+                        {value}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <p className="mt-2 line-clamp-3 text-xs leading-5 text-slate-500">
+                {item.excerpt}
+              </p>
+            </article>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CaseClosureSemanticContextPanel({
+  context,
+  loading,
+  error,
+  onRefresh,
+}: {
+  context: CaseClosureSemanticContextResponse | null;
+  loading: boolean;
+  error: string | null;
+  onRefresh: () => void;
+}) {
+  if (!context && !loading && !error) {
+    return null;
+  }
+
+  const status = context?.status ?? (loading ? "LOADING" : "WARN");
+  const statusClass =
+    status === "OK"
+      ? "border-emerald-800 bg-emerald-950 text-emerald-200"
+      : status === "DISABLED"
+        ? "border-slate-700 bg-slate-950 text-slate-300"
+        : "border-amber-800 bg-amber-950 text-amber-200";
+
+  return (
+    <section className="mb-3 rounded-md border border-slate-800 bg-slate-950 p-3">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-2 text-sm font-semibold text-slate-100">
+              <Bot className="h-3.5 w-3.5 text-cyan-300" />
+              Semantic closure context
+            </div>
+            <span className={`rounded-md border px-1.5 py-0.5 text-[10px] ${statusClass}`}>
+              {status}
+            </span>
+          </div>
+          <p className="mt-1 max-w-5xl text-xs leading-5 text-slate-500">
+            {context?.message ??
+              "Retrieving advisory semantic memory for closure review."}
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={loading}
+          className="inline-flex h-8 w-fit items-center gap-1.5 rounded-md border border-slate-700 bg-slate-900 px-2.5 text-xs text-slate-200 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Bot className="h-3.5 w-3.5" />}
+          Refresh context
+        </button>
+      </div>
+
+      {error && (
+        <div className="mt-3 rounded-md border border-amber-800 bg-amber-950/50 p-2.5 text-xs text-amber-100">
+          {error}
+        </div>
+      )}
+
+      {context && (
+        <>
+          <div className="mt-3 grid gap-1.5 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-sm border border-slate-800 bg-slate-900 px-2 py-1.5">
+              <div className="text-[9px] uppercase tracking-wide text-slate-500">Similar closures</div>
+              <div className="text-sm font-semibold text-slate-100">{context.similar_closures.length}</div>
+            </div>
+            <div className="rounded-sm border border-slate-800 bg-slate-900 px-2 py-1.5">
+              <div className="text-[9px] uppercase tracking-wide text-slate-500">Detection controls</div>
+              <div className="text-sm font-semibold text-slate-100">{context.related_detection_controls.length}</div>
+            </div>
+            <div className="rounded-sm border border-slate-800 bg-slate-900 px-2 py-1.5">
+              <div className="text-[9px] uppercase tracking-wide text-slate-500">Historical incidents</div>
+              <div className="text-sm font-semibold text-slate-100">{context.similar_historical_incidents.length}</div>
+            </div>
+            <div className="rounded-sm border border-slate-800 bg-slate-900 px-2 py-1.5">
+              <div className="text-[9px] uppercase tracking-wide text-slate-500">Playbooks</div>
+              <div className="text-sm font-semibold text-slate-100">{context.related_playbooks.length}</div>
+            </div>
+          </div>
+
+          {context.warnings.length > 0 && (
+            <div className="mt-3 rounded-md border border-amber-800 bg-amber-950/30 p-2.5">
+              <div className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-amber-100">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                Review signals
+              </div>
+              <ul className="space-y-1 text-xs leading-5 text-amber-100">
+                {context.warnings.map((warning) => (
+                  <li key={warning}>{warning}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <div className="mt-3 grid gap-2 xl:grid-cols-2">
+            <SemanticContextList
+              title="Similar closures"
+              items={context.similar_closures}
+              emptyLabel="No final/approved closure precedent found."
+            />
+            <SemanticContextList
+              title="Related detection controls"
+              items={context.related_detection_controls}
+              emptyLabel="No related detection-control memory found."
+            />
+            <SemanticContextList
+              title="Similar historical incidents"
+              items={context.similar_historical_incidents}
+              emptyLabel="No similar historical incident memory found."
+            />
+            <SemanticContextList
+              title="Related playbooks"
+              items={context.related_playbooks}
+              emptyLabel="No related playbook context found."
+            />
+          </div>
+
+          <div className="mt-3 rounded-md border border-cyan-900/70 bg-cyan-950/20 p-2.5 text-xs leading-5 text-cyan-100">
+            {context.decision_boundary}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 export default function CaseDetailPage() {
   const params = useParams();
   const caseId = String(params.id);
@@ -1381,6 +1674,12 @@ export default function CaseDetailPage() {
   const [auditTrail, setAuditTrail] = useState<CaseAudit[]>([]);
   const [caseActions, setCaseActions] = useState<CaseAction[]>([]);
   const [caseClosure, setCaseClosure] = useState<CaseClosureResponse | null>(null);
+  const [closureSemanticContext, setClosureSemanticContext] =
+    useState<CaseClosureSemanticContextResponse | null>(null);
+  const [loadingClosureSemanticContext, setLoadingClosureSemanticContext] =
+    useState(false);
+  const [closureSemanticContextError, setClosureSemanticContextError] =
+    useState<string | null>(null);
   const [caseTimeline, setCaseTimeline] = useState<CaseTimelineItem[]>([]);
   const [timelineExpanded, setTimelineExpanded] = useState(false);
   const [auditTrailExpanded, setAuditTrailExpanded] = useState(false);
@@ -1441,6 +1740,22 @@ export default function CaseDetailPage() {
   }
 
   const currentUsername = currentUser?.username || "local_analyst";
+
+  const loadClosureSemanticContext = useCallback(async () => {
+    try {
+      setLoadingClosureSemanticContext(true);
+      setClosureSemanticContextError(null);
+      const context = await fetchCaseClosureSemanticContext(caseId);
+      setClosureSemanticContext(context);
+    } catch (err) {
+      setClosureSemanticContextError(
+        err instanceof Error ? err.message : "Unknown semantic memory error"
+      );
+      setClosureSemanticContext(null);
+    } finally {
+      setLoadingClosureSemanticContext(false);
+    }
+  }, [caseId]);
 
   const loadCase = useCallback(async () => {
     try {
@@ -1657,6 +1972,9 @@ export default function CaseDetailPage() {
       setCaseClosure(response);
       setClosureForm(closureFormFromResponse(response));
       setAuditTrail(await fetchCaseAudit(caseId));
+      if (canOperate) {
+        void loadClosureSemanticContext();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
@@ -1903,6 +2221,16 @@ export default function CaseDetailPage() {
 
     return () => window.clearTimeout(timer);
   }, [loadCase]);
+
+  useEffect(() => {
+    if (!canOperate) {
+      setClosureSemanticContext(null);
+      setClosureSemanticContextError(null);
+      return;
+    }
+
+    void loadClosureSemanticContext();
+  }, [canOperate, loadClosureSemanticContext]);
 
   useEffect(() => {
     let active = true;
@@ -3220,6 +3548,15 @@ export default function CaseDetailPage() {
                 <div className="mb-3 rounded-md border border-emerald-800 bg-emerald-950/40 p-3 text-sm text-emerald-200">
                   Closure checklist is complete, approved and all actions are resolved. The case can now be moved to CLOSED or FALSE_POSITIVE.
                 </div>
+              )}
+
+              {canOperate && (
+                <CaseClosureSemanticContextPanel
+                  context={closureSemanticContext}
+                  loading={loadingClosureSemanticContext}
+                  error={closureSemanticContextError}
+                  onRefresh={() => void loadClosureSemanticContext()}
+                />
               )}
 
               <div className="mb-3 rounded-md border border-slate-800 bg-slate-950 p-3">

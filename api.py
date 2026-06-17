@@ -482,6 +482,7 @@ RBAC_RULES: list[tuple[str, str, set[str]]] = [
     ("PATCH", r"^/cases/\d+/workflow$", OPERATOR_ROLES),
     ("GET", r"^/cases/\d+/audit$", ALL_ROLES),
     ("GET", r"^/cases/\d+/closure$", ALL_ROLES),
+    ("GET", r"^/cases/\d+/closure/semantic-context$", OPERATOR_ROLES),
     ("PATCH", r"^/cases/\d+/closure$", OPERATOR_ROLES),
     ("POST", r"^/cases/\d+/actions/suggestions$", OPERATOR_ROLES),
     ("GET", r"^/cases/\d+/timeline$", ALL_ROLES),
