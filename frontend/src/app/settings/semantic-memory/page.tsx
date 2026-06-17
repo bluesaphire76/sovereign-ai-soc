@@ -92,6 +92,30 @@ function titleCase(value: string) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+function previewLines(value: string, maxLines = 4, lineLength = 170) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (!normalized) return ["No preview text available."];
+
+  const lines: string[] = [];
+  let cursor = 0;
+
+  while (cursor < normalized.length && lines.length < maxLines) {
+    const next = normalized.slice(cursor, cursor + lineLength);
+    const boundary = next.lastIndexOf(" ");
+    const chunkLength = boundary > 80 ? boundary : next.length;
+    const chunk = normalized.slice(cursor, cursor + chunkLength).trim();
+
+    if (chunk) lines.push(chunk);
+    cursor += chunkLength;
+  }
+
+  if (cursor < normalized.length && lines.length > 0) {
+    lines[lines.length - 1] = `${lines[lines.length - 1].replace(/[. ]+$/, "")}...`;
+  }
+
+  return lines;
+}
+
 function statusTone(status: string | undefined) {
   const normalized = (status || "").toUpperCase();
   if (normalized === "OK") return "border-emerald-800 bg-emerald-950/60 text-emerald-200";
@@ -112,39 +136,134 @@ function MetricCard({
   icon: ReactNode;
 }) {
   return (
-    <section className="min-h-[84px] rounded-lg border border-slate-800 bg-slate-900/80 p-3">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="truncate text-[11px] font-medium uppercase tracking-wide text-slate-500">
-            {title}
-          </div>
-          <div className="mt-2 truncate text-xl font-semibold text-slate-100">{value}</div>
+    <article className="flex min-h-[46px] items-center justify-between gap-2 rounded-sm border border-slate-800 bg-slate-900 px-2 py-1.5 shadow-sm">
+      <div className="min-w-0">
+        <div className="truncate text-[9px] font-medium uppercase tracking-wide text-slate-500">
+          {title}
         </div>
-        <div className="rounded-md border border-slate-800 bg-slate-950 p-1.5 text-cyan-300">
-          {icon}
+        <div className="mt-0.5 flex min-w-0 items-baseline gap-1.5">
+          <span className="truncate text-base font-semibold leading-5 text-slate-100">
+            {value}
+          </span>
+          <span className="min-w-0 truncate text-[10px] leading-3 text-slate-500">
+            {subtitle}
+          </span>
         </div>
       </div>
-      <div className="mt-2 truncate text-[11px] text-slate-500">{subtitle}</div>
-    </section>
+      <div className="shrink-0 rounded-sm bg-slate-950 p-1 text-slate-400">
+        {icon}
+      </div>
+    </article>
+  );
+}
+
+function MiniStat({
+  label,
+  value,
+}: {
+  label: string;
+  value: ReactNode;
+}) {
+  return (
+    <div className="min-w-0 rounded-sm bg-slate-900 px-2 py-1.5">
+      <div className="truncate text-[9px] font-medium uppercase tracking-wide text-slate-500">
+        {label}
+      </div>
+      <div className="mt-0.5 truncate text-xs font-semibold leading-5 text-slate-200">{value}</div>
+    </div>
+  );
+}
+
+function KnowledgeDocumentCard({ document }: { document: IndexDocument }) {
+  return (
+    <article className="rounded-md border border-slate-800 bg-slate-950 p-2.5 text-xs">
+      <div className="flex min-w-0 items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold text-slate-100">{document.source}</div>
+          <div className="mt-1 inline-flex rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
+            {titleCase(document.source_type ?? "unknown")}
+          </div>
+        </div>
+        <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-500" />
+      </div>
+      <div className="mt-2 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800 sm:grid-cols-4">
+        <MiniStat label="Chunks" value={document.chunks} />
+        <MiniStat label="First" value={document.first_chunk_index ?? "-"} />
+        <MiniStat label="Last" value={document.last_chunk_index ?? "-"} />
+        <MiniStat label="Hashes" value={document.content_hashes_count} />
+      </div>
+    </article>
+  );
+}
+
+function SearchResultCard({ result }: { result: SearchResult }) {
+  const lines = previewLines(result.text);
+
+  return (
+    <article className="rounded-md border border-slate-800 bg-slate-950 p-3 text-xs">
+      <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(220px,0.35fr)]">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold text-slate-100">{result.source}</div>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
+              {titleCase(result.source_type ?? "unknown")}
+            </span>
+            <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
+              Chunk {result.chunk_index ?? "-"}
+            </span>
+            <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
+              Score {formatScore(result.score)}
+            </span>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800">
+          <MiniStat label="Collection" value={result.collection} />
+          <MiniStat label="Score" value={formatScore(result.score)} />
+        </div>
+      </div>
+
+      <div className="mt-3 rounded-md border border-slate-800 bg-slate-900/60 p-2.5">
+        <div className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-slate-500">
+          Preview
+        </div>
+        <ul className="space-y-1.5 text-slate-400">
+          {lines.map((line, index) => (
+            <li key={`${result.id}-${index}`} className="flex gap-2 leading-5">
+              <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-slate-600" />
+              <span className="min-w-0 break-words">{line}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </article>
   );
 }
 
 function Section({
   title,
   icon,
+  description,
   children,
 }: {
   title: string;
   icon: ReactNode;
+  description?: string;
   children: ReactNode;
 }) {
   return (
     <section className="rounded-lg border border-slate-800 bg-slate-900/80 p-3">
-      <div className="mb-3 flex min-w-0 items-center gap-2">
+      <div className="mb-3 flex min-w-0 items-start gap-2">
         <div className="rounded-md border border-slate-800 bg-slate-950 p-1.5 text-cyan-300">
           {icon}
         </div>
-        <h2 className="truncate text-sm font-semibold text-slate-100">{title}</h2>
+        <div className="min-w-0">
+          <h2 className="truncate text-sm font-semibold text-slate-100">{title}</h2>
+          {description && (
+            <p className="mt-1 max-w-5xl text-xs leading-5 text-slate-500">
+              {description}
+            </p>
+          )}
+        </div>
       </div>
       {children}
     </section>
@@ -262,6 +381,7 @@ export default function SemanticMemoryPage() {
     }
     return grouped;
   }, [indexStatus?.documents]);
+  const knowledgeDocuments = documentsByType.get("knowledge_base") ?? [];
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -318,7 +438,7 @@ export default function SemanticMemoryPage() {
               <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-6">
                 <MetricCard
                   title="Status"
-                  value={<span className={`rounded-md border px-2 py-1 text-sm ${statusTone(indexStatus.status)}`}>{indexStatus.status}</span>}
+                  value={<span className={`rounded-md border px-1.5 py-0.5 text-[10px] leading-none ${statusTone(indexStatus.status)}`}>{indexStatus.status}</span>}
                   subtitle={capabilities.provider}
                   icon={<ShieldCheck className="h-3.5 w-3.5" />}
                 />
@@ -356,77 +476,69 @@ export default function SemanticMemoryPage() {
 
               <Boundary text={indexStatus.decision_boundary || capabilities.decision_boundary} />
 
-              <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.55fr)]">
-                <Section title="Knowledge Base Documents" icon={<FileText className="h-3.5 w-3.5" />}>
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-[720px] text-left text-xs">
-                      <thead className="border-b border-slate-800 text-[11px] uppercase tracking-wide text-slate-500">
-                        <tr>
-                          <th className="py-2 pr-3 font-medium">Source</th>
-                          <th className="py-2 pr-3 font-medium">Type</th>
-                          <th className="py-2 pr-3 font-medium">Chunks</th>
-                          <th className="py-2 pr-3 font-medium">First</th>
-                          <th className="py-2 pr-3 font-medium">Last</th>
-                          <th className="py-2 pr-3 font-medium">Hashes</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-800">
-                        {(documentsByType.get("knowledge_base") ?? indexStatus.documents).map((document) => (
-                          <tr key={document.source} className="text-slate-300">
-                            <td className="max-w-[380px] truncate py-2 pr-3">{document.source}</td>
-                            <td className="py-2 pr-3 text-slate-400">{document.source_type ?? "unknown"}</td>
-                            <td className="py-2 pr-3">{document.chunks}</td>
-                            <td className="py-2 pr-3">{document.first_chunk_index ?? "-"}</td>
-                            <td className="py-2 pr-3">{document.last_chunk_index ?? "-"}</td>
-                            <td className="py-2 pr-3">{document.content_hashes_count}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+              <Section title="Knowledge Base Documents" icon={<FileText className="h-3.5 w-3.5" />}>
+                {knowledgeDocuments.length > 0 ? (
+                  <div className="grid gap-2 lg:grid-cols-2 2xl:grid-cols-3">
+                    {knowledgeDocuments.map((document) => (
+                      <KnowledgeDocumentCard key={document.source} document={document} />
+                    ))}
                   </div>
-                </Section>
+                ) : (
+                  <div className="rounded-md border border-slate-800 bg-slate-950 p-3 text-xs text-slate-500">
+                    No knowledge base documents indexed.
+                  </div>
+                )}
+              </Section>
 
-                <Section title="Capabilities / Guardrails" icon={<ShieldCheck className="h-3.5 w-3.5" />}>
-                  <div className="space-y-3 text-xs">
-                    <div>
-                      <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">Allowed</div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {capabilities.allowed_uses.map((item) => (
-                          <span key={item} className="rounded-md border border-emerald-900 bg-emerald-950/40 px-2 py-1 text-[11px] text-emerald-200">
-                            {titleCase(item)}
-                          </span>
-                        ))}
-                      </div>
+              <Section
+                title="Capabilities / Guardrails"
+                icon={<ShieldCheck className="h-3.5 w-3.5" />}
+                description={capabilities.decision_boundary}
+              >
+                <div className="grid gap-2 text-xs lg:grid-cols-2">
+                  <div className="rounded-md border border-slate-800 bg-slate-950 p-2.5">
+                    <div className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-slate-500">Allowed</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {capabilities.allowed_uses.map((item) => (
+                        <span key={item} className="rounded-md border border-emerald-900 bg-emerald-950/40 px-2 py-1 text-[11px] text-emerald-200">
+                          {titleCase(item)}
+                        </span>
+                      ))}
                     </div>
-                    <div>
-                      <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">Forbidden</div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {capabilities.forbidden_uses.map((item) => (
-                          <span key={item} className="rounded-md border border-red-900 bg-red-950/40 px-2 py-1 text-[11px] text-red-200">
-                            {titleCase(item)}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                    <Boundary text={capabilities.decision_boundary} />
                   </div>
-                </Section>
-              </div>
+                  <div className="rounded-md border border-slate-800 bg-slate-950 p-2.5">
+                    <div className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-slate-500">Forbidden</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {capabilities.forbidden_uses.map((item) => (
+                        <span key={item} className="rounded-md border border-red-900 bg-red-950/40 px-2 py-1 text-[11px] text-red-200">
+                          {titleCase(item)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </Section>
 
               <Section title="Historical Incident Memory" icon={<History className="h-3.5 w-3.5" />}>
-                <div className="grid gap-2 text-xs sm:grid-cols-3">
-                  <div className="rounded-md border border-slate-800 bg-slate-950 p-3">
-                    <div className="text-[11px] uppercase tracking-wide text-slate-500">Indexed points</div>
-                    <div className="mt-2 text-lg font-semibold">{formatNumber(historicalCount)}</div>
-                  </div>
-                  <div className="rounded-md border border-slate-800 bg-slate-950 p-3">
-                    <div className="text-[11px] uppercase tracking-wide text-slate-500">Source type</div>
-                    <div className="mt-2 truncate text-sm font-semibold">historical_incident</div>
-                  </div>
-                  <div className="rounded-md border border-slate-800 bg-slate-950 p-3">
-                    <div className="text-[11px] uppercase tracking-wide text-slate-500">Mode</div>
-                    <div className="mt-2 truncate text-sm font-semibold">manual_cli_only</div>
-                  </div>
+                <div className="grid gap-1.5 text-xs sm:grid-cols-3">
+                  <MetricCard
+                    title="Indexed Points"
+                    value={formatNumber(historicalCount)}
+                    subtitle="Historical chunks"
+                    icon={<History className="h-3.5 w-3.5" />}
+                  />
+                  <MetricCard
+                    title="Source Type"
+                    value="Historical Incident"
+                    subtitle="Qdrant memory"
+                    icon={<Database className="h-3.5 w-3.5" />}
+                  />
+                  <MetricCard
+                    title="Mode"
+                    value="Manual CLI"
+                    subtitle="Indexing mode"
+                    icon={<Terminal className="h-3.5 w-3.5" />}
+                  />
                 </div>
               </Section>
 
@@ -460,18 +572,7 @@ export default function SemanticMemoryPage() {
                     <Boundary text={searchResult.decision_boundary} />
                     <div className="grid gap-2">
                       {searchResult.results.map((result) => (
-                        <div key={result.id} className="rounded-md border border-slate-800 bg-slate-950 p-3 text-xs">
-                          <div className="mb-2 flex flex-wrap items-center gap-2">
-                            <span className="font-medium text-slate-100">{result.source}</span>
-                            <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[11px] text-slate-400">
-                              {result.source_type ?? "unknown"}
-                            </span>
-                            <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[11px] text-slate-400">
-                              score {formatScore(result.score)}
-                            </span>
-                          </div>
-                          <p className="line-clamp-3 text-slate-400">{result.text}</p>
-                        </div>
+                        <SearchResultCard key={result.id} result={result} />
                       ))}
                     </div>
                   </div>
