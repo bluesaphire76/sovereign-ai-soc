@@ -73,6 +73,7 @@ type SearchResponse = {
   enabled: boolean;
   query: string;
   collection: string;
+  source_type?: string | null;
   limit: number;
   result_count: number;
   results: SearchResult[];
@@ -85,6 +86,10 @@ type SemanticOperationResult = {
   applied?: boolean;
   records_prepared?: number;
   indexed_points?: number;
+  detection_control_records?: number;
+  case_closure_records?: number;
+  case_closure_skipped_non_final?: number;
+  pruned_points?: number;
   redaction_applied_count?: number;
   scanned_points?: number;
   candidates?: number;
@@ -265,13 +270,49 @@ function Section({
   title,
   icon,
   description,
+  collapsible = false,
+  defaultOpen = false,
   children,
 }: {
   title: string;
   icon: ReactNode;
   description?: string;
+  collapsible?: boolean;
+  defaultOpen?: boolean;
   children: ReactNode;
 }) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+
+  if (collapsible) {
+    return (
+      <details
+        open={isOpen}
+        onToggle={(event) => setIsOpen(event.currentTarget.open)}
+        className="rounded-md border border-slate-800 bg-slate-950"
+      >
+        <summary className="cursor-pointer list-none px-3 py-2 hover:bg-slate-900/60">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 text-xs font-semibold text-slate-100">
+                <span className="text-cyan-300">{icon}</span>
+                <span className="truncate">{title}</span>
+              </div>
+              {description && (
+                <p className="mt-0.5 max-w-5xl text-[11px] leading-4 text-slate-500">
+                  {description}
+                </p>
+              )}
+            </div>
+            <span className="shrink-0 text-[10px] uppercase tracking-wide text-cyan-300">
+              {isOpen ? "Close" : "Open"}
+            </span>
+          </div>
+        </summary>
+        <div className="border-t border-slate-800 p-3">{children}</div>
+      </details>
+    );
+  }
+
   return (
     <section className="rounded-lg border border-slate-800 bg-slate-900/80 p-3">
       <div className="mb-3 flex min-w-0 items-start gap-2">
@@ -289,6 +330,86 @@ function Section({
       </div>
       {children}
     </section>
+  );
+}
+
+function OperationControlCard({
+  title,
+  description,
+  icon,
+  stats,
+  applyTone = "emerald",
+  applyIcon = "play",
+  applyRunning,
+  onDryRun,
+  onApply,
+  disabled,
+  result,
+}: {
+  title: string;
+  description: string;
+  icon: ReactNode;
+  stats: Array<[string, ReactNode]>;
+  applyTone?: "emerald" | "amber";
+  applyIcon?: "play" | "trash";
+  applyRunning: boolean;
+  onDryRun: () => void;
+  onApply: () => void;
+  disabled: boolean;
+  result: SemanticOperationResult | null;
+}) {
+  const applyClassName =
+    applyTone === "amber"
+      ? "border-amber-800 bg-amber-950 text-amber-100 hover:bg-amber-900"
+      : "border-emerald-800 bg-emerald-950 text-emerald-100 hover:bg-emerald-900";
+
+  return (
+    <article className="flex h-full min-h-[188px] flex-col rounded-md border border-slate-800 bg-slate-950 p-2.5">
+      <div className="mb-2 flex min-h-[62px] items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold leading-5 text-slate-100">{title}</div>
+          <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p>
+        </div>
+        <div className="mt-0.5 shrink-0 text-slate-500">{icon}</div>
+      </div>
+
+      <div className="mb-2 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800">
+        {stats.map(([label, value]) => (
+          <MiniStat key={label} label={label} value={value} />
+        ))}
+      </div>
+
+      <div className="mt-auto flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={onDryRun}
+          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-700 bg-slate-900 px-2.5 text-xs text-slate-200 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Search className="h-3.5 w-3.5" />
+          Dry-run
+        </button>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={onApply}
+          className={`inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-50 ${applyClassName}`}
+        >
+          {applyIcon === "trash" ? (
+            <Trash2 className={`h-3.5 w-3.5 ${applyRunning ? "animate-pulse" : ""}`} />
+          ) : (
+            <Play className={`h-3.5 w-3.5 ${applyRunning ? "animate-pulse" : ""}`} />
+          )}
+          Apply
+        </button>
+      </div>
+
+      {result && (
+        <div className="mt-2">
+          <OperationResultCard result={result} />
+        </div>
+      )}
+    </article>
   );
 }
 
@@ -361,6 +482,30 @@ function OperationResultCard({ result }: { result: SemanticOperationResult }) {
           ))}
         </div>
       )}
+      {(result.detection_control_records !== undefined || result.case_closure_records !== undefined) && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {result.detection_control_records !== undefined && (
+            <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
+              Detection Control: {formatNumber(result.detection_control_records)}
+            </span>
+          )}
+          {result.case_closure_records !== undefined && (
+            <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
+              Case Closure: {formatNumber(result.case_closure_records)}
+            </span>
+          )}
+          {result.case_closure_skipped_non_final !== undefined && (
+            <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
+              Non-final Skipped: {formatNumber(result.case_closure_skipped_non_final)}
+            </span>
+          )}
+          {result.pruned_points !== undefined && (
+            <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
+              Pruned: {formatNumber(result.pruned_points)}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -370,8 +515,10 @@ export default function SemanticMemoryPage() {
   const [indexStatus, setIndexStatus] = useState<IndexStatusResponse | null>(null);
   const [capabilities, setCapabilities] = useState<CapabilitiesResponse | null>(null);
   const [search, setSearch] = useState("");
+  const [searchSourceType, setSearchSourceType] = useState("");
   const [searchResult, setSearchResult] = useState<SearchResponse | null>(null);
   const [backfillResult, setBackfillResult] = useState<SemanticOperationResult | null>(null);
+  const [detectionCaseResult, setDetectionCaseResult] = useState<SemanticOperationResult | null>(null);
   const [retentionResult, setRetentionResult] = useState<SemanticOperationResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -436,7 +583,9 @@ export default function SemanticMemoryPage() {
 
     try {
       const response = await authFetch(
-        `/semantic-memory/search?query=${encodeURIComponent(query)}&limit=5`
+        `/semantic-memory/search?query=${encodeURIComponent(query)}&limit=5${
+          searchSourceType ? `&source_type=${encodeURIComponent(searchSourceType)}` : ""
+        }`
       );
 
       if (!response.ok) {
@@ -452,7 +601,7 @@ export default function SemanticMemoryPage() {
   }
 
   async function runSemanticOperation(
-    operation: "historical-backfill" | "retention-cleanup",
+    operation: "historical-backfill" | "detection-case-backfill" | "retention-cleanup",
     apply: boolean,
   ) {
     if (!canOperate) return;
@@ -461,6 +610,8 @@ export default function SemanticMemoryPage() {
       const accepted = window.confirm(
         operation === "historical-backfill"
           ? "Apply historical incident memory backfill now?"
+          : operation === "detection-case-backfill"
+            ? "Apply Detection Control and Case Closure semantic memory backfill now?"
           : "Apply historical incident memory retention cleanup now?"
       );
       if (!accepted) return;
@@ -479,6 +630,14 @@ export default function SemanticMemoryPage() {
             since_days: null,
             include_open: false,
           }
+        : operation === "detection-case-backfill"
+          ? {
+              apply,
+              confirm: apply,
+              limit: 1000,
+              include_detection_control: true,
+              include_case_closure: true,
+            }
         : {
             apply,
             confirm: apply,
@@ -505,6 +664,8 @@ export default function SemanticMemoryPage() {
 
       if (operation === "historical-backfill") {
         setBackfillResult(payload);
+      } else if (operation === "detection-case-backfill") {
+        setDetectionCaseResult(payload);
       } else {
         setRetentionResult(payload);
       }
@@ -522,6 +683,8 @@ export default function SemanticMemoryPage() {
   const sourceTypeCounts = indexStatus?.source_type_counts ?? {};
   const historicalCount = sourceTypeCounts.historical_incident ?? 0;
   const knowledgeCount = sourceTypeCounts.knowledge_base ?? 0;
+  const detectionControlCount = sourceTypeCounts.detection_control ?? 0;
+  const caseClosureCount = sourceTypeCounts.case_closure ?? 0;
 
   const documentsByType = useMemo(() => {
     const grouped = new Map<string, IndexDocument[]>();
@@ -626,7 +789,11 @@ export default function SemanticMemoryPage() {
 
               <Boundary text={indexStatus.decision_boundary || capabilities.decision_boundary} />
 
-              <Section title="Knowledge Base Documents" icon={<FileText className="h-3.5 w-3.5" />}>
+              <Section
+                title="Knowledge Base Documents"
+                icon={<FileText className="h-3.5 w-3.5" />}
+                collapsible
+              >
                 {knowledgeDocuments.length > 0 ? (
                   <div className="grid gap-2 lg:grid-cols-2 2xl:grid-cols-3">
                     {knowledgeDocuments.map((document) => (
@@ -644,6 +811,7 @@ export default function SemanticMemoryPage() {
                 title="Capabilities / Guardrails"
                 icon={<ShieldCheck className="h-3.5 w-3.5" />}
                 description={capabilities.decision_boundary}
+                collapsible
               >
                 <div className="grid gap-2 text-xs lg:grid-cols-2">
                   <div className="rounded-md border border-slate-800 bg-slate-950 p-2.5">
@@ -669,8 +837,12 @@ export default function SemanticMemoryPage() {
                 </div>
               </Section>
 
-              <Section title="Historical Incident Memory" icon={<History className="h-3.5 w-3.5" />}>
-                <div className="grid gap-1.5 text-xs sm:grid-cols-3">
+              <Section
+                title="Historical Incident Memory"
+                icon={<History className="h-3.5 w-3.5" />}
+                collapsible
+              >
+                <div className="grid gap-1.5 text-xs sm:grid-cols-2 xl:grid-cols-4">
                   <MetricCard
                     title="Indexed Points"
                     value={formatNumber(historicalCount)}
@@ -689,6 +861,12 @@ export default function SemanticMemoryPage() {
                     subtitle="Indexing mode"
                     icon={<Terminal className="h-3.5 w-3.5" />}
                   />
+                  <MetricCard
+                    title="Governed Memory"
+                    value={formatNumber(detectionControlCount + caseClosureCount)}
+                    subtitle={`${formatNumber(detectionControlCount)} controls / ${formatNumber(caseClosureCount)} closures`}
+                    icon={<ShieldCheck className="h-3.5 w-3.5" />}
+                  />
                 </div>
               </Section>
 
@@ -696,6 +874,7 @@ export default function SemanticMemoryPage() {
                 title="Operational Controls"
                 icon={<Play className="h-3.5 w-3.5" />}
                 description="Admin-only dry-run and apply actions for historical memory backfill and retention cleanup. Knowledge base points are never deleted by retention."
+                collapsible
               >
                 {operationError && (
                   <div className="mb-3 rounded-md border border-red-800 bg-red-950/60 p-3 text-xs text-red-200">
@@ -703,88 +882,53 @@ export default function SemanticMemoryPage() {
                   </div>
                 )}
 
-                <div className="grid gap-2 lg:grid-cols-2">
-                  <div className="rounded-md border border-slate-800 bg-slate-950 p-2.5">
-                    <div className="mb-2 flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="text-sm font-semibold text-slate-100">Historical backfill</div>
-                        <p className="mt-1 text-xs leading-5 text-slate-500">
-                          Index closed, resolved and false-positive incidents as advisory historical memory.
-                        </p>
-                      </div>
-                      <History className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-500" />
-                    </div>
-                    <div className="mb-2 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800">
-                      <MiniStat label="Limit" value="10,000" />
-                      <MiniStat label="Open Incidents" value="Excluded" />
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        disabled={!canOperate || Boolean(operationRunning)}
-                        onClick={() => void runSemanticOperation("historical-backfill", false)}
-                        className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-700 bg-slate-900 px-2.5 text-xs text-slate-200 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <Search className="h-3.5 w-3.5" />
-                        Dry-run
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!canOperate || Boolean(operationRunning)}
-                        onClick={() => void runSemanticOperation("historical-backfill", true)}
-                        className="inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-800 bg-emerald-950 px-2.5 text-xs font-medium text-emerald-100 hover:bg-emerald-900 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <Play className={`h-3.5 w-3.5 ${operationRunning === "historical-backfill:apply" ? "animate-pulse" : ""}`} />
-                        Apply
-                      </button>
-                    </div>
-                    {backfillResult && (
-                      <div className="mt-2">
-                        <OperationResultCard result={backfillResult} />
-                      </div>
-                    )}
-                  </div>
+                <div className="grid items-stretch gap-2 xl:grid-cols-3">
+                  <OperationControlCard
+                    title="Historical backfill"
+                    description="Index closed, resolved and false-positive incidents as advisory historical memory."
+                    icon={<History className="h-3.5 w-3.5" />}
+                    stats={[
+                      ["Limit", "10,000"],
+                      ["Open Incidents", "Excluded"],
+                    ]}
+                    applyRunning={operationRunning === "historical-backfill:apply"}
+                    onDryRun={() => void runSemanticOperation("historical-backfill", false)}
+                    onApply={() => void runSemanticOperation("historical-backfill", true)}
+                    disabled={!canOperate || Boolean(operationRunning)}
+                    result={backfillResult}
+                  />
 
-                  <div className="rounded-md border border-slate-800 bg-slate-950 p-2.5">
-                    <div className="mb-2 flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="text-sm font-semibold text-slate-100">Retention cleanup</div>
-                        <p className="mt-1 text-xs leading-5 text-slate-500">
-                          Review stale, missing or duplicate historical memory points before deletion.
-                        </p>
-                      </div>
-                      <Trash2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-500" />
-                    </div>
-                    <div className="mb-2 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800">
-                      <MiniStat label="Retention" value="180 days" />
-                      <MiniStat label="Scope" value="Historical only" />
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        disabled={!canOperate || Boolean(operationRunning)}
-                        onClick={() => void runSemanticOperation("retention-cleanup", false)}
-                        className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-700 bg-slate-900 px-2.5 text-xs text-slate-200 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <Search className="h-3.5 w-3.5" />
-                        Dry-run
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!canOperate || Boolean(operationRunning)}
-                        onClick={() => void runSemanticOperation("retention-cleanup", true)}
-                        className="inline-flex h-8 items-center gap-1.5 rounded-md border border-amber-800 bg-amber-950 px-2.5 text-xs font-medium text-amber-100 hover:bg-amber-900 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <Trash2 className={`h-3.5 w-3.5 ${operationRunning === "retention-cleanup:apply" ? "animate-pulse" : ""}`} />
-                        Apply
-                      </button>
-                    </div>
-                    {retentionResult && (
-                      <div className="mt-2">
-                        <OperationResultCard result={retentionResult} />
-                      </div>
-                    )}
-                  </div>
+                  <OperationControlCard
+                    title="Detection / Case memory"
+                    description="Index governed detection controls and final case closure outcomes as advisory memory."
+                    icon={<ShieldCheck className="h-3.5 w-3.5" />}
+                    stats={[
+                      ["Controls", formatNumber(detectionControlCount)],
+                      ["Closures", formatNumber(caseClosureCount)],
+                    ]}
+                    applyRunning={operationRunning === "detection-case-backfill:apply"}
+                    onDryRun={() => void runSemanticOperation("detection-case-backfill", false)}
+                    onApply={() => void runSemanticOperation("detection-case-backfill", true)}
+                    disabled={!canOperate || Boolean(operationRunning)}
+                    result={detectionCaseResult}
+                  />
+
+                  <OperationControlCard
+                    title="Retention cleanup"
+                    description="Review stale, missing or duplicate historical memory points before deletion."
+                    icon={<Trash2 className="h-3.5 w-3.5" />}
+                    stats={[
+                      ["Retention", "180 days"],
+                      ["Scope", "Historical only"],
+                    ]}
+                    applyTone="amber"
+                    applyIcon="trash"
+                    applyRunning={operationRunning === "retention-cleanup:apply"}
+                    onDryRun={() => void runSemanticOperation("retention-cleanup", false)}
+                    onApply={() => void runSemanticOperation("retention-cleanup", true)}
+                    disabled={!canOperate || Boolean(operationRunning)}
+                    result={retentionResult}
+                  />
                 </div>
 
                 {!canOperate && (
@@ -795,7 +939,7 @@ export default function SemanticMemoryPage() {
               </Section>
 
               <Section title="Semantic Search Test" icon={<Search className="h-3.5 w-3.5" />}>
-                <form onSubmit={runSearch} className="flex flex-col gap-2 sm:flex-row">
+                <form onSubmit={runSearch} className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_220px_auto]">
                   <input
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
@@ -803,6 +947,18 @@ export default function SemanticMemoryPage() {
                     placeholder="ssh brute force"
                     className="h-9 min-w-0 flex-1 rounded-md border border-slate-800 bg-slate-950 px-3 text-xs text-slate-100 outline-none placeholder:text-slate-600 focus:border-cyan-700"
                   />
+                  <select
+                    value={searchSourceType}
+                    onChange={(event) => setSearchSourceType(event.target.value)}
+                    className="h-9 rounded-md border border-slate-800 bg-slate-950 px-3 text-xs text-slate-100 outline-none focus:border-cyan-700"
+                    title="Semantic memory source type"
+                  >
+                    <option value="">All source types</option>
+                    <option value="knowledge_base">Knowledge Base</option>
+                    <option value="historical_incident">Historical Incidents</option>
+                    <option value="detection_control">Detection Control</option>
+                    <option value="case_closure">Case Closure</option>
+                  </select>
                   <button
                     type="submit"
                     disabled={searching || !search.trim()}
@@ -831,11 +987,17 @@ export default function SemanticMemoryPage() {
                 )}
               </Section>
 
-              <Section title="Manual Runbook" icon={<Terminal className="h-3.5 w-3.5" />}>
+              <Section
+                title="Manual Runbook"
+                icon={<Terminal className="h-3.5 w-3.5" />}
+                collapsible
+              >
                 <div className="space-y-2">
                   <RunbookCommand command="PYTHONPATH=. .venv/bin/python rag_index.py" />
                   <RunbookCommand command="PYTHONPATH=. .venv/bin/python scripts/index_historical_incidents_to_qdrant.py --dry-run" />
                   <RunbookCommand command="PYTHONPATH=. .venv/bin/python scripts/index_historical_incidents_to_qdrant.py --apply" />
+                  <RunbookCommand command="PYTHONPATH=. .venv/bin/python scripts/index_detection_case_memory_to_qdrant.py --dry-run" />
+                  <RunbookCommand command="PYTHONPATH=. .venv/bin/python scripts/index_detection_case_memory_to_qdrant.py --apply" />
                   <RunbookCommand command="PYTHONPATH=. .venv/bin/python scripts/qdrant_memory_retention.py --dry-run" />
                 </div>
               </Section>
