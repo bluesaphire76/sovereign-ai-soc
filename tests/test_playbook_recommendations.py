@@ -96,7 +96,24 @@ class FakeKnowledgeBase:
         )
         if self.error:
             raise self.error
-        return list(self.contexts)[: limit or 25]
+        contexts = [
+            context
+            for context in self.contexts
+            if self._matches_payload_filter(context, payload_filter)
+        ]
+        return contexts[: limit or 25]
+
+    @staticmethod
+    def _matches_payload_filter(context, payload_filter):
+        for key, expected in (payload_filter or {}).items():
+            actual = context.get(key)
+            if isinstance(actual, list):
+                if expected not in actual:
+                    return False
+                continue
+            if actual != expected:
+                return False
+        return True
 
     def apply_remediation(self, *args, **kwargs):
         self.mutation_calls.append(("apply_remediation", args, kwargs))
@@ -225,6 +242,147 @@ def metadata_playbook_context():
     }
 
 
+def metadata_context(
+    *,
+    title,
+    source,
+    domain,
+    playbook_source,
+    incident_types,
+    tags,
+    section="Investigation Steps",
+    mitre_techniques=None,
+    score=0.88,
+    text=None,
+    chunk_index=0,
+    content_hash=None,
+):
+    return {
+        "source_type": KNOWLEDGE_BASE_SOURCE_TYPE,
+        "source": source,
+        "file_path": source,
+        "score": score,
+        "chunk_index": chunk_index,
+        "content_hash": content_hash or f"{source}:{chunk_index}",
+        "doc_type": "playbook",
+        "kb_type": "playbook",
+        "content_kind": "playbook_section",
+        "title": title,
+        "domain": domain,
+        "playbook_source": playbook_source,
+        "incident_types": list(incident_types),
+        "severity_hint": ["medium", "high"],
+        "mitre_tactics": ["Credential Access"],
+        "mitre_techniques": list(mitre_techniques or []),
+        "recommended_for_pages": ["recommended_playbooks", "incident_detail"],
+        "tags": list(tags),
+        "section": section,
+        "section_order": 4,
+        "text": text
+        or (
+            f"# {title}\n\n"
+            f"## {section}\n\n"
+            "- collect incident-specific evidence;\n"
+            "- validate deterministic telemetry before escalation.\n"
+        ),
+    }
+
+
+def ssh_success_context():
+    return metadata_context(
+        title="SSH Success After Multiple Failures Playbook",
+        source="knowledge_base/playbooks/authentication/ssh_success_after_failures_playbook.md",
+        domain="authentication",
+        playbook_source="wazuh",
+        incident_types=[
+            "ssh_success_after_failures",
+            "possible_account_compromise",
+            "credential_attack",
+        ],
+        tags=["ssh", "successful-login", "failed-login", "account-compromise"],
+        mitre_techniques=["T1110", "T1021.004", "T1078"],
+        section="Initial Triage",
+    )
+
+
+def sudo_context():
+    return metadata_context(
+        title="Sudo Privilege Escalation Playbook",
+        source="knowledge_base/playbooks/authentication/sudo_privilege_escalation_playbook.md",
+        domain="authentication",
+        playbook_source="wazuh",
+        incident_types=["sudo_privilege_escalation", "privileged_command_execution"],
+        tags=["sudo", "privilege-escalation", "linux", "wazuh"],
+        mitre_techniques=["T1548", "T1078"],
+        section="Evidence to Collect",
+    )
+
+
+def false_positive_context():
+    return metadata_context(
+        title="False Positive Classification Playbook",
+        source="knowledge_base/playbooks/governance/false_positive_classification_playbook.md",
+        domain="governance",
+        playbook_source="soc",
+        incident_types=["false_positive_review", "benign_activity_validation"],
+        tags=["false-positive", "governance", "analyst-decision"],
+        mitre_techniques=[],
+        section="False Positive Conditions",
+    )
+
+
+def suricata_port_scan_context():
+    return metadata_context(
+        title="Suricata Port Scan Playbook",
+        source="knowledge_base/playbooks/network_suricata/suricata_port_scan_playbook.md",
+        domain="network_suricata",
+        playbook_source="suricata",
+        incident_types=["port_scan", "network_reconnaissance", "suspicious_probe"],
+        tags=["suricata", "port-scan", "reconnaissance", "network"],
+        mitre_techniques=["T1046", "T1595"],
+        section="Investigation Steps",
+    )
+
+
+def suricata_high_context():
+    return metadata_context(
+        title="Suricata High Severity Alert Playbook",
+        source="knowledge_base/playbooks/network_suricata/suricata_high_severity_alert_playbook.md",
+        domain="network_suricata",
+        playbook_source="suricata",
+        incident_types=["suricata_high_severity_alert", "network_intrusion_alert"],
+        tags=["suricata", "network-alert", "ids", "high-severity"],
+        mitre_techniques=[],
+        section="Correlation Checks",
+    )
+
+
+def dns_c2_context():
+    return metadata_context(
+        title="DNS Command-and-Control Beaconing Playbook",
+        source="knowledge_base/playbooks/dns/dns_c2_beaconing_playbook.md",
+        domain="dns",
+        playbook_source="dns",
+        incident_types=["dns_c2_beaconing", "command_and_control", "suspicious_dns_activity"],
+        tags=["dns", "c2", "beaconing", "command-and-control"],
+        mitre_techniques=["T1071.004"],
+        section="Initial Triage",
+    )
+
+
+def dns_tunneling_context():
+    return metadata_context(
+        title="DNS Tunneling Investigation Playbook",
+        source="knowledge_base/playbooks/dns/dns_tunneling_investigation_playbook.md",
+        domain="dns",
+        playbook_source="dns",
+        incident_types=["dns_tunneling", "dns_exfiltration", "suspicious_dns_volume"],
+        tags=["dns", "tunneling", "exfiltration", "high-entropy"],
+        mitre_techniques=["T1071.004", "T1048"],
+        section="Evidence to Collect",
+    )
+
+
 def dns_playbook_context():
     return {
         "source_type": KNOWLEDGE_BASE_SOURCE_TYPE,
@@ -323,11 +481,16 @@ class PlaybookRecommendationTests(unittest.TestCase):
         self.assertEqual(recommendation["section"], "Investigation Steps")
         self.assertEqual(recommendation["mitre_techniques"], ["T1110"])
         self.assertIn("ssh_bruteforce", recommendation["incident_types"])
-        self.assertEqual(
-            kb.calls[0]["payload_filter"],
-            {"doc_type": "playbook", "content_kind": "playbook_section"},
-        )
+        self.assertEqual(kb.calls[0]["payload_filter"]["doc_type"], "playbook")
+        self.assertEqual(kb.calls[0]["payload_filter"]["content_kind"], "playbook_section")
+        self.assertEqual(kb.calls[0]["payload_filter"]["recommended_for_pages"], "recommended_playbooks")
+        self.assertEqual(kb.calls[0]["payload_filter"]["playbook_source"], "wazuh")
+        self.assertEqual(kb.calls[0]["payload_filter"]["domain"], "authentication")
+        self.assertEqual(kb.calls[0]["payload_filter"]["incident_types"], "ssh_bruteforce")
+        self.assertEqual(kb.calls[0]["payload_filter"]["mitre_techniques"], "T1110")
         self.assertIn("recommended_for_pages", kb.calls[0]["payload_fields"])
+        self.assertIn("source", recommendation["matched_metadata"])
+        self.assertIn("sections_used", recommendation)
 
     def test_case_recommendations_include_case_context_without_mutating_state(self):
         kb = FakeKnowledgeBase(contexts=[playbook_context("knowledge_base/bruteforce.md")])
@@ -431,7 +594,7 @@ class PlaybookRecommendationTests(unittest.TestCase):
             ["authentication", "closure", "linux_host", "network"],
         )
 
-    def test_incident_returns_empty_when_only_generic_operational_playbooks_match(self):
+    def test_incident_uses_broad_fallback_when_only_generic_operational_playbooks_match(self):
         kb = FakeKnowledgeBase(contexts=[remediation_playbook_context()])
 
         result = build_incident_playbook_recommendations(
@@ -441,9 +604,232 @@ class PlaybookRecommendationTests(unittest.TestCase):
         )
 
         self.assertEqual(result["status"], "OK")
-        self.assertEqual(result["result_count"], 0)
-        self.assertEqual(result["recommendations"], [])
-        self.assertIn("strict relevance filtering", result["message"])
+        self.assertEqual(result["result_count"], 1)
+        self.assertEqual(result["recommendations"][0]["retrieval_stage"], "broad_knowledge_base")
+        self.assertEqual(result["recommendations"][0]["title"], "Governed Remediation Playbook")
+
+    def test_ssh_failure_retrieval_prefers_authentication_and_false_positive_playbooks(self):
+        kb = FakeKnowledgeBase(
+            contexts=[
+                dns_c2_context(),
+                false_positive_context(),
+                ssh_success_context(),
+                metadata_playbook_context(),
+                sudo_context(),
+            ]
+        )
+
+        result = build_incident_playbook_recommendations(
+            FakeDb(incident=incident()),
+            42,
+            knowledge_base_factory=lambda: kb,
+        )
+
+        titles = [item["title"] for item in result["recommendations"]]
+
+        self.assertEqual(titles[0], "SSH Brute Force Investigation Playbook")
+        self.assertIn("SSH Success After Multiple Failures Playbook", titles)
+        self.assertIn("False Positive Classification Playbook", titles)
+        self.assertNotEqual(titles[0], "DNS Command-and-Control Beaconing Playbook")
+        self.assertEqual(
+            result["target_profile"]["retrieval_hints"]["incident_types"][0],
+            "ssh_bruteforce",
+        )
+
+    def test_ssh_success_after_failures_retrieval_prefers_success_and_sudo_playbooks(self):
+        success_incident = Incident(
+            id=44,
+            rule="Failed SSH attempts followed by Accepted password",
+            agent="server-02",
+            level=12,
+            mitre="T1110,T1078",
+            risk_score=88,
+            ai_analysis=(
+                "Multiple Failed password events were followed by Accepted publickey "
+                "from the same source. Review sudo usage after login."
+            ),
+            attack_chain="Credential access and valid account use",
+            correlation_type="auth_success_after_failures",
+            escalation_reason="Successful login after brute-force pattern.",
+            recommended_priority="HIGH",
+        )
+        kb = FakeKnowledgeBase(
+            contexts=[
+                metadata_playbook_context(),
+                false_positive_context(),
+                sudo_context(),
+                ssh_success_context(),
+            ]
+        )
+
+        result = build_incident_playbook_recommendations(
+            FakeDb(incident=success_incident),
+            44,
+            knowledge_base_factory=lambda: kb,
+        )
+
+        titles = [item["title"] for item in result["recommendations"]]
+
+        self.assertEqual(titles[0], "SSH Success After Multiple Failures Playbook")
+        self.assertIn("Sudo Privilege Escalation Playbook", titles[:3])
+        self.assertIn("SSH Brute Force Investigation Playbook", titles)
+        self.assertEqual(
+            result["target_profile"]["retrieval_hints"]["matched_signals"][0],
+            "ssh_success_after_failures",
+        )
+
+    def test_sudo_privilege_escalation_retrieval_prefers_sudo_playbook(self):
+        sudo_incident = Incident(
+            id=45,
+            rule="Wazuh sudo COMMAND=/bin/bash root command",
+            agent="server-03",
+            level=11,
+            mitre="T1548",
+            risk_score=82,
+            ai_analysis="Suspicious sudo command executed as root outside maintenance.",
+            attack_chain="Privilege escalation",
+            correlation_type="sudo_privileged_command",
+            escalation_reason="Unexpected privileged command.",
+            recommended_priority="HIGH",
+        )
+        kb = FakeKnowledgeBase(
+            contexts=[metadata_playbook_context(), false_positive_context(), sudo_context()]
+        )
+
+        result = build_incident_playbook_recommendations(
+            FakeDb(incident=sudo_incident),
+            45,
+            knowledge_base_factory=lambda: kb,
+        )
+
+        self.assertEqual(
+            result["recommendations"][0]["title"],
+            "Sudo Privilege Escalation Playbook",
+        )
+        self.assertIn("mitre_technique", result["recommendations"][0]["matched_metadata"])
+
+    def test_suricata_port_scan_retrieval_prefers_port_scan_playbook(self):
+        scan_incident = Incident(
+            id=46,
+            rule="Suricata ET SCAN port scan network reconnaissance",
+            agent="sensor-01",
+            level=8,
+            mitre="T1046",
+            risk_score=70,
+            ai_analysis="Suricata observed port scan behavior against multiple ports.",
+            attack_chain="Reconnaissance",
+            correlation_type="suricata_scan",
+            escalation_reason="One source probed many destination ports.",
+            recommended_priority="MEDIUM",
+        )
+        kb = FakeKnowledgeBase(
+            contexts=[
+                dns_c2_context(),
+                false_positive_context(),
+                suricata_high_context(),
+                suricata_port_scan_context(),
+            ]
+        )
+
+        result = build_incident_playbook_recommendations(
+            FakeDb(incident=scan_incident),
+            46,
+            knowledge_base_factory=lambda: kb,
+        )
+
+        titles = [item["title"] for item in result["recommendations"]]
+
+        self.assertEqual(titles[0], "Suricata Port Scan Playbook")
+        self.assertIn("Suricata High Severity Alert Playbook", titles)
+        self.assertIn("False Positive Classification Playbook", titles)
+        self.assertEqual(
+            result["target_profile"]["retrieval_hints"]["source"],
+            "suricata",
+        )
+
+    def test_dns_beaconing_retrieval_prefers_dns_playbooks(self):
+        dns_incident = Incident(
+            id=47,
+            rule="DNS C2 beaconing regular interval domain queries",
+            agent="endpoint-04",
+            level=10,
+            mitre="T1071.004",
+            risk_score=74,
+            ai_analysis="Repeated DNS queries to the same suspicious domain at regular intervals.",
+            attack_chain="Command and control",
+            correlation_type="dns_beaconing",
+            escalation_reason="Periodic DNS activity suggests possible C2 beaconing.",
+            recommended_priority="HIGH",
+        )
+        kb = FakeKnowledgeBase(
+            contexts=[
+                suricata_high_context(),
+                false_positive_context(),
+                dns_tunneling_context(),
+                dns_c2_context(),
+            ]
+        )
+
+        result = build_incident_playbook_recommendations(
+            FakeDb(incident=dns_incident),
+            47,
+            knowledge_base_factory=lambda: kb,
+        )
+
+        titles = [item["title"] for item in result["recommendations"]]
+
+        self.assertEqual(titles[0], "DNS Command-and-Control Beaconing Playbook")
+        self.assertIn("DNS Tunneling Investigation Playbook", titles[:3])
+        self.assertIn("Suricata High Severity Alert Playbook", titles)
+        self.assertEqual(result["target_profile"]["retrieval_hints"]["domain"], "dns")
+
+    def test_retrieval_deduplicates_multiple_chunks_from_same_playbook(self):
+        first_chunk = metadata_playbook_context()
+        second_chunk = metadata_context(
+            title="SSH Brute Force Investigation Playbook",
+            source="knowledge_base/playbooks/authentication/ssh_bruteforce_investigation_playbook.md",
+            domain="authentication",
+            playbook_source="wazuh",
+            incident_types=["ssh_bruteforce", "repeated_failed_login"],
+            tags=["ssh", "brute-force", "authentication"],
+            mitre_techniques=["T1110"],
+            section="False Positive Conditions",
+            chunk_index=8,
+            content_hash="ssh-fp",
+        )
+        kb = FakeKnowledgeBase(
+            contexts=[first_chunk, second_chunk, ssh_success_context(), false_positive_context()]
+        )
+
+        result = build_incident_playbook_recommendations(
+            FakeDb(incident=incident()),
+            42,
+            knowledge_base_factory=lambda: kb,
+        )
+
+        titles = [item["title"] for item in result["recommendations"]]
+        ssh_items = [
+            item
+            for item in result["recommendations"]
+            if item["title"] == "SSH Brute Force Investigation Playbook"
+        ]
+
+        self.assertEqual(titles.count("SSH Brute Force Investigation Playbook"), 1)
+        self.assertIn("Investigation Steps", ssh_items[0]["sections_used"])
+        self.assertIn("False Positive Conditions", ssh_items[0]["sections_used"])
+
+    def test_metadata_missing_playbook_can_still_be_returned_as_last_resort(self):
+        kb = FakeKnowledgeBase(contexts=[playbook_context("knowledge_base/security_playbook.md")])
+
+        result = build_incident_playbook_recommendations(
+            FakeDb(incident=incident()),
+            42,
+            knowledge_base_factory=lambda: kb,
+        )
+
+        self.assertEqual(result["status"], "OK")
+        self.assertEqual(result["result_count"], 1)
+        self.assertEqual(result["recommendations"][0]["retrieval_stage"], "broad_knowledge_base")
 
     def test_disabled_semantic_memory_returns_safe_empty_response(self):
         kb = FakeKnowledgeBase(enabled=False)

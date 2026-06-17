@@ -18,6 +18,15 @@ from models import (
     IncidentCase,
 )
 from qdrant_knowledge import QdrantKnowledgeBase
+from playbook_retrieval_hints import (
+    PlaybookRetrievalHints,
+    build_playbook_retrieval_query,
+    case_retrieval_text,
+    infer_case_playbook_hints,
+    infer_incident_playbook_hints,
+    incident_retrieval_text,
+    playbook_retrieval_filter_stages,
+)
 
 
 router = APIRouter(tags=["Playbook Recommendations"])
@@ -167,6 +176,20 @@ DOMAIN_CATEGORY_MAP = {
     "linux_host": "linux_host",
     "governance": "closure",
 }
+SECTION_RELEVANCE_WEIGHTS = {
+    "investigation steps": 18,
+    "initial triage": 16,
+    "evidence to collect": 16,
+    "detection signals": 14,
+    "correlation checks": 13,
+    "false positive conditions": 12,
+    "escalation criteria": 12,
+    "containment actions": 10,
+    "remediation actions": 10,
+    "closure criteria": 9,
+    "when to use": 8,
+    "purpose": 2,
+}
 
 
 def _short_text(value: Any, *, max_chars: int = 700) -> str:
@@ -258,6 +281,43 @@ def _metadata_list(context: dict[str, Any], field_name: str) -> list[str]:
     return [text] if text else []
 
 
+def _match_key(value: Any) -> str:
+    return re.sub(r"[^a-z0-9.]+", "_", safe_text(value).lower()).strip("_")
+
+
+def _match_set(values: list[str] | tuple[str, ...]) -> set[str]:
+    return {key for key in (_match_key(value) for value in values) if key}
+
+
+def _metadata_overlap(context_values: list[str], hint_values: list[str] | tuple[str, ...]) -> set[str]:
+    hint_keys = _match_set(hint_values)
+    matches: set[str] = set()
+    for value in context_values:
+        key = _match_key(value)
+        if key and key in hint_keys:
+            matches.add(value)
+    return matches
+
+
+def _retrieval_hints_from_profile(target_profile: dict[str, Any]) -> dict[str, Any]:
+    hints = target_profile.get("retrieval_hints")
+    return hints if isinstance(hints, dict) else {}
+
+
+def _profile_with_hints(
+    text: str,
+    *,
+    hints: PlaybookRetrievalHints,
+    allowed_categories: set[str],
+) -> dict[str, Any]:
+    profile = _target_profile(
+        f"{text} {hints.ranking_text()}",
+        allowed_categories=allowed_categories,
+    )
+    profile["retrieval_hints"] = hints.to_public_dict()
+    return profile
+
+
 def _recommended_for_playbooks(context: dict[str, Any]) -> bool:
     targets = [item.lower() for item in _metadata_list(context, "recommended_for_pages")]
     if not targets:
@@ -311,6 +371,7 @@ def _relevance_score(
 ) -> int:
     target_scores = Counter(target_profile.get("scores") or {})
     playbook_scores = _category_scores(text, title=title, source=source)
+    retrieval_hints = _retrieval_hints_from_profile(target_profile)
     score = 0
 
     for category_name, target_score in target_scores.items():
@@ -343,7 +404,100 @@ def _relevance_score(
         elif any(token in target_text for token in tokens):
             score += 2
 
+    if context:
+        if safe_text(context.get("playbook_source")).lower() == safe_text(
+            retrieval_hints.get("source")
+        ).lower() and safe_text(context.get("playbook_source")):
+            score += 22
+        if safe_text(context.get("domain")).lower() == safe_text(
+            retrieval_hints.get("domain")
+        ).lower() and safe_text(context.get("domain")):
+            score += 18
+
+        incident_type_matches = _metadata_overlap(
+            _metadata_list(context, "incident_types"),
+            retrieval_hints.get("incident_types") or [],
+        )
+        supporting_type_matches = _metadata_overlap(
+            _metadata_list(context, "incident_types"),
+            retrieval_hints.get("supporting_incident_types") or [],
+        )
+        tactic_matches = _metadata_overlap(
+            _metadata_list(context, "mitre_tactics"),
+            retrieval_hints.get("mitre_tactics") or [],
+        )
+        technique_matches = _metadata_overlap(
+            _metadata_list(context, "mitre_techniques"),
+            retrieval_hints.get("mitre_techniques") or [],
+        )
+        tag_matches = _metadata_overlap(
+            _metadata_list(context, "tags"),
+            [
+                *(retrieval_hints.get("tags") or []),
+                *(retrieval_hints.get("supporting_tags") or []),
+            ],
+        )
+        score += len(incident_type_matches) * 28
+        score += len(supporting_type_matches) * 8
+        score += len(technique_matches) * 14
+        score += len(tactic_matches) * 10
+        score += len(tag_matches) * 6
+        score += _section_relevance(context)
+
     return score
+
+
+def _section_relevance(context: dict[str, Any]) -> int:
+    section = safe_text(context.get("section")).lower()
+    if not section:
+        return 0
+    return SECTION_RELEVANCE_WEIGHTS.get(section, 4)
+
+
+def _matched_metadata(context: dict[str, Any], target_profile: dict[str, Any]) -> list[str]:
+    retrieval_hints = _retrieval_hints_from_profile(target_profile)
+    matches: list[str] = []
+
+    if safe_text(context.get("playbook_source")).lower() == safe_text(
+        retrieval_hints.get("source")
+    ).lower() and safe_text(context.get("playbook_source")):
+        matches.append("source")
+    if safe_text(context.get("domain")).lower() == safe_text(
+        retrieval_hints.get("domain")
+    ).lower() and safe_text(context.get("domain")):
+        matches.append("domain")
+    if _metadata_overlap(
+        _metadata_list(context, "incident_types"),
+        retrieval_hints.get("incident_types") or [],
+    ):
+        matches.append("incident_type")
+    if _metadata_overlap(
+        _metadata_list(context, "incident_types"),
+        retrieval_hints.get("supporting_incident_types") or [],
+    ):
+        matches.append("supporting_incident_type")
+    if _metadata_overlap(
+        _metadata_list(context, "mitre_techniques"),
+        retrieval_hints.get("mitre_techniques") or [],
+    ):
+        matches.append("mitre_technique")
+    if _metadata_overlap(
+        _metadata_list(context, "mitre_tactics"),
+        retrieval_hints.get("mitre_tactics") or [],
+    ):
+        matches.append("mitre_tactic")
+    if _metadata_overlap(
+        _metadata_list(context, "tags"),
+        [
+            *(retrieval_hints.get("tags") or []),
+            *(retrieval_hints.get("supporting_tags") or []),
+        ],
+    ):
+        matches.append("tag")
+    if _section_relevance(context) >= 10:
+        matches.append("section")
+
+    return matches
 
 
 def _default_checks(category: str, target_type: str) -> list[str]:
@@ -520,34 +674,16 @@ def _operational_use(category: str) -> str:
 
 
 def build_incident_playbook_query(incident: Incident) -> str:
-    raw_parts = [
-        incident.rule,
-        incident.agent,
-        incident.mitre,
-        incident.recommended_priority,
-        incident.correlation_type,
-        incident.attack_chain,
-        incident.escalation_reason,
-        incident.ai_analysis,
-    ]
-    profile = _target_profile(
-        " ".join(safe_text(part) for part in raw_parts),
-        allowed_categories=INCIDENT_PLAYBOOK_CATEGORIES,
+    hints = infer_incident_playbook_hints(incident)
+    facts = _safe_query_part(incident_retrieval_text(incident), max_chars=1800)
+    return _short_text(
+        build_playbook_retrieval_query(
+            target_type="incident",
+            facts=facts,
+            hints=hints,
+        ),
+        max_chars=3600,
     )
-    parts = [
-        f"Find SOC playbooks for incident category: {_profile_summary(profile)}.",
-        f"Rule: {_safe_query_part(incident.rule, max_chars=220)}",
-        f"Agent: {_safe_query_part(incident.agent, max_chars=160)}",
-        f"MITRE: {_safe_query_part(incident.mitre, max_chars=160)}",
-        f"Level: {incident.level}",
-        f"Risk Score: {incident.risk_score}",
-        f"Recommended Priority: {_safe_query_part(incident.recommended_priority, max_chars=120)}",
-        f"Correlation Type: {_safe_query_part(incident.correlation_type, max_chars=160)}",
-        f"Attack Chain: {_safe_query_part(incident.attack_chain, max_chars=500)}",
-        f"Escalation Reason: {_safe_query_part(incident.escalation_reason, max_chars=500)}",
-        f"AI Analysis: {_safe_query_part(incident.ai_analysis, max_chars=900)}",
-    ]
-    return _short_text(" ".join(part for part in parts if safe_text(part)), max_chars=2400)
 
 
 def build_case_playbook_query(
@@ -558,56 +694,31 @@ def build_case_playbook_query(
     closure: CaseClosureChecklist | None,
     latest_analysis: CaseAIAnalysis | None,
 ) -> str:
-    incident_lines = [
-        (
-            f"Incident {incident.id}: rule={incident.rule}; agent={incident.agent}; "
-            f"mitre={incident.mitre}; correlation={incident.correlation_type}; "
-            f"risk={incident.risk_score}; priority={incident.recommended_priority}; "
-            f"attack_chain={incident.attack_chain}; escalation={incident.escalation_reason}; "
-            f"analysis={incident.ai_analysis}"
-        )
-        for incident in incidents[:8]
-    ]
-    action_lines = [
-        (
-            f"{action.category}: {action.title}; status={action.status}; "
-            f"priority={action.priority}; description={action.description}"
-        )
-        for action in actions[:8]
-    ]
-    profile = _target_profile(
-        " ".join(
-            safe_text(part)
-            for part in [
-                case.title,
-                case.status,
-                case.severity_review or case.severity,
-                case.correlation_type,
-                case.summary,
-                " ".join(incident_lines),
-                " ".join(action_lines),
-                getattr(closure, "closure_decision", None),
-                getattr(closure, "residual_risk", None),
-                getattr(latest_analysis, "analysis", None),
-            ]
-        ),
-        allowed_categories=CASE_PLAYBOOK_CATEGORIES,
+    hints = infer_case_playbook_hints(
+        case,
+        incidents=incidents,
+        actions=actions,
+        closure=closure,
+        latest_analysis=latest_analysis,
     )
-    parts = [
-        f"Find SOC playbooks for case category: {_profile_summary(profile)}.",
-        f"Case Title: {_safe_query_part(case.title, max_chars=260)}",
-        f"Case Status: {_safe_query_part(case.status, max_chars=120)}",
-        f"Case Severity: {_safe_query_part(case.severity_review or case.severity, max_chars=120)}",
-        f"Case Risk Score: {case.risk_score}",
-        f"Case Correlation Type: {_safe_query_part(case.correlation_type, max_chars=180)}",
-        f"Case Summary: {_safe_query_part(case.summary, max_chars=900)}",
-        f"Linked Incident Context: {_safe_query_part(' '.join(incident_lines), max_chars=1200)}",
-        f"Case Action Context: {_safe_query_part(' '.join(action_lines), max_chars=1000)}",
-        f"Closure Decision: {_safe_query_part(getattr(closure, 'closure_decision', None), max_chars=160)}",
-        f"Residual Risk: {_safe_query_part(getattr(closure, 'residual_risk', None), max_chars=700)}",
-        f"Latest AI Analysis: {_safe_query_part(getattr(latest_analysis, 'analysis', None), max_chars=900)}",
-    ]
-    return _short_text(" ".join(part for part in parts if safe_text(part)), max_chars=3200)
+    facts = _safe_query_part(
+        case_retrieval_text(
+            case,
+            incidents=incidents,
+            actions=actions,
+            closure=closure,
+            latest_analysis=latest_analysis,
+        ),
+        max_chars=2400,
+    )
+    return _short_text(
+        build_playbook_retrieval_query(
+            target_type="case",
+            facts=facts,
+            hints=hints,
+        ),
+        max_chars=4200,
+    )
 
 
 def _recommendation_item(
@@ -628,17 +739,27 @@ def _recommendation_item(
         target_profile=target_profile,
         context=context,
     )
+    matched_metadata = _matched_metadata(context, target_profile)
+    why_suggested = _why_suggested(
+        category,
+        target_type,
+        target_profile,
+        relevance_score,
+    )
+    if matched_metadata:
+        why_suggested.insert(
+            0,
+            f"Matched playbook metadata: {', '.join(matched_metadata)}.",
+        )
     return {
         "card_type": "playbook_action_card",
         "title": title,
         "category": category,
         "relevance_score": relevance_score,
-        "why_suggested": _why_suggested(
-            category,
-            target_type,
-            target_profile,
-            relevance_score,
-        ),
+        "why_suggested": why_suggested,
+        "matched_metadata": matched_metadata,
+        "section_relevance": _section_relevance(context),
+        "retrieval_stage": safe_text(context.get("retrieval_stage")),
         "recommended_checks": _extract_recommended_checks(
             text,
             category=category,
@@ -692,12 +813,175 @@ def _base_response(
     }
 
 
+def _context_identity(context: dict[str, Any]) -> tuple[str, str, str]:
+    return (
+        safe_text(context.get("source")) or safe_text(context.get("file_path")),
+        str(context.get("chunk_index")),
+        safe_text(context.get("content_hash")) or safe_text(context.get("id")),
+    )
+
+
+def _context_playbook_key(context: dict[str, Any]) -> str:
+    return (
+        safe_text(context.get("file_path"))
+        or safe_text(context.get("source"))
+        or safe_text(context.get("title"))
+        or safe_text(context.get("content_hash"))
+    ).lower()
+
+
+def _item_playbook_key(item: dict[str, Any]) -> str:
+    return (
+        safe_text(item.get("file_path"))
+        or safe_text(item.get("source"))
+        or safe_text(item.get("title"))
+        or safe_text(item.get("content_hash"))
+    ).lower()
+
+
+def _ranked_candidate_items(
+    contexts: list[dict[str, Any]],
+    *,
+    target_type: str,
+    target_profile: dict[str, Any],
+) -> list[dict[str, Any]]:
+    candidate_items = [
+        _recommendation_item(
+            context,
+            target_type=target_type,
+            target_profile=target_profile,
+        )
+        for context in contexts
+    ]
+    return sorted(
+        candidate_items,
+        key=lambda item: (
+            int(item.get("relevance_score") or 0),
+            int(item.get("section_relevance") or 0),
+            float(item.get("score") or 0),
+        ),
+        reverse=True,
+    )
+
+
+def _group_recommendations(
+    ranked_items: list[dict[str, Any]],
+    *,
+    target_profile: dict[str, Any],
+    limit: int,
+) -> list[dict[str, Any]]:
+    allowed_categories = set(target_profile.get("allowed_categories") or [])
+
+    def candidate_pool(*, require_allowed: bool, require_relevance: bool) -> list[dict[str, Any]]:
+        pool: list[dict[str, Any]] = []
+        for item in ranked_items:
+            item_category = safe_text(item.get("category"))
+            if require_allowed and allowed_categories and item_category not in allowed_categories:
+                continue
+            if require_relevance and int(item.get("relevance_score") or 0) < MIN_RELEVANCE_SCORE:
+                continue
+            pool.append(item)
+        return pool
+
+    pool = candidate_pool(require_allowed=True, require_relevance=True)
+    if not pool:
+        pool = candidate_pool(require_allowed=True, require_relevance=False)
+    if not pool:
+        pool = candidate_pool(require_allowed=False, require_relevance=False)
+
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for item in pool:
+        key = _item_playbook_key(item)
+        if not key:
+            continue
+        grouped.setdefault(key, []).append(item)
+
+    recommendations: list[dict[str, Any]] = []
+    for _key, items in sorted(
+        grouped.items(),
+        key=lambda entry: (
+            int(entry[1][0].get("relevance_score") or 0),
+            int(entry[1][0].get("section_relevance") or 0),
+            float(entry[1][0].get("score") or 0),
+        ),
+        reverse=True,
+    ):
+        section_ranked = sorted(
+            items,
+            key=lambda item: (
+                int(item.get("section_relevance") or 0),
+                int(item.get("relevance_score") or 0),
+                float(item.get("score") or 0),
+            ),
+            reverse=True,
+        )
+        best = dict(items[0])
+        sections_used: list[str] = []
+        supporting_chunks: list[dict[str, Any]] = []
+        matched_metadata: list[str] = []
+        seen_metadata: set[str] = set()
+
+        for item in section_ranked:
+            section = safe_text(item.get("section")) or "Document"
+            if section not in sections_used and len(sections_used) < 4:
+                sections_used.append(section)
+            if len(supporting_chunks) < 4:
+                supporting_chunks.append(
+                    {
+                        "section": section,
+                        "chunk_index": item.get("chunk_index"),
+                        "score": item.get("score"),
+                        "relevance_score": item.get("relevance_score"),
+                    }
+                )
+            for field_name in item.get("matched_metadata") or []:
+                if field_name in seen_metadata:
+                    continue
+                seen_metadata.add(field_name)
+                matched_metadata.append(field_name)
+
+        best["sections_used"] = sections_used
+        best["supporting_chunks"] = supporting_chunks
+        best["matched_metadata"] = matched_metadata or best.get("matched_metadata") or []
+        if sections_used:
+            best["why_selected"] = (
+                f"Selected from {len(items)} retrieved section"
+                f"{'' if len(items) == 1 else 's'}; strongest sections: "
+                f"{', '.join(sections_used[:3])}."
+            )
+        else:
+            best["why_selected"] = "Selected from retrieved Qdrant playbook context."
+        recommendations.append(best)
+        if len(recommendations) >= limit:
+            break
+
+    return recommendations
+
+
+def _recommended_playbook_summaries(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "title": item.get("title"),
+            "file_path": item.get("file_path") or item.get("source"),
+            "domain": item.get("domain"),
+            "source": item.get("playbook_source"),
+            "incident_types": item.get("incident_types") or [],
+            "matched_metadata": item.get("matched_metadata") or [],
+            "sections_used": item.get("sections_used") or [],
+            "why_selected": item.get("why_selected"),
+            "retrieval_stage": item.get("retrieval_stage"),
+        }
+        for item in items
+    ]
+
+
 def _retrieve_playbooks(
     query: str,
     *,
     target_type: str,
     target_id: int,
     target_profile: dict[str, Any],
+    retrieval_hints: PlaybookRetrievalHints,
     limit: int,
     knowledge_base_factory,
 ) -> dict[str, Any]:
@@ -716,44 +1000,31 @@ def _retrieve_playbooks(
         }
 
     try:
-        contexts = kb.retrieve_contexts(
-            query,
-            limit=25,
-            source_type=KNOWLEDGE_BASE_SOURCE_TYPE,
-            payload_filter={
-                "doc_type": "playbook",
-                "content_kind": "playbook_section",
-            },
-            payload_fields=PLAYBOOK_PAYLOAD_FIELDS,
-        )
-        metadata_contexts = [
-            context for context in contexts if _recommended_for_playbooks(context)
-        ]
-        if len(metadata_contexts) < limit:
-            fallback_contexts = kb.retrieve_contexts(
+        contexts: list[dict[str, Any]] = []
+        seen_context_keys: set[tuple[str, str, str]] = set()
+        seen_playbook_keys: set[str] = set()
+        for stage in playbook_retrieval_filter_stages(retrieval_hints):
+            stage_contexts = kb.retrieve_contexts(
                 query,
                 limit=25,
                 source_type=KNOWLEDGE_BASE_SOURCE_TYPE,
+                payload_filter=stage.payload_filter,
                 payload_fields=PLAYBOOK_PAYLOAD_FIELDS,
             )
-            seen_context_keys = {
-                (
-                    safe_text(context.get("source")),
-                    str(context.get("chunk_index")),
-                    safe_text(context.get("content_hash")),
-                )
-                for context in metadata_contexts
-            }
-            for context in fallback_contexts:
-                key = (
-                    safe_text(context.get("source")),
-                    str(context.get("chunk_index")),
-                    safe_text(context.get("content_hash")),
-                )
+            for context in stage_contexts:
+                if not _recommended_for_playbooks(context):
+                    continue
+                key = _context_identity(context)
                 if key not in seen_context_keys:
-                    metadata_contexts.append(context)
+                    enriched_context = dict(context)
+                    enriched_context["retrieval_stage"] = stage.name
+                    contexts.append(enriched_context)
                     seen_context_keys.add(key)
-        contexts = metadata_contexts
+                    playbook_key = _context_playbook_key(enriched_context)
+                    if playbook_key:
+                        seen_playbook_keys.add(playbook_key)
+            if len(seen_playbook_keys) >= limit:
+                break
     except Exception as exc:
         return {
             **base_response,
@@ -765,51 +1036,23 @@ def _retrieve_playbooks(
             ),
         }
 
-    candidate_items = [
-        _recommendation_item(
-            context,
-            target_type=target_type,
-            target_profile=target_profile,
-        )
-        for context in contexts
-    ]
-    ranked_items = sorted(
-        candidate_items,
-        key=lambda item: (
-            int(item.get("relevance_score") or 0),
-            float(item.get("score") or 0),
-        ),
-        reverse=True,
+    ranked_items = _ranked_candidate_items(
+        contexts,
+        target_type=target_type,
+        target_profile=target_profile,
     )
-
-    diverse_items: list[dict[str, Any]] = []
-    seen_keys: set[tuple[str, str]] = set()
-    allowed_categories = set(target_profile.get("allowed_categories") or [])
-    target_categories = set(target_profile.get("categories") or [])
-    for item in ranked_items:
-        item_category = safe_text(item.get("category"))
-        if allowed_categories and item_category not in allowed_categories:
-            continue
-        if target_categories and item_category not in target_categories:
-            continue
-        if target_categories and int(item.get("relevance_score") or 0) < MIN_RELEVANCE_SCORE:
-            continue
-        key = (item_category, safe_text(item.get("title")).lower())
-        if key in seen_keys:
-            continue
-        seen_keys.add(key)
-        diverse_items.append(item)
-        if len(diverse_items) >= limit:
-            break
-
-    recommendations = diverse_items
+    recommendations = _group_recommendations(
+        ranked_items,
+        target_profile=target_profile,
+        limit=limit,
+    )
     message = (
         "Playbook recommendations are read-only analyst guidance; no "
         "operational state was changed."
     )
     if not recommendations:
         message = (
-            "No context-specific playbook passed strict relevance filtering; "
+            "No Qdrant playbook context was returned for this target; "
             "no operational state was changed."
         )
     return {
@@ -820,7 +1063,9 @@ def _retrieve_playbooks(
         "target_profile": {
             "categories": target_profile.get("categories") or [],
             "allowed_categories": target_profile.get("allowed_categories") or [],
+            "retrieval_hints": target_profile.get("retrieval_hints") or {},
         },
+        "recommended_playbooks": _recommended_playbook_summaries(recommendations),
         "message": message,
     }
 
@@ -836,20 +1081,10 @@ def build_incident_playbook_recommendations(
     if not incident:
         raise ValueError(f"Incident {incident_id} not found")
 
-    profile = _target_profile(
-        " ".join(
-            safe_text(part)
-            for part in [
-                incident.rule,
-                incident.agent,
-                incident.mitre,
-                incident.recommended_priority,
-                incident.correlation_type,
-                incident.attack_chain,
-                incident.escalation_reason,
-                incident.ai_analysis,
-            ]
-        ),
+    retrieval_hints = infer_incident_playbook_hints(incident)
+    profile = _profile_with_hints(
+        incident_retrieval_text(incident),
+        hints=retrieval_hints,
         allowed_categories=INCIDENT_PLAYBOOK_CATEGORIES,
     )
     return _retrieve_playbooks(
@@ -857,6 +1092,7 @@ def build_incident_playbook_recommendations(
         target_type="incident",
         target_id=incident_id,
         target_profile=profile,
+        retrieval_hints=retrieval_hints,
         limit=limit,
         knowledge_base_factory=knowledge_base_factory,
     )
@@ -899,32 +1135,22 @@ def build_case_playbook_recommendations(
         .order_by(CaseAIAnalysis.created_at.desc(), CaseAIAnalysis.id.desc())
         .first()
     )
-    profile = _target_profile(
-        " ".join(
-            safe_text(part)
-            for part in [
-                case.title,
-                case.status,
-                case.severity_review or case.severity,
-                case.correlation_type,
-                case.summary,
-                *[
-                    (
-                        f"{incident.rule} {incident.mitre} {incident.correlation_type} "
-                        f"{incident.attack_chain} {incident.escalation_reason} "
-                        f"{incident.ai_analysis}"
-                    )
-                    for incident in incidents
-                ],
-                *[
-                    f"{action.category} {action.title} {action.description}"
-                    for action in actions
-                ],
-                getattr(closure, "closure_decision", None),
-                getattr(closure, "residual_risk", None),
-                getattr(latest_analysis, "analysis", None),
-            ]
+    retrieval_hints = infer_case_playbook_hints(
+        case,
+        incidents=incidents,
+        actions=actions,
+        closure=closure,
+        latest_analysis=latest_analysis,
+    )
+    profile = _profile_with_hints(
+        case_retrieval_text(
+            case,
+            incidents=incidents,
+            actions=actions,
+            closure=closure,
+            latest_analysis=latest_analysis,
         ),
+        hints=retrieval_hints,
         allowed_categories=CASE_PLAYBOOK_CATEGORIES,
     )
 
@@ -939,6 +1165,7 @@ def build_case_playbook_recommendations(
         target_type="case",
         target_id=case_id,
         target_profile=profile,
+        retrieval_hints=retrieval_hints,
         limit=limit,
         knowledge_base_factory=knowledge_base_factory,
     )
