@@ -17,6 +17,10 @@ from detection_config_versioning import (
     validate_config_payload,
     version_to_dict,
 )
+from detection_control_semantic_context import (
+    DetectionControlSemanticContextRequest,
+    build_detection_control_semantic_context,
+)
 from detection_control_plane import (
     archive_detection_control_rule,
     create_detection_control_rule,
@@ -424,6 +428,14 @@ def detection_operations_mark_reviewed(
         )
     finally:
         db.close()
+
+
+@router.post("/detection-control/semantic-context")
+def detection_control_semantic_context(
+    payload: DetectionControlSemanticContextRequest,
+    limit: int = Query(default=4, ge=1, le=8),
+):
+    return build_detection_control_semantic_context(payload, limit=limit)
 
 
 @router.post("/detection-control/lifecycle/items")

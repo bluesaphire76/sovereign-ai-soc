@@ -452,6 +452,7 @@ RBAC_RULES: list[tuple[str, str, set[str]]] = [
     ("GET", r"^/detection-control/operations/items/[^/]+/(summary|matched-events)$", ALL_ROLES),
     ("POST", r"^/detection-control/operations/match-preview$", OPERATOR_ROLES),
     ("POST", r"^/detection-control/operations/items/[^/]+/(extend-review|mark-reviewed)$", OPERATOR_ROLES),
+    ("POST", r"^/detection-control/semantic-context$", OPERATOR_ROLES),
     ("GET", r"^/detection-control/lifecycle/items(?:/\d+(?:/(history|diff))?)?$", ALL_ROLES),
     ("POST", r"^/detection-control/lifecycle/items$", OPERATOR_ROLES),
     ("PATCH", r"^/detection-control/lifecycle/items/\d+$", OPERATOR_ROLES),
