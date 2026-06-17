@@ -1,0 +1,10 @@
+[Unit]
+Description=Run AI SOC Qdrant historical memory retention dry-run weekly
+
+[Timer]
+OnCalendar=Sun *-*-* 04:10:00
+AccuracySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

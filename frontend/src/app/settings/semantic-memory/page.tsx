@@ -6,13 +6,16 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNo
 import {
   AlertTriangle,
   BookOpen,
+  CheckCircle2,
   Database,
   FileText,
   History,
+  Play,
   RefreshCw,
   Search,
   ShieldCheck,
   Terminal,
+  Trash2,
 } from "lucide-react";
 import AppNavigation from "../../../components/AppNavigation";
 
@@ -74,6 +77,25 @@ type SearchResponse = {
   result_count: number;
   results: SearchResult[];
   decision_boundary: string;
+};
+
+type SemanticOperationResult = {
+  operation: string;
+  mode: string;
+  applied?: boolean;
+  records_prepared?: number;
+  indexed_points?: number;
+  redaction_applied_count?: number;
+  scanned_points?: number;
+  candidates?: number;
+  deleted?: number;
+  retention_days?: number;
+  max_records?: number;
+  skipped?: Record<string, number>;
+  candidate_reasons?: Record<string, number>;
+  collection?: string | null;
+  decision_boundary?: string;
+  requested_by?: string | null;
 };
 
 function formatNumber(value: number | null | undefined) {
@@ -288,19 +310,79 @@ function RunbookCommand({ command }: { command: string }) {
   );
 }
 
+function OperationResultCard({ result }: { result: SemanticOperationResult }) {
+  const isApply = result.applied || result.mode?.toUpperCase() === "APPLY" || result.mode === "apply";
+  const title = titleCase(result.operation || "semantic_operation");
+  const primaryMetrics =
+    result.operation === "retention_cleanup"
+      ? [
+          ["Scanned", result.scanned_points],
+          ["Candidates", result.candidates],
+          ["Deleted", result.deleted],
+        ]
+      : [
+          ["Prepared", result.records_prepared],
+          ["Indexed", result.indexed_points],
+          ["Redacted", result.redaction_applied_count],
+        ];
+
+  return (
+    <div className={`rounded-md border p-2.5 text-xs ${
+      isApply
+        ? "border-emerald-900 bg-emerald-950/20"
+        : "border-cyan-900/70 bg-cyan-950/20"
+    }`}>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <CheckCircle2 className={`h-3.5 w-3.5 ${isApply ? "text-emerald-300" : "text-cyan-300"}`} />
+          <span className="truncate font-semibold text-slate-100">{title}</span>
+        </div>
+        <span className={`rounded-md border px-1.5 py-0.5 text-[10px] ${
+          isApply
+            ? "border-emerald-800 text-emerald-200"
+            : "border-cyan-800 text-cyan-200"
+        }`}>
+          {result.mode}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-3 gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800">
+        {primaryMetrics.map(([label, value]) => (
+          <MiniStat key={label} label={String(label)} value={formatNumber(value as number | undefined)} />
+        ))}
+      </div>
+
+      {result.candidate_reasons && Object.keys(result.candidate_reasons).length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {Object.entries(result.candidate_reasons).map(([key, value]) => (
+            <span key={key} className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
+              {titleCase(key)}: {formatNumber(value)}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function SemanticMemoryPage() {
   const [user, setUser] = useState<AuthUser | null>(() => getStoredUser());
   const [indexStatus, setIndexStatus] = useState<IndexStatusResponse | null>(null);
   const [capabilities, setCapabilities] = useState<CapabilitiesResponse | null>(null);
   const [search, setSearch] = useState("");
   const [searchResult, setSearchResult] = useState<SearchResponse | null>(null);
+  const [backfillResult, setBackfillResult] = useState<SemanticOperationResult | null>(null);
+  const [retentionResult, setRetentionResult] = useState<SemanticOperationResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searching, setSearching] = useState(false);
+  const [operationRunning, setOperationRunning] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [operationError, setOperationError] = useState<string | null>(null);
 
   const canView = user?.role === "ADMIN" || user?.role === "ANALYST";
+  const canOperate = user?.role === "ADMIN";
 
   const load = useCallback(async () => {
     setRefreshing(true);
@@ -369,6 +451,74 @@ export default function SemanticMemoryPage() {
     }
   }
 
+  async function runSemanticOperation(
+    operation: "historical-backfill" | "retention-cleanup",
+    apply: boolean,
+  ) {
+    if (!canOperate) return;
+
+    if (apply) {
+      const accepted = window.confirm(
+        operation === "historical-backfill"
+          ? "Apply historical incident memory backfill now?"
+          : "Apply historical incident memory retention cleanup now?"
+      );
+      if (!accepted) return;
+    }
+
+    const operationKey = `${operation}:${apply ? "apply" : "dry-run"}`;
+    setOperationRunning(operationKey);
+    setOperationError(null);
+
+    const body =
+      operation === "historical-backfill"
+        ? {
+            apply,
+            confirm: apply,
+            limit: 10000,
+            since_days: null,
+            include_open: false,
+          }
+        : {
+            apply,
+            confirm: apply,
+            retention_days: 180,
+            max_records: 5000,
+            include_open: false,
+          };
+
+    try {
+      const response = await authFetch(`/semantic-memory/${operation}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        const detail = payload?.detail;
+        throw new Error(typeof detail === "string" ? detail : detail?.message || `Operation API error ${response.status}`);
+      }
+
+      if (operation === "historical-backfill") {
+        setBackfillResult(payload);
+      } else {
+        setRetentionResult(payload);
+      }
+
+      if (apply) {
+        await load();
+      }
+    } catch (exc) {
+      setOperationError(exc instanceof Error ? exc.message : "Semantic memory operation failed.");
+    } finally {
+      setOperationRunning(null);
+    }
+  }
+
   const sourceTypeCounts = indexStatus?.source_type_counts ?? {};
   const historicalCount = sourceTypeCounts.historical_incident ?? 0;
   const knowledgeCount = sourceTypeCounts.knowledge_base ?? 0;
@@ -408,7 +558,7 @@ export default function SemanticMemoryPage() {
               <h1 className="text-xl font-semibold tracking-tight">Semantic Memory</h1>
 
               <p className="mt-1 max-w-4xl text-xs leading-5 text-slate-500">
-                Read-only Qdrant governance, index visibility, semantic search and operator runbook.
+                Qdrant governance, index visibility, semantic search and admin-controlled memory operations.
               </p>
             </div>
 
@@ -542,6 +692,108 @@ export default function SemanticMemoryPage() {
                 </div>
               </Section>
 
+              <Section
+                title="Operational Controls"
+                icon={<Play className="h-3.5 w-3.5" />}
+                description="Admin-only dry-run and apply actions for historical memory backfill and retention cleanup. Knowledge base points are never deleted by retention."
+              >
+                {operationError && (
+                  <div className="mb-3 rounded-md border border-red-800 bg-red-950/60 p-3 text-xs text-red-200">
+                    {operationError}
+                  </div>
+                )}
+
+                <div className="grid gap-2 lg:grid-cols-2">
+                  <div className="rounded-md border border-slate-800 bg-slate-950 p-2.5">
+                    <div className="mb-2 flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-slate-100">Historical backfill</div>
+                        <p className="mt-1 text-xs leading-5 text-slate-500">
+                          Index closed, resolved and false-positive incidents as advisory historical memory.
+                        </p>
+                      </div>
+                      <History className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-500" />
+                    </div>
+                    <div className="mb-2 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800">
+                      <MiniStat label="Limit" value="10,000" />
+                      <MiniStat label="Open Incidents" value="Excluded" />
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={!canOperate || Boolean(operationRunning)}
+                        onClick={() => void runSemanticOperation("historical-backfill", false)}
+                        className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-700 bg-slate-900 px-2.5 text-xs text-slate-200 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Search className="h-3.5 w-3.5" />
+                        Dry-run
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!canOperate || Boolean(operationRunning)}
+                        onClick={() => void runSemanticOperation("historical-backfill", true)}
+                        className="inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-800 bg-emerald-950 px-2.5 text-xs font-medium text-emerald-100 hover:bg-emerald-900 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Play className={`h-3.5 w-3.5 ${operationRunning === "historical-backfill:apply" ? "animate-pulse" : ""}`} />
+                        Apply
+                      </button>
+                    </div>
+                    {backfillResult && (
+                      <div className="mt-2">
+                        <OperationResultCard result={backfillResult} />
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="rounded-md border border-slate-800 bg-slate-950 p-2.5">
+                    <div className="mb-2 flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-slate-100">Retention cleanup</div>
+                        <p className="mt-1 text-xs leading-5 text-slate-500">
+                          Review stale, missing or duplicate historical memory points before deletion.
+                        </p>
+                      </div>
+                      <Trash2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-500" />
+                    </div>
+                    <div className="mb-2 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800">
+                      <MiniStat label="Retention" value="180 days" />
+                      <MiniStat label="Scope" value="Historical only" />
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={!canOperate || Boolean(operationRunning)}
+                        onClick={() => void runSemanticOperation("retention-cleanup", false)}
+                        className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-700 bg-slate-900 px-2.5 text-xs text-slate-200 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Search className="h-3.5 w-3.5" />
+                        Dry-run
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!canOperate || Boolean(operationRunning)}
+                        onClick={() => void runSemanticOperation("retention-cleanup", true)}
+                        className="inline-flex h-8 items-center gap-1.5 rounded-md border border-amber-800 bg-amber-950 px-2.5 text-xs font-medium text-amber-100 hover:bg-amber-900 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Trash2 className={`h-3.5 w-3.5 ${operationRunning === "retention-cleanup:apply" ? "animate-pulse" : ""}`} />
+                        Apply
+                      </button>
+                    </div>
+                    {retentionResult && (
+                      <div className="mt-2">
+                        <OperationResultCard result={retentionResult} />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {!canOperate && (
+                  <div className="mt-2 rounded-md border border-amber-800 bg-amber-950/40 p-2.5 text-xs text-amber-100">
+                    ADMIN role is required to run semantic memory backfill or retention cleanup.
+                  </div>
+                )}
+              </Section>
+
               <Section title="Semantic Search Test" icon={<Search className="h-3.5 w-3.5" />}>
                 <form onSubmit={runSearch} className="flex flex-col gap-2 sm:flex-row">
                   <input
@@ -581,7 +833,7 @@ export default function SemanticMemoryPage() {
 
               <Section title="Manual Runbook" icon={<Terminal className="h-3.5 w-3.5" />}>
                 <div className="space-y-2">
-                  <RunbookCommand command="PYTHONPATH=. .venv/bin/python rag_index.py --recreate" />
+                  <RunbookCommand command="PYTHONPATH=. .venv/bin/python rag_index.py" />
                   <RunbookCommand command="PYTHONPATH=. .venv/bin/python scripts/index_historical_incidents_to_qdrant.py --dry-run" />
                   <RunbookCommand command="PYTHONPATH=. .venv/bin/python scripts/index_historical_incidents_to_qdrant.py --apply" />
                   <RunbookCommand command="PYTHONPATH=. .venv/bin/python scripts/qdrant_memory_retention.py --dry-run" />

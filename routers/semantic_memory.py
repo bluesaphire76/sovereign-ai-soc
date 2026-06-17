@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 
 from qdrant_knowledge import QdrantKnowledgeBase, config_from_env
+from scripts.index_historical_incidents_to_qdrant import run_indexing
+from scripts.qdrant_memory_retention import run_retention
 
 
 router = APIRouter(prefix="/semantic-memory", tags=["Semantic Memory"])
@@ -12,6 +15,38 @@ router = APIRouter(prefix="/semantic-memory", tags=["Semantic Memory"])
 
 def _knowledge_base() -> QdrantKnowledgeBase:
     return QdrantKnowledgeBase(config_from_env())
+
+
+def _current_user(request: Request) -> dict[str, Any]:
+    return getattr(request.state, "current_user", None) or {}
+
+
+def _is_admin(request: Request) -> bool:
+    return str(_current_user(request).get("role") or "").upper() == "ADMIN"
+
+
+def _require_apply_confirmation(*, apply: bool, confirm: bool) -> None:
+    if apply and not confirm:
+        raise HTTPException(
+            status_code=400,
+            detail="confirm=true is required for semantic memory apply operations.",
+        )
+
+
+class HistoricalBackfillRequest(BaseModel):
+    apply: bool = False
+    confirm: bool = False
+    limit: int = Field(default=10000, ge=1, le=50000)
+    since_days: int | None = Field(default=None, ge=0, le=3650)
+    include_open: bool = False
+
+
+class RetentionCleanupRequest(BaseModel):
+    apply: bool = False
+    confirm: bool = False
+    retention_days: int = Field(default=180, ge=1, le=3650)
+    max_records: int = Field(default=5000, ge=1, le=50000)
+    include_open: bool = False
 
 
 @router.get("/capabilities")
@@ -90,4 +125,87 @@ def semantic_memory_search(
             "primary deduplication, final severity, automatic suppression, "
             "incident closure or replacement for deterministic correlation rules."
         ),
+    }
+
+
+@router.post("/historical-backfill")
+def semantic_memory_historical_backfill(
+    payload: HistoricalBackfillRequest,
+    request: Request,
+) -> dict[str, Any]:
+    """Run governed historical incident memory backfill.
+
+    Dry-run is the default. Apply is restricted to ADMIN by RBAC and requires
+    confirm=true. Open/non-terminal incidents stay excluded unless explicitly
+    requested.
+    """
+
+    if not _is_admin(request):
+        raise HTTPException(status_code=403, detail="ADMIN role is required.")
+
+    _require_apply_confirmation(apply=payload.apply, confirm=payload.confirm)
+
+    try:
+        result = run_indexing(
+            limit=payload.limit,
+            since_days=payload.since_days,
+            include_open=payload.include_open,
+            apply=payload.apply,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "message": "Historical incident semantic memory backfill failed.",
+                "error_type": exc.__class__.__name__,
+            },
+        ) from exc
+
+    return {
+        **result,
+        "operation": "historical_backfill",
+        "applied": payload.apply,
+        "confirm_required_for_apply": True,
+        "requested_by": _current_user(request).get("username"),
+    }
+
+
+@router.post("/retention-cleanup")
+def semantic_memory_retention_cleanup(
+    payload: RetentionCleanupRequest,
+    request: Request,
+) -> dict[str, Any]:
+    """Run governed historical incident memory retention cleanup.
+
+    Dry-run is the default. Apply is restricted to ADMIN by RBAC and requires
+    confirm=true. The cleanup script never deletes knowledge_base points.
+    """
+
+    if not _is_admin(request):
+        raise HTTPException(status_code=403, detail="ADMIN role is required.")
+
+    _require_apply_confirmation(apply=payload.apply, confirm=payload.confirm)
+
+    try:
+        result = run_retention(
+            apply=payload.apply,
+            retention_days=payload.retention_days,
+            max_records=payload.max_records,
+            include_open=payload.include_open,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "message": "Historical incident semantic memory retention cleanup failed.",
+                "error_type": exc.__class__.__name__,
+            },
+        ) from exc
+
+    return {
+        **result,
+        "operation": "retention_cleanup",
+        "applied": payload.apply,
+        "confirm_required_for_apply": True,
+        "requested_by": _current_user(request).get("username"),
     }
