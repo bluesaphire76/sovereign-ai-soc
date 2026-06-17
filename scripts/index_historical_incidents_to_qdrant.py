@@ -23,7 +23,15 @@ HISTORICAL_INCIDENT_DECISION_BOUNDARY = (
     "severity, suppression, incident or case closure, or remediation. "
     "Deterministic evidence and human validation remain required."
 )
-OPEN_INCIDENT_STATUSES = {"NEW", "OPEN", "TRIAGED", "ESCALATED", "IN_PROGRESS"}
+OPEN_INCIDENT_STATUSES = {
+    "NEW",
+    "OPEN",
+    "TRIAGED",
+    "ESCALATED",
+    "IN_PROGRESS",
+    "INVESTIGATING",
+    "CONTAINED",
+}
 
 
 @dataclass(frozen=True)

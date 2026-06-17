@@ -13,6 +13,7 @@ from scripts.index_historical_incidents_to_qdrant import (
     HISTORICAL_INCIDENT_SOURCE_TYPE,
     build_historical_incident_memory,
     run_indexing,
+    should_include_incident,
 )
 
 
@@ -181,6 +182,30 @@ class HistoricalIncidentMemoryTests(unittest.TestCase):
         self.assertEqual(result["indexed_points"], 1)
         self.assertEqual(result["collection"], "security_kb")
         self.assertEqual(RecordingKb.calls[0][0].payload["source_type"], HISTORICAL_INCIDENT_SOURCE_TYPE)
+
+    def test_investigating_status_is_excluded_from_historical_memory_by_default(self):
+        item = incident()
+        item.status = "INVESTIGATING"
+
+        self.assertFalse(
+            should_include_incident(
+                item,
+                include_open=False,
+                since_days=None,
+            )
+        )
+
+    def test_include_open_allows_non_terminal_historical_memory_indexing(self):
+        item = incident()
+        item.status = "CONTAINED"
+
+        self.assertTrue(
+            should_include_incident(
+                item,
+                include_open=True,
+                since_days=None,
+            )
+        )
 
 
 if __name__ == "__main__":

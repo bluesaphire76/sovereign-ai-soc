@@ -32,3 +32,9 @@ scrape_configs:
     static_configs:
       - targets:
           - 127.0.0.1:8008
+
+  - job_name: qdrant
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - 127.0.0.1:6333
