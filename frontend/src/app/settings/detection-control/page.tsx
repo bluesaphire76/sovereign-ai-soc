@@ -20,9 +20,11 @@ import ServiceOperationsPanel from "./ServiceOperationsPanel";
 import {
   AlertTriangle,
   Ban,
+  Bot,
   CheckCircle2,
   Eye,
   FileCog,
+  Loader2,
   Lock,
   Pencil,
   Plus,
@@ -181,6 +183,51 @@ type ConfigDiff = {
     removed_count: number;
     modified_count: number;
   };
+};
+
+type DetectionControlSemanticItem = {
+  source_type: string;
+  source: string;
+  score: number | null;
+  excerpt: string;
+  rule_id?: string | null;
+  rule_type?: string | null;
+  name?: string | null;
+  status?: string | null;
+  enabled?: boolean | null;
+  scope?: string | null;
+  matcher_kind?: string | null;
+  owner?: string | null;
+  case_id?: number | null;
+  case_title?: string | null;
+  case_status?: string | null;
+  case_severity?: string | null;
+  closure_decision?: string | null;
+  final_severity?: string | null;
+  closure_approved?: boolean | null;
+  incident_count?: number | null;
+  incident_id?: number | null;
+  risk_score?: number | null;
+  level?: number | string | null;
+  rule?: string | null;
+  agent?: string | null;
+  mitre?: string | null;
+  correlation_type?: string | null;
+  recommended_priority?: string | null;
+};
+
+type DetectionControlSemanticContextResponse = {
+  enabled: boolean;
+  status: string;
+  similar_detection_controls: DetectionControlSemanticItem[];
+  similar_case_closures: DetectionControlSemanticItem[];
+  similar_historical_incidents: DetectionControlSemanticItem[];
+  related_playbooks: DetectionControlSemanticItem[];
+  warnings: string[];
+  result_count: number;
+  decision_boundary: string;
+  message: string;
+  error_type?: string | null;
 };
 
 type RuleType =
@@ -440,6 +487,11 @@ function formatDate(value: string | null | undefined) {
   }
 }
 
+function formatSemanticScore(value: number | null | undefined) {
+  if (typeof value !== "number" || Number.isNaN(value)) return "-";
+  return value.toFixed(2);
+}
+
 function metadataPreview(metadata?: Record<string, unknown>) {
   if (!metadata) return "-";
 
@@ -499,6 +551,25 @@ function rulePayload(form: RuleFormState) {
     description: form.description,
     metadata: form.metadata,
   };
+}
+
+async function fetchDetectionControlSemanticContext(
+  payload: ReturnType<typeof rulePayload> & { current_rule_id?: string | null }
+): Promise<DetectionControlSemanticContextResponse> {
+  const response = await authFetch("/detection-control/semantic-context", {
+    method: "POST",
+    cache: "no-store",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Semantic context API returned ${response.status}`);
+  }
+
+  return (await response.json()) as DetectionControlSemanticContextResponse;
 }
 
 function allInventoryItems(inventory: DetectionControlInventory | null) {
@@ -663,6 +734,10 @@ export default function DetectionControlPlanePage() {
   const [configValidation, setConfigValidation] = useState<ConfigValidationResult | null>(null);
   const [configDiff, setConfigDiff] = useState<ConfigDiff | null>(null);
   const [selectedVersionDetails, setSelectedVersionDetails] = useState<ConfigVersion | null>(null);
+  const [semanticContext, setSemanticContext] =
+    useState<DetectionControlSemanticContextResponse | null>(null);
+  const [semanticContextLoading, setSemanticContextLoading] = useState(false);
+  const [semanticContextError, setSemanticContextError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -847,6 +922,36 @@ export default function DetectionControlPlanePage() {
     throw new Error(typeof detail === "string" ? detail : `API returned ${response.status}`);
   }
 
+  function handleFormChange(value: RuleFormState) {
+    setForm(value);
+    setSemanticContext(null);
+    setSemanticContextError(null);
+  }
+
+  async function refreshSemanticContext(
+    nextForm: RuleFormState = form,
+    nextRuleId: string | null = editingRuleId
+  ) {
+    if (!canValidateConfig) return;
+
+    try {
+      setSemanticContextLoading(true);
+      setSemanticContextError(null);
+      const context = await fetchDetectionControlSemanticContext({
+        ...rulePayload(nextForm),
+        current_rule_id: nextRuleId,
+      });
+      setSemanticContext(context);
+    } catch (err) {
+      setSemanticContext(null);
+      setSemanticContextError(
+        err instanceof Error ? err.message : "Unable to load semantic context"
+      );
+    } finally {
+      setSemanticContextLoading(false);
+    }
+  }
+
   async function submitForm(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -877,6 +982,7 @@ export default function DetectionControlPlanePage() {
       setValidationResult(result.validation || null);
       setEditingRuleId(result.rule.id);
       await loadData();
+      void refreshSemanticContext(form, result.rule.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save rule");
     } finally {
@@ -887,10 +993,25 @@ export default function DetectionControlPlanePage() {
   function startCreate() {
     setEditingRuleId(null);
     setValidationResult(null);
+    setSemanticContext(null);
+    setSemanticContextError(null);
     setForm(emptyForm(currentUser?.username || ""));
   }
 
   function startEdit(rule: ManagedRule) {
+    const nextForm = {
+      name: rule.name,
+      type: rule.type,
+      scope: rule.scope,
+      matcher_kind: rule.matcher_kind,
+      matcher_value: rule.matcher_value,
+      reason: rule.reason,
+      owner: rule.owner,
+      enabled: rule.enabled,
+      description: rule.description || "",
+      metadata: rule.metadata || {},
+    };
+
     setEditingRuleId(rule.id);
     setValidationResult({
       valid: rule.last_validation_status !== "ERROR",
@@ -902,18 +1023,8 @@ export default function DetectionControlPlanePage() {
         ? [rule.last_validation_message]
         : [],
     });
-    setForm({
-      name: rule.name,
-      type: rule.type,
-      scope: rule.scope,
-      matcher_kind: rule.matcher_kind,
-      matcher_value: rule.matcher_value,
-      reason: rule.reason,
-      owner: rule.owner,
-      enabled: rule.enabled,
-      description: rule.description || "",
-      metadata: rule.metadata || {},
-    });
+    setForm(nextForm);
+    void refreshSemanticContext(nextForm, rule.id);
   }
 
   function startManageInventoryItem(item: InventoryItem, category: InventoryCategory) {
@@ -926,7 +1037,9 @@ export default function DetectionControlPlanePage() {
 
     setEditingRuleId(null);
     setValidationResult(null);
-    setForm(inventoryItemForm(item, category, currentUser?.username || ""));
+    const nextForm = inventoryItemForm(item, category, currentUser?.username || "");
+    setForm(nextForm);
+    void refreshSemanticContext(nextForm, null);
   }
 
   async function validateRule(rule: ManagedRule) {
@@ -1377,10 +1490,20 @@ export default function DetectionControlPlanePage() {
                   editingRuleId={editingRuleId}
                   form={form}
                   saving={saving}
-                  onChange={setForm}
+                  onChange={handleFormChange}
                   onReset={startCreate}
                   onSubmit={submitForm}
                 />
+
+                {canValidateConfig && (
+                  <DetectionControlSemanticContextPanel
+                    context={semanticContext}
+                    loading={semanticContextLoading}
+                    error={semanticContextError}
+                    disabled={semanticContextLoading}
+                    onRefresh={() => void refreshSemanticContext()}
+                  />
+                )}
 
                 <ValidationPanel result={validationResult} />
               </div>
@@ -2100,6 +2223,243 @@ function ManagedRulesTable({
         </table>
       </div>
     </div>
+  );
+}
+
+function detectionSemanticItemTitle(item: DetectionControlSemanticItem) {
+  if (item.rule_id || item.name) {
+    return [item.rule_id, item.name].filter(Boolean).join(" · ");
+  }
+
+  if (item.case_id) {
+    return `Case #${item.case_id}${item.case_title ? ` · ${item.case_title}` : ""}`;
+  }
+
+  if (item.incident_id) {
+    return `Incident #${item.incident_id}${item.rule ? ` · ${item.rule}` : ""}`;
+  }
+
+  return item.source || "Semantic memory result";
+}
+
+function detectionSemanticItemMeta(item: DetectionControlSemanticItem) {
+  const values = [
+    item.rule_type,
+    item.status,
+    item.enabled === undefined || item.enabled === null
+      ? null
+      : item.enabled
+        ? "Enabled"
+        : "Disabled",
+    item.scope,
+    item.closure_decision,
+    item.final_severity,
+    item.case_status,
+    item.risk_score === undefined || item.risk_score === null
+      ? null
+      : `Risk ${item.risk_score}`,
+    item.recommended_priority,
+  ];
+
+  return values.filter(Boolean).slice(0, 4).map((value) => String(value));
+}
+
+function DetectionSemanticContextList({
+  title,
+  items,
+  emptyLabel,
+}: {
+  title: string;
+  items: DetectionControlSemanticItem[];
+  emptyLabel: string;
+}) {
+  return (
+    <div className="rounded-md border border-slate-800 bg-slate-950 p-2.5">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="text-xs font-semibold text-slate-100">{title}</div>
+        <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
+          {items.length}
+        </span>
+      </div>
+
+      {items.length === 0 ? (
+        <div className="text-xs leading-5 text-slate-500">{emptyLabel}</div>
+      ) : (
+        <div className="space-y-2">
+          {items.slice(0, 3).map((item, index) => (
+            <article
+              key={`${title}-${item.source || index}-${index}`}
+              className="rounded-md border border-slate-800 bg-slate-900/70 p-2"
+            >
+              <div className="truncate text-xs font-semibold text-slate-100">
+                {detectionSemanticItemTitle(item)}
+              </div>
+              <div className="mt-1 flex flex-wrap gap-1">
+                <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
+                  {item.source_type.replaceAll("_", " ")}
+                </span>
+                <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
+                  Score {formatSemanticScore(item.score)}
+                </span>
+                {detectionSemanticItemMeta(item).map((value) => (
+                  <span
+                    key={value}
+                    className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400"
+                  >
+                    {value}
+                  </span>
+                ))}
+              </div>
+              <p className="mt-2 line-clamp-3 text-xs leading-5 text-slate-500">
+                {item.excerpt}
+              </p>
+            </article>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DetectionControlSemanticContextPanel({
+  context,
+  loading,
+  error,
+  disabled,
+  onRefresh,
+}: {
+  context: DetectionControlSemanticContextResponse | null;
+  loading: boolean;
+  error: string | null;
+  disabled: boolean;
+  onRefresh: () => void;
+}) {
+  const status = context?.status ?? (loading ? "LOADING" : "READY");
+  const statusClass =
+    status === "OK"
+      ? "border-emerald-800 bg-emerald-950 text-emerald-200"
+      : status === "DISABLED" || status === "READY"
+        ? "border-slate-700 bg-slate-950 text-slate-300"
+        : "border-amber-800 bg-amber-950 text-amber-200";
+
+  return (
+    <section className="rounded-lg border border-slate-800 bg-slate-900/80 p-3">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-2 text-sm font-semibold text-slate-100">
+              <Bot className="h-3.5 w-3.5 text-cyan-300" />
+              Semantic Tuning Context
+            </div>
+            <span className={`rounded-md border px-1.5 py-0.5 text-[10px] ${statusClass}`}>
+              {status}
+            </span>
+          </div>
+          <p className="mt-1 text-xs leading-5 text-slate-500">
+            {context?.message ??
+              "Retrieve advisory memory before saving to spot duplicate controls, closure precedents, historical incident patterns and relevant playbooks."}
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={disabled}
+          className="inline-flex h-8 w-fit items-center gap-1.5 rounded-md border border-slate-700 bg-slate-950 px-2.5 text-xs text-slate-200 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {loading ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Bot className="h-3.5 w-3.5" />
+          )}
+          Refresh context
+        </button>
+      </div>
+
+      {error && (
+        <div className="mt-3 rounded-md border border-amber-800 bg-amber-950/50 p-2.5 text-xs text-amber-100">
+          {error}
+        </div>
+      )}
+
+      {context && (
+        <>
+          <div className="mt-3 grid gap-1.5 sm:grid-cols-2">
+            <div className="rounded-sm border border-slate-800 bg-slate-950 px-2 py-1.5">
+              <div className="text-[9px] uppercase tracking-wide text-slate-500">
+                Detection controls
+              </div>
+              <div className="text-sm font-semibold text-slate-100">
+                {context.similar_detection_controls.length}
+              </div>
+            </div>
+            <div className="rounded-sm border border-slate-800 bg-slate-950 px-2 py-1.5">
+              <div className="text-[9px] uppercase tracking-wide text-slate-500">
+                Case closures
+              </div>
+              <div className="text-sm font-semibold text-slate-100">
+                {context.similar_case_closures.length}
+              </div>
+            </div>
+            <div className="rounded-sm border border-slate-800 bg-slate-950 px-2 py-1.5">
+              <div className="text-[9px] uppercase tracking-wide text-slate-500">
+                Historical incidents
+              </div>
+              <div className="text-sm font-semibold text-slate-100">
+                {context.similar_historical_incidents.length}
+              </div>
+            </div>
+            <div className="rounded-sm border border-slate-800 bg-slate-950 px-2 py-1.5">
+              <div className="text-[9px] uppercase tracking-wide text-slate-500">Playbooks</div>
+              <div className="text-sm font-semibold text-slate-100">
+                {context.related_playbooks.length}
+              </div>
+            </div>
+          </div>
+
+          {context.warnings.length > 0 && (
+            <div className="mt-3 rounded-md border border-amber-800 bg-amber-950/30 p-2.5">
+              <div className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-amber-100">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                Review signals
+              </div>
+              <ul className="space-y-1 text-xs leading-5 text-amber-100">
+                {context.warnings.map((warning) => (
+                  <li key={warning}>{warning}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <div className="mt-3 grid gap-2">
+            <DetectionSemanticContextList
+              title="Similar Detection Control"
+              items={context.similar_detection_controls}
+              emptyLabel="No similar detection-control memory found."
+            />
+            <DetectionSemanticContextList
+              title="Similar Case Closure"
+              items={context.similar_case_closures}
+              emptyLabel="No closure precedent found for this draft."
+            />
+            <DetectionSemanticContextList
+              title="Similar Historical Incident"
+              items={context.similar_historical_incidents}
+              emptyLabel="No similar historical incident memory found."
+            />
+            <DetectionSemanticContextList
+              title="Related Playbooks"
+              items={context.related_playbooks}
+              emptyLabel="No related playbook context found."
+            />
+          </div>
+
+          <div className="mt-3 rounded-md border border-cyan-900/70 bg-cyan-950/20 p-2.5 text-xs leading-5 text-cyan-100">
+            {context.decision_boundary}
+          </div>
+        </>
+      )}
+    </section>
   );
 }
 
