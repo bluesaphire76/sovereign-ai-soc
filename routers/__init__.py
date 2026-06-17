@@ -4,6 +4,7 @@ from routers.detection_control import router as detection_control_router
 from routers.detection_quality import router as detection_quality_router
 from routers.ai_data_control import router as ai_data_control_router
 from routers.ai_providers import router as ai_providers_router
+from routers.case_closure_semantic_context import router as case_closure_semantic_context_router
 from routers.dashboard_metrics import router as dashboard_metrics_router
 from routers.dns_events import router as dns_events_router
 from routers.health import router as health_router
@@ -29,6 +30,7 @@ def include_app_routers(app: FastAPI) -> None:
     app.include_router(incident_ai_brief_router)
     app.include_router(incident_timeline_router)
     app.include_router(similar_incidents_router)
+    app.include_router(case_closure_semantic_context_router)
     app.include_router(incident_network_evidence_router)
     app.include_router(investigation_graph_router)
     app.include_router(ai_data_control_router)
