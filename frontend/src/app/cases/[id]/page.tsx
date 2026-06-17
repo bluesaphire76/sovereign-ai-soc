@@ -10,12 +10,16 @@ import InvestigationGraph from "../../../components/investigation-graph/Investig
 import GovernedRemediationPanel, {
   type GovernedRemediationRecommendation,
 } from "../../../components/remediation/GovernedRemediationPanel";
+import RecommendedPlaybooksPanel, {
+  type RecommendedPlaybooksResponse,
+} from "../../../components/semantic-memory/RecommendedPlaybooksPanel";
 import { fetchCurrentUser, getStoredUser, type AuthUser } from "../../../lib/auth";
 import { useParams } from "next/navigation";
 import {
   AlertTriangle,
   ArrowLeft,
   Bot,
+  BookOpen,
   Briefcase,
   CheckCircle2,
   CircleDashed,
@@ -603,6 +607,22 @@ async function fetchCaseClosureSemanticContext(
   id: string
 ): Promise<CaseClosureSemanticContextResponse> {
   const response = await authFetch(`/cases/${id}/closure/semantic-context`, {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      await extractApiErrorMessage(response, `API error ${response.status}`)
+    );
+  }
+
+  return response.json();
+}
+
+async function fetchCaseRecommendedPlaybooks(
+  id: string
+): Promise<RecommendedPlaybooksResponse> {
+  const response = await authFetch(`/cases/${id}/recommended-playbooks`, {
     cache: "no-store",
   });
 
@@ -1680,6 +1700,12 @@ export default function CaseDetailPage() {
     useState(false);
   const [closureSemanticContextError, setClosureSemanticContextError] =
     useState<string | null>(null);
+  const [playbookRecommendations, setPlaybookRecommendations] =
+    useState<RecommendedPlaybooksResponse | null>(null);
+  const [loadingPlaybookRecommendations, setLoadingPlaybookRecommendations] =
+    useState(false);
+  const [playbookRecommendationsError, setPlaybookRecommendationsError] =
+    useState<string | null>(null);
   const [caseTimeline, setCaseTimeline] = useState<CaseTimelineItem[]>([]);
   const [timelineExpanded, setTimelineExpanded] = useState(false);
   const [auditTrailExpanded, setAuditTrailExpanded] = useState(false);
@@ -1754,6 +1780,22 @@ export default function CaseDetailPage() {
       setClosureSemanticContext(null);
     } finally {
       setLoadingClosureSemanticContext(false);
+    }
+  }, [caseId]);
+
+  const loadPlaybookRecommendations = useCallback(async () => {
+    try {
+      setLoadingPlaybookRecommendations(true);
+      setPlaybookRecommendationsError(null);
+      const response = await fetchCaseRecommendedPlaybooks(caseId);
+      setPlaybookRecommendations(response);
+    } catch (err) {
+      setPlaybookRecommendations(null);
+      setPlaybookRecommendationsError(
+        err instanceof Error ? err.message : "Unknown playbook recommendation error"
+      );
+    } finally {
+      setLoadingPlaybookRecommendations(false);
     }
   }, [caseId]);
 
@@ -2226,11 +2268,14 @@ export default function CaseDetailPage() {
     if (!canOperate) {
       setClosureSemanticContext(null);
       setClosureSemanticContextError(null);
+      setPlaybookRecommendations(null);
+      setPlaybookRecommendationsError(null);
       return;
     }
 
     void loadClosureSemanticContext();
-  }, [canOperate, loadClosureSemanticContext]);
+    void loadPlaybookRecommendations();
+  }, [canOperate, loadClosureSemanticContext, loadPlaybookRecommendations]);
 
   useEffect(() => {
     let active = true;
@@ -3483,6 +3528,23 @@ export default function CaseDetailPage() {
                 </div>
               )}
             </CaseCollapsibleSection>
+            {canOperate && (
+              <CaseCollapsibleSection
+                id="case-recommended-playbooks"
+                title="Recommended Playbooks"
+                description="Read-only Qdrant knowledge-base guidance for this case context."
+                icon={<BookOpen className="h-3.5 w-3.5" />}
+                open={Boolean(openSections["case-recommended-playbooks"])}
+                onOpenChange={(open) => setCaseSectionOpen("case-recommended-playbooks", open)}
+              >
+                <RecommendedPlaybooksPanel
+                  response={playbookRecommendations}
+                  loading={loadingPlaybookRecommendations}
+                  error={playbookRecommendationsError}
+                  onRefresh={() => void loadPlaybookRecommendations()}
+                />
+              </CaseCollapsibleSection>
+            )}
             <CaseCollapsibleSection
               id="case-investigation-graph"
               title="Investigation Graph"

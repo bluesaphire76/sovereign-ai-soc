@@ -12,7 +12,11 @@ import InvestigationGraph from "../../../components/investigation-graph/Investig
 import GovernedRemediationPanel, {
   type GovernedRemediationRecommendation,
 } from "../../../components/remediation/GovernedRemediationPanel";
+import RecommendedPlaybooksPanel, {
+  type RecommendedPlaybooksResponse,
+} from "../../../components/semantic-memory/RecommendedPlaybooksPanel";
 import {
+  BookOpen,
   Brain,
   ClipboardList,
   Database,
@@ -835,6 +839,20 @@ async function fetchIncidentAiBrief(id: string): Promise<IncidentAiBriefPreview 
 
   if (!response.ok) {
     throw new Error(`Failed to load AI brief: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+async function fetchIncidentRecommendedPlaybooks(
+  id: string,
+): Promise<RecommendedPlaybooksResponse> {
+  const response = await authFetch(`/incidents/${id}/recommended-playbooks`, {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to load playbook recommendations: ${response.status}`);
   }
 
   return response.json();
@@ -3204,6 +3222,9 @@ function IncidentCommandCenterRefoundation({
   aiBriefLoading,
   aiBriefError,
   aiBriefGenerating,
+  playbookRecommendations,
+  playbookRecommendationsLoading,
+  playbookRecommendationsError,
   remediationPlan,
   remediationLoading,
   remediationError,
@@ -3234,6 +3255,7 @@ function IncidentCommandCenterRefoundation({
   onStatusDraftChange,
   onApplyStatus,
   onGenerateAiBrief,
+  onRefreshPlaybookRecommendations,
   onNoteDraftChange,
   onAddNote,
   onExecuteApprovedAction,
@@ -3251,6 +3273,9 @@ function IncidentCommandCenterRefoundation({
   aiBriefLoading?: boolean;
   aiBriefError?: string | null;
   aiBriefGenerating?: boolean;
+  playbookRecommendations?: RecommendedPlaybooksResponse | null;
+  playbookRecommendationsLoading?: boolean;
+  playbookRecommendationsError?: string | null;
   remediationPlan?: RemediationPlanPreview | null;
   remediationLoading?: boolean;
   remediationError?: string | null;
@@ -3281,6 +3306,7 @@ function IncidentCommandCenterRefoundation({
   onStatusDraftChange: (status: string) => void;
   onApplyStatus: () => void;
   onGenerateAiBrief: () => void;
+  onRefreshPlaybookRecommendations: () => void;
   onNoteDraftChange: (value: string) => void;
   onAddNote: () => void;
   onExecuteApprovedAction: (actionId: string) => void;
@@ -3442,6 +3468,21 @@ function IncidentCommandCenterRefoundation({
               ) : null}
             </div>
           </CompactDisclosure>
+
+          {canOperate && (
+            <CompactDisclosure
+              title="Recommended Playbooks"
+              description="Read-only Qdrant knowledge-base guidance for this incident context."
+              icon={<BookOpen className="h-3.5 w-3.5" />}
+            >
+              <RecommendedPlaybooksPanel
+                response={playbookRecommendations ?? null}
+                loading={Boolean(playbookRecommendationsLoading)}
+                error={playbookRecommendationsError ?? null}
+                onRefresh={onRefreshPlaybookRecommendations}
+              />
+            </CompactDisclosure>
+          )}
 
           <CompactDisclosure
             title="Evidence & Correlation"
@@ -3619,6 +3660,12 @@ export default function IncidentDetailPage() {
   const [aiBriefLoading, setAiBriefLoading] = useState(false);
   const [aiBriefGenerating, setAiBriefGenerating] = useState(false);
   const [aiBriefError, setAiBriefError] = useState<string | null>(null);
+  const [playbookRecommendations, setPlaybookRecommendations] =
+    useState<RecommendedPlaybooksResponse | null>(null);
+  const [playbookRecommendationsLoading, setPlaybookRecommendationsLoading] =
+    useState(false);
+  const [playbookRecommendationsError, setPlaybookRecommendationsError] =
+    useState<string | null>(null);
   const [remediationPlan, setRemediationPlan] = useState<RemediationPlanPreview | null>(null);
   const [remediationLoading, setRemediationLoading] = useState(false);
   const [remediationError, setRemediationError] = useState<string | null>(null);
@@ -3741,6 +3788,22 @@ export default function IncidentDetailPage() {
     }
   }, [incidentId]);
 
+  const loadIncidentPlaybookRecommendations = useCallback(async () => {
+    try {
+      setPlaybookRecommendationsLoading(true);
+      setPlaybookRecommendationsError(null);
+      const data = await fetchIncidentRecommendedPlaybooks(incidentId);
+      setPlaybookRecommendations(data);
+    } catch (err) {
+      setPlaybookRecommendations(null);
+      setPlaybookRecommendationsError(
+        err instanceof Error ? err.message : "Playbook recommendations unavailable",
+      );
+    } finally {
+      setPlaybookRecommendationsLoading(false);
+    }
+  }, [incidentId]);
+
   async function addNote() {
     if (!canOperate) return;
 
@@ -3852,6 +3915,18 @@ export default function IncidentDetailPage() {
 
     return () => window.clearTimeout(timer);
   }, [refreshAiBrief]);
+
+  useEffect(() => {
+    if (!canOperate) {
+      if (currentUser?.role === "VIEWER") {
+        setPlaybookRecommendations(null);
+        setPlaybookRecommendationsError(null);
+      }
+      return;
+    }
+
+    void loadIncidentPlaybookRecommendations();
+  }, [canOperate, currentUser?.role, loadIncidentPlaybookRecommendations]);
 
   useEffect(() => {
     let cancelled = false;
@@ -4222,6 +4297,9 @@ export default function IncidentDetailPage() {
             aiBriefLoading={aiBriefLoading}
             aiBriefError={aiBriefError}
             aiBriefGenerating={aiBriefGenerating}
+            playbookRecommendations={playbookRecommendations}
+            playbookRecommendationsLoading={playbookRecommendationsLoading}
+            playbookRecommendationsError={playbookRecommendationsError}
             remediationPlan={remediationPlan}
             remediationLoading={remediationLoading}
             remediationError={remediationError}
@@ -4252,6 +4330,7 @@ export default function IncidentDetailPage() {
             onStatusDraftChange={setStatusDraft}
             onApplyStatus={() => updateStatus(statusDraft)}
             onGenerateAiBrief={() => refreshAiBrief(true)}
+            onRefreshPlaybookRecommendations={loadIncidentPlaybookRecommendations}
             onNoteDraftChange={setNoteDraft}
             onAddNote={addNote}
             onExecuteApprovedAction={executeControlledWorkflowAction}
