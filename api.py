@@ -21,6 +21,7 @@ from timezone_utils import APP_TIMEZONE, format_timestamp_local, normalize_times
 from wazuh_ingest_state import get_watermark_snapshot
 from auth_utils import create_access_token, decode_access_token, hash_password, verify_password
 from active_users import mark_active_user
+from qdrant_auto_index import schedule_case_closure_auto_index, schedule_incident_auto_index
 from routers import include_app_routers
 
 from fastapi.middleware.cors import CORSMiddleware
@@ -432,7 +433,7 @@ RBAC_RULES: list[tuple[str, str, set[str]]] = [
     ("PATCH", r"^/ai-providers/settings$", {ROLE_ADMIN}),
     ("PATCH", r"^/ai-providers/[^/]+/config$", {ROLE_ADMIN}),
     ("POST", r"^/ai-providers/[^/]+/test$", {ROLE_ADMIN}),
-    ("GET", r"^/semantic-memory/(capabilities|health|collection|index-status|search)$", OPERATOR_ROLES),
+    ("GET", r"^/semantic-memory/(capabilities|health|collection|index-status|auto-index-status|search)$", OPERATOR_ROLES),
     ("POST", r"^/semantic-memory/(historical-backfill|detection-case-backfill|retention-cleanup)$", {ROLE_ADMIN}),
     ("GET", r"^/ai-data-control/(capabilities|policies|decisions)$", ALL_ROLES),
     ("GET", r"^/ai-data-control/policies/[^/]+$", ALL_ROLES),
@@ -1310,6 +1311,11 @@ def run_synthetic_tests(payload: SyntheticTestRunCreate, request: Request):
                 created_incidents.append(incident)
 
         db.commit()
+        for incident in created_incidents:
+            schedule_incident_auto_index(
+                incident.id,
+                reason="synthetic_incident_created",
+            )
 
         write_security_audit(
             event_type="SYNTHETIC_TEST_RUN",
@@ -1557,6 +1563,10 @@ def update_incident_status(
         db.refresh(incident)
 
         if old_status != requested_status:
+            schedule_incident_auto_index(
+                incident.id,
+                reason="incident_status_updated",
+            )
             write_security_audit(
                 event_type="INCIDENT_STATUS_UPDATED",
                 outcome="SUCCESS",
@@ -1724,6 +1734,10 @@ def create_case_from_incident(incident_id: int, request: Request):
 
         db.commit()
         db.refresh(case_row)
+        schedule_incident_auto_index(
+            incident.id,
+            reason="incident_case_link_created",
+        )
 
         return {
             "created": True,
@@ -1874,6 +1888,10 @@ def create_incident_note(
         db.add(audit)
         db.commit()
         db.refresh(note)
+        schedule_incident_auto_index(
+            incident.id,
+            reason="incident_note_created",
+        )
 
         write_security_audit(
             event_type="INCIDENT_NOTE_CREATED",
@@ -3378,6 +3396,21 @@ def update_case_closure(
         )
 
         validation = validate_case_closure_readiness(db, case)
+        linked_incident_ids = [
+            item.incident_id
+            for item in db.query(CaseIncident)
+            .filter(CaseIncident.case_id == case.id)
+            .all()
+        ]
+        schedule_case_closure_auto_index(
+            case.id,
+            reason="case_closure_updated",
+        )
+        for linked_incident_id in linked_incident_ids:
+            schedule_incident_auto_index(
+                linked_incident_id,
+                reason="case_closure_updated",
+            )
 
         return {
             "case_id": case.id,

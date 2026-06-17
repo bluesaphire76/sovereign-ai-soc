@@ -15,6 +15,7 @@ from detection_control_validation import (
     validate_detection_control_payload,
 )
 from models import DetectionControlRule, SecurityAuditEvent
+from qdrant_auto_index import schedule_detection_control_auto_index
 
 
 SENSITIVE_AUDIT_KEYS = {
@@ -399,6 +400,7 @@ def create_detection_control_rule(
     )
     db.commit()
     db.refresh(row)
+    schedule_detection_control_auto_index(row.id, reason="detection_control_created")
 
     return {
         "rule": serialize_detection_control_rule(row),
@@ -502,6 +504,7 @@ def update_detection_control_rule(
     )
     db.commit()
     db.refresh(row)
+    schedule_detection_control_auto_index(row.id, reason="detection_control_updated")
 
     return {
         "rule": serialize_detection_control_rule(row),
@@ -545,6 +548,10 @@ def set_detection_control_rule_enabled(
     )
     db.commit()
     db.refresh(row)
+    schedule_detection_control_auto_index(
+        row.id,
+        reason="detection_control_enabled" if enabled else "detection_control_disabled",
+    )
 
     return {"rule": serialize_detection_control_rule(row)}
 
@@ -590,6 +597,7 @@ def validate_existing_detection_control_rule(
     )
     db.commit()
     db.refresh(row)
+    schedule_detection_control_auto_index(row.id, reason="detection_control_validated")
 
     return {
         "rule": serialize_detection_control_rule(row),
@@ -628,5 +636,6 @@ def archive_detection_control_rule(
         },
     )
     db.commit()
+    schedule_detection_control_auto_index(rule_id, reason="detection_control_archived")
 
     return {"status": "archived", "rule_id": rule_id}

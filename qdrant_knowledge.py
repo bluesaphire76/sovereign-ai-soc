@@ -30,6 +30,12 @@ SEMANTIC_MEMORY_DECISION_BOUNDARY = (
     "closure, or replacement for deterministic correlation, RBAC, audit, "
     "approval workflow or human validation."
 )
+INDEX_STATUS_DECISION_BOUNDARY = (
+    "Index status is read-only operational metadata. This endpoint does not "
+    "trigger indexing and does not make or change SOC decisions. Automatic "
+    "indexing, when enabled, is handled separately as best-effort semantic "
+    "memory refresh."
+)
 
 
 class EmbeddingModel(Protocol):
@@ -77,6 +83,12 @@ def _env_int(name: str, default: int) -> int:
         return int(os.getenv(name, str(default)))
     except (TypeError, ValueError):
         return default
+
+
+def _indexing_mode() -> str:
+    if _env_bool("QDRANT_AUTO_INDEX_ENABLED", True):
+        return "manual_cli_plus_best_effort_auto"
+    return "manual_cli_only"
 
 
 def config_from_env() -> QdrantKnowledgeConfig:
@@ -555,13 +567,10 @@ class QdrantKnowledgeBase:
                 "documents": [],
                 "source_type_counts": {},
                 "points_scanned": 0,
-                "indexing_mode": "manual_cli_only",
+                "indexing_mode": _indexing_mode(),
                 "indexing_command": "PYTHONPATH=. .venv/bin/python rag_index.py --recreate",
                 "message": "Semantic memory is disabled.",
-                "decision_boundary": (
-                    "Index status is operational metadata only. It does not "
-                    "make or change SOC decisions."
-                ),
+                "decision_boundary": INDEX_STATUS_DECISION_BOUNDARY,
             }
 
         collection = self.collection_info()
@@ -576,13 +585,10 @@ class QdrantKnowledgeBase:
                 "documents": [],
                 "source_type_counts": {},
                 "points_scanned": 0,
-                "indexing_mode": "manual_cli_only",
+                "indexing_mode": _indexing_mode(),
                 "indexing_command": "PYTHONPATH=. .venv/bin/python rag_index.py --recreate",
                 "message": collection.get("message", "Configured collection is not available."),
-                "decision_boundary": (
-                    "Index status is operational metadata only. It does not "
-                    "make or change SOC decisions."
-                ),
+                "decision_boundary": INDEX_STATUS_DECISION_BOUNDARY,
             }
 
         documents: dict[str, dict[str, Any]] = {}
@@ -660,16 +666,14 @@ class QdrantKnowledgeBase:
                 "documents_count": len(public_documents),
                 "documents": public_documents,
                 "source_type_counts": source_type_counts,
-                "indexing_mode": "manual_cli_only",
+                "indexing_mode": _indexing_mode(),
                 "indexing_command": "PYTHONPATH=. .venv/bin/python rag_index.py --recreate",
                 "message": (
                     "Semantic memory index metadata retrieved successfully. "
-                    "Indexing remains an explicit manual CLI operation."
+                    "This endpoint is read-only; automatic indexing freshness "
+                    "is reported by /semantic-memory/auto-index-status."
                 ),
-                "decision_boundary": (
-                    "Index status is operational metadata only. It does not "
-                    "perform indexing and does not make or change SOC decisions."
-                ),
+                "decision_boundary": INDEX_STATUS_DECISION_BOUNDARY,
             }
         except Exception as exc:
             return {
@@ -681,14 +685,11 @@ class QdrantKnowledgeBase:
                 "documents": [],
                 "source_type_counts": {},
                 "points_scanned": scanned,
-                "indexing_mode": "manual_cli_only",
+                "indexing_mode": _indexing_mode(),
                 "indexing_command": "PYTHONPATH=. .venv/bin/python rag_index.py --recreate",
                 "message": "Failed to retrieve semantic memory index metadata.",
                 "error_type": exc.__class__.__name__,
-                "decision_boundary": (
-                    "Index status is operational metadata only. It does not "
-                    "make or change SOC decisions."
-                ),
+                "decision_boundary": INDEX_STATUS_DECISION_BOUNDARY,
             }
 
 

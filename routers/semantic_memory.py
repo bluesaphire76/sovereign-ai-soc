@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from qdrant_knowledge import QdrantKnowledgeBase, config_from_env
+from qdrant_auto_index import get_auto_index_status
 from scripts.index_detection_case_memory_to_qdrant import run_indexing as run_detection_case_indexing
 from scripts.index_historical_incidents_to_qdrant import run_indexing
 from scripts.qdrant_memory_retention import run_retention
@@ -79,11 +80,16 @@ def semantic_memory_index_status(
 ) -> dict[str, Any]:
     """Return read-only semantic memory index governance metadata.
 
-    This endpoint does not trigger indexing. Indexing remains an explicit
-    manual CLI operation through rag_index.py.
+    This endpoint does not trigger indexing. Automatic indexing freshness is
+    reported separately by /semantic-memory/auto-index-status.
     """
 
     return _knowledge_base().index_status(max_points=max_points)
+
+
+@router.get("/auto-index-status")
+def semantic_memory_auto_index_status() -> dict[str, Any]:
+    return get_auto_index_status()
 
 
 @router.get("/search")
