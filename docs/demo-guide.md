@@ -15,6 +15,26 @@ Show how the platform turns host, network and contextual telemetry into correlat
 - Browser is using the dark enterprise UI with a desktop-sized viewport.
 - No secrets, tokens or private operational data are visible.
 
+## Pre-Demo Readiness
+
+The repository now provides three lightweight validation layers for preparing a demo:
+
+1. **Public CI foundation** validates backend tests and Python syntax, the frontend production build and public Docker Compose configuration syntax on GitHub Actions.
+2. **AI SOC Doctor** checks the local development tools, repository files and optional runtime endpoints without starting, stopping or modifying services.
+3. **Local CLI wrapper** provides a stable root-level interface for the doctor and public CI baseline validation.
+
+Run the local checks from the repository root:
+
+```bash
+./ai-soc doctor --strict
+./ai-soc validate
+./ai-soc version
+```
+
+The doctor exits successfully when required checks pass. Optional local services such as Ollama, PostgreSQL, Qdrant, Grafana or Prometheus may report `WARN` when unavailable without failing the readiness check.
+
+Before presenting, also confirm that the latest [Public CI workflow](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/ci.yml) is green for the revision being demonstrated.
+
 ## Recommended Demo Path
 
 1. **Dashboard**: introduce SOC posture, active risk and operational density.
@@ -69,6 +89,9 @@ Show how the platform turns host, network and contextual telemetry into correlat
 Before a demo:
 
 ```bash
+./ai-soc doctor --strict
+./ai-soc validate
+
 sudo systemctl status ai-soc-api --no-pager
 sudo systemctl status ai-soc-frontend --no-pager
 ```
