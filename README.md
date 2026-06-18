@@ -2,6 +2,8 @@
 
 ![Release](https://img.shields.io/badge/latest%20tag-v0.6.0-953fdc0)
 ![v0.6](https://img.shields.io/badge/v0.6.0-AI%20investigation%20%26%20governed%20remediation-0891b2)
+[![Dependency Graph](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/dependabot/update-graph/badge.svg)](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/dependabot/update-graph)
+[![CodeQL](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/github-code-scanning/codeql)
 ![License](https://img.shields.io/badge/license-Apache--2.0-2563eb)
 ![Python](https://img.shields.io/badge/Python-FastAPI-3776AB)
 ![Next.js](https://img.shields.io/badge/Next.js-16-000000)
