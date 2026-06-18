@@ -677,8 +677,159 @@ class PlaybookRecommendationTests(unittest.TestCase):
         self.assertNotIn("Governed Remediation Playbook", titles)
         self.assertEqual(
             result["target_profile"]["allowed_categories"],
-            ["authentication", "closure", "linux_host", "network"],
+            [
+                "authentication",
+                "closure",
+                "data_exfiltration",
+                "governance",
+                "linux_host",
+                "malware",
+                "network",
+                "windows_host",
+            ],
         )
+
+    def test_expanded_domain_scenarios_prioritize_expected_playbooks(self):
+        scenarios = [
+            (
+                "linux",
+                "Wazuh unauthorized user creation useradd created UID 0 local account T1136.001",
+                "Unauthorized Linux User Creation Playbook",
+                "knowledge_base/playbooks/linux_host/unauthorized_user_creation_playbook.md",
+                "linux_host",
+                "wazuh",
+                ["unauthorized_user_creation"],
+                ["linux", "user-creation"],
+                ["T1136.001"],
+                "linux_host",
+            ),
+            (
+                "windows",
+                "Windows Event ID 7045 service installed from ADMIN$ after remote logon T1543.003",
+                "Windows Service Creation Playbook",
+                "knowledge_base/playbooks/windows_host/windows_service_creation_playbook.md",
+                "windows_host",
+                "wazuh",
+                ["windows_service_creation"],
+                ["windows", "service-creation"],
+                ["T1543.003"],
+                "windows_host",
+            ),
+            (
+                "suricata",
+                "Suricata ET EXPLOIT exploit attempt against public-facing application CVE T1190",
+                "Suricata Exploit Attempt Playbook",
+                "knowledge_base/playbooks/network_suricata/suricata_exploit_attempt_playbook.md",
+                "network_suricata",
+                "suricata",
+                ["suricata_exploit_attempt"],
+                ["suricata", "exploit"],
+                ["T1190"],
+                "network",
+            ),
+            (
+                "dns",
+                "DNS domain generation algorithm DGA high NXDOMAIN ratio T1568.002",
+                "Domain Generation Algorithm Playbook",
+                "knowledge_base/playbooks/dns/domain_generation_algorithm_playbook.md",
+                "dns",
+                "dns",
+                ["domain_generation_algorithm"],
+                ["dns", "dga"],
+                ["T1568.002"],
+                "network",
+            ),
+            (
+                "malware",
+                "Reverse shell detected: Python process opened interactive outbound shell T1059",
+                "Reverse Shell Detection Playbook",
+                "knowledge_base/playbooks/malware/reverse_shell_detection_playbook.md",
+                "malware",
+                "wazuh",
+                ["reverse_shell_detection"],
+                ["malware", "reverse-shell"],
+                ["T1059"],
+                "malware",
+            ),
+            (
+                "exfiltration",
+                "Large outbound data transfer to rare external destination possible data exfiltration T1041",
+                "Large Outbound Data Transfer Playbook",
+                "knowledge_base/playbooks/data_exfiltration/large_data_transfer_playbook.md",
+                "data_exfiltration",
+                "suricata",
+                ["large_data_transfer"],
+                ["exfiltration", "large-transfer"],
+                ["T1041"],
+                "data_exfiltration",
+            ),
+            (
+                "governance",
+                "Containment approval required before host isolation and account disablement",
+                "Containment Approval Playbook",
+                "knowledge_base/playbooks/governance/containment_approval_playbook.md",
+                "governance",
+                "internal_policy",
+                ["containment_approval"],
+                ["governance", "containment"],
+                [],
+                "governance",
+            ),
+        ]
+
+        for (
+            name,
+            rule,
+            title,
+            source,
+            domain,
+            playbook_source,
+            incident_types,
+            tags,
+            techniques,
+            expected_category,
+        ) in scenarios:
+            with self.subTest(name=name):
+                context = metadata_context(
+                    title=title,
+                    source=source,
+                    domain=domain,
+                    playbook_source=playbook_source,
+                    incident_types=incident_types,
+                    tags=tags,
+                    mitre_techniques=techniques,
+                )
+                kb = FakeKnowledgeBase(
+                    contexts=[context, metadata_playbook_context(), dns_c2_context()]
+                )
+                scenario_incident = Incident(
+                    id=700,
+                    rule=rule,
+                    agent="scenario-host",
+                    level=10,
+                    mitre=",".join(techniques),
+                    risk_score=75,
+                    ai_analysis=rule,
+                    correlation_type=f"{name}_scenario",
+                    escalation_reason="Scenario validation",
+                    recommended_priority="HIGH",
+                )
+
+                result = build_incident_playbook_recommendations(
+                    FakeDb(incident=scenario_incident),
+                    700,
+                    knowledge_base_factory=lambda: kb,
+                )
+
+                self.assertEqual(result["recommendations"][0]["title"], title)
+                self.assertEqual(
+                    result["recommendations"][0]["category"],
+                    expected_category,
+                )
+                self.assertIn(
+                    "incident_type",
+                    result["recommendations"][0]["matched_metadata"],
+                )
 
     def test_incident_uses_broad_fallback_when_only_generic_operational_playbooks_match(self):
         kb = FakeKnowledgeBase(contexts=[remediation_playbook_context()])

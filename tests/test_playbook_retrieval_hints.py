@@ -1,9 +1,17 @@
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 
+import yaml
+
+from playbook_retrieval_catalog import (
+    EXPANDED_PLAYBOOK_PRIMARY_INCIDENT_TYPES,
+    EXPANDED_PLAYBOOK_SIGNAL_RULES,
+)
 from playbook_retrieval_hints import (
     build_playbook_retrieval_query,
     infer_incident_playbook_hints,
+    infer_playbook_retrieval_hints,
     playbook_retrieval_filter_stages,
 )
 
@@ -90,6 +98,111 @@ class PlaybookRetrievalHintsTests(unittest.TestCase):
         self.assertEqual(stages[0].payload_filter["domain"], "dns")
         self.assertEqual(stages[-1].name, "broad_knowledge_base")
         self.assertIsNone(stages[-1].payload_filter)
+
+    def test_expanded_catalog_covers_46_playbook_primary_incident_types(self):
+        indexed_primary_types = set()
+        for path in Path("knowledge_base/playbooks").rglob("*.md"):
+            if "_templates" in path.parts or path.name == "README.md":
+                continue
+            text = path.read_text(encoding="utf-8")
+            metadata = yaml.safe_load(text.split("---", 2)[1])
+            incident_types = metadata.get("incident_types") or []
+            if incident_types:
+                indexed_primary_types.add(incident_types[0])
+
+        self.assertEqual(len(EXPANDED_PLAYBOOK_SIGNAL_RULES), 46)
+        self.assertEqual(len(EXPANDED_PLAYBOOK_PRIMARY_INCIDENT_TYPES), 46)
+        self.assertTrue(
+            EXPANDED_PLAYBOOK_PRIMARY_INCIDENT_TYPES.issubset(indexed_primary_types)
+        )
+
+    def test_expanded_domain_scenarios_build_strong_metadata_filters(self):
+        scenarios = [
+            (
+                "linux",
+                "Wazuh unauthorized user creation: useradd created UID 0 local account T1136.001",
+                "wazuh",
+                "linux_host",
+                "unauthorized_user_creation",
+                "T1136.001",
+            ),
+            (
+                "windows",
+                "Windows Event ID 7045 service installed from ADMIN$ after remote logon T1543.003",
+                "wazuh",
+                "windows_host",
+                "windows_service_creation",
+                "T1543.003",
+            ),
+            (
+                "suricata",
+                "Suricata ET EXPLOIT exploit attempt against public-facing application CVE T1190",
+                "suricata",
+                "network_suricata",
+                "suricata_exploit_attempt",
+                "T1190",
+            ),
+            (
+                "dns",
+                "DNS domain generation algorithm DGA high NXDOMAIN ratio T1568.002",
+                "dns",
+                "dns",
+                "domain_generation_algorithm",
+                "T1568.002",
+            ),
+            (
+                "malware",
+                "Reverse shell detected: Python process opened interactive outbound shell T1059",
+                "wazuh",
+                "malware",
+                "reverse_shell_detection",
+                "T1059",
+            ),
+            (
+                "exfiltration",
+                "Large outbound data transfer to rare external destination possible data exfiltration T1041",
+                "suricata",
+                "data_exfiltration",
+                "large_data_transfer",
+                "T1041",
+            ),
+            (
+                "governance",
+                "Containment approval required before host isolation and account disablement",
+                "internal_policy",
+                "governance",
+                "containment_approval",
+                None,
+            ),
+        ]
+
+        for name, text, source, domain, incident_type, technique in scenarios:
+            with self.subTest(name=name):
+                hints = infer_playbook_retrieval_hints(text)
+                first_filter = playbook_retrieval_filter_stages(hints)[0].payload_filter
+
+                self.assertEqual(hints.source, source)
+                self.assertEqual(hints.domain, domain)
+                self.assertEqual(hints.incident_types[0], incident_type)
+                self.assertEqual(first_filter["playbook_source"], source)
+                self.assertEqual(first_filter["domain"], domain)
+                self.assertEqual(first_filter["incident_types"], incident_type)
+                if technique:
+                    self.assertEqual(first_filter["mitre_techniques"], technique)
+                else:
+                    self.assertNotIn("mitre_techniques", first_filter)
+
+    def test_specific_linux_temporary_path_signal_precedes_generic_malware_signal(self):
+        hints = infer_playbook_retrieval_hints(
+            "Wazuh suspicious binary execution from /tmp followed by outbound network activity"
+        )
+
+        self.assertEqual(hints.domain, "linux_host")
+        self.assertEqual(
+            hints.incident_types[0],
+            "suspicious_binary_execution_tmp",
+        )
+        self.assertIn("malware_suspicious_execution", hints.incident_types)
 
 
 if __name__ == "__main__":

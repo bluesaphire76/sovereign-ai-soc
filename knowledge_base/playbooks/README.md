@@ -34,10 +34,24 @@ Use `knowledge_base/archive/legacy_playbooks/` for older broad playbooks that sh
 When changing the active playbook set, run a clean rebuild instead of a non-destructive upsert so old vectors are removed:
 
 ```bash
-PYTHONPATH=. .venv/bin/python rag_index.py --recreate
+PYTHONPATH=. .venv/bin/python scripts/reindex_qdrant_playbooks.py --dry-run
+PYTHONPATH=. .venv/bin/python scripts/reindex_qdrant_playbooks.py --apply
 ```
 
-Historical incident memory must be re-applied after a collection recreate.
+The selective playbook reindex removes and replaces only playbook points. It preserves historical, Detection Control and Case Closure semantic memory.
+
+After a full collection recreate, historical incident memory must be re-applied:
+
+```bash
+PYTHONPATH=. .venv/bin/python scripts/index_historical_incidents_to_qdrant.py \
+  --apply --include-open --limit 10000
+```
+
+Validate indexed metadata and representative retrieval scenarios with:
+
+```bash
+PYTHONPATH=. .venv/bin/python scripts/validate_qdrant_playbook_expansion.py
+```
 
 ## Directory Structure
 
@@ -45,10 +59,15 @@ Current playbook categories:
 
 - `authentication/` - SSH, sudo, login and account-compromise investigations.
 - `linux_host/` - Linux host activity such as packages, services and persistence.
+- `windows_host/` - Windows authentication, account, execution, persistence, lateral movement and defense-evasion activity.
 - `network_suricata/` - Suricata IDS, network intrusion and reconnaissance playbooks.
 - `dns/` - DNS beaconing, tunneling and suspicious DNS behavior.
+- `malware/` - suspicious process, script, encoded command, reverse shell and downloaded payload execution.
+- `data_exfiltration/` - suspicious outbound connections, data transfers, rare destinations and DNS exfiltration.
 - `governance/` - Analyst decision-support and false-positive classification.
 - `_templates/` - reusable authoring templates.
+
+Windows host playbooks are intended for Windows security telemetry ingested through Wazuh, Windows Event Log, Sysmon where available, or future endpoint telemetry integrations. They are used as retrieval context for LLM-generated Recommended Playbooks and do not replace analyst approval.
 
 Related future knowledge areas may live under:
 
@@ -178,6 +197,9 @@ The initial incident-specific playbook set covers:
 - Suricata port scan activity;
 - DNS command-and-control beaconing;
 - DNS tunneling;
+- Windows authentication, account, PowerShell, persistence, lateral movement and security-control events;
+- suspicious malware and script execution;
+- suspicious outbound traffic and data exfiltration;
 - false-positive classification.
 
 ## Future Expansion
@@ -190,6 +212,5 @@ Recommended future categories include:
 - file integrity monitoring;
 - vulnerability findings;
 - cloud identity;
-- Windows authentication;
 - endpoint isolation governance;
 - detection tuning and exceptions.

@@ -131,6 +131,53 @@ CATEGORY_KEYWORDS = {
         "host",
         "privilege escalation",
     ],
+    "windows_host": [
+        "windows",
+        "event id",
+        "sysmon",
+        "powershell",
+        "defender",
+        "rdp",
+        "smb",
+        "scheduled task",
+        "registry",
+        "run key",
+        "local administrator",
+        "security log",
+        "logon type",
+    ],
+    "malware": [
+        "malware",
+        "payload",
+        "reverse shell",
+        "encoded command",
+        "obfuscated",
+        "script execution",
+        "suspicious process",
+        "download execution",
+        "unsigned binary",
+    ],
+    "data_exfiltration": [
+        "exfiltration",
+        "data transfer",
+        "large upload",
+        "outbound connection",
+        "external destination",
+        "data loss",
+        "covert channel",
+        "sensitive data",
+    ],
+    "governance": [
+        "governance",
+        "severity classification",
+        "case escalation",
+        "evidence collection",
+        "containment approval",
+        "post-incident review",
+        "lessons learned",
+        "human review",
+        "decision support",
+    ],
     "closure": [
         "closure",
         "close",
@@ -167,11 +214,24 @@ CATEGORY_KEYWORDS = {
     ],
 }
 MIN_RELEVANCE_SCORE = 2
-INCIDENT_PLAYBOOK_CATEGORIES = {"authentication", "network", "linux_host", "closure"}
+INCIDENT_PLAYBOOK_CATEGORIES = {
+    "authentication",
+    "network",
+    "linux_host",
+    "windows_host",
+    "malware",
+    "data_exfiltration",
+    "governance",
+    "closure",
+}
 CASE_PLAYBOOK_CATEGORIES = {
     "authentication",
     "network",
     "linux_host",
+    "windows_host",
+    "malware",
+    "data_exfiltration",
+    "governance",
     "closure",
     "remediation",
     "detection_control",
@@ -181,7 +241,10 @@ DOMAIN_CATEGORY_MAP = {
     "dns": "network",
     "network_suricata": "network",
     "linux_host": "linux_host",
-    "governance": "closure",
+    "windows_host": "windows_host",
+    "malware": "malware",
+    "data_exfiltration": "data_exfiltration",
+    "governance": "governance",
 }
 SECTION_RELEVANCE_WEIGHTS = {
     "investigation steps": 18,
@@ -530,6 +593,34 @@ def _default_checks(category: str, target_type: str) -> list[str]:
             "Correlate package or systemd activity with authentication anomalies and outbound network behavior.",
             f"Escalate the {case_or_incident} when host changes are unauthorized, persistent or linked to compromise.",
         ]
+    if category == "windows_host":
+        return [
+            "Review Windows Event IDs, logon type, account, source workstation and affected host around the detection window.",
+            "Correlate Windows authentication, process, service, task, registry, Defender and SMB telemetry.",
+            "Use Sysmon as optional enrichment when available; do not treat missing Sysmon data as proof of benign activity.",
+            f"Escalate the {case_or_incident} when Windows evidence supports account compromise, persistence or lateral movement.",
+        ]
+    if category == "malware":
+        return [
+            "Preserve the process tree, command line, artifact hash, origin and network activity before disruptive action.",
+            "Correlate suspicious execution with downloads, persistence, credential access and command-and-control.",
+            "Validate approved administration, deployment and security-testing explanations with an accountable owner.",
+            f"Escalate the {case_or_incident} when current evidence supports malicious execution or active compromise.",
+        ]
+    if category == "data_exfiltration":
+        return [
+            "Review outbound bytes, destination, protocol, process, user and data-access activity against the expected baseline.",
+            "Correlate transfer activity with staging, archiving, sensitive file access, DNS and endpoint evidence.",
+            "Confirm destination ownership and business authorization before classifying or blocking traffic.",
+            f"Escalate the {case_or_incident} when evidence supports unauthorized transfer or material data exposure.",
+        ]
+    if category == "governance":
+        return [
+            "Identify the decision, evidence basis, owner, approver and unresolved uncertainty.",
+            "Verify that semantic retrieval and model output remain advisory rather than authoritative evidence.",
+            "Document scope, business impact, alternatives, residual risk and required review checkpoints.",
+            "Record human approval before severity, containment, escalation or closure decisions.",
+        ]
     if category == "closure":
         return [
             "Verify evidence summary, root cause, actions, residual risk and final severity rationale.",
@@ -619,6 +710,14 @@ def _gui_targets(category: str, target_type: str) -> list[str]:
         return ["DNS Evidence", "Network Evidence", *common]
     if category == "linux_host":
         return ["Technical Evidence Appendix", "Evidence & Correlation", "Investigation Graph"]
+    if category == "windows_host":
+        return ["Technical Evidence Appendix", "Evidence & Correlation", "Investigation Graph"]
+    if category == "malware":
+        return ["Technical Evidence Appendix", "Evidence & Correlation", "Investigation Graph"]
+    if category == "data_exfiltration":
+        return ["Network Evidence", "DNS Evidence", "Evidence & Correlation", "Investigation Graph"]
+    if category == "governance":
+        return ["Human Review Workspace", "Audit", "Evidence & Correlation"]
     if category == "remediation":
         return ["Governed Remediation", "Remediation Governance", "Remediation audit"]
     return common
@@ -652,6 +751,14 @@ def _why_suggested(
         reasons.append("The retrieved guidance is relevant to authentication, SSH, sudo or credential-access review.")
     elif category == "linux_host":
         reasons.append("The retrieved guidance is relevant to Linux host activity, packages, services or persistence review.")
+    elif category == "windows_host":
+        reasons.append("The retrieved guidance is relevant to Windows authentication, execution, persistence or lateral-movement review.")
+    elif category == "malware":
+        reasons.append("The retrieved guidance is relevant to suspicious execution, payload, script or reverse-shell review.")
+    elif category == "data_exfiltration":
+        reasons.append("The retrieved guidance is relevant to outbound transfer, unusual destination or exfiltration review.")
+    elif category == "governance":
+        reasons.append("The retrieved guidance is relevant to evidence-backed severity, escalation, approval or post-incident review.")
     elif category == "closure":
         reasons.append("The retrieved guidance is relevant to closure readiness, false-positive rationale or residual-risk review.")
     elif category == "remediation":
@@ -671,6 +778,14 @@ def _operational_use(category: str) -> str:
         return "Use it to structure authentication triage and decide whether escalation evidence exists."
     if category == "linux_host":
         return "Use it to structure Linux host triage for package, service, process or persistence evidence."
+    if category == "windows_host":
+        return "Use it to structure Windows Event Log and optional Sysmon review for authentication, execution, persistence or lateral movement."
+    if category == "malware":
+        return "Use it to structure artifact, process, persistence and command-and-control evidence review."
+    if category == "data_exfiltration":
+        return "Use it to structure outbound transfer, destination, data-access and exposure review."
+    if category == "governance":
+        return "Use it to prepare an evidence-backed decision for authorized human review."
     if category == "closure":
         return "Use it to check closure readiness and documentation quality before human approval."
     if category == "remediation":
