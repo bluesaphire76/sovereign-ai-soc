@@ -4,6 +4,7 @@
 ![v0.6](https://img.shields.io/badge/v0.6.0-AI%20investigation%20%26%20governed%20remediation-0891b2)
 [![Dependency Graph](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/dependabot/update-graph/badge.svg)](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/dependabot/update-graph)
 [![CodeQL](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/github-code-scanning/codeql)
+[![Public CI](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/ci.yml/badge.svg)](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/ci.yml)
 ![License](https://img.shields.io/badge/license-Apache--2.0-2563eb)
 ![Python](https://img.shields.io/badge/Python-FastAPI-3776AB)
 ![Next.js](https://img.shields.io/badge/Next.js-16-000000)
@@ -317,6 +318,16 @@ Suricata and DNS telemetry have dedicated deployment artifacts:
 - `deploy/suricata/docker-compose.yml`
 
 See [Deployment Guide](docs/deployment-guide.md) for a fuller operational view.
+
+## Public CI Validation
+
+GitHub Actions validates backend tests and Python syntax, the frontend production build, and public Docker Compose configuration syntax without starting runtime services.
+
+Run the lightweight repository baseline check locally:
+
+```bash
+python3 scripts/validate_public_ci_baseline.py
+```
 
 ## Documentation Index
 
