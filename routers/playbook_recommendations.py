@@ -18,6 +18,13 @@ from models import (
     IncidentCase,
 )
 from qdrant_knowledge import QdrantKnowledgeBase
+from recommended_playbooks_llm import (
+    apply_generation_to_recommendations,
+    build_case_generation_facts,
+    build_incident_generation_facts,
+    generate_recommended_playbooks,
+)
+from routers.similar_incidents import build_similar_incidents_response
 from playbook_retrieval_hints import (
     PlaybookRetrievalHints,
     build_playbook_retrieval_query,
@@ -932,6 +939,7 @@ def _group_recommendations(
                         "chunk_index": item.get("chunk_index"),
                         "score": item.get("score"),
                         "relevance_score": item.get("relevance_score"),
+                        "excerpt": item.get("excerpt"),
                     }
                 )
             for field_name in item.get("matched_metadata") or []:
@@ -973,6 +981,61 @@ def _recommended_playbook_summaries(items: list[dict[str, Any]]) -> list[dict[st
         }
         for item in items
     ]
+
+
+def _apply_llm_generation(
+    response: dict[str, Any],
+    *,
+    target_type: str,
+    current_facts: dict[str, Any],
+    similar_incidents: list[dict[str, Any]] | None,
+    severity: str | None,
+    llm_generator,
+) -> dict[str, Any]:
+    recommendations = list(response.get("recommendations") or [])
+    if not recommendations:
+        return response
+
+    generation_kwargs = {
+        "target_type": target_type,
+        "current_facts": current_facts,
+        "recommendations": recommendations,
+        "similar_incidents": similar_incidents,
+        "severity": severity,
+    }
+    generation = generate_recommended_playbooks(
+        **generation_kwargs,
+        **({"llm_generator": llm_generator} if llm_generator is not None else {}),
+    )
+    enriched_recommendations = apply_generation_to_recommendations(
+        recommendations,
+        generation,
+    )
+    generation_metadata = generation.get("generation") or {}
+    source = safe_text(generation_metadata.get("source"))
+    message = (
+        "Recommended playbooks were synthesized by the configured AI provider "
+        "from current facts and retrieved Qdrant context. Human review is required."
+    )
+    if source == "deterministic_fallback":
+        message = (
+            "The AI provider was unavailable or returned invalid output. "
+            "Structured deterministic playbook guidance is shown and requires "
+            "analyst review."
+        )
+
+    return {
+        **response,
+        "recommendations": enriched_recommendations,
+        "recommended_playbooks": _recommended_playbook_summaries(
+            enriched_recommendations
+        ),
+        "selection_summary": generation.get("selection_summary"),
+        "generated_markdown": generation.get("generated_markdown"),
+        "generation": generation_metadata,
+        "generation_limitations": generation.get("limitations") or [],
+        "message": message,
+    }
 
 
 def _retrieve_playbooks(
@@ -1076,6 +1139,9 @@ def build_incident_playbook_recommendations(
     *,
     limit: int = 4,
     knowledge_base_factory=QdrantKnowledgeBase,
+    generate_llm: bool = False,
+    llm_generator=None,
+    similar_incidents_builder=build_similar_incidents_response,
 ) -> dict[str, Any]:
     incident = db.query(Incident).filter(Incident.id == incident_id).first()
     if not incident:
@@ -1087,14 +1153,47 @@ def build_incident_playbook_recommendations(
         hints=retrieval_hints,
         allowed_categories=INCIDENT_PLAYBOOK_CATEGORIES,
     )
-    return _retrieve_playbooks(
+    knowledge_base = knowledge_base_factory()
+
+    def shared_knowledge_base_factory():
+        return knowledge_base
+
+    response = _retrieve_playbooks(
         build_incident_playbook_query(incident),
         target_type="incident",
         target_id=incident_id,
         target_profile=profile,
         retrieval_hints=retrieval_hints,
         limit=limit,
-        knowledge_base_factory=knowledge_base_factory,
+        knowledge_base_factory=shared_knowledge_base_factory,
+    )
+    if not generate_llm or not response.get("recommendations"):
+        return response
+
+    similar_incidents: list[dict[str, Any]] = []
+    try:
+        similar_response = similar_incidents_builder(
+            db,
+            incident_id,
+            limit=3,
+            knowledge_base_factory=shared_knowledge_base_factory,
+        )
+        if safe_text(similar_response.get("status")).upper() == "OK":
+            similar_incidents = list(similar_response.get("results") or [])[:3]
+    except Exception:
+        similar_incidents = []
+
+    current_facts = build_incident_generation_facts(incident)
+    current_facts["deterministic_retrieval_hints"] = (
+        retrieval_hints.to_public_dict()
+    )
+    return _apply_llm_generation(
+        response,
+        target_type="incident",
+        current_facts=current_facts,
+        similar_incidents=similar_incidents,
+        severity=safe_text(incident.recommended_priority) or safe_text(incident.level),
+        llm_generator=llm_generator,
     )
 
 
@@ -1104,6 +1203,8 @@ def build_case_playbook_recommendations(
     *,
     limit: int = 4,
     knowledge_base_factory=QdrantKnowledgeBase,
+    generate_llm: bool = False,
+    llm_generator=None,
 ) -> dict[str, Any]:
     case = db.query(IncidentCase).filter(IncidentCase.id == case_id).first()
     if not case:
@@ -1154,7 +1255,8 @@ def build_case_playbook_recommendations(
         allowed_categories=CASE_PLAYBOOK_CATEGORIES,
     )
 
-    return _retrieve_playbooks(
+    knowledge_base = knowledge_base_factory()
+    response = _retrieve_playbooks(
         build_case_playbook_query(
             case,
             incidents=incidents,
@@ -1167,7 +1269,28 @@ def build_case_playbook_recommendations(
         target_profile=profile,
         retrieval_hints=retrieval_hints,
         limit=limit,
-        knowledge_base_factory=knowledge_base_factory,
+        knowledge_base_factory=lambda: knowledge_base,
+    )
+    if not generate_llm or not response.get("recommendations"):
+        return response
+
+    current_facts = build_case_generation_facts(
+        case,
+        incidents=incidents,
+        actions=actions,
+        closure=closure,
+        latest_analysis=latest_analysis,
+    )
+    current_facts["deterministic_retrieval_hints"] = (
+        retrieval_hints.to_public_dict()
+    )
+    return _apply_llm_generation(
+        response,
+        target_type="case",
+        current_facts=current_facts,
+        similar_incidents=None,
+        severity=safe_text(case.severity_review or case.severity),
+        llm_generator=llm_generator,
     )
 
 
@@ -1179,7 +1302,12 @@ def get_incident_playbook_recommendations(
     db = SessionLocal()
 
     try:
-        return build_incident_playbook_recommendations(db, incident_id, limit=limit)
+        return build_incident_playbook_recommendations(
+            db,
+            incident_id,
+            limit=limit,
+            generate_llm=True,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Incident not found.") from exc
     finally:
@@ -1194,7 +1322,12 @@ def get_case_playbook_recommendations(
     db = SessionLocal()
 
     try:
-        return build_case_playbook_recommendations(db, case_id, limit=limit)
+        return build_case_playbook_recommendations(
+            db,
+            case_id,
+            limit=limit,
+            generate_llm=True,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Case not found.") from exc
     finally:

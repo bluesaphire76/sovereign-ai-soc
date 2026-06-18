@@ -1,3 +1,4 @@
+import json
 import unittest
 from types import SimpleNamespace
 
@@ -491,6 +492,91 @@ class PlaybookRecommendationTests(unittest.TestCase):
         self.assertIn("recommended_for_pages", kb.calls[0]["payload_fields"])
         self.assertIn("source", recommendation["matched_metadata"])
         self.assertIn("sections_used", recommendation)
+
+    def test_incident_runtime_generation_uses_llm_and_existing_similar_incident_service(self):
+        kb = FakeKnowledgeBase(contexts=[metadata_playbook_context()])
+        captured = {}
+
+        def fake_llm(**kwargs):
+            captured.update(kwargs)
+            return {
+                "text": json.dumps(
+                    {
+                        "selection_summary": "SSH failures match the retrieved authentication playbook.",
+                        "playbooks": [
+                            {
+                                "title": "SSH Brute Force Investigation Playbook",
+                                "why_applies": "Repeated failed SSH logins are present in the current incident.",
+                                "supporting_incident_facts": [
+                                    "The incident rule reports multiple failed SSH logins."
+                                ],
+                                "immediate_analyst_checks": [
+                                    "Review the SSH authentication timeline for the affected host."
+                                ],
+                                "evidence_to_collect": [
+                                    "Collect failed and successful SSH events for the source and target accounts."
+                                ],
+                                "false_positive_checks": [
+                                    "Confirm whether the source is an approved scanner or administrator."
+                                ],
+                                "escalation_criteria": [
+                                    "Escalate if a successful login follows the failures."
+                                ],
+                                "containment_remediation_guidance": [
+                                    "Consider source blocking only after analyst approval."
+                                ],
+                                "closure_considerations": [
+                                    "Document source ownership before false-positive closure."
+                                ],
+                            }
+                        ],
+                        "limitations": [],
+                    }
+                ),
+                "profile": "standard",
+                "model": "qwen-test",
+                "fallback_used": False,
+                "latency_ms": 321,
+                "provider_key": "local_ollama",
+                "provider_type": "LOCAL_OLLAMA",
+                "used_external_provider": False,
+            }
+
+        def fake_similar_builder(*_args, **_kwargs):
+            return {
+                "status": "OK",
+                "results": [
+                    {
+                        "incident_id": 7,
+                        "score": 0.88,
+                        "status": "FALSE_POSITIVE",
+                        "rule": "Approved scanner SSH activity",
+                        "excerpt": "Scanner ownership was confirmed by an analyst.",
+                    }
+                ],
+            }
+
+        result = build_incident_playbook_recommendations(
+            FakeDb(incident=incident()),
+            42,
+            knowledge_base_factory=lambda: kb,
+            generate_llm=True,
+            llm_generator=fake_llm,
+            similar_incidents_builder=fake_similar_builder,
+        )
+
+        self.assertEqual(result["generation"]["source"], "local_ai")
+        self.assertEqual(result["generation"]["similar_incidents_included"], 1)
+        self.assertIn("# Recommended Playbooks", result["generated_markdown"])
+        self.assertEqual(
+            result["recommendations"][0]["recommended_checks"][0],
+            "Review the SSH authentication timeline for the affected host.",
+        )
+        self.assertEqual(
+            result["recommendations"][0]["generation_source"],
+            "local_ai",
+        )
+        self.assertIn("SIMILAR HISTORICAL INCIDENTS", captured["messages"][1]["content"])
 
     def test_case_recommendations_include_case_context_without_mutating_state(self):
         kb = FakeKnowledgeBase(contexts=[playbook_context("knowledge_base/bruteforce.md")])
