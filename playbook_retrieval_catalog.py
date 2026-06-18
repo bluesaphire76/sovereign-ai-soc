@@ -150,7 +150,6 @@ EXPANDED_PLAYBOOK_SIGNAL_RULES = (
         ("windows", "rdp", "brute-force", "authentication", "wazuh"),
         tactics=("Credential Access", "Initial Access"),
         techniques=("T1110", "T1021.001"),
-        supporting_incident_types=("windows_successful_logon_after_failures",),
     ),
     _rule(
         "windows_failed_logon",
@@ -165,7 +164,6 @@ EXPANDED_PLAYBOOK_SIGNAL_RULES = (
         ("windows", "failed-logon", "authentication", "event-4625", "wazuh"),
         tactics=("Credential Access",),
         techniques=("T1110",),
-        supporting_incident_types=("windows_successful_logon_after_failures",),
     ),
     _rule(
         "windows_privileged_logon",
@@ -335,6 +333,67 @@ EXPANDED_PLAYBOOK_SIGNAL_RULES = (
         ("windows", "defender", "tampering", "defense-evasion", "wazuh"),
         tactics=("Defense Evasion",),
         techniques=("T1562.001",),
+    ),
+    _rule(
+        "windows_sysmon_suspicious_process",
+        (
+            r"sysmon\s*-\s*suspicious process",
+            r"sysmon_process[-_ ]anomal",
+            r"suspicious process.{0,100}explorer\.exe",
+        ),
+        "wazuh",
+        "windows_host",
+        (
+            "windows_sysmon_suspicious_process",
+            "suspicious_process_execution",
+            "process_anomaly",
+        ),
+        ("windows", "sysmon", "process", "process-anomaly", "event-1", "wazuh"),
+        tactics=("Defense Evasion", "Privilege Escalation"),
+        techniques=("T1055",),
+        evidence_terms=(
+            "Sysmon Event ID 1 suspicious process ancestry, image and command line",
+        ),
+    ),
+    _rule(
+        "windows_netsh_firewall_rule_change",
+        (
+            r"netsh used to (add|delete|modify) firewall rule",
+            r"netsh(\.exe)?.{0,160}advfirewall.{0,160}firewall.{0,80}(add|delete|set) rule",
+            r"disable or modify system firewall.{0,80}t1562\.004",
+        ),
+        "wazuh",
+        "windows_host",
+        (
+            "windows_netsh_firewall_rule_change",
+            "windows_firewall_configuration_change",
+            "defense_evasion",
+        ),
+        ("windows", "netsh", "firewall", "rule-change", "defense-evasion", "wazuh"),
+        tactics=("Defense Evasion",),
+        techniques=("T1562.004",),
+        evidence_terms=(
+            "netsh advfirewall command creates, modifies or deletes a Windows Firewall rule",
+        ),
+    ),
+    _rule(
+        "windows_cis_benchmark_failure",
+        (
+            r"cis microsoft windows .{0,80} benchmark",
+            r"security configuration assessment.{0,80}(failed|failure)",
+            r"data.{0,20}sca.{0,240}check.{0,240}result.{0,40}failed",
+        ),
+        "wazuh",
+        "windows_host",
+        (
+            "windows_cis_benchmark_failure",
+            "windows_security_configuration_gap",
+            "compliance_finding",
+        ),
+        ("windows", "cis", "sca", "benchmark", "compliance", "hardening", "wazuh"),
+        evidence_terms=(
+            "Wazuh SCA reports a failed CIS Microsoft Windows benchmark check",
+        ),
     ),
     _rule(
         "reverse_shell_detection",
@@ -680,6 +739,26 @@ EXPANDED_PLAYBOOK_SIGNAL_RULES = (
         "governance",
         ("evidence_collection_standard", "forensic_evidence_quality", "investigation_documentation"),
         ("governance", "evidence", "audit", "chain-of-custody", "human-review"),
+    ),
+    _rule(
+        "wazuh_agent_queue_saturation",
+        (
+            r"agent event queue is (90% )?full",
+            r"agent event queue is flooded",
+            r"agent buffer.{0,40}(90%|full|flooded)",
+            r"agent_flooding",
+        ),
+        "wazuh",
+        "governance",
+        (
+            "wazuh_agent_queue_saturation",
+            "telemetry_loss_risk",
+            "agent_health_degradation",
+        ),
+        ("wazuh", "agent", "queue", "buffer", "telemetry-loss", "service-health"),
+        evidence_terms=(
+            "Wazuh agent event buffer is near capacity, full or flooded",
+        ),
     ),
     _rule(
         "containment_approval",

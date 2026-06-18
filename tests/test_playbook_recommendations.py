@@ -716,6 +716,54 @@ class PlaybookRecommendationTests(unittest.TestCase):
                 "windows_host",
             ),
             (
+                "windows_sysmon_suspicious_process",
+                "Sysmon - Suspicious Process - explorer.exe Event ID 1 process anomaly T1055",
+                "Windows Sysmon Suspicious Process Playbook",
+                "knowledge_base/playbooks/windows_host/windows_sysmon_suspicious_process_playbook.md",
+                "windows_host",
+                "wazuh",
+                ["windows_sysmon_suspicious_process"],
+                ["windows", "sysmon", "process-anomaly"],
+                ["T1055"],
+                "windows_host",
+            ),
+            (
+                "windows_netsh_firewall_rule_change",
+                "Netsh used to add firewall rule netsh advfirewall firewall add rule T1562.004",
+                "Windows Netsh Firewall Rule Change Playbook",
+                "knowledge_base/playbooks/windows_host/windows_netsh_firewall_rule_change_playbook.md",
+                "windows_host",
+                "wazuh",
+                ["windows_netsh_firewall_rule_change"],
+                ["windows", "netsh", "firewall"],
+                ["T1562.004"],
+                "windows_host",
+            ),
+            (
+                "windows_cis_benchmark_failure",
+                "CIS Microsoft Windows 11 Enterprise Benchmark Wazuh SCA check result failed",
+                "Windows CIS Benchmark Failure Playbook",
+                "knowledge_base/playbooks/windows_host/windows_cis_benchmark_failure_playbook.md",
+                "windows_host",
+                "wazuh",
+                ["windows_cis_benchmark_failure"],
+                ["windows", "cis", "sca"],
+                [],
+                "windows_host",
+            ),
+            (
+                "wazuh_agent_queue_saturation",
+                "Wazuh Agent event queue is flooded agent buffer full",
+                "Wazuh Agent Queue Saturation Playbook",
+                "knowledge_base/playbooks/governance/wazuh_agent_queue_saturation_playbook.md",
+                "governance",
+                "wazuh",
+                ["wazuh_agent_queue_saturation"],
+                ["wazuh", "agent", "queue"],
+                [],
+                "governance",
+            ),
+            (
                 "suricata",
                 "Suricata ET EXPLOIT exploit attempt against public-facing application CVE T1190",
                 "Suricata Exploit Attempt Playbook",
@@ -831,6 +879,228 @@ class PlaybookRecommendationTests(unittest.TestCase):
                     result["recommendations"][0]["matched_metadata"],
                 )
 
+    def test_windows_incident_excludes_linux_playbooks_when_ai_text_is_polluted(self):
+        windows_incident = Incident(
+            id=5095,
+            rule="Windows audit failure event",
+            agent="darkstar-windows",
+            level=5,
+            mitre="{}",
+            risk_score=35,
+            ai_analysis=(
+                "Review multiple login failures, the sudoers file and unusual sudo "
+                "usage. This prior AI text may contain Linux-oriented guidance."
+            ),
+            raw_alert=(
+                '{"data":{"win":{"system":{"eventID":"5061",'
+                '"providerName":"Microsoft-Windows-Security-Auditing",'
+                '"channel":"Security"}}}}'
+            ),
+            correlation_summary=(
+                '{"matched_patterns":{"failed_login":{"keywords":["failed login"]},'
+                '"sudo_activity":{"keywords":["sudo"]}}}'
+            ),
+            correlation_type="SINGLE_HOST_PATTERN_CORRELATION",
+            recommended_priority="LOW",
+        )
+        windows_contexts = [
+            metadata_context(
+                title="Windows Audit Failure Investigation Playbook",
+                source="knowledge_base/playbooks/windows_host/windows_audit_failure_playbook.md",
+                domain="windows_host",
+                playbook_source="wazuh",
+                incident_types=[
+                    "windows_audit_failure",
+                    "windows_security_audit_failure",
+                ],
+                tags=["windows", "audit-failure", "event-5061"],
+                mitre_techniques=[],
+                score=0.91,
+            ),
+            metadata_context(
+                title="Evidence Collection Standard Playbook",
+                source="knowledge_base/playbooks/governance/evidence_collection_standard_playbook.md",
+                domain="governance",
+                playbook_source="internal_policy",
+                incident_types=["evidence_collection_standard"],
+                tags=["governance", "evidence"],
+                mitre_techniques=[],
+                score=0.74,
+            ),
+            metadata_context(
+                title="Severity Classification Playbook",
+                source="knowledge_base/playbooks/governance/severity_classification_playbook.md",
+                domain="governance",
+                playbook_source="internal_policy",
+                incident_types=["severity_classification"],
+                tags=["governance", "severity"],
+                mitre_techniques=[],
+                score=0.72,
+            ),
+            false_positive_context(),
+            metadata_playbook_context(),
+            ssh_success_context(),
+            sudo_context(),
+        ]
+        kb = FakeKnowledgeBase(contexts=windows_contexts)
+
+        result = build_incident_playbook_recommendations(
+            FakeDb(incident=windows_incident),
+            5095,
+            knowledge_base_factory=lambda: kb,
+        )
+
+        self.assertEqual(
+            result["target_profile"]["retrieval_hints"]["platform"],
+            "windows",
+        )
+        self.assertGreaterEqual(result["result_count"], 1)
+        self.assertLessEqual(result["result_count"], 4)
+        self.assertEqual(
+            result["recommendations"][0]["title"],
+            "Windows Audit Failure Investigation Playbook",
+        )
+        self.assertTrue(
+            all(
+                item["domain"] in {"windows_host", "governance"}
+                for item in result["recommendations"]
+            )
+        )
+        self.assertFalse(
+            any(
+                item["title"]
+                in {
+                    "SSH Brute Force Investigation Playbook",
+                    "SSH Success After Multiple Failures Playbook",
+                    "Sudo Privilege Escalation Playbook",
+                }
+                for item in result["recommendations"]
+            )
+        )
+
+    def test_unknown_windows_event_returns_governance_support_not_random_platform_playbooks(self):
+        unknown_windows_incident = Incident(
+            id=6000,
+            rule="Windows Filtering Platform audit event",
+            agent="windows-endpoint",
+            level=4,
+            mitre="{}",
+            risk_score=20,
+            ai_analysis="Generic Windows event with no incident-specific classification.",
+            raw_alert=(
+                '{"data":{"win":{"system":{"eventID":"5156",'
+                '"providerName":"Microsoft-Windows-Security-Auditing"}}}}'
+            ),
+        )
+        kb = FakeKnowledgeBase(
+            contexts=[
+                metadata_context(
+                    title="Evidence Collection Standard Playbook",
+                    source="knowledge_base/playbooks/governance/evidence_collection_standard_playbook.md",
+                    domain="governance",
+                    playbook_source="internal_policy",
+                    incident_types=["evidence_collection_standard"],
+                    tags=["governance", "evidence"],
+                    mitre_techniques=[],
+                ),
+                metadata_context(
+                    title="Severity Classification Playbook",
+                    source="knowledge_base/playbooks/governance/severity_classification_playbook.md",
+                    domain="governance",
+                    playbook_source="internal_policy",
+                    incident_types=["severity_classification"],
+                    tags=["governance", "severity"],
+                    mitre_techniques=[],
+                ),
+                metadata_context(
+                    title="Windows RDP Brute Force Playbook",
+                    source="knowledge_base/playbooks/windows_host/windows_rdp_bruteforce_playbook.md",
+                    domain="windows_host",
+                    playbook_source="wazuh",
+                    incident_types=["windows_rdp_bruteforce"],
+                    tags=["windows", "rdp"],
+                    mitre_techniques=["T1110"],
+                ),
+                metadata_playbook_context(),
+                sudo_context(),
+            ]
+        )
+
+        result = build_incident_playbook_recommendations(
+            FakeDb(incident=unknown_windows_incident),
+            6000,
+            knowledge_base_factory=lambda: kb,
+        )
+
+        self.assertEqual(
+            [item["title"] for item in result["recommendations"]],
+            [
+                "Evidence Collection Standard Playbook",
+                "Severity Classification Playbook",
+            ],
+        )
+        self.assertTrue(
+            all(
+                item["category"] == "governance"
+                for item in result["recommendations"]
+            )
+        )
+
+    def test_windows_agent_queue_alert_selects_cross_platform_governance_playbook(self):
+        queue_incident = Incident(
+            id=5089,
+            rule="Agent event queue is flooded. Check the agent configuration.",
+            agent="darkstar-windows",
+            level=12,
+            mitre="{}",
+            raw_alert=(
+                '{"agent":{"name":"darkstar-windows"},'
+                '"data":{"level":"flooded"},'
+                '"rule":{"id":"204","groups":["wazuh","agent_flooding"]},'
+                '"full_log":"wazuh: Agent buffer: flooded."}'
+            ),
+        )
+        queue_context = metadata_context(
+            title="Wazuh Agent Queue Saturation Playbook",
+            source="knowledge_base/playbooks/governance/wazuh_agent_queue_saturation_playbook.md",
+            domain="governance",
+            playbook_source="wazuh",
+            incident_types=[
+                "wazuh_agent_queue_saturation",
+                "telemetry_loss_risk",
+                "agent_health_degradation",
+            ],
+            tags=["wazuh", "agent", "queue", "telemetry-loss"],
+            mitre_techniques=[],
+        )
+        kb = FakeKnowledgeBase(
+            contexts=[metadata_playbook_context(), queue_context]
+        )
+
+        result = build_incident_playbook_recommendations(
+            FakeDb(incident=queue_incident),
+            5089,
+            knowledge_base_factory=lambda: kb,
+        )
+
+        self.assertEqual(
+            result["target_profile"]["retrieval_hints"]["platform"],
+            "windows",
+        )
+        self.assertEqual(
+            result["target_profile"]["retrieval_hints"]["incident_types"][0],
+            "wazuh_agent_queue_saturation",
+        )
+        self.assertEqual(result["result_count"], 1)
+        self.assertEqual(
+            result["recommendations"][0]["title"],
+            "Wazuh Agent Queue Saturation Playbook",
+        )
+        self.assertEqual(
+            result["recommendations"][0]["retrieval_stage"],
+            "primary_incident_type",
+        )
+
     def test_incident_uses_broad_fallback_when_only_generic_operational_playbooks_match(self):
         kb = FakeKnowledgeBase(contexts=[remediation_playbook_context()])
 
@@ -865,12 +1135,73 @@ class PlaybookRecommendationTests(unittest.TestCase):
         titles = [item["title"] for item in result["recommendations"]]
 
         self.assertEqual(titles[0], "SSH Brute Force Investigation Playbook")
-        self.assertIn("SSH Success After Multiple Failures Playbook", titles)
         self.assertIn("False Positive Classification Playbook", titles)
+        self.assertNotIn("SSH Success After Multiple Failures Playbook", titles)
+        self.assertNotIn("Sudo Privilege Escalation Playbook", titles)
         self.assertNotEqual(titles[0], "DNS Command-and-Control Beaconing Playbook")
         self.assertEqual(
             result["target_profile"]["retrieval_hints"]["incident_types"][0],
             "ssh_bruteforce",
+        )
+
+    def test_linux_ssh_incident_excludes_windows_playbooks_with_generic_type_overlap(self):
+        linux_incident = Incident(
+            id=5097,
+            rule="sshd: authentication failed.",
+            agent="darkstar",
+            level=5,
+            mitre=(
+                "{'technique': ['Password Guessing', 'SSH'], "
+                "'id': ['T1110.001', 'T1021.004'], "
+                "'tactic': ['Credential Access', 'Lateral Movement']}"
+            ),
+            risk_score=35,
+            raw_alert=(
+                '{"predecoder":{"program_name":"sshd-session"},'
+                '"rule":{"groups":["syslog","sshd","authentication_failed"]},'
+                '"decoder":{"parent":"sshd","name":"sshd"},'
+                '"full_log":"Failed password for analyst from 192.0.2.10 port 54554 ssh2"}'
+            ),
+        )
+        windows_failed_logon = metadata_context(
+            title="Windows Failed Logon Playbook",
+            source="knowledge_base/playbooks/windows_host/windows_failed_logon_playbook.md",
+            domain="windows_host",
+            playbook_source="wazuh",
+            incident_types=["windows_failed_logon", "credential_attack"],
+            tags=["windows", "failed-logon", "authentication", "event-4625"],
+            mitre_techniques=["T1110"],
+            score=0.97,
+        )
+        kb = FakeKnowledgeBase(
+            contexts=[
+                windows_failed_logon,
+                ssh_success_context(),
+                metadata_playbook_context(),
+                false_positive_context(),
+                sudo_context(),
+            ]
+        )
+
+        result = build_incident_playbook_recommendations(
+            FakeDb(incident=linux_incident),
+            5097,
+            knowledge_base_factory=lambda: kb,
+        )
+
+        titles = [item["title"] for item in result["recommendations"]]
+
+        self.assertEqual(
+            result["target_profile"]["retrieval_hints"]["platform"],
+            "linux",
+        )
+        self.assertEqual(titles[0], "SSH Brute Force Investigation Playbook")
+        self.assertIn("False Positive Classification Playbook", titles)
+        self.assertNotIn("Windows Failed Logon Playbook", titles)
+        self.assertNotIn("SSH Success After Multiple Failures Playbook", titles)
+        self.assertNotIn("Sudo Privilege Escalation Playbook", titles)
+        self.assertTrue(
+            all(item["domain"] != "windows_host" for item in result["recommendations"])
         )
 
     def test_ssh_success_after_failures_retrieval_prefers_success_and_sudo_playbooks(self):

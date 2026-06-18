@@ -49,6 +49,20 @@ INCIDENT_TEXT_FIELDS = (
     "suricata_signature",
     "wazuh_rule_category",
 )
+INCIDENT_PRIMARY_RETRIEVAL_FIELDS = (
+    "title",
+    "description",
+    "source",
+    "rule",
+    "rule_groups",
+    "rule_id",
+    "agent",
+    "level",
+    "severity",
+    "mitre",
+    "raw_alert",
+    "security_alert",
+)
 CASE_TEXT_FIELDS = (
     "title",
     "status",
@@ -65,6 +79,7 @@ CASE_TEXT_FIELDS = (
 
 @dataclass(frozen=True)
 class PlaybookRetrievalHints:
+    platform: str = ""
     source: str = ""
     domain: str = ""
     incident_types: tuple[str, ...] = ()
@@ -80,12 +95,17 @@ class PlaybookRetrievalHints:
     def all_incident_types(self) -> tuple[str, ...]:
         return _dedupe([*self.incident_types, *self.supporting_incident_types])
 
+    def selection_incident_types(self) -> tuple[str, ...]:
+        primary = self.incident_types[:1]
+        return _dedupe([*primary, *self.supporting_incident_types])
+
     def all_tags(self) -> tuple[str, ...]:
         return _dedupe([*self.tags, *self.supporting_tags])
 
     def ranking_text(self) -> str:
         return " ".join(
             [
+                self.platform,
                 self.source,
                 self.domain,
                 " ".join(self.all_incident_types()),
@@ -99,6 +119,7 @@ class PlaybookRetrievalHints:
 
     def to_public_dict(self) -> dict[str, Any]:
         return {
+            "platform": self.platform,
             "source": self.source,
             "domain": self.domain,
             "incident_types": list(self.incident_types),
@@ -160,6 +181,17 @@ def incident_retrieval_text(incident: Any) -> str:
     return _object_text(incident, INCIDENT_TEXT_FIELDS)
 
 
+def incident_primary_retrieval_text(incident: Any) -> str:
+    """Return authoritative detection fields used to choose playbooks.
+
+    Derived AI analysis and correlation summaries remain useful generation
+    context, but they may contain hypotheses or stale cross-platform wording
+    and must not drive deterministic playbook selection.
+    """
+
+    return _object_text(incident, INCIDENT_PRIMARY_RETRIEVAL_FIELDS)
+
+
 def case_retrieval_text(
     case: Any,
     *,
@@ -194,6 +226,7 @@ def case_retrieval_text(
 
 def infer_playbook_retrieval_hints(text: str) -> PlaybookRetrievalHints:
     haystack = safe_text(text).lower()
+    platform = ""
     source = ""
     domain = ""
     incident_types: list[str] = []
@@ -205,6 +238,46 @@ def infer_playbook_retrieval_hints(text: str) -> PlaybookRetrievalHints:
     evidence_terms: list[str] = []
     matched_signals: list[str] = []
     confidence = "low"
+
+    windows_platform_signal = _has_any(
+        haystack,
+        (
+            r"\bwindows\b",
+            r"data[._]win\b",
+            r"microsoft-windows-",
+            r"windows event( id)?",
+            r"\bevent id (4624|4625|4672|4698|4720|4732|5007|5061|5140|5145|7045|1102)\b",
+            r"\bsysmon\b",
+        ),
+    )
+    linux_platform_signal = not windows_platform_signal and _has_any(
+        haystack,
+        (
+            r"\blinux\b",
+            r"\bsshd\b",
+            r"\bsystemd\b",
+            r"/etc/(passwd|shadow|sudoers|ssh)",
+            r"/(tmp|var/tmp|dev/shm)\b",
+        ),
+    )
+    if windows_platform_signal:
+        platform = "windows"
+        source = "wazuh"
+        domain = "windows_host"
+        supporting_incident_types.extend(
+            ("evidence_collection_standard", "severity_classification")
+        )
+        tags.extend(("windows", "wazuh"))
+        supporting_tags.extend(("evidence", "severity", "governance"))
+        evidence_terms.append("Windows endpoint and Event Log telemetry")
+        matched_signals.append("windows_platform")
+        confidence = _raise_confidence(confidence, "medium")
+    elif linux_platform_signal:
+        platform = "linux"
+        tags.append("linux")
+        evidence_terms.append("Linux host telemetry")
+        matched_signals.append("linux_platform")
+        confidence = _raise_confidence(confidence, "medium")
 
     def add(
         *,
@@ -257,6 +330,37 @@ def infer_playbook_retrieval_hints(text: str) -> PlaybookRetrievalHints:
             terms=rule.evidence_terms,
         )
 
+    add(
+        signal="windows_audit_failure",
+        match=windows_platform_signal
+        and _has_any(
+            haystack,
+            (
+                r"windows audit failure event",
+                r"\baudit_failure\b",
+                r"(event( id)? )?5061",
+                r"cryptographic operation.{0,160}(failed|failure|return code)",
+            ),
+        ),
+        match_source="wazuh",
+        match_domain="windows_host",
+        types=("windows_audit_failure", "windows_security_audit_failure"),
+        supporting_types=(
+            "evidence_collection_standard",
+            "severity_classification",
+        ),
+        match_tags=("windows", "audit-failure", "security-event", "wazuh"),
+        supporting_match_tags=(
+            "evidence",
+            "severity",
+            "false-positive",
+            "governance",
+        ),
+        terms=(
+            "Windows Security audit failure with event-specific evidence review",
+        ),
+    )
+
     ssh_signal = _has_any(haystack, (r"\bssh\b", r"\bsshd\b", r"openssh", r"pam_unix"))
     failed_ssh_signal = ssh_signal and _has_any(
         haystack,
@@ -283,7 +387,7 @@ def infer_playbook_retrieval_hints(text: str) -> PlaybookRetrievalHints:
     )
     add(
         signal="ssh_success_after_failures",
-        match=failed_ssh_signal and successful_ssh_signal,
+        match=not windows_platform_signal and failed_ssh_signal and successful_ssh_signal,
         match_source="wazuh",
         match_domain="authentication",
         types=(
@@ -292,7 +396,7 @@ def infer_playbook_retrieval_hints(text: str) -> PlaybookRetrievalHints:
             "credential_attack",
             "ssh_bruteforce",
         ),
-        supporting_types=("sudo_privilege_escalation",),
+        supporting_types=("ssh_bruteforce", "sudo_privilege_escalation"),
         match_tags=("ssh", "successful-login", "failed-login", "account-compromise", "wazuh"),
         supporting_match_tags=("sudo", "privilege-escalation"),
         tactics=("Credential Access", "Initial Access", "Privilege Escalation"),
@@ -304,13 +408,11 @@ def infer_playbook_retrieval_hints(text: str) -> PlaybookRetrievalHints:
     )
     add(
         signal="ssh_bruteforce",
-        match=failed_ssh_signal and not successful_ssh_signal,
+        match=not windows_platform_signal and failed_ssh_signal and not successful_ssh_signal,
         match_source="wazuh",
         match_domain="authentication",
         types=("ssh_bruteforce", "repeated_failed_login", "credential_attack"),
-        supporting_types=("ssh_success_after_failures",),
         match_tags=("ssh", "brute-force", "authentication", "wazuh"),
-        supporting_match_tags=("successful-login",),
         tactics=("Credential Access", "Initial Access"),
         techniques=("T1110", "T1021.004"),
         terms=("repeated failed SSH authentication attempts",),
@@ -318,7 +420,8 @@ def infer_playbook_retrieval_hints(text: str) -> PlaybookRetrievalHints:
 
     add(
         signal="sudo_privilege_escalation",
-        match=_has_any(
+        match=not windows_platform_signal
+        and _has_any(
             haystack,
             (
                 r"\bsudo\b",
@@ -493,6 +596,7 @@ def infer_playbook_retrieval_hints(text: str) -> PlaybookRetrievalHints:
             evidence_terms.append("benign activity and false positive validation")
 
     return PlaybookRetrievalHints(
+        platform=platform,
         source=source,
         domain=domain,
         incident_types=_dedupe(incident_types),
@@ -508,7 +612,7 @@ def infer_playbook_retrieval_hints(text: str) -> PlaybookRetrievalHints:
 
 
 def infer_incident_playbook_hints(incident: Any) -> PlaybookRetrievalHints:
-    return infer_playbook_retrieval_hints(incident_retrieval_text(incident))
+    return infer_playbook_retrieval_hints(incident_primary_retrieval_text(incident))
 
 
 def infer_case_playbook_hints(
@@ -591,6 +695,20 @@ def playbook_retrieval_filter_stages(
                     "domain": hints.domain,
                     "incident_types": first_type,
                 },
+            )
+        )
+    if first_type:
+        stages.append(
+            PlaybookRetrievalFilterStage(
+                "primary_incident_type",
+                {**base, "incident_types": first_type},
+            )
+        )
+    for supporting_type in hints.supporting_incident_types[:4]:
+        stages.append(
+            PlaybookRetrievalFilterStage(
+                "supporting_incident_type",
+                {**base, "incident_types": supporting_type},
             )
         )
     if hints.domain and first_type:
