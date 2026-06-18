@@ -200,6 +200,35 @@ class RecommendedPlaybooksLlmTests(unittest.TestCase):
             generation["playbooks"][0]["why_applies"],
         )
 
+    def test_expanded_categories_have_specific_deterministic_fallbacks(self):
+        scenarios = [
+            ("windows_host", "Windows Event IDs"),
+            ("malware", "process tree"),
+            ("data_exfiltration", "outbound bytes"),
+            ("governance", "supporting and contradictory evidence"),
+        ]
+
+        for category, expected_text in scenarios:
+            with self.subTest(category=category):
+                generation = build_deterministic_playbooks_generation(
+                    recommendations=[
+                        recommendation(
+                            title=f"{category} playbook",
+                            category=category,
+                        )
+                    ],
+                    reason="TimeoutError",
+                )
+                evidence = " ".join(
+                    generation["playbooks"][0]["evidence_to_collect"]
+                )
+                self.assertIn(expected_text, evidence)
+                self.assertTrue(
+                    generation["playbooks"][0][
+                        "containment_remediation_guidance"
+                    ]
+                )
+
     def test_case_facts_keep_linked_incidents_and_actions_structured(self):
         facts = build_case_generation_facts(
             SimpleNamespace(

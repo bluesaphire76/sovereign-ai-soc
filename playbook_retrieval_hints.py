@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from investigation_ai.adapters import safe_text
+from playbook_retrieval_catalog import EXPANDED_PLAYBOOK_SIGNAL_RULES
 
 
 PLAYBOOK_TARGET_PAGE = "recommended_playbooks"
@@ -235,6 +236,26 @@ def infer_playbook_retrieval_hints(text: str) -> PlaybookRetrievalHints:
         evidence_terms.extend(terms)
         matched_signals.append(signal)
         confidence = _raise_confidence(confidence, "high" if types else "medium")
+
+    matched_catalog_rules = sorted(
+        (rule for rule in EXPANDED_PLAYBOOK_SIGNAL_RULES if rule.matches(haystack)),
+        key=lambda rule: rule.priority,
+        reverse=True,
+    )
+    for rule in matched_catalog_rules:
+        add(
+            signal=rule.signal,
+            match=True,
+            match_source=rule.source,
+            match_domain=rule.domain,
+            types=rule.incident_types,
+            supporting_types=rule.supporting_incident_types,
+            match_tags=rule.tags,
+            supporting_match_tags=rule.supporting_tags,
+            tactics=rule.tactics,
+            techniques=rule.techniques,
+            terms=rule.evidence_terms,
+        )
 
     ssh_signal = _has_any(haystack, (r"\bssh\b", r"\bsshd\b", r"openssh", r"pam_unix"))
     failed_ssh_signal = ssh_signal and _has_any(

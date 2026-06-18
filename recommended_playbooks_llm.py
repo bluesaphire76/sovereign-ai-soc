@@ -389,6 +389,82 @@ def _category_defaults(category: str) -> dict[str, list[str]]:
                 "Consider disabling the service, removing the package or isolating the host only after evidence review and approval.",
             ],
         }
+    if category == "windows_host":
+        return {
+            "evidence": [
+                "Collect the relevant Windows Event IDs with account, Logon ID, source workstation, logon type and affected host.",
+                "Review process, service, scheduled task, registry, Defender and SMB activity around the detection window.",
+                "Use Sysmon process, network, file or registry events as optional enrichment when available.",
+            ],
+            "false_positive": [
+                "Validate endpoint-management, Group Policy, software deployment, support and approved administrator activity.",
+                "Confirm the expected account, source device, change ticket and affected-host ownership.",
+            ],
+            "escalation": [
+                "Escalate when Windows evidence supports account compromise, persistence, defense evasion or lateral movement.",
+                "Escalate when privileged identities or critical Windows assets are affected without authorization.",
+            ],
+            "guidance": [
+                "Consider session revocation, account restriction, service or task disablement, or host isolation only after evidence review and approval.",
+            ],
+        }
+    if category == "malware":
+        return {
+            "evidence": [
+                "Preserve the process tree, command line, artifact hash, origin, user context and network activity.",
+                "Collect downloaded files, scripts, child processes, persistence and endpoint security detections.",
+                "Correlate the artifact with DNS, proxy, firewall and Suricata command-and-control evidence.",
+            ],
+            "false_positive": [
+                "Validate approved software, administration, deployment and security-testing explanations.",
+                "Confirm artifact signature, trusted source, responsible owner and expected execution path.",
+            ],
+            "escalation": [
+                "Escalate confirmed malicious execution, reverse-shell access, persistence or command-and-control.",
+                "Escalate when the artifact executes with privilege or appears on additional endpoints.",
+            ],
+            "guidance": [
+                "Consider process termination, quarantine, infrastructure blocking or endpoint isolation only after evidence capture and approval.",
+            ],
+        }
+    if category == "data_exfiltration":
+        return {
+            "evidence": [
+                "Collect outbound bytes, destination, protocol, duration, process, user and data-access evidence.",
+                "Review staging, archive, encryption, DNS, proxy, firewall and Suricata activity against the expected baseline.",
+                "Identify the data classification, business owner and authorization for the transfer.",
+            ],
+            "false_positive": [
+                "Validate approved backup, replication, migration, SaaS, partner and telemetry transfers.",
+                "Confirm destination ownership, expected volume, source data, schedule and responsible user or application.",
+            ],
+            "escalation": [
+                "Escalate unauthorized transfer of sensitive data or traffic linked to compromised identities or endpoints.",
+                "Escalate when transfer volume, destination or protocol is unexplained and activity remains active.",
+            ],
+            "guidance": [
+                "Consider pausing the transfer, restricting credentials, blocking the destination or isolating the host only after analyst approval.",
+            ],
+        }
+    if category == "governance":
+        return {
+            "evidence": [
+                "Document the decision, supporting and contradictory evidence, affected scope, owner and unresolved uncertainty.",
+                "Record business impact, alternatives, residual risk, required authority and applicable workflow.",
+                "Preserve the requester, reviewer, approver, timestamps, conditions and audit references.",
+            ],
+            "false_positive": [
+                "Confirm the request is not a duplicate of an existing authoritative case, approval or review.",
+                "Validate whether a lower-impact, reversible or monitoring-only option satisfies the decision objective.",
+            ],
+            "escalation": [
+                "Escalate when approval authority is unclear, evidence integrity is insufficient or critical impact is possible.",
+                "Escalate unresolved legal, privacy, regulatory, safety or executive decision requirements.",
+            ],
+            "guidance": [
+                "Do not change severity, open or close a case, approve containment or accept residual risk without authorized human review.",
+            ],
+        }
     return {
         "evidence": [
             "Collect the deterministic evidence referenced by the selected playbook.",
