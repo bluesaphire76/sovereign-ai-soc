@@ -271,6 +271,12 @@ cp .env.example .env
 # Edit .env with local PostgreSQL, Wazuh, Ollama and authentication values.
 ```
 
+Run the local environment doctor before starting a demo or local install:
+
+```bash
+python3 scripts/doctor.py
+```
+
 Create an initial admin user after backend dependencies and database connectivity are available:
 
 ```bash
