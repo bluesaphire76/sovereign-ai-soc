@@ -51,6 +51,31 @@ SCENARIOS = (
         "Windows Service Creation Playbook",
     ),
     (
+        "windows_audit_failure",
+        "Windows audit failure event Event ID 5061 cryptographic operation return code 0x80090016",
+        "Windows Audit Failure Investigation Playbook",
+    ),
+    (
+        "windows_sysmon_suspicious_process",
+        "Sysmon - Suspicious Process - explorer.exe Event ID 1 process anomaly T1055",
+        "Windows Sysmon Suspicious Process Playbook",
+    ),
+    (
+        "windows_netsh_firewall_rule_change",
+        "Netsh used to add firewall rule netsh advfirewall firewall add rule T1562.004",
+        "Windows Netsh Firewall Rule Change Playbook",
+    ),
+    (
+        "windows_cis_benchmark_failure",
+        "CIS Microsoft Windows 11 Enterprise Benchmark Wazuh SCA check result failed",
+        "Windows CIS Benchmark Failure Playbook",
+    ),
+    (
+        "wazuh_agent_queue_saturation",
+        "Wazuh Agent event queue is flooded agent buffer full",
+        "Wazuh Agent Queue Saturation Playbook",
+    ),
+    (
         "suricata",
         "Suricata ET EXPLOIT exploit attempt against public-facing application CVE T1190",
         "Suricata Exploit Attempt Playbook",
@@ -99,7 +124,10 @@ def _expanded_playbook_documents() -> dict[str, dict[str, Any]]:
         text = path.read_text(encoding="utf-8")
         metadata = yaml.safe_load(text.split("---", 2)[1]) or {}
         incident_types = metadata.get("incident_types") or []
-        if not incident_types or incident_types[0] not in EXPANDED_PLAYBOOK_PRIMARY_INCIDENT_TYPES:
+        if not incident_types or incident_types[0] not in {
+            *EXPANDED_PLAYBOOK_PRIMARY_INCIDENT_TYPES,
+            "windows_audit_failure",
+        }:
             continue
         documents[str(path)] = metadata
     return documents
@@ -250,7 +278,7 @@ def run(*, max_points: int = 20000) -> dict[str, Any]:
         "status": "OK" if not failures else "FAIL",
         "collection": kb.config.collection_name,
         "collection_info": collection_info,
-        "expanded_playbooks_expected": 46,
+        "expanded_playbooks_expected": 51,
         "expanded_playbooks_discovered": len(documents),
         "expanded_playbooks_indexed": sum(
             1 for result in metadata_results if result["points"] > 0

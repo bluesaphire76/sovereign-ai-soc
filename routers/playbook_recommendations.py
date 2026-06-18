@@ -369,9 +369,55 @@ def _metadata_overlap(context_values: list[str], hint_values: list[str] | tuple[
     return matches
 
 
+def _metadata_scope_compatible(
+    context: dict[str, Any],
+    scoped_incident_types: list[str] | tuple[str, ...],
+) -> bool:
+    if not scoped_incident_types:
+        return True
+    if safe_text(context.get("doc_type")).lower() != "playbook":
+        return True
+    return bool(
+        _metadata_overlap(
+            _metadata_list(context, "incident_types"),
+            scoped_incident_types,
+        )
+    )
+
+
 def _retrieval_hints_from_profile(target_profile: dict[str, Any]) -> dict[str, Any]:
     hints = target_profile.get("retrieval_hints")
     return hints if isinstance(hints, dict) else {}
+
+
+def _platform_compatible_categories(target_profile: dict[str, Any]) -> set[str] | None:
+    platform = safe_text(
+        _retrieval_hints_from_profile(target_profile).get("platform")
+    ).lower()
+    if platform == "windows":
+        return {
+            "windows_host",
+            "network",
+            "malware",
+            "data_exfiltration",
+            "governance",
+            "closure",
+            "remediation",
+            "detection_control",
+        }
+    if platform == "linux":
+        return {
+            "authentication",
+            "linux_host",
+            "network",
+            "malware",
+            "data_exfiltration",
+            "governance",
+            "closure",
+            "remediation",
+            "detection_control",
+        }
+    return None
 
 
 def _profile_with_hints(
@@ -993,11 +1039,24 @@ def _group_recommendations(
     limit: int,
 ) -> list[dict[str, Any]]:
     allowed_categories = set(target_profile.get("allowed_categories") or [])
+    platform_categories = _platform_compatible_categories(target_profile)
+    retrieval_hints = _retrieval_hints_from_profile(target_profile)
+    scoped_incident_types = [
+        *(retrieval_hints.get("incident_types") or [])[:1],
+        *(retrieval_hints.get("supporting_incident_types") or []),
+    ]
 
     def candidate_pool(*, require_allowed: bool, require_relevance: bool) -> list[dict[str, Any]]:
         pool: list[dict[str, Any]] = []
         for item in ranked_items:
             item_category = safe_text(item.get("category"))
+            if platform_categories is not None and item_category not in platform_categories:
+                continue
+            if (
+                scoped_incident_types
+                and not _metadata_scope_compatible(item, scoped_incident_types)
+            ):
+                continue
             if require_allowed and allowed_categories and item_category not in allowed_categories:
                 continue
             if require_relevance and int(item.get("relevance_score") or 0) < MIN_RELEVANCE_SCORE:
@@ -1180,7 +1239,8 @@ def _retrieve_playbooks(
     try:
         contexts: list[dict[str, Any]] = []
         seen_context_keys: set[tuple[str, str, str]] = set()
-        seen_playbook_keys: set[str] = set()
+        seen_scoped_playbook_keys: set[str] = set()
+        scoped_incident_types = retrieval_hints.selection_incident_types()
         for stage in playbook_retrieval_filter_stages(retrieval_hints):
             stage_contexts = kb.retrieve_contexts(
                 query,
@@ -1199,9 +1259,15 @@ def _retrieve_playbooks(
                     contexts.append(enriched_context)
                     seen_context_keys.add(key)
                     playbook_key = _context_playbook_key(enriched_context)
-                    if playbook_key:
-                        seen_playbook_keys.add(playbook_key)
-            if len(seen_playbook_keys) >= limit:
+                    if (
+                        playbook_key
+                        and _metadata_scope_compatible(
+                            enriched_context,
+                            scoped_incident_types,
+                        )
+                    ):
+                        seen_scoped_playbook_keys.add(playbook_key)
+            if len(seen_scoped_playbook_keys) >= limit:
                 break
     except Exception as exc:
         return {
