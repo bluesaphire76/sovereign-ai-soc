@@ -277,6 +277,13 @@ Run the local environment doctor before starting a demo or local install:
 python3 scripts/doctor.py
 ```
 
+The root-level local CLI provides the same readiness check and public CI validation:
+
+```bash
+./ai-soc doctor
+./ai-soc validate
+```
+
 Create an initial admin user after backend dependencies and database connectivity are available:
 
 ```bash
