@@ -28,10 +28,15 @@ Run the local checks from the repository root:
 ```bash
 ./ai-soc doctor --strict
 ./ai-soc validate
+./ai-soc validate-runtime
+./ai-soc demo-seed --dry-run
 ./ai-soc version
 ```
 
 The doctor exits successfully when required checks pass. Optional local services such as Ollama, PostgreSQL, Qdrant, Grafana or Prometheus may report `WARN` when unavailable without failing the readiness check.
+
+The runtime validator is read-only. The demo seed is synthetic, defaults to a
+dry run, and writes only when `./ai-soc demo-seed --apply` is explicitly used.
 
 Before presenting, also confirm that the latest [Public CI workflow](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/ci.yml) is green for the revision being demonstrated.
 
