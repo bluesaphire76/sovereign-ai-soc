@@ -263,6 +263,9 @@ See [Demo Guide](docs/demo-guide.md) for presenter talking points.
 
 The repository is designed for a local lab or product demo environment. Runtime values are configured through `.env`, which must never be committed.
 
+See [INSTALL.md](INSTALL.md) for the complete local installation and
+10-minute demo-readiness workflow.
+
 ```bash
 git clone <repository-url>
 cd <repository-directory>
@@ -362,6 +365,7 @@ python3 scripts/validate_public_ci_baseline.py
 
 - [Product Overview](docs/product-overview.md)
 - [Architecture](docs/architecture.md)
+- [Installation and Demo Guide](INSTALL.md)
 - [AI Capabilities](docs/ai-capabilities.md)
 - [Detection Sources](docs/detection-sources.md)
 - [Ingestion and Correlation Pipeline](docs/ingestion-correlation-pipeline.md)

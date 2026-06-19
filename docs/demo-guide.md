@@ -1,6 +1,8 @@
 # Demo Guide
 
 This guide helps present Sovereign AI SOC as a local-first, AI-assisted SOC platform.
+For dependency installation and environment preparation, start with the
+[Installation and Demo Guide](../INSTALL.md).
 
 ## Demo Objective
 
@@ -33,6 +35,7 @@ Run the local checks from the repository root:
 ./ai-soc demo-validate
 ./ai-soc demo-status
 ./ai-soc demo-up --dry-run
+./ai-soc demo-down --dry-run
 ./ai-soc version
 ```
 
@@ -47,6 +50,9 @@ The lifecycle status command is read-only, while up, down and restart use
 dry-run mode unless `--apply` is explicitly provided. These commands control
 only the API and frontend application services; use `--include-worker` only
 when that optional unit is installed and intended for the demo.
+Use `demo-up --apply` or `demo-down --apply` only after reviewing the dry-run
+plan. Seeded demo records remain synthetic and must never be presented as real
+security evidence.
 
 Before presenting, also confirm that the latest [Public CI workflow](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/ci.yml) is green for the revision being demonstrated.
 
