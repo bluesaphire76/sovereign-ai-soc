@@ -303,6 +303,19 @@ services, not Wazuh, Suricata, PostgreSQL, Qdrant, Grafana, Prometheus,
 Alertmanager, Loki, Ollama or Docker Compose. If systemd permissions are
 required, the lifecycle helper fails safely and prints the manual commands.
 
+Before publishing or sharing a release, run the read-only release checker:
+
+```bash
+./ai-soc release-check
+./ai-soc release-check --full
+./ai-soc release-check --write-report
+```
+
+The default check is lightweight and does not write files. `--full` also runs
+the backend test suite, frontend production build and Docker Compose
+configuration validation. `--write-report` stores ignored local Markdown and
+JSON artifacts under `reports/validation/`.
+
 Create an initial admin user after backend dependencies and database connectivity are available:
 
 ```bash

@@ -75,6 +75,9 @@ cd ..
 `doctor` checks local tools, repository files and optional local endpoints.
 `validate` runs the lightweight public CI baseline without starting services.
 
+Before publishing a release or sharing the demo, run `./ai-soc release-check`;
+use `--full` for the heavier test, build and Compose configuration checks.
+
 ## Create the local environment file
 
 ```bash
