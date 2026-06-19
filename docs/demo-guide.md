@@ -31,6 +31,8 @@ Run the local checks from the repository root:
 ./ai-soc validate-runtime
 ./ai-soc demo-seed --dry-run
 ./ai-soc demo-validate
+./ai-soc demo-status
+./ai-soc demo-up --dry-run
 ./ai-soc version
 ```
 
@@ -41,6 +43,10 @@ dry run, and writes only when `./ai-soc demo-seed --apply` is explicitly used.
 After seeding, `./ai-soc demo-validate` checks runtime, synthetic records and
 report readiness without modifying the database. Add `--write-report` only
 when a local validation artifact under `reports/validation/` is useful.
+The lifecycle status command is read-only, while up, down and restart use
+dry-run mode unless `--apply` is explicitly provided. These commands control
+only the API and frontend application services; use `--include-worker` only
+when that optional unit is installed and intended for the demo.
 
 Before presenting, also confirm that the latest [Public CI workflow](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/ci.yml) is green for the revision being demonstrated.
 
