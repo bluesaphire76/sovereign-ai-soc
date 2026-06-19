@@ -354,6 +354,8 @@ See [Deployment Guide](docs/deployment-guide.md) for a fuller operational view.
 ## Public CI Validation
 
 GitHub Actions validates backend tests and Python syntax, the frontend production build, and public Docker Compose configuration syntax without starting runtime services.
+The public CI workflow also runs safe `./ai-soc` CLI smoke checks that do not
+require local runtime services.
 
 Run the lightweight repository baseline check locally:
 

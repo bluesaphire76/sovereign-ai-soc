@@ -38,6 +38,9 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
 
+      - name: Run AI SOC CLI smoke validation
+        run: python scripts/validate_cli_smoke.py
+
       - name: Compile tracked Python files
         run: git ls-files -z '*.py' | xargs -0 python -m py_compile
 
