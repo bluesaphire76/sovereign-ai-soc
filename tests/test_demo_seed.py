@@ -38,7 +38,15 @@ def test_demo_seed_is_idempotent_and_creates_only_demo_owned_records():
     assert db.query(CaseIncident).count() == 3
     assert db.query(CaseAction).count() == 1
     assert db.query(CaseAIAnalysis).count() == 1
-    assert demo_seed.seed_status(db, __import__("models"))["complete"] is True
+    status = demo_seed.seed_status(db, __import__("models"))
+    metadata = demo_seed.status_metadata(status)
+    assert status["complete"] is True
+    assert metadata["demo_marker"] == "AI_SOC_DEMO_SEED"
+    assert metadata["seed_result"] == "SEEDED"
+    assert metadata["counts"]["incidents"] == 5
+    assert metadata["counts"]["cases"] == 1
+    assert metadata["synthetic"] is True
+    assert metadata["idempotent"] is True
 
 
 def test_demo_seed_refuses_a_non_demo_marker_collision():

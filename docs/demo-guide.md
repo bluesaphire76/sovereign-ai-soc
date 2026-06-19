@@ -30,6 +30,7 @@ Run the local checks from the repository root:
 ./ai-soc validate
 ./ai-soc validate-runtime
 ./ai-soc demo-seed --dry-run
+./ai-soc demo-validate
 ./ai-soc version
 ```
 
@@ -37,6 +38,9 @@ The doctor exits successfully when required checks pass. Optional local services
 
 The runtime validator is read-only. The demo seed is synthetic, defaults to a
 dry run, and writes only when `./ai-soc demo-seed --apply` is explicitly used.
+After seeding, `./ai-soc demo-validate` checks runtime, synthetic records and
+report readiness without modifying the database. Add `--write-report` only
+when a local validation artifact under `reports/validation/` is useful.
 
 Before presenting, also confirm that the latest [Public CI workflow](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/ci.yml) is green for the revision being demonstrated.
 

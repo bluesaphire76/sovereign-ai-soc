@@ -448,6 +448,26 @@ def seed_status(db: Any, models: Any) -> dict[str, Any]:
     }
 
 
+def status_metadata(status: dict[str, Any]) -> dict[str, Any]:
+    complete = bool(status.get("complete"))
+    return {
+        "demo_marker": DEMO_MARKER,
+        "seed_version": DEMO_VERSION,
+        "seed_result": "SEEDED" if complete else "NOT_SEEDED",
+        "synthetic": True,
+        "idempotent": True,
+        "counts": {
+            "incidents": int(status.get("incident_count") or 0),
+            "cases": 1 if status.get("case_present") else 0,
+            "case_links": int(status.get("linked_incident_count") or 0),
+            "case_actions": int(status.get("demo_action_count") or 0),
+            "case_ai_analyses": int(
+                status.get("demo_analysis_count") or 0
+            ),
+        },
+    }
+
+
 def create_incident(db: Any, models: Any, scenario: Scenario, now: datetime) -> Any:
     timestamp = now.isoformat()
     incident = models.Incident(
@@ -726,6 +746,7 @@ def database_operation(mode: str) -> tuple[dict[str, Any], int]:
                 "exit_code": 0,
                 "marker": DEMO_ACTOR,
                 "status": status,
+                **status_metadata(status),
             }
             return report, 0
 
@@ -739,6 +760,7 @@ def database_operation(mode: str) -> tuple[dict[str, Any], int]:
             "marker": DEMO_ACTOR,
             "changes": result,
             "status": status,
+            **status_metadata(status),
         }
         return report, 0
     except UnsafeSeedError as exc:

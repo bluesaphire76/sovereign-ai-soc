@@ -19,12 +19,13 @@ Commands:
                                  Check a running local runtime (read-only)
   demo-seed [--dry-run|--apply|--status] [--json]
                                  Manage synthetic local demo data
+  demo-validate [--strict] [--no-runtime] [--write-report] [--json]
+                                 Validate local demo readiness (read-only)
   version                        Show local repository/version information
   help                           Show this help
 
 Planned future commands:
   demo-up
-  demo-validate
   demo-down
 EOF
 }
@@ -94,6 +95,10 @@ case "$command_name" in
   demo-seed)
     python_bin="$(resolve_python)"
     exec "$python_bin" "$REPOSITORY_ROOT/scripts/demo_seed.py" "$@"
+    ;;
+  demo-validate)
+    python_bin="$(resolve_python)"
+    exec "$python_bin" "$REPOSITORY_ROOT/scripts/validate_demo.py" "$@"
     ;;
   version)
     if (( $# > 0 )); then
