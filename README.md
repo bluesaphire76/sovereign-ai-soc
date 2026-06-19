@@ -278,6 +278,11 @@ Initialize a local configuration without overwriting an existing `.env`, then ru
 ./ai-soc demo-seed --dry-run
 ./ai-soc demo-seed --apply
 ./ai-soc demo-validate
+./ai-soc demo-status
+./ai-soc demo-up --dry-run
+./ai-soc demo-up --apply
+./ai-soc demo-down --dry-run
+./ai-soc demo-down --apply
 ```
 
 Review the generated `.env` and set environment-specific PostgreSQL, Wazuh and local runtime values before starting services.
@@ -287,6 +292,13 @@ Review the generated `.env` and set environment-specific PostgreSQL, Wazuh and l
 demo records only when `./ai-soc demo-seed --apply` is used. `demo-validate`
 is read-only, never seeds data, and can optionally write an ignored local
 validation artifact with `./ai-soc demo-validate --write-report`.
+
+`demo-status` is read-only. `demo-up`, `demo-down` and `demo-restart`
+default to a dry run and modify service state only when `--apply` is passed.
+They manage only the local `ai-soc-api` and `ai-soc-frontend` application
+services, not Wazuh, Suricata, PostgreSQL, Qdrant, Grafana, Prometheus,
+Alertmanager, Loki, Ollama or Docker Compose. If systemd permissions are
+required, the lifecycle helper fails safely and prints the manual commands.
 
 Create an initial admin user after backend dependencies and database connectivity are available:
 

@@ -21,12 +21,16 @@ Commands:
                                  Manage synthetic local demo data
   demo-validate [--strict] [--no-runtime] [--write-report] [--json]
                                  Validate local demo readiness (read-only)
+  demo-status [--include-worker] [--json]
+                                 Inspect application service state (read-only)
+  demo-up [--dry-run|--apply] [--include-worker] [--json]
+                                 Start application services (dry-run by default)
+  demo-down [--dry-run|--apply] [--include-worker] [--json]
+                                 Stop application services (dry-run by default)
+  demo-restart [--dry-run|--apply] [--include-worker] [--json]
+                                 Restart application services (dry-run by default)
   version                        Show local repository/version information
   help                           Show this help
-
-Planned future commands:
-  demo-up
-  demo-down
 EOF
 }
 
@@ -99,6 +103,22 @@ case "$command_name" in
   demo-validate)
     python_bin="$(resolve_python)"
     exec "$python_bin" "$REPOSITORY_ROOT/scripts/validate_demo.py" "$@"
+    ;;
+  demo-status)
+    python_bin="$(resolve_python)"
+    exec "$python_bin" "$REPOSITORY_ROOT/scripts/demo_lifecycle.py" status "$@"
+    ;;
+  demo-up)
+    python_bin="$(resolve_python)"
+    exec "$python_bin" "$REPOSITORY_ROOT/scripts/demo_lifecycle.py" up "$@"
+    ;;
+  demo-down)
+    python_bin="$(resolve_python)"
+    exec "$python_bin" "$REPOSITORY_ROOT/scripts/demo_lifecycle.py" down "$@"
+    ;;
+  demo-restart)
+    python_bin="$(resolve_python)"
+    exec "$python_bin" "$REPOSITORY_ROOT/scripts/demo_lifecycle.py" restart "$@"
     ;;
   version)
     if (( $# > 0 )); then
