@@ -274,9 +274,15 @@ Initialize a local configuration without overwriting an existing `.env`, then ru
 ./ai-soc init --profile demo
 ./ai-soc doctor
 ./ai-soc validate
+./ai-soc validate-runtime
+./ai-soc demo-seed --dry-run
 ```
 
 Review the generated `.env` and set environment-specific PostgreSQL, Wazuh and local runtime values before starting services.
+
+`validate-runtime` performs read-only checks against a running local instance.
+`demo-seed` uses dry-run mode by default and creates clearly marked synthetic
+demo records only when `./ai-soc demo-seed --apply` is used.
 
 Create an initial admin user after backend dependencies and database connectivity are available:
 

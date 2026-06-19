@@ -15,12 +15,15 @@ Commands:
   doctor [--strict] [--json]     Check local readiness
   validate                       Run public CI baseline validation
   validate-public-ci             Alias for validate
+  validate-runtime [--strict] [--json]
+                                 Check a running local runtime (read-only)
+  demo-seed [--dry-run|--apply|--status] [--json]
+                                 Manage synthetic local demo data
   version                        Show local repository/version information
   help                           Show this help
 
 Planned future commands:
   demo-up
-  demo-seed
   demo-validate
   demo-down
 EOF
@@ -83,6 +86,14 @@ case "$command_name" in
     fi
     python_bin="$(resolve_python)"
     exec "$python_bin" "$REPOSITORY_ROOT/scripts/validate_public_ci_baseline.py"
+    ;;
+  validate-runtime)
+    python_bin="$(resolve_python)"
+    exec "$python_bin" "$REPOSITORY_ROOT/scripts/validate_runtime.py" "$@"
+    ;;
+  demo-seed)
+    python_bin="$(resolve_python)"
+    exec "$python_bin" "$REPOSITORY_ROOT/scripts/demo_seed.py" "$@"
     ;;
   version)
     if (( $# > 0 )); then
