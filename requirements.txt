@@ -1,7 +1,28 @@
-reportlab
-geoip2
-prometheus-client
+# Web API and application server
+fastapi
+uvicorn
 pydantic>=2,<3
+
+# Database and local configuration
+SQLAlchemy
+psycopg2-binary
+python-dotenv
+
+# Local AI and HTTP clients
+ollama
+requests
+urllib3
+rich
+
+# Semantic memory and knowledge indexing
 qdrant-client
 sentence-transformers
 PyYAML
+
+# Reporting, enrichment and observability
+reportlab
+geoip2
+prometheus-client
+
+# Test baseline used by public CI
+pytest
