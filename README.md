@@ -266,23 +266,17 @@ The repository is designed for a local lab or product demo environment. Runtime 
 ```bash
 git clone <repository-url>
 cd <repository-directory>
-
-cp .env.example .env
-# Edit .env with local PostgreSQL, Wazuh, Ollama and authentication values.
 ```
 
-Run the local environment doctor before starting a demo or local install:
+Initialize a local configuration without overwriting an existing `.env`, then run the readiness and public validation checks:
 
 ```bash
-python3 scripts/doctor.py
-```
-
-The root-level local CLI provides the same readiness check and public CI validation:
-
-```bash
+./ai-soc init --profile demo
 ./ai-soc doctor
 ./ai-soc validate
 ```
+
+Review the generated `.env` and set environment-specific PostgreSQL, Wazuh and local runtime values before starting services.
 
 Create an initial admin user after backend dependencies and database connectivity are available:
 

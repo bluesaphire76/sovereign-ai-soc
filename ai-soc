@@ -11,6 +11,7 @@ Usage:
   ./ai-soc <command> [args]
 
 Commands:
+  init --profile <demo|local>    Create a safe local .env
   doctor [--strict] [--json]     Check local readiness
   validate                       Run public CI baseline validation
   validate-public-ci             Alias for validate
@@ -66,6 +67,10 @@ fi
 case "$command_name" in
   help | --help | -h)
     show_help
+    ;;
+  init)
+    python_bin="$(resolve_python)"
+    exec "$python_bin" "$REPOSITORY_ROOT/scripts/init_env.py" "$@"
     ;;
   doctor)
     python_bin="$(resolve_python)"
