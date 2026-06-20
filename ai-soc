@@ -19,6 +19,8 @@ Commands:
                                  Check a running local runtime (read-only)
   release-check [--strict] [--no-runtime] [--full] [--write-report] [--json]
                                  Check release readiness (read-only by default)
+  package-validate [--json] [--build]
+                                 Validate Docker packaging without running containers
   demo-seed [--dry-run|--apply|--status] [--json]
                                  Manage synthetic local demo data
   demo-validate [--strict] [--no-runtime] [--write-report] [--json]
@@ -101,6 +103,10 @@ case "$command_name" in
   release-check)
     python_bin="$(resolve_python)"
     exec "$python_bin" "$REPOSITORY_ROOT/scripts/release_readiness.py" "$@"
+    ;;
+  package-validate)
+    python_bin="$(resolve_python)"
+    exec "$python_bin" "$REPOSITORY_ROOT/scripts/validate_docker_packaging.py" "$@"
     ;;
   demo-seed)
     python_bin="$(resolve_python)"

@@ -316,6 +316,19 @@ the backend test suite, frontend production build and Docker Compose
 configuration validation. `--write-report` stores ignored local Markdown and
 JSON artifacts under `reports/validation/`.
 
+The controlled Docker demo foundation includes the API, frontend, PostgreSQL,
+Qdrant and Ollama without claiming a full production deployment:
+
+```bash
+./ai-soc package-validate
+./ai-soc package-validate --build
+```
+
+The default packaging validation does not build or run containers. The build
+mode creates local application images only; Ollama models are selected and
+downloaded manually. See
+[Docker Demo Packaging Foundation](docs/docker-demo-packaging.md).
+
 Create an initial admin user after backend dependencies and database connectivity are available:
 
 ```bash
@@ -388,6 +401,7 @@ python3 scripts/validate_public_ci_baseline.py
 - [Admin Guide](docs/admin-guide.md)
 - [Demo Guide](docs/demo-guide.md)
 - [Deployment Guide](docs/deployment-guide.md)
+- [Docker Demo Packaging Foundation](docs/docker-demo-packaging.md)
 - [Security Model](docs/security-model.md)
 - [Reporting Guide](docs/reporting-guide.md)
 - [Observability Architecture and Operations Guide](docs/v0.6.0-observability.md)

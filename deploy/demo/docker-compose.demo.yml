@@ -1,0 +1,121 @@
+name: sovereign-ai-soc-demo
+
+services:
+  postgres:
+    image: postgres:18.4
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ai_soc_demo}
+      POSTGRES_DB: ${POSTGRES_DB:-ai_soc_demo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-for-local-demo-only}
+    volumes:
+      - postgres_demo_data:/var/lib/postgresql
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:v1.15.4
+    ports:
+      - "127.0.0.1:${QDRANT_HOST_PORT:-6333}:6333"
+    volumes:
+      - qdrant_demo_data:/qdrant/storage
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "127.0.0.1:${OLLAMA_HOST_PORT:-11434}:11434"
+    volumes:
+      - ollama_demo_models:/root/.ollama
+    healthcheck:
+      test:
+        - CMD
+        - ollama
+        - list
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    restart: unless-stopped
+
+  ai-soc-api:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.api
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-ai_soc_demo}
+      POSTGRES_USER: ${POSTGRES_USER:-ai_soc_demo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-for-local-demo-only}
+      AI_SOC_AUTH_SECRET: ${AI_SOC_AUTH_SECRET:-change-me-demo-auth-secret-at-least-32-characters}
+      AI_EXTERNAL_PROVIDERS_ENABLED: "false"
+      AI_PROVIDER_DEFAULT: local_ollama
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3.5:4b}
+      AI_OLLAMA_ENABLED: "true"
+      AI_OLLAMA_BASE_URL: http://ollama:11434
+      AI_OLLAMA_MODEL: ${AI_OLLAMA_MODEL:-qwen3.5:4b}
+      AI_SOC_LLM_MODE: auto
+      AI_SOC_LLM_FAST: ${AI_SOC_LLM_FAST:-qwen3.5:4b}
+      AI_SOC_LLM_STANDARD: ${AI_SOC_LLM_STANDARD:-qwen3.5:4b}
+      AI_SOC_LLM_QUALITY: ${AI_SOC_LLM_QUALITY:-qwen3.5:4b}
+      AI_SOC_RAG_ENABLED: "true"
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-security_kb}
+      QDRANT_KNOWLEDGE_BASE_PATH: knowledge_base
+      QDRANT_AUTO_INDEX_STATE_PATH: /app/.runtime/qdrant_auto_index_state.json
+    ports:
+      - "127.0.0.1:${AI_SOC_API_PORT:-8008}:8008"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      ollama:
+        condition: service_started
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8008/health', timeout=5)"
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    restart: unless-stopped
+
+  ai-soc-frontend:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8008}
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8008}
+    ports:
+      - "127.0.0.1:${AI_SOC_FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      ai-soc-api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('http').get('http://127.0.0.1:3000', response => process.exit(response.statusCode < 500 ? 0 : 1)).on('error', () => process.exit(1))"
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  postgres_demo_data:
+  qdrant_demo_data:
+  ollama_demo_models:

@@ -1,0 +1,28 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y libgomp1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && addgroup --system ai-soc \
+    && adduser --system --ingroup ai-soc --home /app ai-soc
+
+COPY requirements.txt ./
+RUN python -m pip install --upgrade pip \
+    && python -m pip install -r requirements.txt
+
+COPY --chown=ai-soc:ai-soc . .
+
+RUN mkdir -p /app/.runtime /app/reports /app/storage/config \
+    && chown -R ai-soc:ai-soc /app/.runtime /app/reports /app/storage
+
+USER ai-soc
+
+EXPOSE 8008
+
+CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8008"]

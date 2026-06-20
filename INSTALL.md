@@ -78,6 +78,22 @@ cd ..
 Before publishing a release or sharing the demo, run `./ai-soc release-check`;
 use `--full` for the heavier test, build and Compose configuration checks.
 
+## Validate Docker packaging
+
+The Docker demo foundation packages the API and frontend alongside PostgreSQL,
+Qdrant and the local Ollama AI runtime:
+
+```bash
+./ai-soc package-validate
+./ai-soc package-validate --build
+```
+
+The default command validates files and Compose configuration without building
+or running containers. `--build` creates only local application images; it
+does not start containers. Ollama model download remains an explicit manual
+operator step. See
+[Docker Demo Packaging Foundation](docs/docker-demo-packaging.md).
+
 ## Create the local environment file
 
 ```bash
