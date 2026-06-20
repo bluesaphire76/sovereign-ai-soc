@@ -107,7 +107,7 @@ The default command validates files and Compose configuration without building
 or running containers. `--build` creates only local application images; it
 does not start containers. Ollama model download remains an explicit manual
 operator step. See
-[Docker Demo Packaging Foundation](docs/docker-demo-packaging.md).
+[Docker Demo Packaging Foundation](docs/operations/docker-demo-packaging.md).
 
 ## Create the local environment file
 
@@ -204,7 +204,7 @@ After installing Python and frontend dependencies:
 
 When the frontend service is available, open
 `http://127.0.0.1:3000` in a browser. Use
-[docs/demo-guide.md](docs/demo-guide.md) for the presenter flow.
+[docs/product/demo-guide.md](docs/product/demo-guide.md) for the presenter flow.
 
 ## Troubleshooting
 

@@ -210,7 +210,7 @@ def file_checks() -> list[Check]:
         "frontend/.dockerignore",
         "deploy/demo/docker-compose.demo.yml",
         "deploy/demo/.env.demo.example",
-        "docs/docker-demo-packaging.md",
+        "docs/operations/docker-demo-packaging.md",
     )
     checks: list[Check] = []
     for relative in required:
