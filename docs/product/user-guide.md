@@ -145,4 +145,4 @@ Users and Security Audit are role-aware admin areas:
 - ANALYST and VIEWER access is constrained by RBAC.
 - Security Audit is admin-only.
 
-See [Admin Guide](admin-guide.md) and [Security Model](security-model.md).
+See [Admin Guide](../operations/admin-guide.md) and [Security Model](../architecture/security-model.md).

@@ -12,7 +12,7 @@ The product uses three primary roles:
 | ANALYST | Incident and case investigation workflows, synthetic test execution where allowed, report generation and analysis. |
 | VIEWER | Read-only SOC visibility with restricted workflow actions. |
 
-Detailed permission notes are available in [permission-matrix-v0.3.md](permission-matrix-v0.3.md).
+Detailed permission notes are available in [permission-matrix-v0.3.md](../architecture/permission-matrix-v0.3.md).
 
 ## User Management
 

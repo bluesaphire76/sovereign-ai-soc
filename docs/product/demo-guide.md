@@ -2,7 +2,7 @@
 
 This guide helps present Sovereign AI SOC as a local-first, AI-assisted SOC platform.
 For dependency installation and environment preparation, start with the
-[Installation and Demo Guide](../INSTALL.md).
+[Installation and Demo Guide](../../INSTALL.md).
 
 ## Demo Objective
 
