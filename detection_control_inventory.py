@@ -351,7 +351,7 @@ def _policy_items() -> list[dict[str, Any]]:
                 "source_files": [
                     "report_dns_context.py",
                     "docs/validation/v0.5-dns-telemetry-pilot.md",
-                    "docs/security-model.md",
+                    "docs/architecture/security-model.md",
                 ]
             },
         },

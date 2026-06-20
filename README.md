@@ -198,7 +198,7 @@ AI is used across the workflow, not only for triage.
 
 The platform does not autonomously execute destructive or external operational response actions. AI provides interpretation, recommendations and draft guidance; the analyst remains responsible for validation and action. Controlled SOAR execution is limited to safe internal product workflow records unless future connector/playbook integrations are explicitly added and governed.
 
-See [AI Capabilities](docs/ai-capabilities.md) for the full model.
+See [AI Capabilities](docs/product/ai-capabilities.md) for the full model.
 
 ## Detection Sources
 
@@ -209,7 +209,7 @@ Sovereign AI SOC combines host, security and network visibility:
 - **DNS telemetry** provides endpoint DNS context matched by host/client IP and time window. DNS context is contextual telemetry only and does not imply causal correlation with an incident.
 - **Internal normalization** separates raw events, security alerts, incidents and cases so that each workflow has a clear responsibility.
 
-See [Detection Sources](docs/detection-sources.md).
+See [Detection Sources](docs/product/detection-sources.md).
 
 ## Human-in-the-loop by Design
 
@@ -239,7 +239,7 @@ No mandatory external AI provider is required for the core product flow.
 
 ![High-level architecture](docs/assets/architecture/high-level-architecture.svg)
 
-More complete diagrams are available in [Architecture](docs/architecture.md), with editable Mermaid sources in [docs/diagrams](docs/diagrams).
+More complete diagrams are available in [Architecture](docs/architecture/architecture.md), with editable Mermaid sources in [docs/diagrams](docs/diagrams).
 
 ## Demo Flow
 
@@ -257,7 +257,7 @@ A concise product demo can follow this path:
 10. Generate an incident report, case report or analyst evidence pack.
 11. Open Health, Grafana Observability and Security Audit to show operational observability and governance.
 
-See [Demo Guide](docs/demo-guide.md) for presenter talking points.
+See [Demo Guide](docs/product/demo-guide.md) for presenter talking points.
 
 ## Quick Start / Demo Start
 
@@ -340,7 +340,7 @@ Qdrant and Ollama without claiming a full production deployment:
 The default packaging validation does not build or run containers. The build
 mode creates local application images only; Ollama models are selected and
 downloaded manually. See
-[Docker Demo Packaging Foundation](docs/docker-demo-packaging.md).
+[Docker Demo Packaging Foundation](docs/operations/docker-demo-packaging.md).
 
 Create an initial admin user after backend dependencies and database connectivity are available:
 
@@ -388,7 +388,7 @@ Suricata and DNS telemetry have dedicated deployment artifacts:
 - `deploy/systemd/ai-soc-dns-collector.service`
 - `deploy/suricata/docker-compose.yml`
 
-See [Deployment Guide](docs/deployment-guide.md) for a fuller operational view.
+See [Deployment Guide](docs/operations/deployment-guide.md) for a fuller operational view.
 
 ## Public CI Validation
 
@@ -404,23 +404,23 @@ python3 scripts/validate_public_ci_baseline.py
 
 ## Documentation Index
 
-- [Product Overview](docs/product-overview.md)
-- [Architecture](docs/architecture.md)
+- [Product Overview](docs/product/product-overview.md)
+- [Architecture](docs/architecture/architecture.md)
 - [Installation and Demo Guide](INSTALL.md)
-- [AI Capabilities](docs/ai-capabilities.md)
-- [Detection Sources](docs/detection-sources.md)
-- [Ingestion and Correlation Pipeline](docs/ingestion-correlation-pipeline.md)
-- [User Guide](docs/user-guide.md)
-- [Admin Guide](docs/admin-guide.md)
-- [Demo Guide](docs/demo-guide.md)
-- [Deployment Guide](docs/deployment-guide.md)
-- [Docker Demo Packaging Foundation](docs/docker-demo-packaging.md)
-- [Security Model](docs/security-model.md)
-- [Reporting Guide](docs/reporting-guide.md)
-- [Observability Architecture and Operations Guide](docs/v0.6.0-observability.md)
+- [AI Capabilities](docs/product/ai-capabilities.md)
+- [Detection Sources](docs/product/detection-sources.md)
+- [Ingestion and Correlation Pipeline](docs/architecture/ingestion-correlation-pipeline.md)
+- [User Guide](docs/product/user-guide.md)
+- [Admin Guide](docs/operations/admin-guide.md)
+- [Demo Guide](docs/product/demo-guide.md)
+- [Deployment Guide](docs/operations/deployment-guide.md)
+- [Docker Demo Packaging Foundation](docs/operations/docker-demo-packaging.md)
+- [Security Model](docs/architecture/security-model.md)
+- [Reporting Guide](docs/product/reporting-guide.md)
+- [Observability Architecture and Operations Guide](docs/operations/v0.6.0-observability.md)
 - [v0.6.0 Release Notes](docs/releases/RELEASE_NOTES_v0.6.0.md)
 - [v0.6 Release Checklist](docs/validation/v0.6-release-checklist.md)
-- [Roadmap](docs/roadmap.md)
+- [Roadmap](docs/product/roadmap.md)
 - [Screenshot Checklist](docs/assets/screenshots/README.md)
 - [Architecture Asset Notes](docs/assets/architecture/README.md)
 
@@ -429,14 +429,14 @@ Existing release and validation notes:
 
 - [Release Notes v0.4.0](docs/releases/RELEASE_NOTES_v0.4.0.md)
 - [Release Notes v0.2.0-rc1](docs/releases/RELEASE_NOTES_v0.2.0-rc1.md)
-- [v0.3 Release Notes](docs/v0.3-release-notes.md)
+- [v0.3 Release Notes](docs/releases/v0.3-release-notes.md)
 - [v0.4 Release Checklist](docs/validation/v0.4-release-checklist.md)
 - [v0.5 Demo Scenario Pack](docs/validation/v0.5-demo-scenario-pack.md)
 - [v0.5 Suricata Network Telemetry](docs/validation/v0.5-suricata-network-telemetry.md)
 - [v0.5 DNS Telemetry Pilot](docs/validation/v0.5-dns-telemetry-pilot.md)
 - [v0.7 Expanded Validation Harness](docs/validation/v0.7-expanded-validation-harness.md)
-- [v0.7 External AI Provider Abstraction](docs/v0.7-external-ai-provider-abstraction.md)
-- [v0.7 AI Data Control Policy](docs/v0.7-ai-data-control-policy.md)
+- [v0.7 External AI Provider Abstraction](docs/architecture/v0.7-external-ai-provider-abstraction.md)
+- [v0.7 AI Data Control Policy](docs/architecture/v0.7-ai-data-control-policy.md)
 
 ## Roadmap
 
@@ -449,7 +449,7 @@ Existing release and validation notes:
 | v0.6 | Released | AI investigation intelligence, human-governed remediation, Incident Command Center rewrite, replay simulation, controlled internal SOAR workflow actions and observability improvements |
 | v0.7 | Candidate | Additional connectors, deeper case collaboration, stronger reporting automation and broader validation tooling |
 
-See [Roadmap](docs/roadmap.md).
+See [Roadmap](docs/product/roadmap.md).
 
 ## License
 

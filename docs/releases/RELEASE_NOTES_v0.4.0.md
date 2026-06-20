@@ -156,7 +156,7 @@ Characteristics:
 Documentation:
 
 ```text
-docs/v0.4-db-retention-backup-restore.md
+docs/operations/v0.4-db-retention-backup-restore.md
 ```
 
 ### Regression and smoke validation
@@ -189,7 +189,7 @@ v0.4 adds production/demo hardening guidance.
 Documentation:
 
 ```text
-docs/v0.4-production-demo-hardening.md
+docs/operations/v0.4-production-demo-hardening.md
 docs/validation/v0.4-release-checklist.md
 ```
 
@@ -260,9 +260,9 @@ Expected result:
 ## Documentation added or updated
 
 - `docs/validation/v0.4-risk-normalization-dry-run.md`
-- `docs/v0.4-db-retention-backup-restore.md`
+- `docs/operations/v0.4-db-retention-backup-restore.md`
 - `docs/validation/v0.4-regression-smoke-validation.md`
-- `docs/v0.4-production-demo-hardening.md`
+- `docs/operations/v0.4-production-demo-hardening.md`
 - `docs/validation/v0.4-release-checklist.md`
 - `README.md`
 
