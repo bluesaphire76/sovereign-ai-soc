@@ -1,0 +1,9 @@
+# Release Notes
+
+This folder contains Sovereign AI SOC release notes.
+
+## Available release notes
+
+- [v0.6.0](RELEASE_NOTES_v0.6.0.md)
+- [v0.4.0](RELEASE_NOTES_v0.4.0.md)
+- [v0.2.0-rc1](RELEASE_NOTES_v0.2.0-rc1.md)
