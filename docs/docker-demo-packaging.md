@@ -59,6 +59,8 @@ docker compose \
 `NEXT_PUBLIC_API_BASE_URL` is embedded into the browser bundle while the
 frontend image is built. Its default, `http://localhost:8008`, is appropriate
 for the documented local port mapping.
+`NEXT_PUBLIC_AI_SOC_DEMO_MODE=true` enables a small global synthetic-data
+banner in the Docker demo build; the banner is off by default elsewhere.
 
 The demo uses the real application settings:
 
@@ -90,6 +92,16 @@ The guided local installer also runs packaging validation:
 ```
 
 It does not start Docker services or pull Ollama models.
+
+Demo mode remains explicit and reversible:
+
+```bash
+./ai-soc demo-info
+./ai-soc demo-reset --dry-run
+```
+
+The reset targets only stable-marker-owned synthetic application records.
+Ollama execution remains local and model download remains manual.
 
 Image builds are explicit:
 

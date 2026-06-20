@@ -25,6 +25,9 @@ Commands:
                                  Validate Docker packaging without running containers
   demo-seed [--dry-run|--apply|--status] [--json]
                                  Manage synthetic local demo data
+  demo-info [--json]             Show synthetic demo ownership and counts
+  demo-reset [--dry-run|--apply] [--json]
+                                 Remove only demo-owned records (dry-run by default)
   demo-validate [--strict] [--no-runtime] [--write-report] [--json]
                                  Validate local demo readiness (read-only)
   demo-status [--include-worker] [--json]
@@ -120,6 +123,14 @@ case "$command_name" in
   demo-seed)
     python_bin="$(resolve_python)"
     exec "$python_bin" "$REPOSITORY_ROOT/scripts/demo_seed.py" "$@"
+    ;;
+  demo-info)
+    python_bin="$(resolve_python)"
+    exec "$python_bin" "$REPOSITORY_ROOT/scripts/demo_info.py" "$@"
+    ;;
+  demo-reset)
+    python_bin="$(resolve_python)"
+    exec "$python_bin" "$REPOSITORY_ROOT/scripts/demo_reset.py" "$@"
     ;;
   demo-validate)
     python_bin="$(resolve_python)"

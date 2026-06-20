@@ -132,6 +132,28 @@ GRACEFUL_COMMANDS = (
         ),
     ),
     CommandSpec(
+        ("demo-info", "--json"),
+        json_results=frozenset(
+            {
+                "DEMO_INFO_READY",
+                "DEMO_INFO_READY_WITH_WARNINGS",
+                "DEMO_INFO_NOT_READY",
+            }
+        ),
+        nonzero_results=frozenset({"DEMO_INFO_NOT_READY"}),
+    ),
+    CommandSpec(
+        ("demo-reset", "--dry-run", "--json"),
+        json_results=frozenset(
+            {
+                "DEMO_RESET_DRY_RUN_READY",
+                "DEMO_RESET_READY_WITH_WARNINGS",
+                "DEMO_RESET_NOT_READY",
+            }
+        ),
+        nonzero_results=frozenset({"DEMO_RESET_NOT_READY"}),
+    ),
+    CommandSpec(
         ("demo-validate", "--no-runtime", "--json"),
         json_results=frozenset(
             {"DEMO_READY", "DEMO_READY_WITH_WARNINGS", "DEMO_NOT_READY"}

@@ -154,6 +154,22 @@ evidence.
 `demo-status` performs a read-only inspection of the application systemd
 services.
 
+## Clean demo mode
+
+Inspect the explicit synthetic-data boundary and review a reset before applying
+it:
+
+```bash
+./ai-soc demo-info
+./ai-soc demo-reset --dry-run
+./ai-soc demo-reset --apply
+```
+
+`demo-info` is read-only. `demo-reset` removes only records owned by the stable
+demo seed marker and refuses to proceed when non-demo child records are
+attached. It never cleans Wazuh or Suricata telemetry. Always use dry-run
+first; synthetic demo data is not real security evidence.
+
 ## Demo lifecycle
 
 Lifecycle actions default to a dry run:

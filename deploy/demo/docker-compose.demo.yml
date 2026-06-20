@@ -95,10 +95,12 @@ services:
       dockerfile: Dockerfile
       args:
         NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8008}
+        NEXT_PUBLIC_AI_SOC_DEMO_MODE: ${NEXT_PUBLIC_AI_SOC_DEMO_MODE:-true}
     environment:
       NODE_ENV: production
       PORT: "3000"
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8008}
+      NEXT_PUBLIC_AI_SOC_DEMO_MODE: ${NEXT_PUBLIC_AI_SOC_DEMO_MODE:-true}
     ports:
       - "127.0.0.1:${AI_SOC_FRONTEND_PORT:-3000}:3000"
     depends_on:
