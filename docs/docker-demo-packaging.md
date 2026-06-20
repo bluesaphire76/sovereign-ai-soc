@@ -83,6 +83,14 @@ runtime services:
 docker compose -f deploy/demo/docker-compose.demo.yml config --quiet
 ```
 
+The guided local installer also runs packaging validation:
+
+```bash
+./ai-soc install --profile demo --dry-run
+```
+
+It does not start Docker services or pull Ollama models.
+
 Image builds are explicit:
 
 ```bash
@@ -121,5 +129,5 @@ future option and is not required by the committed Compose file.
 - Production hardening, schema orchestration and full SOC telemetry deployment
   remain separate work.
 
-Future packaging can add a guided local installer, optional GHCR publishing,
-fuller demo orchestration and a hardened optional GPU profile.
+Future packaging can add optional GHCR publishing, fuller demo orchestration
+and a hardened optional GPU profile.

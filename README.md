@@ -271,6 +271,17 @@ git clone <repository-url>
 cd <repository-directory>
 ```
 
+Use the guided local installer after reviewing its dry-run plan:
+
+```bash
+./ai-soc install --profile demo --dry-run
+./ai-soc install --profile demo --apply
+```
+
+This is a local preparation helper, not a production installer. Apply mode
+installs dependencies and initializes `.env` safely, but does not start
+services, containers, demo data or Ollama model downloads.
+
 Initialize a local configuration without overwriting an existing `.env`, then run the readiness and public validation checks:
 
 ```bash

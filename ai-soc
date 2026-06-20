@@ -11,6 +11,8 @@ Usage:
   ./ai-soc <command> [args]
 
 Commands:
+  install --profile <demo|local> [--dry-run|--apply]
+                                 Prepare local dependencies safely
   init --profile <demo|local>    Create a safe local .env
   doctor [--strict] [--json]     Check local readiness
   validate                       Run public CI baseline validation
@@ -79,6 +81,13 @@ fi
 case "$command_name" in
   help | --help | -h)
     show_help
+    ;;
+  install)
+    if ! command -v python3 >/dev/null 2>&1; then
+      echo "Error: Python 3 is required but was not found." >&2
+      exit 1
+    fi
+    exec "$(command -v python3)" "$REPOSITORY_ROOT/scripts/install_local.py" "$@"
     ;;
   init)
     python_bin="$(resolve_python)"
