@@ -9,9 +9,10 @@ import {
   Search,
   ShieldAlert,
   SlidersHorizontal,
+  Trash2,
 } from "lucide-react";
 import AppNavigation from "../../components/AppNavigation";
-import { authFetch } from "../../lib/auth";
+import { authFetch, getStoredUser, type AuthUser } from "../../lib/auth";
 
 type Incident = {
   id: number;
@@ -26,6 +27,8 @@ type Incident = {
   correlated?: boolean;
   correlation_score?: number | null;
   correlation_type?: string | null;
+  is_demo?: boolean;
+  demo_origin?: "seed" | "synthetic_test" | null;
 };
 
 type IncidentsResponse = {
@@ -52,8 +55,6 @@ const STATUS_OPTIONS = [
 ];
 
 const RISK_OPTIONS = ["ALL", "LOW", "MEDIUM", "HIGH", "CRITICAL"];
-const DEMO_SEARCH_TERM = "AI SOC demo scenario";
-
 function formatTimestamp(value: string | null | undefined) {
   if (!value) return "-";
 
@@ -96,7 +97,7 @@ function statusTone(status: string | null | undefined): Tone {
 }
 
 function isDemoIncident(incident: Incident) {
-  return (incident.rule ?? "").includes(DEMO_SEARCH_TERM);
+  return Boolean(incident.is_demo);
 }
 
 function badgeClass(tone: Tone) {
@@ -274,8 +275,11 @@ export default function IncidentsPage() {
   const [riskFilter, setRiskFilter] = useState("ALL");
   const [searchFilter, setSearchFilter] = useState("");
   const [hostFilter, setHostFilter] = useState("");
+  const [demoMode, setDemoMode] = useState(false);
   const [page, setPage] = useState(1);
   const [selectedIncidentId, setSelectedIncidentId] = useState<number | null>(null);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [deletingIncidentId, setDeletingIncidentId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -283,7 +287,8 @@ export default function IncidentsPage() {
   const incidents = useMemo(() => data?.items ?? [], [data]);
   const total = data?.total ?? 0;
   const totalPages = data?.total_pages ?? 1;
-  const demoMode = searchFilter.trim() === DEMO_SEARCH_TERM;
+  const canManageDemo =
+    currentUser?.role === "ADMIN" || currentUser?.role === "ANALYST";
 
   const selectedIncident = useMemo(() => {
     if (incidents.length === 0) return null;
@@ -329,6 +334,7 @@ export default function IncidentsPage() {
       if (riskFilter !== "ALL") params.set("risk", riskFilter.toLowerCase());
       if (searchFilter.trim()) params.set("search", searchFilter.trim());
       if (hostFilter.trim()) params.set("host", hostFilter.trim());
+      if (demoMode) params.set("demo_only", "true");
 
       const response = await authFetch(`/incidents?${params.toString()}`);
 
@@ -345,7 +351,11 @@ export default function IncidentsPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [hostFilter, page, riskFilter, searchFilter, statusFilter]);
+  }, [demoMode, hostFilter, page, riskFilter, searchFilter, statusFilter]);
+
+  useEffect(() => {
+    setCurrentUser(getStoredUser());
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -370,20 +380,61 @@ export default function IncidentsPage() {
     setRiskFilter("ALL");
     setSearchFilter("");
     setHostFilter("");
+    setDemoMode(false);
     setPage(1);
+    setSelectedIncidentId(null);
   }
 
   function enableDemoMode() {
     setStatusFilter("ALL");
     setRiskFilter("ALL");
-    setSearchFilter(DEMO_SEARCH_TERM);
+    setSearchFilter("");
     setHostFilter("");
+    setDemoMode(true);
     setPage(1);
+    setSelectedIncidentId(null);
   }
 
   function exitDemoMode() {
+    setDemoMode(false);
     setSearchFilter("");
     setPage(1);
+    setSelectedIncidentId(null);
+  }
+
+  async function deleteDemoIncident(incident: Incident) {
+    if (!canManageDemo || !incident.demo_origin) return;
+
+    const confirmed = window.confirm(
+      `Delete synthetic incident #${incident.id}? Its demo-only notes, audit entries and case links will also be removed. Real incidents and telemetry are not deletion targets.`
+    );
+    if (!confirmed) return;
+
+    try {
+      setDeletingIncidentId(incident.id);
+      setError(null);
+      const response = await authFetch(
+        `/demo-management/incidents/${incident.id}`,
+        { method: "DELETE" }
+      );
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        const detail = body?.detail;
+        const message =
+          typeof detail === "string"
+            ? detail
+            : detail?.message ?? `API error ${response.status}`;
+        throw new Error(message);
+      }
+      setSelectedIncidentId(null);
+      await loadIncidents();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Unable to delete demo incident"
+      );
+    } finally {
+      setDeletingIncidentId(null);
+    }
   }
 
   return (
@@ -422,7 +473,7 @@ export default function IncidentsPage() {
                       : "border-slate-700 bg-slate-950 text-slate-300 hover:border-slate-600 hover:bg-slate-900"
                   }`}
                 >
-                  {demoMode ? "Exit demo mode" : "Demo mode"}
+                  {demoMode ? "Exit current demo" : "Current demo"}
                 </button>
 
                 <button
@@ -441,7 +492,7 @@ export default function IncidentsPage() {
             <Counter label="High attention" value={highRiskCount} helper="Risk score 60+ on this page" tone={highRiskCount > 0 ? "warning" : "success"} />
             <Counter label="Active lifecycle" value={activeLifecycleCount} helper="Investigating, contained or legacy escalated" tone={activeLifecycleCount > 0 ? "warning" : "success"} />
             <Counter label="Correlated" value={correlatedCount} helper="Incidents linked to patterns" tone="cyan" />
-            <Counter label="Demo scenarios" value={demoIncidentCount} helper={demoMode ? "Demo filter active" : "Demo filter off"} tone={demoMode ? "cyan" : "neutral"} />
+            <Counter label="Demo scenarios" value={demoIncidentCount} helper={demoMode ? "Stable seed only" : "Visible on this page"} tone={demoMode ? "cyan" : "neutral"} />
           </section>
 
           <section className="border-b border-slate-800 bg-slate-950 px-3 py-2">
@@ -507,10 +558,10 @@ export default function IncidentsPage() {
               </div>
 
               <button
-                onClick={enableDemoMode}
+                onClick={demoMode ? exitDemoMode : enableDemoMode}
                 className="h-8 border border-cyan-800 bg-cyan-950 px-3 text-xs font-medium text-cyan-100 hover:bg-cyan-900"
               >
-                Demo
+                {demoMode ? "Exit demo" : "Demo"}
               </button>
 
               <button
@@ -766,6 +817,19 @@ export default function IncidentsPage() {
                         Open detail
                       </Link>
                     </div>
+                    {selectedIncident.demo_origin && canManageDemo && (
+                      <button
+                        type="button"
+                        onClick={() => void deleteDemoIncident(selectedIncident)}
+                        disabled={deletingIncidentId === selectedIncident.id}
+                        className="mt-3 inline-flex h-8 items-center gap-1.5 border border-red-800 bg-red-950/40 px-2.5 text-[11px] font-medium text-red-200 hover:bg-red-950/70 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+                        {deletingIncidentId === selectedIncident.id
+                          ? "Deleting..."
+                          : "Delete demo incident"}
+                      </button>
+                    )}
                   </div>
 
                   <div className="border-b border-slate-800 px-3 py-3">

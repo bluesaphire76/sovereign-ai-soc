@@ -6,6 +6,12 @@ from fastapi import FastAPI, HTTPException, Query, Response, Depends, Header, Re
 from sqlalchemy import func, or_, case as sql_case
 
 from database import SessionLocal
+from demo_data_management import (
+    DEMO_CASE_GROUP_KEY,
+    DEMO_INCIDENT_MARKERS,
+    case_demo_origin,
+    incident_demo_origin,
+)
 from case_ai_analysis import generate_case_ai_analysis
 from case_action_suggestions import generate_case_action_suggestions
 from case_ai_generation_jobs import (
@@ -401,6 +407,7 @@ RBAC_RULES: list[tuple[str, str, set[str]]] = [
     # Synthetic tests
     ("GET", r"^/synthetic-tests/scenarios$", OPERATOR_ROLES),
     ("POST", r"^/synthetic-tests/run$", OPERATOR_ROLES),
+    ("DELETE", r"^/demo-management/(incidents|cases)/\d+$", OPERATOR_ROLES),
     ("POST", r"^/detection-quality/action-guidance$", ALL_ROLES),
     ("POST", r"^/detection-quality/semantic-context$", OPERATOR_ROLES),
 
@@ -1376,6 +1383,7 @@ def list_incidents(
     mitre: str | None = Query(None),
     date_from: str | None = Query(None),
     date_to: str | None = Query(None),
+    demo_only: bool = Query(False),
 ):
     db = SessionLocal()
 
@@ -1383,6 +1391,11 @@ def list_incidents(
         offset = (page - 1) * limit
 
         query = db.query(Incident)
+
+        if demo_only:
+            query = query.filter(
+                Incident.wazuh_doc_id.in_(DEMO_INCIDENT_MARKERS)
+            )
 
         if status and status.upper() != "ALL":
             query = query.filter(Incident.status == status.upper())
@@ -1467,6 +1480,8 @@ def list_incidents(
                     "correlated": item.correlated,
                     "correlation_type": item.correlation_type,
                     "recommended_priority": item.recommended_priority,
+                    "is_demo": incident_demo_origin(item) is not None,
+                    "demo_origin": incident_demo_origin(item),
                 }
                 for item in incidents
             ],
@@ -2555,6 +2570,8 @@ def serialize_case(
         "last_reviewed_at": case.last_reviewed_at.isoformat()
         if case.last_reviewed_at
         else None,
+        "is_demo": case_demo_origin(case) is not None,
+        "demo_origin": case_demo_origin(case),
     }
 
     if queue_enrichment:
@@ -2898,6 +2915,7 @@ def list_cases(
     status: str | None = Query(None),
     severity: str | None = Query(None),
     host: str | None = Query(None),
+    demo_only: bool = Query(False),
 ):
     db = SessionLocal()
 
@@ -2925,6 +2943,11 @@ def list_cases(
                 IncidentCase.id == incident_count_subquery.c.case_id,
             )
         )
+
+        if demo_only:
+            query = query.filter(
+                IncidentCase.group_key == DEMO_CASE_GROUP_KEY
+            )
 
         if status and status.upper() != "ALL":
             query = query.filter(IncidentCase.status == status.upper())
