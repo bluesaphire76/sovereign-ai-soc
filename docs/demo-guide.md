@@ -32,6 +32,7 @@ Run the local checks from the repository root:
 ./ai-soc validate
 ./ai-soc validate-runtime
 ./ai-soc demo-seed --dry-run
+./ai-soc demo-info
 ./ai-soc demo-validate
 ./ai-soc demo-status
 ./ai-soc demo-up --dry-run
@@ -53,6 +54,24 @@ when that optional unit is installed and intended for the demo.
 Use `demo-up --apply` or `demo-down --apply` only after reviewing the dry-run
 plan. Seeded demo records remain synthetic and must never be presented as real
 security evidence.
+
+Before presenting, verify the explicit demo boundary:
+
+```bash
+./ai-soc demo-info
+```
+
+For a controlled reset and reseed:
+
+```bash
+./ai-soc demo-reset --dry-run
+./ai-soc demo-reset --apply
+./ai-soc demo-seed --apply
+./ai-soc demo-validate
+```
+
+The reset applies only to stable-marker-owned synthetic records and refuses to
+remove records with unrecognized analyst or workflow dependencies.
 
 Before presenting, also confirm that the latest [Public CI workflow](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/ci.yml) is green for the revision being demonstrated.
 

@@ -69,14 +69,18 @@ def test_complete_report_accepts_safe_commands(tmp_path):
         "total": 6,
     }
     assert report["summary"]["graceful"] == {
-        "ok": 6,
+        "ok": 8,
         "fail": 0,
-        "total": 6,
+        "total": 8,
     }
 
 
 def test_expected_json_degradation_is_accepted():
-    spec = cli_smoke.GRACEFUL_COMMANDS[2]
+    spec = next(
+        item
+        for item in cli_smoke.GRACEFUL_COMMANDS
+        if item.arguments == ("demo-validate", "--no-runtime", "--json")
+    )
 
     result = cli_smoke.evaluate_command(
         spec,
@@ -171,3 +175,15 @@ def test_protected_path_change_fails_the_responsible_command(tmp_path):
 
     assert result.status == "FAIL"
     assert "modified protected local path" in result.message
+
+
+def test_root_cli_help_lists_clean_demo_commands():
+    result = cli_smoke.run_command(
+        cli_smoke.REPOSITORY_ROOT,
+        ("./ai-soc", "help"),
+        5.0,
+    )
+
+    assert result.returncode == 0
+    assert "demo-info [--json]" in result.stdout
+    assert "demo-reset [--dry-run|--apply] [--json]" in result.stdout

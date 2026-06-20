@@ -291,6 +291,8 @@ Initialize a local configuration without overwriting an existing `.env`, then ru
 ./ai-soc validate-runtime
 ./ai-soc demo-seed --dry-run
 ./ai-soc demo-seed --apply
+./ai-soc demo-info
+./ai-soc demo-reset --dry-run
 ./ai-soc demo-validate
 ./ai-soc demo-status
 ./ai-soc demo-up --dry-run
