@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from pathlib import Path
 
 
@@ -13,6 +15,17 @@ def exists(relative_path: str) -> bool:
     return (REPOSITORY_ROOT / relative_path).exists()
 
 
+def run_check(command: list[str], description: str, failures: list[str]) -> None:
+    print(f"[INFO] {description}")
+    result = subprocess.run(command, cwd=REPOSITORY_ROOT, check=False)
+
+    if result.returncode == 0:
+        print(f"[OK] {description}")
+    else:
+        print(f"[FAIL] {description}")
+        failures.append(description)
+
+
 def main() -> int:
     failures: list[str] = []
 
@@ -20,6 +33,7 @@ def main() -> int:
         (".github/workflows/ci.yml", "GitHub Actions workflow exists"),
         ("README.md", "README exists"),
         ("requirements.txt", "Backend requirements file exists"),
+        ("scripts/validate_docs_structure.py", "Documentation structure validator exists"),
     )
     for relative_path, message in required_paths:
         if exists(relative_path):
@@ -38,6 +52,13 @@ def main() -> int:
             print(f"[OK] {message}")
         else:
             print(f"[WARN] {message}: {relative_path} not found; check skipped")
+
+    if exists("scripts/validate_docs_structure.py"):
+        run_check(
+            [sys.executable, "scripts/validate_docs_structure.py"],
+            "Documentation structure validation",
+            failures,
+        )
 
     print("[OK] No local secrets or external services are required")
 
