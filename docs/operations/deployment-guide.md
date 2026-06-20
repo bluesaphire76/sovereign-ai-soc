@@ -2,9 +2,9 @@
 
 Sovereign AI SOC is intended for local lab and production-style demo deployments. The repository includes Nginx, systemd and collector artifacts that support that model.
 
-![Deployment architecture](assets/architecture/deployment-architecture.svg)
+![Deployment architecture](../assets/architecture/deployment-architecture.svg)
 
-Editable Mermaid source: [deployment-architecture.mmd](diagrams/deployment-architecture.mmd).
+Editable Mermaid source: [deployment-architecture.mmd](../diagrams/deployment-architecture.mmd).
 
 ## Runtime Components
 

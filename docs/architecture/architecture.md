@@ -4,9 +4,9 @@ Sovereign AI SOC uses a local-first architecture with a Next.js frontend, FastAP
 
 ## System Overview
 
-![High-level architecture](assets/architecture/high-level-architecture.svg)
+![High-level architecture](../assets/architecture/high-level-architecture.svg)
 
-Editable Mermaid source: [high-level-architecture.mmd](diagrams/high-level-architecture.mmd).
+Editable Mermaid source: [high-level-architecture.mmd](../diagrams/high-level-architecture.mmd).
 
 ## Components
 
@@ -64,13 +64,13 @@ The local AI runtime supports:
 - Detection Quality remediation suggestions.
 - Executive insight and report enrichment.
 
-AI does not decide access control, mutate lifecycle state by itself, or execute response actions. See [AI Capabilities](ai-capabilities.md).
+AI does not decide access control, mutate lifecycle state by itself, or execute response actions. See [AI Capabilities](../product/ai-capabilities.md).
 
 ## Local-first Sovereignty View
 
-![Local-first sovereignty architecture](assets/architecture/local-first-sovereignty-architecture.svg)
+![Local-first sovereignty architecture](../assets/architecture/local-first-sovereignty-architecture.svg)
 
-Editable Mermaid source: [local-first-sovereignty-architecture.mmd](diagrams/local-first-sovereignty-architecture.mmd).
+Editable Mermaid source: [local-first-sovereignty-architecture.mmd](../diagrams/local-first-sovereignty-architecture.mmd).
 
 ## Deployment Model
 
@@ -85,9 +85,9 @@ The repository includes deployment artifacts for:
 - Qdrant local vector knowledge base.
 - Ollama local runtime.
 
-![Deployment architecture](assets/architecture/deployment-architecture.svg)
+![Deployment architecture](../assets/architecture/deployment-architecture.svg)
 
-See [Deployment Guide](deployment-guide.md). Editable Mermaid source: [deployment-architecture.mmd](diagrams/deployment-architecture.mmd).
+See [Deployment Guide](../operations/deployment-guide.md). Editable Mermaid source: [deployment-architecture.mmd](../diagrams/deployment-architecture.mmd).
 
 ## Human-in-the-loop Boundaries
 
