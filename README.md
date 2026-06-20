@@ -418,7 +418,7 @@ python3 scripts/validate_public_ci_baseline.py
 - [Security Model](docs/security-model.md)
 - [Reporting Guide](docs/reporting-guide.md)
 - [Observability Architecture and Operations Guide](docs/v0.6.0-observability.md)
-- [v0.6.0 Release Notes](RELEASE_NOTES_v0.6.0.md)
+- [v0.6.0 Release Notes](docs/releases/RELEASE_NOTES_v0.6.0.md)
 - [v0.6 Release Checklist](docs/v0.6-release-checklist.md)
 - [Roadmap](docs/roadmap.md)
 - [Screenshot Checklist](docs/assets/screenshots/README.md)
@@ -427,8 +427,8 @@ python3 scripts/validate_public_ci_baseline.py
 
 Existing release and validation notes:
 
-- [Release Notes v0.4.0](RELEASE_NOTES_v0.4.0.md)
-- [Release Notes v0.2.0-rc1](RELEASE_NOTES_v0.2.0-rc1.md)
+- [Release Notes v0.4.0](docs/releases/RELEASE_NOTES_v0.4.0.md)
+- [Release Notes v0.2.0-rc1](docs/releases/RELEASE_NOTES_v0.2.0-rc1.md)
 - [v0.3 Release Notes](docs/v0.3-release-notes.md)
 - [v0.4 Release Checklist](docs/v0.4-release-checklist.md)
 - [v0.5 Demo Scenario Pack](docs/v0.5-demo-scenario-pack.md)
