@@ -425,7 +425,7 @@ class ValidationHarness:
         expected_step_files = {
             ".gitignore",
             "README.md",
-            "docs/v0.7-expanded-validation-harness.md",
+            "docs/validation/v0.7-expanded-validation-harness.md",
             "scripts/v0_7_validation_harness.py",
             "tests/test_v0_7_validation_harness.py",
         }
