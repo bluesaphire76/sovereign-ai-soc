@@ -2,6 +2,7 @@ from fastapi import FastAPI
 
 from routers.detection_control import router as detection_control_router
 from routers.detection_quality import router as detection_quality_router
+from routers.demo_management import router as demo_management_router
 from routers.ai_data_control import router as ai_data_control_router
 from routers.ai_providers import router as ai_providers_router
 from routers.case_closure_semantic_context import router as case_closure_semantic_context_router
@@ -39,6 +40,7 @@ def include_app_routers(app: FastAPI) -> None:
     app.include_router(ai_providers_router)
     app.include_router(detection_control_router)
     app.include_router(detection_quality_router)
+    app.include_router(demo_management_router)
     app.include_router(dns_events_router)
     app.include_router(network_events_router)
     app.include_router(remediation_router)

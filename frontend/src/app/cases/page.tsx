@@ -1,6 +1,6 @@
 "use client";
 
-import { authFetch } from "@/lib/auth";
+import { authFetch, getStoredUser, type AuthUser } from "@/lib/auth";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
@@ -21,6 +21,7 @@ import {
   RefreshCw,
   Search,
   ShieldAlert,
+  Trash2,
 } from "lucide-react";
 
 type IncidentCase = {
@@ -68,6 +69,8 @@ type IncidentCase = {
   closure_reviewed_at: string | null;
 
   queue_flags: string[] | null;
+  is_demo?: boolean;
+  demo_origin?: "seed" | null;
 };
 
 type CasesResponse = {
@@ -228,8 +231,10 @@ function operationalPriority(item: IncidentCase) {
   return score;
 }
 
-async function fetchCases(): Promise<CasesResponse> {
-  const response = await authFetch(`/cases?limit=100`, {
+async function fetchCases(demoOnly: boolean): Promise<CasesResponse> {
+  const params = new URLSearchParams({ limit: "100" });
+  if (demoOnly) params.set("demo_only", "true");
+  const response = await authFetch(`/cases?${params.toString()}`, {
     cache: "no-store",
   });
 
@@ -245,6 +250,9 @@ export default function CasesPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [demoMode, setDemoMode] = useState(false);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [deletingCaseId, setDeletingCaseId] = useState<number | null>(null);
 
   const [searchText, setSearchText] = useState("");
   const [statusFilter, setStatusFilter] = useState("ACTIVE");
@@ -254,6 +262,8 @@ export default function CasesPage() {
   const [quickView, setQuickView] = useState("OPERATIONS");
 
   const cases = useMemo(() => data?.items ?? [], [data?.items]);
+  const canManageDemo =
+    currentUser?.role === "ADMIN" || currentUser?.role === "ANALYST";
 
   const owners = useMemo(() => {
     const values = Array.from(
@@ -390,6 +400,18 @@ export default function CasesPage() {
     setSlaFilter("ALL");
     setOwnerFilter("ALL");
     setQuickView("OPERATIONS");
+    setDemoMode(false);
+  }
+
+  function toggleDemoMode() {
+    const nextMode = !demoMode;
+    setDemoMode(nextMode);
+    setSearchText("");
+    setStatusFilter(nextMode ? "ALL" : "ACTIVE");
+    setSeverityFilter("ALL");
+    setSlaFilter("ALL");
+    setOwnerFilter("ALL");
+    setQuickView("OPERATIONS");
   }
 
   function applyQuickView(value: string) {
@@ -479,7 +501,7 @@ export default function CasesPage() {
     try {
       setRefreshing(true);
       setError(null);
-      const response = await fetchCases();
+      const response = await fetchCases(demoMode);
       setData(response);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
@@ -487,6 +509,41 @@ export default function CasesPage() {
       setLoading(false);
       setRefreshing(false);
     }
+  }, [demoMode]);
+
+  async function deleteDemoCase(item: IncidentCase) {
+    if (!canManageDemo || item.demo_origin !== "seed") return;
+
+    const confirmed = window.confirm(
+      `Delete synthetic case #${item.id}? Its demo-only links, actions, analysis, audit and closure workflow will be removed. Linked incidents will remain available.`
+    );
+    if (!confirmed) return;
+
+    try {
+      setDeletingCaseId(item.id);
+      setError(null);
+      const response = await authFetch(`/demo-management/cases/${item.id}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        const detail = body?.detail;
+        const message =
+          typeof detail === "string"
+            ? detail
+            : detail?.message ?? `API error ${response.status}`;
+        throw new Error(message);
+      }
+      await loadCases();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to delete demo case");
+    } finally {
+      setDeletingCaseId(null);
+    }
+  }
+
+  useEffect(() => {
+    setCurrentUser(getStoredUser());
   }, []);
 
   useEffect(() => {
@@ -527,6 +584,16 @@ export default function CasesPage() {
           </div>
 
           <div className="flex flex-wrap gap-1.5">
+            <button
+              onClick={toggleDemoMode}
+              className={`rounded-xl border px-4 py-2 text-xs shadow-sm ${
+                demoMode
+                  ? "border-cyan-500 bg-cyan-500 text-slate-950 hover:bg-cyan-400"
+                  : "border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"
+              }`}
+            >
+              {demoMode ? "Exit current demo" : "Current demo"}
+            </button>
             <button
               onClick={loadCases}
               className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-xs text-slate-200 shadow-sm hover:bg-slate-800"
@@ -708,9 +775,14 @@ export default function CasesPage() {
               title="Cases"
               description="Operational queue ordered by urgency."
               actions={
-                <EnterpriseBadge tone="muted">
-                  {filteredCases.length} visible
-                </EnterpriseBadge>
+                <div className="flex items-center gap-2">
+                  {demoMode && (
+                    <EnterpriseBadge tone="primary">Stable seed only</EnterpriseBadge>
+                  )}
+                  <EnterpriseBadge tone="muted">
+                    {filteredCases.length} visible
+                  </EnterpriseBadge>
+                </div>
               }
             >
 
@@ -737,6 +809,7 @@ export default function CasesPage() {
                         <th className="py-1.5 pr-2">Correlation type</th>
                         <th className="py-1.5 pr-2">Incidents</th>
                         <th className="py-1.5 pr-2">Updated</th>
+                        <th className="py-1.5 text-right">Actions</th>
                       </tr>
                     </thead>
 
@@ -761,6 +834,11 @@ export default function CasesPage() {
                               >
                                 #{item.id} {shortText(item.title, 86)}
                               </Link>
+                              {item.is_demo && (
+                                <span className="ml-2 inline-flex rounded-sm border border-cyan-800 bg-cyan-950/60 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-cyan-200">
+                                  Demo
+                                </span>
+                              )}
                               {item.status_reason && (
                                 <div className="mt-1 max-w-md truncate text-xs text-slate-500">
                                   {item.status_reason}
@@ -847,6 +925,21 @@ export default function CasesPage() {
 
                             <td className="py-2 pr-3 text-slate-400">
                               {formatTimestamp(item.updated_at)}
+                            </td>
+                            <td className="py-2 text-right">
+                              {item.demo_origin === "seed" && canManageDemo ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void deleteDemoCase(item)}
+                                  disabled={deletingCaseId === item.id}
+                                  className="inline-flex h-7 items-center gap-1 border border-red-800 bg-red-950/40 px-2 text-[10px] font-medium text-red-200 hover:bg-red-950/70 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                  {deletingCaseId === item.id ? "Deleting" : "Delete"}
+                                </button>
+                              ) : (
+                                <span className="text-[10px] text-slate-700">—</span>
+                              )}
                             </td>
                           </tr>
                         );

@@ -13,10 +13,19 @@ from typing import Any
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
-DEMO_MARKER = "AI_SOC_DEMO_SEED"
-DEMO_VERSION = "v1"
-DEMO_ACTOR = f"{DEMO_MARKER}:{DEMO_VERSION}"
-CASE_GROUP_KEY = f"{DEMO_MARKER}:{DEMO_VERSION}:case:credential-compromise"
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
+
+from demo_data_management import (
+    DEMO_ACTOR,
+    DEMO_CASE_GROUP_KEY,
+    DEMO_MARKER,
+    DEMO_VERSION,
+    is_seed_demo_case,
+    is_seed_demo_incident,
+)
+
+CASE_GROUP_KEY = DEMO_CASE_GROUP_KEY
 DECISION_BOUNDARY = (
     "Demo data is synthetic and must not be used as real security evidence."
 )
@@ -292,26 +301,11 @@ def scenario_correlation_summary(scenario: Scenario) -> str:
 
 
 def is_owned_incident(incident: Any) -> bool:
-    try:
-        payload = json.loads(incident.raw_alert or "{}")
-    except (TypeError, json.JSONDecodeError):
-        return False
-    return (
-        payload.get("synthetic") is True
-        and payload.get("demo") is True
-        and payload.get("source") == DEMO_MARKER
-        and str(incident.wazuh_doc_id or "").startswith(
-            f"{DEMO_MARKER}:{DEMO_VERSION}:incident:"
-        )
-    )
+    return is_seed_demo_incident(incident)
 
 
 def is_owned_case(case: Any) -> bool:
-    return (
-        case.group_key == CASE_GROUP_KEY
-        and case.created_by == DEMO_ACTOR
-        and str(case.title or "").startswith("[DEMO]")
-    )
+    return is_seed_demo_case(case)
 
 
 def load_database() -> tuple[Any, Any, Any]:
