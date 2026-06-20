@@ -43,6 +43,21 @@ git clone https://github.com/bluesaphire76/sovereign-ai-soc.git
 cd sovereign-ai-soc
 ```
 
+## Guided local installer
+
+Start with the safe plan, then apply it explicitly:
+
+```bash
+./ai-soc install --profile demo --dry-run
+./ai-soc install --profile demo --apply
+```
+
+The guided installer creates or reuses `.venv`, installs Python requirements,
+runs `npm ci`, initializes `.env` through the existing safe workflow and runs
+read-only validation. An existing `.env` is not overwritten. It does not start
+services or containers, run Docker Compose up/down, pull Ollama models or seed
+demo data. Use `--profile local` for a non-demo local configuration.
+
 ## Create the Python virtual environment
 
 ```bash
