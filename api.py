@@ -8,8 +8,8 @@ from sqlalchemy import func, or_, case as sql_case
 from database import SessionLocal
 from demo_data_management import (
     DEMO_CASE_GROUP_KEY,
-    DEMO_INCIDENT_MARKERS,
     case_demo_origin,
+    demo_incident_filter,
     incident_demo_origin,
 )
 from case_ai_analysis import generate_case_ai_analysis
@@ -1393,9 +1393,7 @@ def list_incidents(
         query = db.query(Incident)
 
         if demo_only:
-            query = query.filter(
-                Incident.wazuh_doc_id.in_(DEMO_INCIDENT_MARKERS)
-            )
+            query = query.filter(demo_incident_filter())
 
         if status and status.upper() != "ALL":
             query = query.filter(Incident.status == status.upper())

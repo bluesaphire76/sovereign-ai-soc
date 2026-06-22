@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 import models
+import demo_data_management
 from demo_data_management import (
     DEMO_SCENARIO_IDS,
     DemoDependencyError,
@@ -16,7 +18,15 @@ from demo_data_management import (
     delete_demo_incident,
     incident_demo_origin,
 )
-from models import Base, Incident, IncidentAudit, IncidentCase, SecurityAlert
+from models import (
+    Base,
+    Incident,
+    IncidentAudit,
+    IncidentCase,
+    RemediationProposal,
+    RemediationProposalEvent,
+    SecurityAlert,
+)
 from scripts import demo_seed
 
 
@@ -128,6 +138,50 @@ def test_delete_demo_incident_blocks_external_security_alert_reference() -> None
             delete_demo_incident(db, incident.id)
 
         assert db.query(Incident).filter(Incident.id == incident.id).first()
+
+
+def test_delete_demo_incident_removes_derived_remediation_workflow() -> None:
+    factory = session_factory()
+    with factory() as db:
+        demo_seed.apply_seed(db, models)
+        db.commit()
+        incident = db.query(Incident).order_by(Incident.id.asc()).first()
+        proposal = RemediationProposal(
+            proposal_key="demo-proposal",
+            title="Synthetic workflow proposal",
+            action_type="DOCUMENT",
+            status="APPROVED",
+            risk_level="LOW",
+            execution_mode="DOCUMENT_ONLY",
+            connector_key="none",
+            incident_id=incident.id,
+            created_by_username="analyst",
+        )
+        db.add(proposal)
+        db.flush()
+        db.add(
+            RemediationProposalEvent(
+                proposal_id=proposal.id,
+                event_type="APPROVED",
+                actor_username="analyst",
+            )
+        )
+        db.commit()
+
+        result = delete_demo_incident(db, incident.id)
+        db.commit()
+
+        assert result.deleted_counts["remediation_proposals"] == 1
+        assert result.deleted_counts["remediation_proposal_events"] == 1
+        assert db.query(RemediationProposal).count() == 0
+        assert db.query(RemediationProposalEvent).count() == 0
+
+
+def test_demo_delete_flushes_children_before_parent() -> None:
+    source = Path(demo_data_management.__file__).read_text(encoding="utf-8")
+
+    helper = source[source.index("def _count_and_delete"):source.index("def _incident_blockers")]
+    assert "db.flush()" in helper
 
 
 def test_delete_demo_case_removes_case_workflow_but_preserves_incidents() -> None:
