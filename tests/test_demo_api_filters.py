@@ -17,7 +17,9 @@ def database_factory():
     return sessionmaker(bind=engine)
 
 
-def test_incident_demo_filter_returns_only_current_stable_seed(monkeypatch) -> None:
+def test_incident_demo_filter_returns_seed_and_gui_synthetic_records(
+    monkeypatch,
+) -> None:
     factory = database_factory()
     with factory() as db:
         demo_seed.apply_seed(db, models)
@@ -31,6 +33,19 @@ def test_incident_demo_filter_returns_only_current_stable_seed(monkeypatch) -> N
                         "synthetic": True,
                         "source": "sovereign-ai-soc-synthetic",
                         "data": {"test_type": "gui_synthetic_test"},
+                    }
+                ),
+            )
+        )
+        db.add(
+            Incident(
+                wazuh_doc_id="synthetic-marker-collision",
+                timestamp="2026-05-02T00:00:00+00:00",
+                rule="Not a supported synthetic test",
+                raw_alert=json.dumps(
+                    {
+                        "synthetic": False,
+                        "source": "external-system",
                     }
                 ),
             )
@@ -54,8 +69,11 @@ def test_incident_demo_filter_returns_only_current_stable_seed(monkeypatch) -> N
         demo_only=True,
     )
 
-    assert response["total"] == 5
-    assert all(item["demo_origin"] == "seed" for item in response["items"])
+    assert response["total"] == 6
+    assert {item["demo_origin"] for item in response["items"]} == {
+        "seed",
+        "synthetic_test",
+    }
     assert all(item["is_demo"] is True for item in response["items"])
 
 

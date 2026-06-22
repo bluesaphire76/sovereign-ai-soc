@@ -19,8 +19,10 @@ from models import (
     InvestigationSessionRecord,
     InvestigationSimilarityHistoryRecord,
     RemediationProposal,
+    RemediationProposalEvent,
     SecurityAlert,
 )
+from sqlalchemy import and_, or_
 
 
 DEMO_MARKER = "AI_SOC_DEMO_SEED"
@@ -124,10 +126,26 @@ def case_demo_origin(case: IncidentCase) -> str | None:
     return "seed" if is_seed_demo_case(case) else None
 
 
+def demo_incident_filter():
+    return or_(
+        Incident.wazuh_doc_id.in_(DEMO_INCIDENT_MARKERS),
+        and_(
+            Incident.wazuh_doc_id.like(f"{LEGACY_SYNTHETIC_PREFIX}%"),
+            Incident.raw_alert.contains('"synthetic": true'),
+            Incident.raw_alert.contains(
+                f'"source": "{LEGACY_SYNTHETIC_SOURCE}"'
+            ),
+            Incident.raw_alert.contains('"test_type": "gui_synthetic_test"'),
+        ),
+    )
+
+
 def _count_and_delete(db: Any, model: Any, criterion: Any) -> int:
     rows = list(db.query(model).filter(criterion).all())
     for row in rows:
         db.delete(row)
+    if rows:
+        db.flush()
     return len(rows)
 
 
@@ -149,12 +167,6 @@ def _incident_blockers(db: Any, incident: Incident) -> list[str]:
         .count()
     ):
         blockers.append("event_aggregate")
-    if (
-        db.query(RemediationProposal)
-        .filter(RemediationProposal.incident_id == incident.id)
-        .count()
-    ):
-        blockers.append("remediation_proposal")
     if (
         db.query(InvestigationSessionRecord)
         .filter(InvestigationSessionRecord.incident_id == incident.id)
@@ -198,6 +210,44 @@ def _incident_blockers(db: Any, incident: Incident) -> list[str]:
     return sorted(set(blockers))
 
 
+def _delete_remediation_proposals(
+    db: Any,
+    *,
+    incident_id: int | None = None,
+    case_id: int | None = None,
+) -> dict[str, int]:
+    criteria = []
+    if incident_id is not None:
+        criteria.append(RemediationProposal.incident_id == incident_id)
+    if case_id is not None:
+        criteria.append(RemediationProposal.case_id == case_id)
+    if not criteria:
+        return {
+            "remediation_proposal_events": 0,
+            "remediation_proposals": 0,
+        }
+
+    proposals = list(
+        db.query(RemediationProposal).filter(or_(*criteria)).all()
+    )
+    proposal_ids = [proposal.id for proposal in proposals]
+    event_count = 0
+    if proposal_ids:
+        event_count = _count_and_delete(
+            db,
+            RemediationProposalEvent,
+            RemediationProposalEvent.proposal_id.in_(proposal_ids),
+        )
+    for proposal in proposals:
+        db.delete(proposal)
+    if proposals:
+        db.flush()
+    return {
+        "remediation_proposal_events": event_count,
+        "remediation_proposals": len(proposals),
+    }
+
+
 def delete_demo_incident(db: Any, incident_id: int) -> DemoDeletionResult:
     incident = (
         db.query(Incident)
@@ -218,6 +268,7 @@ def delete_demo_incident(db: Any, incident_id: int) -> DemoDeletionResult:
         raise DemoDependencyError(blockers)
 
     counts = {
+        **_delete_remediation_proposals(db, incident_id=incident.id),
         "case_links": _count_and_delete(
             db,
             CaseIncident,
@@ -242,13 +293,6 @@ def delete_demo_incident(db: Any, incident_id: int) -> DemoDeletionResult:
 
 def _case_blockers(db: Any, case: IncidentCase) -> list[str]:
     blockers: list[str] = []
-    if (
-        db.query(RemediationProposal)
-        .filter(RemediationProposal.case_id == case.id)
-        .count()
-    ):
-        blockers.append("remediation_proposal")
-
     links = (
         db.query(CaseIncident)
         .filter(CaseIncident.case_id == case.id)
@@ -288,6 +332,7 @@ def delete_demo_case(db: Any, case_id: int) -> DemoDeletionResult:
         raise DemoDependencyError(blockers)
 
     counts = {
+        **_delete_remediation_proposals(db, case_id=case.id),
         "case_ai_generation_jobs": _count_and_delete(
             db,
             CaseAiGenerationJob,

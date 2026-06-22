@@ -1,6 +1,11 @@
 "use client";
 
-import { authFetch, getStoredUser, type AuthUser } from "@/lib/auth";
+import {
+  authFetch,
+  fetchCurrentUser,
+  getStoredUser,
+  type AuthUser,
+} from "@/lib/auth";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
@@ -543,7 +548,9 @@ export default function CasesPage() {
   }
 
   useEffect(() => {
-    setCurrentUser(getStoredUser());
+    fetchCurrentUser()
+      .then(setCurrentUser)
+      .catch(() => setCurrentUser(getStoredUser()));
   }, []);
 
   useEffect(() => {

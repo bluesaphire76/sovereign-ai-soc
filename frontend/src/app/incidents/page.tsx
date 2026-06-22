@@ -12,7 +12,12 @@ import {
   Trash2,
 } from "lucide-react";
 import AppNavigation from "../../components/AppNavigation";
-import { authFetch, getStoredUser, type AuthUser } from "../../lib/auth";
+import {
+  authFetch,
+  fetchCurrentUser,
+  getStoredUser,
+  type AuthUser,
+} from "../../lib/auth";
 
 type Incident = {
   id: number;
@@ -354,7 +359,9 @@ export default function IncidentsPage() {
   }, [demoMode, hostFilter, page, riskFilter, searchFilter, statusFilter]);
 
   useEffect(() => {
-    setCurrentUser(getStoredUser());
+    fetchCurrentUser()
+      .then(setCurrentUser)
+      .catch(() => setCurrentUser(getStoredUser()));
   }, []);
 
   useEffect(() => {
@@ -406,7 +413,7 @@ export default function IncidentsPage() {
     if (!canManageDemo || !incident.demo_origin) return;
 
     const confirmed = window.confirm(
-      `Delete synthetic incident #${incident.id}? Its demo-only notes, audit entries and case links will also be removed. Real incidents and telemetry are not deletion targets.`
+      `Delete synthetic incident #${incident.id}? Its demo-only notes, audit entries, remediation proposals and case links will also be removed. Real incidents and telemetry are not deletion targets.`
     );
     if (!confirmed) return;
 
@@ -601,10 +608,10 @@ export default function IncidentsPage() {
                 <div className="p-4 text-xs text-slate-500">Loading incidents...</div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[1040px] table-fixed border-collapse text-left text-[12px]">
+                  <table className="w-full min-w-[1120px] table-fixed border-collapse text-left text-[12px]">
                     <thead className="border-b border-slate-800 bg-slate-950 text-[10px] uppercase tracking-[0.16em] text-slate-500">
                       <tr>
-                        <th className="w-8 px-2 py-2"></th>
+                        <th className="w-[92px] px-2 py-2 text-right font-semibold">Actions</th>
                         <th className="w-3 px-0 py-2"></th>
                         <th className="w-[76px] px-2 py-2 font-semibold">ID</th>
                         <th className="w-[116px] px-2 py-2 font-semibold">Severity</th>
@@ -713,7 +720,24 @@ export default function IncidentsPage() {
                             </td>
 
                             <td className="px-2 py-1.5 align-middle text-right">
-                              <ChevronRight className="h-3.5 w-3.5 text-slate-600" strokeWidth={1.75} />
+                              <div className="flex items-center justify-end gap-1">
+                                {incident.demo_origin && canManageDemo && (
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      void deleteDemoIncident(incident);
+                                    }}
+                                    disabled={deletingIncidentId === incident.id}
+                                    className="inline-flex h-7 items-center gap-1 border border-red-800 bg-red-950/40 px-2 text-[10px] font-medium text-red-200 hover:bg-red-950/70 disabled:cursor-not-allowed disabled:opacity-50"
+                                    title="Delete this synthetic incident and its demo-owned workflow data"
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                    {deletingIncidentId === incident.id ? "Deleting" : "Delete"}
+                                  </button>
+                                )}
+                                <ChevronRight className="h-3.5 w-3.5 text-slate-600" strokeWidth={1.75} />
+                              </div>
                             </td>
                           </tr>
                         );
