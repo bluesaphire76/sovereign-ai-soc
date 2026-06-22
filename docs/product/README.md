@@ -7,6 +7,7 @@ This folder contains product-facing documentation for Sovereign AI SOC.
 - [ai capabilities](ai-capabilities.md)
 - [demo guide](demo-guide.md)
 - [detection sources](detection-sources.md)
+- [external user quickstart](external-user-quickstart.md)
 - [product overview](product-overview.md)
 - [reporting guide](reporting-guide.md)
 - [roadmap](roadmap.md)

@@ -90,6 +90,11 @@ REQUIRED_COMMANDS = (
         markers=("Public CI baseline validation completed",),
     ),
     CommandSpec(
+        ("docs-validate", "--json"),
+        json_results=frozenset({"EXTERNAL_DOCS_READY"}),
+        json_identity=("validator", "Sovereign AI SOC external documentation"),
+    ),
+    CommandSpec(
         ("doctor", "--json"),
         json_results=frozenset({"READY", "READY_WITH_WARNINGS"}),
         json_identity=("doctor", "Sovereign AI SOC"),

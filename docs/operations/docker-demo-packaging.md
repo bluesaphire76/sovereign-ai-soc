@@ -1,5 +1,10 @@
 # Docker Demo Packaging Foundation
 
+For a first evaluation path, start with the
+[External User Quickstart](../product/external-user-quickstart.md). For Docker,
+model, database, or runtime failures, see
+[Troubleshooting](troubleshooting.md).
+
 ## Purpose and scope
 
 The Docker demo packaging is a controlled foundation for evaluating Sovereign
@@ -15,6 +20,9 @@ provides buildable application images and a readable Compose model for:
 This is a local demo foundation, not a production deployment or a one-command
 installer. Database schema initialization, the first admin account and demo
 data remain explicit operator steps.
+
+In short, it includes the API, frontend, PostgreSQL, Qdrant, and Ollama. It
+does not include Wazuh, Suricata, Grafana, Prometheus, Loki, or Alertmanager.
 
 ## Why Ollama is included
 

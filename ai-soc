@@ -17,6 +17,7 @@ Commands:
   doctor [--strict] [--json]     Check local readiness
   validate                       Run public CI baseline validation
   validate-public-ci             Alias for validate
+  docs-validate [--json]         Validate external-user documentation
   validate-runtime [--strict] [--json]
                                  Check a running local runtime (read-only)
   release-check [--json] [--write-report] [--strict] [--skip-runtime]
@@ -108,6 +109,10 @@ case "$command_name" in
     fi
     python_bin="$(resolve_python)"
     exec "$python_bin" "$REPOSITORY_ROOT/scripts/validate_public_ci_baseline.py"
+    ;;
+  docs-validate)
+    python_bin="$(resolve_python)"
+    exec "$python_bin" "$REPOSITORY_ROOT/scripts/validate_external_docs.py" "$@"
     ;;
   validate-runtime)
     python_bin="$(resolve_python)"

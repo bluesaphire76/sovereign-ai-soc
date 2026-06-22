@@ -34,6 +34,7 @@ def main() -> int:
         ("README.md", "README exists"),
         ("requirements.txt", "Backend requirements file exists"),
         ("scripts/validate_docs_structure.py", "Documentation structure validator exists"),
+        ("scripts/validate_external_docs.py", "External documentation validator exists"),
     )
     for relative_path, message in required_paths:
         if exists(relative_path):
@@ -57,6 +58,13 @@ def main() -> int:
         run_check(
             [sys.executable, "scripts/validate_docs_structure.py"],
             "Documentation structure validation",
+            failures,
+        )
+
+    if exists("scripts/validate_external_docs.py"):
+        run_check(
+            [sys.executable, "scripts/validate_external_docs.py"],
+            "External documentation validation",
             failures,
         )
 

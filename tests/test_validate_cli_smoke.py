@@ -64,9 +64,9 @@ def test_complete_report_accepts_safe_commands(tmp_path):
     assert exit_code == 0
     assert report["result"] == "CLI_SMOKE_READY"
     assert report["summary"]["required"] == {
-        "ok": 6,
+        "ok": 7,
         "fail": 0,
-        "total": 6,
+        "total": 7,
     }
     assert report["summary"]["graceful"] == {
         "ok": 8,
@@ -185,5 +185,6 @@ def test_root_cli_help_lists_clean_demo_commands():
     )
 
     assert result.returncode == 0
+    assert "docs-validate [--json]" in result.stdout
     assert "demo-info [--json]" in result.stdout
     assert "demo-reset [--dry-run|--apply] [--json]" in result.stdout
