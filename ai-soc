@@ -19,7 +19,8 @@ Commands:
   validate-public-ci             Alias for validate
   validate-runtime [--strict] [--json]
                                  Check a running local runtime (read-only)
-  release-check [--strict] [--no-runtime] [--full] [--write-report] [--json]
+  release-check [--json] [--write-report] [--strict] [--skip-runtime]
+                [--skip-frontend-build] [--skip-pytest] [--skip-docker-build]
                                  Check release readiness (read-only by default)
   package-validate [--json] [--build]
                                  Validate Docker packaging without running containers
@@ -114,7 +115,7 @@ case "$command_name" in
     ;;
   release-check)
     python_bin="$(resolve_python)"
-    exec "$python_bin" "$REPOSITORY_ROOT/scripts/release_readiness.py" "$@"
+    exec "$python_bin" "$REPOSITORY_ROOT/scripts/release_check.py" "$@"
     ;;
   package-validate)
     python_bin="$(resolve_python)"

@@ -320,14 +320,16 @@ Before publishing or sharing a release, run the read-only release checker:
 
 ```bash
 ./ai-soc release-check
-./ai-soc release-check --full
+./ai-soc release-check --skip-runtime --skip-frontend-build --skip-pytest --json
 ./ai-soc release-check --write-report
+./ai-soc release-check --strict
 ```
 
-The default check is lightweight and does not write files. `--full` also runs
-the backend test suite, frontend production build and Docker Compose
-configuration validation. `--write-report` stores ignored local Markdown and
-JSON artifacts under `reports/validation/`.
+The default check is read-only and runs repository, installability, packaging,
+demo, runtime, Python, backend test, frontend build, Compose and documentation
+checks. Skip flags support faster targeted validation without changing local
+state. `--write-report` stores ignored local Markdown and JSON artifacts under
+`reports/validation/`; `--strict` turns every warning into a blocking result.
 
 The controlled Docker demo foundation includes the API, frontend, PostgreSQL,
 Qdrant and Ollama without claiming a full production deployment:

@@ -93,6 +93,16 @@ The guided local installer also runs packaging validation:
 
 It does not start Docker services or pull Ollama models.
 
+The repository-wide release gate includes this packaging validation:
+
+```bash
+./ai-soc release-check
+```
+
+The release check remains read-only: it does not start containers, build
+images, pull models or alter demo data. Docker image builds are always a
+separate explicit operator action.
+
 Demo mode remains explicit and reversible:
 
 ```bash

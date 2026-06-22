@@ -93,6 +93,9 @@ jobs:
       - name: Validate public CI baseline
         run: python3 scripts/validate_public_ci_baseline.py
 
+      - name: Run lightweight release readiness check
+        run: ./ai-soc release-check --skip-runtime --skip-frontend-build --skip-pytest --skip-docker-build --json
+
       - name: Validate public compose files
         shell: bash
         run: |

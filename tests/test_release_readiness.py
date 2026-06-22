@@ -34,12 +34,24 @@ def _check(status: str, *, strict_blocking: bool = False) -> Check:
 
 
 def test_parse_args_supports_release_modes() -> None:
-    args = parse_args(["--json", "--strict", "--no-runtime", "--full", "--write-report"])
+    args = parse_args(
+        [
+            "--json",
+            "--strict",
+            "--skip-runtime",
+            "--skip-frontend-build",
+            "--skip-pytest",
+            "--skip-docker-build",
+            "--write-report",
+        ]
+    )
 
     assert args.json is True
     assert args.strict is True
     assert args.no_runtime is True
-    assert args.full is True
+    assert args.skip_frontend_build is True
+    assert args.skip_pytest is True
+    assert args.skip_docker_build is True
     assert args.write_report is True
 
 
@@ -49,8 +61,8 @@ def test_release_result_distinguishes_warnings_and_failures() -> None:
     assert release_result([_check(STATUS_FAIL)], strict=False) == (RESULT_NOT_READY, 1)
 
 
-def test_strict_mode_only_blocks_classified_warnings() -> None:
-    assert release_result([_check(STATUS_WARN)], strict=True) == (RESULT_WARNINGS, 0)
+def test_strict_mode_blocks_every_warning() -> None:
+    assert release_result([_check(STATUS_WARN)], strict=True) == (RESULT_NOT_READY, 1)
     assert release_result(
         [_check(STATUS_WARN, strict_blocking=True)],
         strict=True,
