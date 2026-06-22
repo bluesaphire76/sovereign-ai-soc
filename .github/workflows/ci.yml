@@ -107,3 +107,32 @@ jobs:
           else
             echo "::notice title=Compose validation skipped::deploy/observability/docker-compose.yml requires the intentionally untracked deploy/observability/ntfy-bridge/.env file"
           fi
+  
+  docker-package-build:
+    name: Docker package build validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Validate Docker packaging metadata
+        run: python3 scripts/validate_docker_packaging.py
+
+      - name: Validate demo compose config
+        run: docker compose -f deploy/demo/docker-compose.demo.yml config --quiet
+
+      - name: Build API image
+        run: docker build -f Dockerfile.api -t ai-soc-api:ci .
+
+      - name: Build frontend image
+        run: docker build -f frontend/Dockerfile -t ai-soc-frontend:ci frontend
+
+      - name: Verify no AI SOC CI containers are running
+        shell: bash
+        run: |
+          if docker ps --format '{{.Image}}' | grep -E '^ai-soc-(api|frontend):ci$'; then
+            echo "Unexpected running AI SOC CI container detected"
+            exit 1
+          fi
+          echo "No AI SOC CI containers are running"
