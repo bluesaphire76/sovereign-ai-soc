@@ -1,5 +1,9 @@
 # Sovereign AI SOC Installation and Demo Guide
 
+New to the repository? Read the
+[External User Quickstart](docs/external-user-quickstart.md) first for the
+shortest safe path, component requirements, and project boundaries.
+
 ## What this guide covers
 
 This guide prepares Sovereign AI SOC for a local lab or product demo and
@@ -85,10 +89,13 @@ cd ..
 ```bash
 ./ai-soc doctor
 ./ai-soc validate
+./ai-soc docs-validate
 ```
 
 `doctor` checks local tools, repository files and optional local endpoints.
 `validate` runs the lightweight public CI baseline without starting services.
+`docs-validate` checks the external quickstart, troubleshooting paths, command
+references, and obvious secret patterns without modifying files.
 
 Before publishing a release or sharing the demo, run:
 
@@ -216,11 +223,15 @@ After installing Python and frontend dependencies:
 ```bash
 ./ai-soc doctor
 ./ai-soc validate
+./ai-soc package-validate
 ./ai-soc init --profile demo
 ./ai-soc validate-runtime
+./ai-soc demo-info
+./ai-soc demo-reset --dry-run
 ./ai-soc demo-seed --apply
 ./ai-soc demo-validate
 ./ai-soc demo-status
+./ai-soc release-check
 ```
 
 When the frontend service is available, open
@@ -228,6 +239,10 @@ When the frontend service is available, open
 [docs/product/demo-guide.md](docs/product/demo-guide.md) for the presenter flow.
 
 ## Troubleshooting
+
+For command-oriented diagnosis covering Python, Node.js, Docker, Ollama,
+PostgreSQL, Qdrant, demo data, and systemd, use the
+[Troubleshooting Guide](docs/troubleshooting.md).
 
 - **`.env` is missing:** run `./ai-soc init --profile demo`, then review the
   local values.

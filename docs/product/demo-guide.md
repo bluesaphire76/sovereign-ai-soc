@@ -3,6 +3,9 @@
 This guide helps present Sovereign AI SOC as a local-first, AI-assisted SOC platform.
 For dependency installation and environment preparation, start with the
 [Installation and Demo Guide](../../INSTALL.md).
+First-time evaluators can use the
+[External User Quickstart](external-user-quickstart.md); common failures are
+covered in [Troubleshooting](../operations/troubleshooting.md).
 
 ## Demo Objective
 
@@ -18,6 +21,15 @@ Show how the platform turns host, network and contextual telemetry into correlat
 - No secrets, tokens or private operational data are visible.
 
 ## Pre-Demo Readiness
+
+Use this short pre-demo checklist after the application layer is available:
+
+```bash
+./ai-soc release-check
+./ai-soc demo-info
+./ai-soc demo-validate
+./ai-soc demo-status
+```
 
 The repository now provides three lightweight validation layers for preparing a demo:
 
@@ -55,6 +67,11 @@ when that optional unit is installed and intended for the demo.
 Use `demo-up --apply` or `demo-down --apply` only after reviewing the dry-run
 plan. Seeded demo records remain synthetic and must never be presented as real
 security evidence.
+
+Ollama and a configured local model provide the strongest AI-assisted demo
+experience. Without them, deterministic workflows and fallback behavior remain
+available but AI analysis will be degraded. If any readiness command fails,
+follow the [Troubleshooting Guide](../operations/troubleshooting.md).
 
 As the final pre-demo or pre-release gate, run `./ai-soc release-check`. It
 aggregates the safe dry-run, packaging, demo, test, build, Compose and

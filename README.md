@@ -263,6 +263,32 @@ See [Demo Guide](docs/product/demo-guide.md) for presenter talking points.
 
 The repository is designed for a local lab or product demo environment. Runtime values are configured through `.env`, which must never be committed.
 
+### For external users
+
+New to the project? Start here:
+
+1. [External User Quickstart](docs/external-user-quickstart.md)
+2. [Installation and Demo Guide](INSTALL.md)
+3. [Troubleshooting](docs/troubleshooting.md)
+4. [Docker Demo Packaging](docs/docker-demo-packaging.md)
+5. [Demo Guide](docs/demo-guide.md)
+
+The shortest reviewed preparation and demo-data path is:
+
+```bash
+./ai-soc install --profile demo --dry-run
+./ai-soc install --profile demo --apply
+./ai-soc demo-info
+./ai-soc demo-seed --apply
+./ai-soc demo-validate
+./ai-soc release-check
+```
+
+This prepares a local lab workflow, not a production deployment. Wazuh and
+Suricata are optional for synthetic demo data and required only when evaluating
+their real telemetry. Ollama is optional for deterministic workflows but is
+needed for the complete local AI-assisted experience; a GPU is not required.
+
 See [INSTALL.md](INSTALL.md) for the complete local installation and
 10-minute demo-readiness workflow.
 
@@ -406,6 +432,9 @@ python3 scripts/validate_public_ci_baseline.py
 
 ## Documentation Index
 
+- [External User Quickstart](docs/external-user-quickstart.md)
+- [Troubleshooting](docs/troubleshooting.md)
+- [Ports and Components](docs/ports-and-components.md)
 - [Product Overview](docs/product/product-overview.md)
 - [Architecture](docs/architecture/architecture.md)
 - [Installation and Demo Guide](INSTALL.md)
