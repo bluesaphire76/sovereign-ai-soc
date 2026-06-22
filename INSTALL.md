@@ -90,8 +90,29 @@ cd ..
 `doctor` checks local tools, repository files and optional local endpoints.
 `validate` runs the lightweight public CI baseline without starting services.
 
-Before publishing a release or sharing the demo, run `./ai-soc release-check`;
-use `--full` for the heavier test, build and Compose configuration checks.
+Before publishing a release or sharing the demo, run:
+
+```bash
+./ai-soc release-check
+./ai-soc release-check --skip-runtime --skip-frontend-build --skip-pytest --json
+./ai-soc release-check --write-report
+./ai-soc release-check --strict
+```
+
+The default release check is read-only. It validates repository state, core
+CLI behavior, installer and initializer dry runs, Docker packaging, demo
+ownership/status, optional runtime readiness, Python dependencies and syntax,
+backend tests, the frontend production build, Compose configuration and
+release documentation. It never starts or stops services, writes demo data,
+builds Docker images, pulls models or changes `.env`.
+
+Use `--skip-runtime`, `--skip-frontend-build` and `--skip-pytest` for a faster
+targeted run. Docker image builds are never performed by default;
+`--skip-docker-build` records that explicit policy in machine-readable output.
+`--write-report` is the only mode that writes files, producing ignored
+Markdown and JSON reports under `reports/validation/`. In `--strict` mode,
+every warning makes the release not ready. Generated reports are local
+validation artifacts and must not be committed.
 
 ## Validate Docker packaging
 

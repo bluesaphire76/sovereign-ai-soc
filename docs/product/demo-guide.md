@@ -37,6 +37,7 @@ Run the local checks from the repository root:
 ./ai-soc demo-status
 ./ai-soc demo-up --dry-run
 ./ai-soc demo-down --dry-run
+./ai-soc release-check
 ./ai-soc version
 ```
 
@@ -54,6 +55,11 @@ when that optional unit is installed and intended for the demo.
 Use `demo-up --apply` or `demo-down --apply` only after reviewing the dry-run
 plan. Seeded demo records remain synthetic and must never be presented as real
 security evidence.
+
+As the final pre-demo or pre-release gate, run `./ai-soc release-check`. It
+aggregates the safe dry-run, packaging, demo, test, build, Compose and
+documentation checks without changing services or demo data. Add
+`--write-report` only when an ignored local readiness artifact is needed.
 
 Before presenting, verify the explicit demo boundary:
 

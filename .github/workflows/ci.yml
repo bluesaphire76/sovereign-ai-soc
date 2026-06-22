@@ -41,6 +41,9 @@ jobs:
       - name: Run AI SOC CLI smoke validation
         run: python scripts/validate_cli_smoke.py
 
+      - name: Run lightweight release readiness check
+        run: ./ai-soc release-check --skip-runtime --skip-frontend-build --skip-pytest --skip-docker-build --json
+
       - name: Compile tracked Python files
         run: git ls-files -z '*.py' | xargs -0 python -m py_compile
 
