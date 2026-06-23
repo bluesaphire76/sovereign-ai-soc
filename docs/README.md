@@ -2,9 +2,8 @@
 
 This is the canonical documentation entry point for the repository.
 
-The current `main` branch contains the v0.7 product baseline. The latest
-published Git tag is still `v0.6.0`; v0.7 documentation therefore describes
-the implemented state of `main`, not a published release tag.
+The current release baseline is v0.7.0. The documentation below describes the
+published v0.7 product surface unless a page is explicitly marked historical.
 
 ## Start Here
 
@@ -36,7 +35,7 @@ the implemented state of `main`, not a published release tag.
 - `docs/product/`: user-facing behavior, workflows, demos and roadmap.
 - `docs/architecture/`: current architecture, security model and feature design.
 - `docs/operations/`: installation, administration, observability and runbooks.
-- `docs/releases/`: immutable release notes and the v0.7 unreleased summary.
+- `docs/releases/`: immutable release notes, including the current v0.7.0 release.
 - `docs/validation/`: historical validation evidence and current validation guides.
 - `docs/diagrams/`: editable Mermaid architecture sources.
 - `docs/assets/`: committed screenshots and rendered architecture assets.
