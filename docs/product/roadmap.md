@@ -1,8 +1,7 @@
 # Roadmap
 
-This roadmap separates published releases from capabilities already implemented
-on `main`. The latest Git tag is `v0.6.0`; v0.7 is implemented but not yet
-published as a tag.
+This roadmap separates published releases from future work. The current release
+baseline is `v0.7.0`.
 
 | Version | Status | Theme | Highlights |
 |---|---:|---|---|
@@ -12,7 +11,7 @@ published as a tag.
 | v0.4 | Completed | Ingestion quality and observability | Raw event/security alert/incident/case separation, aggregation, deduplication, noise suppression, correlation-first incident creation, AI hardening, reporting, retention and health visibility. |
 | v0.5 | Completed | Enterprise demo and workflow polish | Demo scenario pack, enterprise UX, Incident Command Room, AI workflow refinement, Detection Quality review, report/export polish, Suricata network telemetry, DNS context and correlation visualization. |
 | v0.6 | Released | AI investigation and governed remediation | Investigation intelligence, evidence confidence, LLM-backed remediation intelligence, approval gates, dry-run simulation, rollback readiness, execution audit trail, replay simulation, controlled internal SOAR workflow actions, Incident Command Center rewrite and observability improvements. |
-| v0.7 | Implemented on `main`, unreleased | Governed AI, semantic memory and operational control | AI providers/OpenRouter, AI Data Control, Qdrant Semantic Memory, Recommended Playbooks, investigation graph, advanced timeline, Detection Control lifecycle/versioning, governed remediation connectors, Operation History, Alertmanager, Loki/Alloy, installability and expanded validation. |
+| v0.7 | Released | Governed AI, semantic memory and operational control | AI providers/OpenRouter, AI Data Control, Qdrant Semantic Memory, Recommended Playbooks, investigation graph, advanced timeline, Detection Control lifecycle/versioning, governed remediation connectors, Operation History, Alertmanager, Loki/Alloy, installability and expanded validation. |
 
 ## Completed Product Themes
 

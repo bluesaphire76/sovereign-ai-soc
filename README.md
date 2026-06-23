@@ -1,7 +1,7 @@
 # Sovereign AI SOC
 
-![Release](https://img.shields.io/badge/latest%20tag-v0.6.0-953fdc0)
-![main](https://img.shields.io/badge/main-v0.7%20implemented%20%2F%20unreleased-0891b2)
+![Release](https://img.shields.io/badge/latest%20tag-v0.7.0-953fdc0)
+![main](https://img.shields.io/badge/main-v0.7.0%20release-0891b2)
 [![Dependency Graph](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/dependabot/update-graph/badge.svg)](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/dependabot/update-graph)
 [![CodeQL](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/github-code-scanning/codeql)
 [![Public CI](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/ci.yml/badge.svg)](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/ci.yml)
@@ -30,8 +30,7 @@ external AI providers mandatory. Ollama remains the default; OpenRouter and
 other OpenAI-compatible endpoints are optional, disabled by default and
 controlled by explicit provider/data policies.
 
-The current `main` branch contains the v0.7 implementation baseline. The latest
-published Git tag remains `v0.6.0`.
+The current release baseline is `v0.7.0`.
 
 ## Product Preview
 
@@ -516,7 +515,7 @@ python3 scripts/validate_public_ci_baseline.py
 - [Investigation Graph](docs/architecture/v0.7-investigation-graph.md)
 - [Governed Remediation Connectors](docs/architecture/v0.7-governed-remediation-connectors.md)
 - [Service Operations and Operation History](docs/operations/v0.7-service-operations-history.md)
-- [v0.7.0 Unreleased Main-Branch Summary](docs/releases/RELEASE_NOTES_v0.7.0.md)
+- [v0.7.0 Release Notes](docs/releases/RELEASE_NOTES_v0.7.0.md)
 - [v0.6.0 Release Notes](docs/releases/RELEASE_NOTES_v0.6.0.md)
 - [v0.6 Release Checklist](docs/validation/v0.6-release-checklist.md)
 - [Roadmap](docs/product/roadmap.md)
@@ -546,7 +545,7 @@ Existing release and validation notes:
 | v0.4 | Completed | Ingestion quality, event separation, correlation-first incident creation, noise suppression, AI hardening, reporting and observability |
 | v0.5 | Completed | Demo scenario pack, enterprise UX, Incident Command Room, case workflow, report/export polish, Suricata, DNS context and correlation visualization |
 | v0.6 | Released | AI investigation intelligence, human-governed remediation, Incident Command Center rewrite, replay simulation, controlled internal SOAR workflow actions and observability improvements |
-| v0.7 | Implemented on `main`, unreleased | Governed AI providers/data control, semantic memory, Recommended Playbooks, graph/timeline, Detection Control lifecycle, governed connectors, Operation History, Alertmanager/Loki/Alloy and installability |
+| v0.7 | Released | Governed AI providers/data control, semantic memory, Recommended Playbooks, graph/timeline, Detection Control lifecycle, governed connectors, Operation History, Alertmanager/Loki/Alloy and installability |
 
 See [Roadmap](docs/product/roadmap.md).
 
