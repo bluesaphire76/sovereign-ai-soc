@@ -9,13 +9,18 @@ covered in [Troubleshooting](../operations/troubleshooting.md).
 
 ## Demo Objective
 
-Show how the platform turns host, network and contextual telemetry into correlated incidents, analyst briefings, case workflow and executive-ready reporting while keeping AI local and human-controlled.
+Show how the platform turns host, network and contextual telemetry into
+correlated incidents, governed AI analysis, semantic playbook guidance,
+investigation views, case workflow and executive-ready reporting while keeping
+local AI as the default and every operational decision human-controlled.
 
 ## Prerequisites
 
 - Demo data or live lab telemetry is available.
 - Wazuh and Suricata sources are configured if those screens are part of the demo.
-- Ollama/local AI runtime is reachable.
+- Ollama/local AI runtime is reachable for the strongest default demo.
+- If an external provider is demonstrated, use a non-sensitive synthetic
+  scenario and verify AI Data Control first.
 - Health page is clean enough for presentation.
 - Browser is using the dark enterprise UI with a desktop-sized viewport.
 - No secrets, tokens or private operational data are visible.
@@ -119,22 +124,45 @@ Before presenting, also confirm that the latest [Public CI workflow](https://git
 2. **Executive Dashboard**: show management-ready summary and decision framing.
 3. **Incidents**: explain that not every alert becomes an incident.
 4. **Incident Detail**: open a correlated incident and review the Incident Command Room.
-5. **AI Command Brief**: explain local AI situation summary, risk rationale, evidence and recommended actions.
-6. **Correlation Visualization**: show why the platform created the incident.
-7. **Network/DNS Context**: show Suricata or DNS context where available, emphasizing non-causal DNS wording.
-8. **Detection Quality**: review synthetic scenario coverage and generate an AI suggestion for remediation guidance.
-9. **Cases**: show ownership, SLA, closure readiness and linked incidents.
-10. **Reports**: export an incident report, case report or evidence pack.
-11. **Health**: show runtime observability, worker status and local AI posture.
-12. **Security Audit / Users**: close with RBAC and governance.
+5. **AI Command Brief**: explain provider/model visibility, situation summary,
+   risk rationale, evidence and fallback behavior.
+6. **Advanced Timeline and Investigation Graph**: show sequence and
+   relationships without presenting graph edges as proof.
+7. **Recommended Playbooks**: show Qdrant retrieval, platform-aware relevance,
+   evidence checks and human-approval boundaries.
+8. **Correlation Visualization**: show why deterministic policy created the incident.
+9. **Network/DNS Context**: show Suricata or DNS context where available,
+   emphasizing non-causal DNS wording.
+10. **Governed Remediation**: create or review a proposal and explain why
+    external/high-risk actions remain proposal-only.
+11. **Detection Control Plane**: show inventory, lifecycle, versioning,
+    exceptions/noise operations and semantic context.
+12. **Cases**: show ownership, SLA, closure readiness, graph and semantic closure context.
+13. **AI Providers / AI Data Control / Semantic Memory**: show governance
+    state, not secret values.
+14. **Health and Operation History**: show provider, Qdrant, worker, ingest,
+    Alertmanager and governed operations visibility.
+15. **Grafana Observability**: show metrics, Wazuh backlog alerts, Loki logs and
+    Qdrant dashboards when the optional stack is running.
+16. **Reports, Security Audit and Users**: close with local exports, RBAC and accountability.
 
 ## Talking Points
 
-### Local-first AI
+### Local-first and Governed AI
 
-- AI analysis runs through a local Ollama runtime.
+- AI analysis runs through local Ollama by default.
 - Sensitive security data does not require a mandatory external AI provider.
+- External providers are disabled by default and require provider allowlists,
+  data policy, redaction and role authorization.
 - AI outputs are structured for review and fallback behavior keeps workflows resilient.
+
+### Semantic Memory
+
+- Qdrant retrieves local playbooks, historical incidents and governed
+  operational memory.
+- Retrieved context is advisory and clearly separated from current evidence.
+- Platform/type filters prevent cross-platform playbook spillover.
+- Semantic similarity never decides severity, closure, suppression or response.
 
 ### Human-in-the-loop
 
@@ -180,6 +208,11 @@ Check the Health page for:
 - Database connectivity.
 - AI runtime.
 - Worker backlog.
-- Wazuh/Suricata/DNS freshness.
+- Wazuh and Suricata/network freshness.
+- Qdrant collection state and AI provider health.
+- Grafana, Prometheus and Alertmanager reachability when expected.
+
+Review DNS telemetry on its dedicated page; it is not currently a separate
+Health component.
 
 If AI is unavailable, use the fallback behavior as a product talking point: deterministic workflows still work and AI outages do not stop incident review.

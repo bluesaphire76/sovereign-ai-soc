@@ -1,6 +1,9 @@
 # Architecture
 
-Sovereign AI SOC uses a local-first architecture with a Next.js frontend, FastAPI backend, PostgreSQL datastore, Wazuh and Suricata signal sources and an Ollama-backed local AI runtime.
+Sovereign AI SOC uses a local-first architecture with a Next.js frontend,
+FastAPI backend, PostgreSQL operational datastore, Qdrant semantic memory,
+Wazuh and Suricata signal sources, local Ollama inference and optional governed
+external AI providers.
 
 ## System Overview
 
@@ -12,16 +15,19 @@ Editable Mermaid source: [high-level-architecture.mmd](../diagrams/high-level-ar
 
 | Component | Role |
 |---|---|
-| Next.js frontend | Enterprise SOC console for dashboards, incidents, cases, detection quality, health and admin workflows. |
-| FastAPI backend | API layer for incidents, cases, reports, AI briefings, health, RBAC and telemetry access. |
-| PostgreSQL | Operational storage for normalized events, alerts, incidents, cases, users, audit and report metadata. |
-| Qdrant | Local vector knowledge base for SOC playbook context used by RAG-enabled AI workflows. |
+| Next.js frontend | Enterprise SOC console for dashboards, incidents, cases, Detection Control, AI governance, semantic memory, health and system information. |
+| FastAPI backend | API, RBAC and governance layer for SOC workflow, AI routing, semantic retrieval, remediation and operations. |
+| PostgreSQL | Operational storage for events, alerts, incidents, cases, users, audit, detection lifecycle, remediation proposals and operation history. |
+| Qdrant | Local semantic memory for knowledge-base chunks, historical incidents, Detection Control and approved/final Case Closure context. |
 | Wazuh | Host and endpoint security monitoring source. |
 | Suricata | Network IDS source normalized into network events. |
 | DNS telemetry | Endpoint DNS context normalized into `dns_events`. |
-| Ollama | Local AI runtime used for analysis, summaries and guidance. |
+| AI provider layer | Ollama by default; optional OpenAI-compatible providers such as OpenRouter under explicit data-control policy. |
 | Nginx | TLS reverse proxy and security headers for production-style demo deployments. |
-| systemd workers | Runtime management for API, frontend and ingestion workers. |
+| Detection Control | Governed rules, exceptions, suppression, lifecycle, versioning and rollback. |
+| Remediation governance | Proposal lifecycle, internal connectors, approvals, dry-run, rollback and audit views. |
+| Observability stack | Prometheus, Grafana, Alertmanager, Loki, Grafana Alloy, cAdvisor, node-exporter and optional ntfy delivery. |
+| systemd/Docker operations | Runtime management with allowlisted service status/restart controls and Operation History. |
 
 ## Data Flow
 
@@ -32,8 +38,13 @@ Editable Mermaid source: [high-level-architecture.mmd](../diagrams/high-level-ar
 5. Noise suppression prevents known low-value findings from becoming incidents.
 6. Correlation-first policy decides whether an incident should be created.
 7. Incidents can become cases with ownership, SLA and closure workflow.
-8. AI analysis is generated after deterministic policy decisions.
-9. Reports and evidence packs are generated from stored operational context.
+8. Qdrant retrieves advisory playbooks and historical context.
+9. The AI provider/data-control layer selects an allowed provider and redacts
+   context before any external request.
+10. Analysts use timelines, graphs, Recommended Playbooks and governed
+    remediation proposals.
+11. Detection changes flow through validation, approval, versioning and audit.
+12. Reports and evidence packs are generated from stored operational context.
 
 See [Ingestion and Correlation Pipeline](ingestion-correlation-pipeline.md).
 
@@ -47,24 +58,35 @@ The platform separates operational concepts:
 - `cases`: multi-incident workflow containers with ownership and closure state.
 - `network_events`: Suricata-derived IDS visibility.
 - `dns_events`: contextual DNS telemetry.
+- detection lifecycle/configuration tables: governed rules and version history.
+- remediation proposal/event tables: proposal state and conversion audit.
+- service operation tables: status checks, previews, restart attempts and outcomes.
 - audit/user tables: RBAC and governance.
+
+Qdrant is not the operational source of truth. Its vector records are derived
+advisory memory and can be rebuilt from governed source data.
 
 This separation keeps reporting, workflow and detection logic clear.
 
 ## AI Runtime Role
 
-The local AI runtime supports:
+The governed AI layer supports:
 
 - Incident AI analysis.
-- Qdrant-backed SOC playbook context retrieval for AI prompts and bounded investigation enrichment.
-- Local AI Command Brief generation.
+- Qdrant-backed playbook, procedure and historical-context retrieval.
+- AI Command Brief generation.
 - Risk rationale and evidence summaries.
-- Recommended actions and HOW TO EXECUTE guidance.
+- Recommended Playbooks, actions and HOW TO EXECUTE guidance.
 - Case analysis.
 - Detection Quality remediation suggestions.
 - Executive insight and report enrichment.
 
-AI does not decide access control, mutate lifecycle state by itself, or execute response actions. See [AI Capabilities](../product/ai-capabilities.md).
+Provider selection is server-side. External providers are disabled by default
+and must pass AI Data Control before receiving metadata or redacted context.
+
+AI and semantic memory do not decide access control, mutate lifecycle state by
+themselves or execute arbitrary response actions. See
+[AI Capabilities](../product/ai-capabilities.md).
 
 ## Local-first Sovereignty View
 
@@ -84,6 +106,10 @@ The repository includes deployment artifacts for:
 - PostgreSQL lab runtime.
 - Qdrant local vector knowledge base.
 - Ollama local runtime.
+- Optional governed external AI endpoints.
+- Prometheus/Grafana/Alertmanager observability.
+- Loki/Grafana Alloy logging.
+- Qdrant backfill and retention timers.
 
 ![Deployment architecture](../assets/architecture/deployment-architecture.svg)
 
@@ -96,6 +122,10 @@ Human operators control:
 - Incident escalation and status changes.
 - Case ownership, SLA handling and closure.
 - Interpretation and validation of AI recommendations.
+- External provider enablement and AI data policy.
+- Detection Control approval, apply and rollback.
+- Semantic memory backfill/retention apply operations.
+- Remediation proposal approval and conversion.
 - Operational response actions.
 - Report review and distribution.
 

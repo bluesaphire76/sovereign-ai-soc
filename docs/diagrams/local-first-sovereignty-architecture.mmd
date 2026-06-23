@@ -2,7 +2,9 @@ flowchart LR
   browser["Browser"] --> frontend["Local Next.js Frontend"]
   frontend --> api["Local FastAPI API"]
   api --> postgres["Local PostgreSQL"]
-  api --> ollama["Local Ollama / LLM Runtime"]
+  api --> qdrant["Local Qdrant Semantic Memory"]
+  api --> policy["AI Provider + Data Control Policy"]
+  policy --> ollama["Local Ollama / LLM Runtime"]
   api --> reports["Local Reports / Evidence Packs"]
 
   wazuh["Local Wazuh Signals"] --> api
@@ -10,7 +12,7 @@ flowchart LR
   dns["Local DNS Telemetry"] --> api
 
   external["External AI Provider"]
-  external -. "Not required for core workflow" .-> api
+  policy -. "disabled by default; allowlisted + redacted" .-> external
 
   analyst["Analyst"] --> browser
   api --> audit["Security Audit / RBAC"]

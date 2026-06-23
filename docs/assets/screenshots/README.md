@@ -33,3 +33,17 @@ When screenshots are updated:
 - verify local Markdown links before committing;
 - avoid committing temporary captures, drafts or large duplicate images.
 
+## v0.7 Coverage Gap
+
+The current committed screenshot set predates several implemented v0.7 pages.
+The next sanitized capture pass should add stable screenshots for:
+
+- Advanced Incident Timeline and Investigation Graph;
+- Recommended Playbooks and governed remediation proposals;
+- AI Providers and AI Data Control;
+- Semantic Memory and Operation History;
+- Detection Control lifecycle/versioning;
+- Loki platform logs and Qdrant semantic-memory dashboards.
+
+Until those captures exist, the current user and architecture guides are the
+source of truth for these views.

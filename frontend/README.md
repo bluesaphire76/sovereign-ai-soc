@@ -1,36 +1,97 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Sovereign AI SOC Frontend
 
-## Getting Started
+The frontend is the Next.js 16 analyst console for Sovereign AI SOC.
 
-First, run the development server:
+## Product Routes
+
+- `/` dashboard and operational trends
+- `/incidents` and `/incidents/[id]`
+- `/cases`, `/cases/[id]` and `/cases/kanban`
+- `/executive`
+- `/detection-quality`
+- `/network-events`
+- `/dns-telemetry`
+- `/health`
+- `/settings/detection-control`
+- `/settings/ai-providers`
+- `/settings/ai-data-control`
+- `/settings/semantic-memory`
+- `/system-information/operation-history`
+- `/system-information/security-audit`
+- `/admin/users`
+
+Incident and case detail include Advanced Timeline/Investigation Graph,
+Qdrant-backed Recommended Playbooks and Governed Remediation where applicable.
+
+## Requirements
+
+- Node.js 20 or newer
+- npm
+- FastAPI backend on the configured API base URL
+
+## Configuration
+
+Copy the example:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.local.example .env.local
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Important variables:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```env
+NEXT_PUBLIC_API_BASE_URL=/api-backend
+NEXT_PUBLIC_AI_SOC_DEMO_MODE=false
+NEXT_PUBLIC_GRAFANA_URL=http://127.0.0.1:3002/grafana/
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Use `http://127.0.0.1:8008` as the API base only when running the frontend
+directly without Nginx.
 
-## Learn More
+Never place backend secrets or AI provider API keys in `NEXT_PUBLIC_*`
+variables. They are embedded into the browser bundle.
 
-To learn more about Next.js, take a look at the following resources:
+## Development
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm ci
+npm run dev
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Open `http://127.0.0.1:3000`.
 
-## Deploy on Vercel
+## Production Build
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+npm ci
+npm run build
+npm run start
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The production-style systemd service is named `ai-soc-frontend`.
+
+## Authentication and RBAC
+
+The frontend hides or disables actions by role, but backend RBAC is the
+security boundary.
+
+- ADMIN: privileged settings, approvals, apply/rollback and user administration.
+- ANALYST: investigation, AI generation, previews, validation and proposal work.
+- VIEWER: read-only permitted views.
+
+## Validation
+
+```bash
+npm run build
+```
+
+Public CI installs with `npm ci` and runs the production build. When changing
+routes or navigation, also run the repository documentation validators because
+the user guide and permission matrix mirror the current frontend surface.
+
+## Related Documentation
+
+- [User Guide](../docs/product/user-guide.md)
+- [Architecture](../docs/architecture/architecture.md)
+- [Security Model](../docs/architecture/security-model.md)
+- [Current RBAC Matrix](../docs/architecture/permission-matrix-v0.3.md)

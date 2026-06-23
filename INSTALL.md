@@ -49,9 +49,9 @@ recommended.
 
 The frontend requires Node.js and npm. Docker Engine and the Docker Compose
 plugin are system prerequisites for infrastructure stacks. Ollama is optional
-for local AI execution. PostgreSQL, Qdrant, Grafana, Prometheus, Wazuh and
-Suricata are runtime components whose availability depends on the selected
-deployment mode.
+for deterministic fallback workflows and provides the default full AI
+experience. PostgreSQL, Qdrant, Grafana, Prometheus, Alertmanager, Loki,
+Grafana Alloy, Wazuh and Suricata depend on the selected deployment mode.
 
 ## System prerequisites
 
@@ -180,6 +180,47 @@ never commit `.env`.
 
 Use `--profile local` instead when preparing a non-demo local configuration.
 
+## Configure AI providers safely
+
+Local Ollama is enabled by default. External providers are disabled by default
+and are not required for installation or demo use.
+
+OpenRouter requires local `.env` values for base URL, model and API key, plus:
+
+- global external-provider enablement;
+- provider enablement and feature allowlist;
+- a non-blocking provider redaction mode;
+- matching AI Data Control policy;
+- role authorization and any required confirmation.
+
+Do not place API keys in tracked JSON files. Start from:
+
+- `storage/config/ai_providers.example.json`;
+- `storage/config/ai_data_control_policy.example.json`.
+
+See [AI Providers](docs/architecture/v0.7-external-ai-provider-abstraction.md)
+and [AI Data Control](docs/architecture/v0.7-ai-data-control-policy.md).
+
+## Initialize Qdrant semantic memory
+
+For a clean first knowledge-base index:
+
+```bash
+PYTHONPATH=. .venv/bin/python rag_index.py --recreate
+```
+
+For later playbook-only updates:
+
+```bash
+PYTHONPATH=. .venv/bin/python scripts/reindex_qdrant_playbooks.py --dry-run
+PYTHONPATH=. .venv/bin/python scripts/reindex_qdrant_playbooks.py --apply
+PYTHONPATH=. .venv/bin/python scripts/validate_qdrant_playbook_expansion.py
+```
+
+Historical incident, Detection Control and Case Closure memory use separate
+dry-run/apply runbooks documented in
+[Qdrant Semantic Memory](docs/architecture/v0.7-qdrant-semantic-memory.md).
+
 ## Validate a running runtime
 
 ```bash
@@ -188,6 +229,10 @@ Use `--profile local` instead when preparing a non-demo local configuration.
 
 This command is read-only. It may report warnings when optional or expected
 runtime components are not running.
+
+After login, verify `/platform/health`, AI Providers and Semantic Memory. Qdrant
+reachability alone is not sufficient: the configured collection must exist and
+contain points for semantic features to be useful.
 
 ## Seed synthetic demo data
 
@@ -287,6 +332,8 @@ PostgreSQL, Qdrant, demo data, and systemd, use the
   `./ai-soc validate-runtime`.
 - **Ollama is unreachable:** local deterministic workflows remain available,
   but AI-backed features may use fallback behavior.
+- **External provider is denied:** check global enablement, provider allowlist,
+  redaction mode and AI Data Control; a configured key alone is insufficient.
 - **Qdrant is unreachable:** semantic-memory features will be unavailable or
   degraded; core deterministic workflows remain separate.
 - **Lifecycle apply needs permission:** run the printed systemd commands
@@ -298,6 +345,10 @@ PostgreSQL, Qdrant, demo data, and systemd, use the
 - Demo data is synthetic and is not real security evidence.
 - AI recommendations support analyst review; they do not replace human
   validation or governed approval.
+- Qdrant similarity is advisory and cannot decide severity, suppression or
+  closure.
+- External AI is disabled by default and must not be enabled with real SOC data
+  before policy/redaction review.
 - The platform is local-first and should not be exposed directly to the public
   Internet without additional deployment and security hardening.
 

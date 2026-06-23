@@ -1,15 +1,19 @@
 # Product Documentation
 
-This folder contains product-facing documentation for Sovereign AI SOC.
+Current product behavior is documented here. Versioned historical material is
+kept separately and labeled as such.
 
-## Documents
+## Current Guides
 
-- [ai capabilities](ai-capabilities.md)
-- [demo guide](demo-guide.md)
-- [detection sources](detection-sources.md)
-- [external user quickstart](external-user-quickstart.md)
-- [product overview](product-overview.md)
-- [reporting guide](reporting-guide.md)
-- [roadmap](roadmap.md)
-- [user guide](user-guide.md)
-- [v0.2 detection quality dashboard](v0.2_detection_quality_dashboard.md)
+- [Product overview](product-overview.md)
+- [User guide](user-guide.md)
+- [AI capabilities](ai-capabilities.md)
+- [Detection sources](detection-sources.md)
+- [Reporting guide](reporting-guide.md)
+- [Demo guide](demo-guide.md)
+- [External user quickstart](external-user-quickstart.md)
+- [Roadmap](roadmap.md)
+
+## Historical Product Notes
+
+- [v0.2 Detection Quality dashboard](v0.2_detection_quality_dashboard.md)

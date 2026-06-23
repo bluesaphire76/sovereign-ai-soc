@@ -1,28 +1,35 @@
 # Product Overview
 
-Sovereign AI SOC is a local-first AI-powered security operations platform for product-grade SOC demos and security engineering experimentation.
+Sovereign AI SOC is a local-first, human-governed security operations platform
+for product-grade SOC demos, analyst workflow evaluation and security
+engineering experimentation.
 
-It combines deterministic security operations workflows with local AI-assisted decision support:
+It combines deterministic SOC controls with governed AI and semantic retrieval:
 
-- Wazuh for host and endpoint security monitoring.
-- Suricata for network IDS visibility.
+- Wazuh host and endpoint monitoring.
+- Suricata network IDS visibility.
 - DNS telemetry as contextual endpoint activity.
-- Raw events, security alerts, incidents and cases as separate workflow entities.
-- Correlation-first incident creation.
-- Case ownership, SLA posture and closure readiness.
-- Local Ollama-based AI analysis.
-- Human-in-the-loop analyst control.
-- Executive-ready reporting and analyst evidence packs.
+- Raw events, security alerts, incidents and cases as separate entities.
+- Correlation-first incident creation and explainable noise suppression.
+- Advanced incident timelines and investigation relationship graphs.
+- Local Ollama model routing with optional governed external providers such as
+  OpenRouter.
+- AI Data Control policies, deterministic redaction and provider auditability.
+- Qdrant Semantic Memory and incident-specific Recommended Playbooks.
+- Detection Control lifecycle, configuration versioning and rollback governance.
+- Human-approved remediation proposals and safe internal conversions.
+- Case ownership, SLA posture, closure readiness and local reporting.
+- Health, Operation History, Prometheus alerting and Loki/Alloy logging.
 
 ## Product Principles
 
 | Principle | Meaning |
 |---|---|
-| Local-first | Core telemetry, AI analysis and report generation run in the local environment. |
-| Sovereign | Sensitive security context does not require a mandatory external AI provider. |
+| Local-first | Core telemetry, AI analysis, semantic memory and report generation can run locally. |
+| Sovereign by default | External AI is optional, disabled by default and governed by explicit provider/data policies. |
 | Correlation-first | Incident creation is driven by deterministic policy, deduplication, noise suppression and correlation. |
 | Evidence-based | Reports and briefings are grounded in available alert, correlation, case and telemetry data. |
-| Human-controlled | AI recommends and explains; analysts decide and act. |
+| Human-controlled | AI and semantic retrieval recommend and explain; authorized humans decide and act. |
 | Enterprise-oriented | UX, exports, RBAC, audit and observability are designed for credible SOC workflows. |
 
 ## What the Platform Demonstrates
@@ -33,10 +40,12 @@ Sovereign AI SOC is not a simple alert viewer. The repository demonstrates a lay
 2. Normalize source data into raw events and security alerts.
 3. Suppress low-value noise and aggregate repeated signals.
 4. Correlate signals before creating incidents.
-5. Use local AI to explain risk, evidence and next actions.
-6. Manage incidents and cases through human-in-the-loop workflows.
-7. Export professional reports and evidence packs.
-8. Monitor the health of the platform and AI runtime.
+5. Retrieve relevant local playbooks and historical context from Qdrant.
+6. Use a policy-selected AI provider to explain risk, evidence and next actions.
+7. Investigate with timelines, graphs, cases and governed remediation proposals.
+8. Govern detection changes through lifecycle, validation, versioning and audit.
+9. Export professional reports and evidence packs.
+10. Monitor runtime health, operations, metrics, alerts and selected platform logs.
 
 ## Current Product Surface
 
@@ -53,6 +62,11 @@ The frontend includes pages for:
 - Network Events
 - DNS Telemetry
 - Health
+- Detection Control Plane
+- AI Providers
+- AI Data Control
+- Semantic Memory
+- Operation History
 - Users / RBAC
 - Security Audit
 
@@ -66,6 +80,11 @@ The frontend includes pages for:
 
 ## Boundaries
 
-The project does not claim automated response. It does not replace analysts, execute destructive actions, or assert causal relationships from contextual telemetry such as DNS without explicit detection evidence.
+The project does not claim autonomous response. It does not replace analysts,
+execute arbitrary or destructive external actions, or assert causal
+relationships from contextual telemetry or semantic similarity without
+deterministic evidence.
 
-AI output is decision support. The analyst remains accountable for validation, response and closure.
+AI output, semantic memory and Recommended Playbooks are decision support.
+RBAC, deterministic controls, audit and authorized human approval remain
+authoritative.

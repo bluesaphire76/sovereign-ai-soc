@@ -102,7 +102,7 @@
   <path class="edge" d="M490 823 V855"/>
 
   <path class="branch" d="M610 915 H675 V665 H710"/>
-  <text class="tag" x="705" y="900">Insufficient support</text>
+  <text class="tag" x="760" y="900">Insufficient support</text>
   <path class="branch" d="M370 915 H300"/>
   <text class="tag" x="338" y="903">Meets incident policy</text>
 

@@ -1,9 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="640" viewBox="0 0 1180 640" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="700" viewBox="0 0 1180 700" role="img" aria-labelledby="title desc">
   <title id="title">Local-first sovereignty architecture</title>
-  <desc id="desc">Browser, frontend, API, PostgreSQL, Ollama, Wazuh, Suricata, DNS, reports and security audit run in the local architecture. External AI is not required for core workflow.</desc>
+  <desc id="desc">Browser, frontend, API, PostgreSQL, Qdrant semantic memory, Ollama, Wazuh, Suricata, DNS, reports, audit, health and operation history run inside the local architecture. External AI is disabled by default and only reachable through explicit AI data control policy.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L0,6 L9,3 z" fill="#22d3ee"/>
+    </marker>
+    <marker id="mutedArrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#64748b"/>
     </marker>
     <style>
       .bg { fill: #020617; }
@@ -12,6 +15,7 @@
       .local { fill: #052e2b; stroke: #10b981; stroke-width: 1.2; rx: 8; }
       .api { fill: #082f49; stroke: #22d3ee; stroke-width: 1.2; rx: 8; }
       .ai { fill: #17112b; stroke: #a78bfa; stroke-width: 1.2; rx: 8; }
+      .guardrail { fill: #2b1d0b; stroke: #f59e0b; stroke-width: 1.2; rx: 8; }
       .external { fill: #1f2937; stroke: #64748b; stroke-width: 1.2; stroke-dasharray: 5 4; rx: 8; }
       .title { fill: #e5e7eb; font: 700 28px Arial, sans-serif; }
       .subtitle { fill: #94a3b8; font: 400 14px Arial, sans-serif; }
@@ -19,68 +23,86 @@
       .small { fill: #cbd5e1; font: 400 11px Arial, sans-serif; text-anchor: middle; }
       .section { fill: #94a3b8; font: 700 12px Arial, sans-serif; letter-spacing: 1px; }
       .edge { stroke: #22d3ee; stroke-width: 1.6; fill: none; marker-end: url(#arrow); }
-      .muted { stroke: #64748b; stroke-width: 1.4; fill: none; marker-end: url(#arrow); stroke-dasharray: 5 4; }
+      .muted { stroke: #64748b; stroke-width: 1.4; fill: none; marker-end: url(#mutedArrow); stroke-dasharray: 5 4; }
+      .policy { stroke: #f59e0b; stroke-width: 1.35; fill: none; marker-end: url(#arrow); }
     </style>
   </defs>
-  <rect class="bg" width="1180" height="640"/>
+  <rect class="bg" width="1180" height="700"/>
   <text class="title" x="48" y="54">Local-first Sovereignty Architecture</text>
-  <text class="subtitle" x="48" y="80">Core telemetry, AI analysis, audit and reports remain inside the local environment.</text>
+  <text class="subtitle" x="48" y="80">Core telemetry, memory, AI analysis, audit, operation history and reports remain inside the local environment.</text>
 
-  <rect class="boundary" x="40" y="118" width="900" height="448"/>
+  <rect class="boundary" x="40" y="118" width="900" height="518"/>
   <text class="section" x="64" y="148">LOCAL RUNTIME BOUNDARY</text>
 
-  <rect class="node" x="80" y="205" width="150" height="62"/>
-  <text class="label" x="155" y="232">Analyst</text>
-  <text class="small" x="155" y="253">Human control</text>
-  <rect class="node" x="280" y="205" width="150" height="62"/>
-  <text class="label" x="355" y="232">Browser</text>
-  <text class="small" x="355" y="253">SOC console</text>
-  <rect class="node" x="480" y="205" width="150" height="62"/>
-  <text class="label" x="555" y="232">Next.js Frontend</text>
-  <text class="small" x="555" y="253">Local UI</text>
-  <rect class="api" x="680" y="205" width="150" height="62"/>
-  <text class="label" x="755" y="232">FastAPI API</text>
-  <text class="small" x="755" y="253">Local workflows</text>
+  <rect class="node" x="80" y="190" width="150" height="62"/>
+  <text class="label" x="155" y="217">Analyst</text>
+  <text class="small" x="155" y="238">Human control</text>
+  <rect class="node" x="280" y="190" width="150" height="62"/>
+  <text class="label" x="355" y="217">Browser</text>
+  <text class="small" x="355" y="238">SOC console</text>
+  <rect class="node" x="480" y="190" width="150" height="62"/>
+  <text class="label" x="555" y="217">Next.js Frontend</text>
+  <text class="small" x="555" y="238">Local UI</text>
+  <rect class="api" x="680" y="190" width="150" height="62"/>
+  <text class="label" x="755" y="217">FastAPI API</text>
+  <text class="small" x="755" y="238">Local workflows</text>
 
-  <rect class="local" x="680" y="342" width="150" height="62"/>
-  <text class="label" x="755" y="369">PostgreSQL</text>
-  <text class="small" x="755" y="390">Local datastore</text>
-  <rect class="ai" x="480" y="342" width="150" height="62"/>
-  <text class="label" x="555" y="369">Ollama / LLM</text>
-  <text class="small" x="555" y="390">Local AI runtime</text>
-  <rect class="local" x="280" y="342" width="150" height="62"/>
-  <text class="label" x="355" y="369">Reports</text>
-  <text class="small" x="355" y="390">Local exports</text>
-  <rect class="local" x="680" y="468" width="150" height="62"/>
-  <text class="label" x="755" y="495">Security Audit</text>
-  <text class="small" x="755" y="516">RBAC trail</text>
+  <rect class="local" x="680" y="320" width="150" height="62"/>
+  <text class="label" x="755" y="347">PostgreSQL</text>
+  <text class="small" x="755" y="368">Local datastore</text>
+  <rect class="local" x="480" y="320" width="150" height="62"/>
+  <text class="label" x="555" y="347">Qdrant</text>
+  <text class="small" x="555" y="368">Semantic memory</text>
+  <rect class="guardrail" x="280" y="320" width="150" height="62"/>
+  <text class="label" x="355" y="347">AI Policy</text>
+  <text class="small" x="355" y="368">Data control</text>
+  <rect class="ai" x="80" y="320" width="150" height="62"/>
+  <text class="label" x="155" y="347">Ollama / LLM</text>
+  <text class="small" x="155" y="368">Local AI runtime</text>
 
-  <rect class="node" x="80" y="468" width="150" height="62"/>
-  <text class="label" x="155" y="495">Wazuh</text>
-  <text class="small" x="155" y="516">Local signals</text>
-  <rect class="node" x="280" y="468" width="150" height="62"/>
-  <text class="label" x="355" y="495">Suricata</text>
-  <text class="small" x="355" y="516">Local IDS signals</text>
-  <rect class="node" x="480" y="468" width="150" height="62"/>
-  <text class="label" x="555" y="495">DNS Telemetry</text>
-  <text class="small" x="555" y="516">Local context</text>
+  <rect class="local" x="680" y="450" width="150" height="62"/>
+  <text class="label" x="755" y="477">Security Audit</text>
+  <text class="small" x="755" y="498">RBAC trail</text>
+  <rect class="local" x="480" y="450" width="150" height="62"/>
+  <text class="label" x="555" y="477">Reports</text>
+  <text class="small" x="555" y="498">Evidence packs</text>
+  <rect class="local" x="280" y="450" width="150" height="62"/>
+  <text class="label" x="355" y="477">Health</text>
+  <text class="small" x="355" y="498">Runtime status</text>
+  <rect class="local" x="80" y="450" width="150" height="62"/>
+  <text class="label" x="155" y="477">Operation</text>
+  <text class="small" x="155" y="498">History</text>
 
-  <rect class="external" x="990" y="272" width="150" height="86"/>
-  <text class="label" x="1065" y="300">External AI</text>
-  <text class="small" x="1065" y="321">Not required for</text>
-  <text class="small" x="1065" y="340">core workflow</text>
+  <rect class="node" x="80" y="560" width="150" height="62"/>
+  <text class="label" x="155" y="587">Wazuh</text>
+  <text class="small" x="155" y="608">Local signals</text>
+  <rect class="node" x="280" y="560" width="150" height="62"/>
+  <text class="label" x="355" y="587">Suricata</text>
+  <text class="small" x="355" y="608">Local IDS signals</text>
+  <rect class="node" x="480" y="560" width="150" height="62"/>
+  <text class="label" x="555" y="587">DNS Telemetry</text>
+  <text class="small" x="555" y="608">Local context</text>
 
-  <path class="edge" d="M230 236 H280"/>
-  <path class="edge" d="M430 236 H480"/>
-  <path class="edge" d="M630 236 H680"/>
-  <path class="edge" d="M755 267 V342"/>
-  <path class="edge" d="M680 236 H650 V373 H630"/>
-  <path class="edge" d="M680 236 H650 V373 H430"/>
-  <path class="edge" d="M755 267 V468"/>
-  <path class="edge" d="M755 468 V404"/>
+  <rect class="external" x="990" y="292" width="150" height="96"/>
+  <text class="label" x="1065" y="318">External AI</text>
+  <text class="small" x="1065" y="340">Disabled by default</text>
+  <text class="small" x="1065" y="359">allowlisted and</text>
+  <text class="small" x="1065" y="378">redacted only</text>
 
-  <path class="edge" d="M230 499 H650 V236 H680"/>
-  <path class="edge" d="M430 499 H650 V236 H680"/>
-  <path class="edge" d="M630 499 H650 V236 H680"/>
-  <path class="muted" d="M990 315 H850 V236 H830"/>
+  <path class="edge" d="M230 221 H280"/>
+  <path class="edge" d="M430 221 H480"/>
+  <path class="edge" d="M630 221 H680"/>
+  <path class="edge" d="M755 252 V320"/>
+  <path class="edge" d="M680 221 H650 V351 H630"/>
+  <path class="policy" d="M680 221 H650 V300 H355 V320"/>
+  <path class="policy" d="M280 351 H230"/>
+  <path class="edge" d="M830 221 H860 V481 H830"/>
+  <path class="edge" d="M680 221 H650 V481 H630"/>
+  <path class="edge" d="M680 221 H650 V420 H355 V450"/>
+  <path class="edge" d="M680 221 H650 V420 H155 V450"/>
+
+  <path class="edge" d="M230 591 H250 V650 H860 V221 H830"/>
+  <path class="edge" d="M430 591 H455 V650 H860 V221 H830"/>
+  <path class="edge" d="M630 591 H655 V650 H860 V221 H830"/>
+  <path class="muted" d="M990 340 H955 V300 H355 V320"/>
 </svg>

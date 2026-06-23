@@ -4,9 +4,11 @@ flowchart LR
   frontend --> api["FastAPI Backend"]
 
   api --> postgres["PostgreSQL"]
+  api --> qdrant["Qdrant Semantic Memory"]
   api --> reports["Reports / Evidence Packs"]
-  api --> ollama["Ollama / Local AI Runtime"]
-  ollama --> api
+  api --> provider_policy["AI Provider + Data Control"]
+  provider_policy --> ollama["Ollama / Local AI Runtime"]
+  provider_policy -. "explicitly enabled + redacted" .-> external_ai["OpenRouter / OpenAI-compatible"]
 
   wazuh_agents["Wazuh Agents"] --> wazuh["Wazuh Manager / Indexer"]
   suricata["Suricata IDS"] --> suricata_ingest["Suricata EVE Ingest"]
@@ -23,6 +25,13 @@ flowchart LR
   suppression --> correlation["Correlation Engine"]
   correlation --> incidents["Incidents"]
   incidents --> cases["Cases"]
+  incidents --> investigation["Timeline / Investigation Graph"]
+  cases --> investigation
+  qdrant --> recommendations["Semantic Context / Recommended Playbooks"]
+  recommendations --> investigation
+  incidents --> remediation["Governed Remediation Proposals"]
+  cases --> remediation
+  api --> detection_control["Detection Control Lifecycle / Versions"]
   incidents --> reports
   cases --> reports
 
@@ -32,3 +41,9 @@ flowchart LR
   dns_events --> postgres
   incidents --> postgres
   cases --> postgres
+  remediation --> postgres
+  detection_control --> postgres
+
+  api --> observability["Health / Metrics / Operation History"]
+  observability --> prometheus["Prometheus / Alertmanager"]
+  observability --> loki["Loki / Grafana Alloy / Grafana"]
