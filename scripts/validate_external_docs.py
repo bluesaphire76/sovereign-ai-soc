@@ -18,11 +18,13 @@ REQUIRED_FILES = (
     "docs/external-user-quickstart.md",
     "docs/troubleshooting.md",
     "docs/ports-and-components.md",
+    "docs/ubuntu-installer-guide.md",
     "docs/demo-guide.md",
     "docs/docker-demo-packaging.md",
     "docs/product/external-user-quickstart.md",
     "docs/operations/troubleshooting.md",
     "docs/operations/ports-and-components.md",
+    "docs/operations/ubuntu-installer-guide.md",
     "docs/product/demo-guide.md",
     "docs/operations/docker-demo-packaging.md",
 )
@@ -32,16 +34,37 @@ REFERENCE_REQUIREMENTS = (
     ("README troubleshooting", "README.md", "docs/troubleshooting.md"),
     ("README Docker packaging", "README.md", "docs/docker-demo-packaging.md"),
     ("README demo guide", "README.md", "docs/demo-guide.md"),
+    ("README Ubuntu installer", "README.md", "docs/ubuntu-installer-guide.md"),
     ("INSTALL external quickstart", "INSTALL.md", "docs/external-user-quickstart.md"),
     ("INSTALL troubleshooting", "INSTALL.md", "docs/troubleshooting.md"),
+    (
+        "INSTALL Ubuntu installer",
+        "INSTALL.md",
+        "docs/ubuntu-installer-guide.md",
+    ),
 )
 
 COMMAND_REQUIREMENTS = (
+    "./install-demo.sh --check",
+    "./install-demo.sh --apply",
+    "./install-demo.sh --check-observability",
+    "./install-demo.sh --observability-plan",
     "./ai-soc install --profile demo",
     "./ai-soc package-validate",
     "./ai-soc demo-info",
     "./ai-soc demo-reset",
     "./ai-soc release-check",
+)
+
+CONTENT_REQUIREMENTS = (
+    "Ubuntu 24.04",
+    "Grafana",
+    "Prometheus",
+    "Alertmanager",
+    "cAdvisor",
+    "node-exporter",
+    "Loki",
+    "Alloy",
 )
 
 SECRET_PATTERNS = (
@@ -109,6 +132,9 @@ def validate(root: Path = ROOT) -> tuple[dict[str, object], int]:
         "INSTALL.md",
         "docs/product/external-user-quickstart.md",
         "docs/operations/troubleshooting.md",
+        "docs/operations/ubuntu-installer-guide.md",
+        "docs/product/demo-guide.md",
+        "docs/operations/docker-demo-packaging.md",
     )
     combined = "\n".join(
         read_text(root, relative)
@@ -122,6 +148,20 @@ def validate(root: Path = ROOT) -> tuple[dict[str, object], int]:
                 f"Command reference: {command}",
                 "OK" if present else "FAIL",
                 "Documented." if present else "Required external-user command is missing.",
+            )
+        )
+
+    for marker in CONTENT_REQUIREMENTS:
+        present = marker.lower() in combined.lower()
+        checks.append(
+            Check(
+                f"External documentation content: {marker}",
+                "OK" if present else "FAIL",
+                (
+                    "Documented."
+                    if present
+                    else f"Required external-user content is missing: {marker}."
+                ),
             )
         )
 

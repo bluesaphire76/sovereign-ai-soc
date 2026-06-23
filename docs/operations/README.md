@@ -9,6 +9,7 @@ This folder contains deployment, administration, observability, hardening and ru
 - [docker demo packaging](docker-demo-packaging.md)
 - [ports and components](ports-and-components.md)
 - [troubleshooting](troubleshooting.md)
+- [ubuntu installer guide](ubuntu-installer-guide.md)
 - [v0.3 nginx security hardening](v0.3-nginx-security-hardening.md)
 - [v0.3 postgres 18 4 upgrade](v0.3-postgres-18-4-upgrade.md)
 - [v0.3 secrets config hardening](v0.3-secrets-config-hardening.md)

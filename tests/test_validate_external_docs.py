@@ -18,6 +18,7 @@ def create_valid_docs(root: Path) -> None:
                 "docs/troubleshooting.md",
                 "docs/docker-demo-packaging.md",
                 "docs/demo-guide.md",
+                "docs/ubuntu-installer-guide.md",
             )
         ),
         encoding="utf-8",
@@ -27,7 +28,9 @@ def create_valid_docs(root: Path) -> None:
             (
                 "docs/external-user-quickstart.md",
                 "docs/troubleshooting.md",
+                "docs/ubuntu-installer-guide.md",
                 *external_docs.COMMAND_REQUIREMENTS,
+                *external_docs.CONTENT_REQUIREMENTS,
             )
         ),
         encoding="utf-8",

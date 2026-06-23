@@ -24,6 +24,19 @@ data remain explicit operator steps.
 In short, it includes the API, frontend, PostgreSQL, Qdrant, and Ollama. It
 does not include Wazuh, Suricata, Grafana, Prometheus, Loki, or Alertmanager.
 
+The Ubuntu guided installer also validates this packaging foundation and
+detects the separate observability configuration:
+
+```bash
+./install-demo.sh --check
+./install-demo.sh --check-observability
+```
+
+Grafana, Prometheus, Alertmanager, cAdvisor, node-exporter, Loki, Grafana
+Alloy, and the optional ntfy bridge remain a separate stack. The installer
+validates them where safe but starts no containers. It also does not start
+Wazuh or Suricata.
+
 ## Why Ollama is included
 
 Local AI is a core product capability rather than an optional visual add-on.
