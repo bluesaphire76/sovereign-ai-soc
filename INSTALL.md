@@ -10,6 +10,37 @@ This guide prepares Sovereign AI SOC for a local lab or product demo and
 describes the public validation workflow. It is not a production-grade
 installer or a one-command deployment system.
 
+## Ubuntu guided demo installer
+
+The recommended low-technical target is Ubuntu 24.04 LTS or newer on Ubuntu
+Server or Desktop. Start with the read-only check, then apply only
+repository-local preparation:
+
+```bash
+./install-demo.sh --check
+./install-demo.sh --apply
+./install-demo.sh --check-observability
+./install-demo.sh --observability-plan
+./ai-soc demo-info
+./ai-soc demo-seed --apply
+./ai-soc demo-validate
+./ai-soc release-check
+```
+
+`--check` and both observability modes are read-only. `--apply` delegates to
+the existing safe repo-local installer; it does not run OS package management,
+start services or containers, seed demo data, or download Ollama models.
+
+The installer detects Grafana, Prometheus, Alertmanager, cAdvisor,
+node-exporter, Loki, Grafana Alloy, and the optional ntfy bridge. Full
+observability Compose validation may require intentionally untracked local env
+files. Starting observability remains an explicit manual action.
+
+See the [Ubuntu Installer Guide](docs/ubuntu-installer-guide.md),
+[Troubleshooting](docs/troubleshooting.md),
+[Docker Demo Packaging](docs/docker-demo-packaging.md), and
+[Demo Guide](docs/demo-guide.md).
+
 ## Supported environment
 
 The current workflow targets Ubuntu, WSL2 Ubuntu, or a comparable Linux lab

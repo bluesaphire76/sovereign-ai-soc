@@ -22,6 +22,21 @@ Show how the platform turns host, network and contextual telemetry into correlat
 
 ## Pre-Demo Readiness
 
+For the guided Ubuntu path:
+
+```bash
+./install-demo.sh --check
+./install-demo.sh --apply
+./install-demo.sh --observability-plan
+./ai-soc demo-info
+./ai-soc demo-validate
+```
+
+Observability is optional for the synthetic demo, but Grafana, Prometheus,
+Alertmanager, cAdvisor, node-exporter, Loki, and Grafana Alloy provide a
+stronger product demonstration when they have been started and validated
+manually.
+
 Use this short pre-demo checklist after the application layer is available:
 
 ```bash

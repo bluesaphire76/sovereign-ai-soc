@@ -40,6 +40,22 @@ Wazuh and Suricata are not required for the synthetic demo-data workflow.
 
 ## Fastest safe path
 
+For a low-technical user on Ubuntu 24.04 LTS or newer, use the guided wrapper:
+
+```bash
+./install-demo.sh --check
+./install-demo.sh --apply
+./install-demo.sh --check-observability
+./install-demo.sh --observability-plan
+```
+
+It checks prerequisites, prepares only repository-local dependencies, validates
+Docker packaging, and explains the optional Grafana, Prometheus, Alertmanager,
+cAdvisor, node-exporter, Loki, Grafana Alloy, and ntfy bridge setup. It never
+starts containers or pulls models.
+
+The existing technical path remains available:
+
 Start with the installer plan and apply it only after reviewing the output:
 
 ```bash
@@ -121,6 +137,7 @@ requested and are ignored by Git.
 ## Where to go next
 
 - [Installation and Demo Guide](../../INSTALL.md)
+- [Ubuntu Guided Demo Installer](../operations/ubuntu-installer-guide.md)
 - [Demo Guide](demo-guide.md)
 - [Docker Demo Packaging](../operations/docker-demo-packaging.md)
 - [Troubleshooting](../operations/troubleshooting.md)

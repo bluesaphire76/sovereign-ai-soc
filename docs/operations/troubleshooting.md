@@ -7,6 +7,7 @@ than applying broad system changes.
 ## First checks
 
 ```bash
+./install-demo.sh --check
 ./ai-soc doctor
 ./ai-soc validate
 ./ai-soc release-check --skip-runtime --skip-frontend-build --skip-pytest
@@ -16,6 +17,28 @@ than applying broad system changes.
 checks the public repository baseline. The shortened release check verifies
 installation, packaging, demo, and documentation readiness without running
 the test suite or frontend build.
+
+## Ubuntu guided installer issues
+
+- **Installer check fails:** fix the first required `[FAIL]`, then rerun
+  `./install-demo.sh --check`. The installer checks prerequisites and
+  configuration; it does not repair OS packages automatically.
+- **Ubuntu version warning:** Ubuntu 24.04 LTS or newer is the tested target.
+  Older Ubuntu or another distribution may still permit manual validation but
+  is outside the primary installer target.
+- **Node.js too old:** install Node.js 20 or newer using your approved
+  Ubuntu-compatible method, then rerun the check.
+- **Docker daemon unreachable:** verify Docker is running and that your user has
+  approved daemon access. The installer prints manual service and group
+  commands but never executes `sudo`, `systemctl`, `usermod`, or `newgrp`.
+- **Observability validation skipped:** a missing
+  `deploy/observability/ntfy-bridge/.env` is expected when notification secrets
+  are intentionally untracked. Create it manually from the example only when
+  configuring the bridge; never commit it.
+
+The installer intentionally never runs package installation, service changes,
+Docker Compose up/down, container starts, Ollama model pulls, or demo seed/reset
+apply operations.
 
 ## Python and virtual environment issues
 
@@ -147,6 +170,31 @@ for the local systemd units. If the API or frontend is inactive, inspect the
 unit status and logs using the normal administrative process for your host.
 These commands do not manage PostgreSQL, Qdrant, Ollama, Wazuh, Suricata, or
 the observability stack.
+
+## Observability after a manual start
+
+First inspect the read-only plan:
+
+```bash
+./install-demo.sh --check-observability
+./install-demo.sh --observability-plan
+```
+
+If you manually started the stack and a component is unavailable:
+
+- Grafana: check `http://127.0.0.1:3002/grafana/`.
+- Prometheus: check `http://127.0.0.1:9090/-/ready`.
+- Alertmanager: check `http://127.0.0.1:9093/-/ready`.
+- cAdvisor and node-exporter: inspect Prometheus targets and confirm ports
+  `8082` and `9100` are local and reachable.
+- Loki: check `http://127.0.0.1:3100/ready`.
+- Grafana Alloy: verify its container/logs and the local endpoint on port
+  `12345`; confirm journal and Docker socket mounts are accessible.
+
+Loki stores logs; Alloy collects and forwards them. If Grafana has no logs,
+validate the Loki datasource, then inspect Alloy collection errors. These are
+manual runtime diagnostics—the installer only validates files and Compose
+configuration and never starts or restarts the stack.
 
 ## Wazuh and Suricata expectations
 

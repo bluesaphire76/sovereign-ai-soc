@@ -267,11 +267,30 @@ The repository is designed for a local lab or product demo environment. Runtime 
 
 New to the project? Start here:
 
-1. [External User Quickstart](docs/external-user-quickstart.md)
-2. [Installation and Demo Guide](INSTALL.md)
-3. [Troubleshooting](docs/troubleshooting.md)
-4. [Docker Demo Packaging](docs/docker-demo-packaging.md)
-5. [Demo Guide](docs/demo-guide.md)
+1. [Ubuntu Guided Demo Installer](docs/ubuntu-installer-guide.md)
+2. [External User Quickstart](docs/external-user-quickstart.md)
+3. [Installation and Demo Guide](INSTALL.md)
+4. [Troubleshooting](docs/troubleshooting.md)
+5. [Docker Demo Packaging](docs/docker-demo-packaging.md)
+6. [Demo Guide](docs/demo-guide.md)
+
+For Ubuntu 24.04 LTS or newer, the recommended low-technical path is:
+
+```bash
+./install-demo.sh --check
+./install-demo.sh --apply
+./install-demo.sh --check-observability
+./install-demo.sh --observability-plan
+```
+
+The guided installer checks Ubuntu prerequisites, prepares the repository-local
+demo environment, validates Docker packaging, detects Grafana, Prometheus,
+Alertmanager, cAdvisor, node-exporter, Loki, Grafana Alloy, and the optional
+ntfy bridge, then shows safe next steps.
+
+It is not a production installer: it never runs `sudo` or `apt`, starts or
+stops Docker Compose or containers, pulls Ollama models, or exposes dashboards
+publicly.
 
 The shortest reviewed preparation and demo-data path is:
 
@@ -433,6 +452,7 @@ python3 scripts/validate_public_ci_baseline.py
 ## Documentation Index
 
 - [External User Quickstart](docs/external-user-quickstart.md)
+- [Ubuntu Guided Demo Installer](docs/ubuntu-installer-guide.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Ports and Components](docs/ports-and-components.md)
 - [Product Overview](docs/product/product-overview.md)
