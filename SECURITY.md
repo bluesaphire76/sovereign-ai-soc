@@ -13,16 +13,23 @@ The project is designed to support:
 - security audit visibility;
 - role-based access control;
 - operational health monitoring.
+- governed AI providers and data controls;
+- Qdrant semantic memory;
+- Detection Control and remediation governance;
+- service-operation auditability.
 
-AI is used to support investigation, correlation, summarization and remediation planning. It does not execute remediation actions automatically.
+AI is used to support investigation, summarization and remediation planning.
+Semantic memory supports retrieval. Neither is an autonomous decision or
+response authority.
 
 ## Supported versions
 
 | Version | Security support |
 |---|---|
-| v0.3.x | Supported |
-| v0.2.x | Best-effort critical fixes only |
-| < v0.2 | Not supported |
+| `main` / v0.7 development baseline | Supported |
+| v0.6.x | Supported |
+| v0.4-v0.5 | Best-effort critical fixes only |
+| < v0.4 | Not supported |
 
 ## Reporting a vulnerability
 
@@ -73,6 +80,11 @@ The following are considered in scope:
 - injection vulnerabilities;
 - unsafe file or report handling;
 - insecure default deployment configuration.
+- AI provider/data-policy bypass;
+- unauthorized external transmission of SOC context;
+- semantic-memory authorization or data-isolation failures;
+- Detection Control/remediation approval bypass;
+- arbitrary command execution through Service Operations.
 
 The following are generally out of scope:
 
@@ -95,6 +107,11 @@ Recommended secure deployment practices:
 - keep Wazuh, PostgreSQL, Python dependencies and Node dependencies updated;
 - use `ADMIN` accounts only where required;
 - regularly review Security Audit events.
+- keep external AI providers disabled until allowlists, redaction and AI Data
+  Control are explicitly reviewed;
+- bind Qdrant, Ollama, Grafana, Prometheus, Alertmanager, Loki and Alloy to
+  trusted local networks/endpoints;
+- use narrow sudoers rules for Service Operations.
 
 ## Secrets handling
 
@@ -107,6 +124,7 @@ The repository must not contain:
 - production database credentials;
 - Cloudflare tunnel credentials;
 - Wazuh credentials.
+- external AI provider credentials.
 
 Use the provided example files as templates only.
 

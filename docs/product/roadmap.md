@@ -1,6 +1,8 @@
 # Roadmap
 
-This roadmap summarizes implemented milestones and candidate future direction. It avoids promising features that are not currently present.
+This roadmap separates published releases from capabilities already implemented
+on `main`. The latest Git tag is `v0.6.0`; v0.7 is implemented but not yet
+published as a tag.
 
 | Version | Status | Theme | Highlights |
 |---|---:|---|---|
@@ -10,7 +12,7 @@ This roadmap summarizes implemented milestones and candidate future direction. I
 | v0.4 | Completed | Ingestion quality and observability | Raw event/security alert/incident/case separation, aggregation, deduplication, noise suppression, correlation-first incident creation, AI hardening, reporting, retention and health visibility. |
 | v0.5 | Completed | Enterprise demo and workflow polish | Demo scenario pack, enterprise UX, Incident Command Room, AI workflow refinement, Detection Quality review, report/export polish, Suricata network telemetry, DNS context and correlation visualization. |
 | v0.6 | Released | AI investigation and governed remediation | Investigation intelligence, evidence confidence, LLM-backed remediation intelligence, approval gates, dry-run simulation, rollback readiness, execution audit trail, replay simulation, controlled internal SOAR workflow actions, Incident Command Center rewrite and observability improvements. |
-| v0.7 | Candidate | Next product evolution | Candidate areas include additional connectors, deeper case collaboration, stronger report automation, expanded validation tooling and governed external playbook integration. |
+| v0.7 | Implemented on `main`, unreleased | Governed AI, semantic memory and operational control | AI providers/OpenRouter, AI Data Control, Qdrant Semantic Memory, Recommended Playbooks, investigation graph, advanced timeline, Detection Control lifecycle/versioning, governed remediation connectors, Operation History, Alertmanager, Loki/Alloy, installability and expanded validation. |
 
 ## Completed Product Themes
 
@@ -25,17 +27,29 @@ This roadmap summarizes implemented milestones and candidate future direction. I
 - Controlled SOAR workflow actions limited to safe internal product records.
 - RBAC and audit governance.
 - Local AI runtime with fallback behavior.
+- Optional governed external AI providers, disabled by default.
+- AI Data Control policies with deterministic redaction and audit-safe previews.
+- Qdrant Semantic Memory for knowledge, historical incident, Detection Control
+  and approved/final Case Closure context.
+- Platform-aware Recommended Playbooks with deterministic fallback and optional
+  LLM synthesis.
+- Advanced Incident Timeline and Investigation Graph.
+- Detection Control write mode, lifecycle, validation, configuration versioning
+  and rollback.
+- Governed remediation proposals and internal connectors.
+- Service Operations and Operation History.
+- Prometheus/Alertmanager alerting and Loki/Grafana Alloy logging.
 - Executive-ready reporting and evidence packs.
 
-## Candidate v0.7 Ideas
+## Candidate Post-v0.7 Direction
 
 These are candidate directions, not implemented commitments:
 
 - Additional telemetry connectors.
-- Detection rule lifecycle management.
 - Case collaboration enhancements.
-- Advanced timeline and graph views.
 - Scheduled report generation.
-- Expanded CI/demo validation harness.
-- Optional external AI provider abstraction with strict data controls.
-- Governed external remediation connector/playbook integration.
+- Production adapters for provider types beyond OpenAI-compatible endpoints.
+- Governed real ticketing, EDR, firewall or SOAR connectors.
+- Published container images and fuller deployment orchestration.
+- Stronger cost/token accounting and provider usage reporting.
+- Additional automated documentation and API schema generation.

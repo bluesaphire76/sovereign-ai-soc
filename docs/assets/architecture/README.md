@@ -20,4 +20,8 @@ Editable sources:
 - `../../diagrams/local-first-sovereignty-architecture.mmd`
 - `../../diagrams/deployment-architecture.mmd`
 
-When changing a diagram, keep the Mermaid source and SVG rendering aligned.
+The Mermaid files describe the editable topology for the current v0.7
+architecture. The SVG files are curated hand-rendered assets that preserve the
+project visual style: dark background, compact cards, color-coded domains and
+accessible title/description metadata. When changing a diagram, keep the
+Mermaid topology and the styled SVG rendering aligned.

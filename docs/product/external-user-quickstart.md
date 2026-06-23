@@ -13,6 +13,9 @@ prototype. The repository supports:
 - a Docker packaging foundation for the application and local AI services;
 - AI-assisted investigation, reporting, and guidance when Ollama and a model
   are available.
+- Qdrant-backed semantic memory and Recommended Playbooks.
+- Optional governed external AI providers, disabled by default.
+- Detection Control, governed remediation, health and observability workflows.
 
 The current packaging is not a production deployment or a one-command full SOC
 installer. Synthetic demo records are not real security evidence, and AI output
@@ -34,7 +37,8 @@ Optional or feature-dependent:
 - a GPU for faster local inference—CPU execution is supported but slower;
 - Wazuh for real host and endpoint security telemetry;
 - Suricata for real network IDS telemetry;
-- Grafana, Prometheus, Loki, and Alertmanager for extended observability.
+- Grafana, Prometheus, Alertmanager, Loki and Grafana Alloy for extended
+  observability.
 
 Wazuh and Suricata are not required for the synthetic demo-data workflow.
 
@@ -99,6 +103,11 @@ The Docker demo foundation includes:
 It does not currently include Wazuh, Suricata, Grafana, Prometheus, Loki, or
 Alertmanager. Models are not pulled automatically.
 
+OpenRouter or another external provider is not required for the demo. Do not
+enable external AI until you have reviewed
+[AI Providers](../architecture/v0.7-external-ai-provider-abstraction.md) and
+[AI Data Control](../architecture/v0.7-ai-data-control-policy.md).
+
 Validate the packaging or explicitly build the local application images:
 
 ```bash
@@ -143,4 +152,6 @@ requested and are ignored by Git.
 - [Troubleshooting](../operations/troubleshooting.md)
 - [Ports and Components](../operations/ports-and-components.md)
 - [Product Overview](product-overview.md)
+- [AI Capabilities](ai-capabilities.md)
 - [Architecture](../architecture/architecture.md)
+- [Qdrant Semantic Memory](../architecture/v0.7-qdrant-semantic-memory.md)

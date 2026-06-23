@@ -8,7 +8,8 @@ The main Dashboard provides operational SOC posture:
 
 - Active incident and risk metrics.
 - Incident risk distribution.
-- Top operational signals.
+- Incident trend, queue aging and detection-funnel operational trends.
+- Top operational signals and recent incidents.
 - Compact status badges aligned with the enterprise UI style.
 - Links into incidents, cases, health and executive views.
 
@@ -46,10 +47,15 @@ Key areas:
 - Incident overview and lifecycle.
 - AI Command Brief.
 - Risk rationale and evidence summary.
+- Advanced Incident Timeline.
+- Investigation Graph.
+- Similar historical incidents where semantic memory is available.
+- Recommended Playbooks retrieved from Qdrant and refined with governed AI.
 - Correlation Visualization.
 - Raw Wazuh alert details.
 - Suricata network evidence where available.
 - Endpoint DNS context where available.
+- Governed Remediation proposals, approval state and internal conversion links.
 - Analyst notes and audit context.
 - Report and evidence pack exports.
 
@@ -66,6 +72,40 @@ Correlation Visualization helps answer:
 - Which related alerts or incidents support the decision?
 
 Raw JSON remains secondary so the analyst sees context before technical dumps.
+
+## Advanced Incident Timeline
+
+The Advanced Incident Timeline combines linked event, alert, correlation,
+lifecycle, AI, note, case and detection/noise records. Use filters to focus on
+key events, raw evidence, AI activity, lifecycle changes or case actions.
+
+Raw payload access is role-controlled and is not requested by the standard UI.
+
+## Investigation Graph
+
+The Investigation Graph connects incident or case records to related hosts,
+users, IP addresses, processes, files, packages, MITRE techniques, alerts,
+detection controls and AI hypotheses.
+
+Graph relationships are investigative context, not proof of root cause. Review
+the underlying evidence references and any truncation or redaction warnings.
+
+## Recommended Playbooks
+
+Recommended Playbooks retrieve metadata-aware playbook sections from Qdrant.
+The system uses deterministic platform and incident-type checks before optional
+LLM synthesis. Guidance includes:
+
+- why a playbook applies;
+- immediate analyst checks;
+- evidence to collect;
+- false-positive checks;
+- escalation criteria;
+- approval-required containment/remediation considerations;
+- closure considerations.
+
+Recommendations are advisory and cannot set severity, close work items,
+suppress detections or approve remediation.
 
 ## Cases
 
@@ -90,6 +130,10 @@ Case Detail supports:
 - SLA target and status.
 - Linked incidents.
 - Case AI analysis.
+- Persisted AI generation job status.
+- Recommended Playbooks.
+- Investigation Graph.
+- Advisory semantic context for closure review.
 - Action planning.
 - Notes and audit trail.
 - Closure checklist and readiness.
@@ -111,8 +155,51 @@ Detection Quality supports detection engineering review:
 - Weakest scenario.
 - Recommended next action.
 - AI-generated remediation suggestion for explicit user requests.
+- Advisory Qdrant semantic context for reviewed detection patterns.
 
 Synthetic test execution is available to roles permitted by RBAC. Viewer roles are read-only.
+
+## Detection Control Plane
+
+Detection Control Plane provides:
+
+- unified inventory for detection rules, noise suppression and exceptions;
+- create/edit/enable/disable/validate operations;
+- match previews and matched-event evidence;
+- review dates, owners and expiration visibility;
+- lifecycle states from draft through approval, activation and disablement;
+- configuration snapshots, diffs, validation, apply and rollback;
+- advisory semantic context from prior detection/case/historical memory;
+- governed service restart previews and operations.
+
+ADMIN approval is required for activation, disablement, configuration apply or
+rollback and service restart execution.
+
+## AI Providers
+
+AI Providers shows the default provider, external-provider global state, local
+Ollama profiles, configured models, allowlists, redaction mode and health.
+
+Local Ollama is the default. OpenRouter and other external configurations do
+not receive SOC data unless all provider and AI Data Control checks allow it.
+Only ADMIN can change provider settings or run the confirmed provider test.
+
+## AI Data Control
+
+AI Data Control exposes per-feature policy modes, role/provider allowlists,
+redaction/evaluation previews and recent policy decisions.
+
+ADMIN can edit policies. ADMIN and ANALYST can run previews. Raw prompts,
+responses and secrets are not stored in decision history.
+
+## Semantic Memory
+
+Semantic Memory is available to ADMIN and ANALYST. It shows Qdrant health,
+collection/index status, source-type counts, automatic freshness and read-only
+search.
+
+ADMIN can explicitly run dry-run/apply backfills and historical-memory
+retention cleanup. Apply operations require confirmation.
 
 ## Network Events
 
@@ -131,11 +218,25 @@ Health shows platform and runtime posture:
 - API and component status.
 - Wazuh freshness.
 - Suricata/network ingest status.
-- DNS telemetry status.
 - Worker and backlog metrics.
-- PostgreSQL and Ollama runtime context.
+- PostgreSQL, Qdrant and Ollama runtime context.
+- Local and external AI provider health/configuration state.
+- Optional Grafana, Prometheus and Alertmanager reachability.
+- Active users and latest-incident context.
 
 Use Health before demos and after restarts.
+
+Loki and Grafana Alloy are validated and operated through the observability
+stack; they are not currently separate components in `/platform/health`.
+DNS telemetry is reviewed on its dedicated page rather than as a separate
+Health component.
+
+## Operation History
+
+Operation History lists service status checks, restart previews and restart
+attempts with actor, reason, pre/post status and safe outcome details. All
+roles can read it. Restart previews require ADMIN or ANALYST; execution is
+ADMIN-only and limited to allowlisted services.
 
 ## Users and Security Audit
 

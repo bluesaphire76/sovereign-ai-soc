@@ -4,7 +4,10 @@ flowchart LR
   nginx --> api["ai-soc-api / FastAPI"]
 
   api --> postgres["PostgreSQL"]
-  api --> ollama["Ollama Local AI Runtime"]
+  api --> qdrant["Qdrant Semantic Memory"]
+  api --> ai_policy["AI Provider + Data Control"]
+  ai_policy --> ollama["Ollama Local AI Runtime"]
+  ai_policy -. "optional governed route" .-> external_ai["OpenRouter / OpenAI-compatible"]
   api --> reports["Local Report Storage"]
 
   wazuh["Wazuh Manager / Indexer"] --> wazuh_ingest["Wazuh Ingest / API Worker"]
@@ -14,5 +17,12 @@ flowchart LR
 
   dns_collector["ai-soc-dns-collector"] --> wazuh
 
-  api --> health["Health / Worker Metrics"]
+  api --> health["Health / Worker / Provider / Qdrant Metrics"]
   frontend --> health
+
+  api --> operations["Service Operations / Operation History"]
+  prometheus["Prometheus"] --> alertmanager["Alertmanager / optional ntfy"]
+  alloy["Grafana Alloy"] --> loki["Loki"]
+  prometheus --> grafana["Grafana"]
+  loki --> grafana
+  api --> prometheus

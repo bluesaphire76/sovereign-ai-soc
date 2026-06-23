@@ -22,7 +22,14 @@ Describe the change.
 - [ ] Case workflow
 - [ ] Reports / exports
 - [ ] Detection Quality
+- [ ] Detection Control Plane
+- [ ] AI Providers / AI Data Control
+- [ ] Qdrant Semantic Memory / Recommended Playbooks
+- [ ] Investigation Timeline / Graph
+- [ ] Governed Remediation
+- [ ] Service Operations / Operation History
 - [ ] Health dashboard
+- [ ] Observability / Alertmanager / Loki / Alloy
 - [ ] Deployment
 - [ ] Documentation
 - [ ] Other
@@ -31,7 +38,8 @@ Describe the change.
 
 Backend:
 
-- [ ] `py_compile` passed
+- [ ] `.venv/bin/python -m pytest -q` passed
+- [ ] tracked Python `py_compile` passed
 
 Frontend:
 
@@ -47,6 +55,10 @@ Smoke tests:
 - [ ] Executive dashboard checked
 - [ ] Detection Quality checked
 - [ ] Health dashboard checked
+- [ ] Detection Control checked
+- [ ] AI provider/data policy checked
+- [ ] Semantic Memory / Recommended Playbooks checked
+- [ ] Operation History checked
 - [ ] Report export checked
 
 ## Security Review
@@ -57,6 +69,8 @@ Smoke tests:
 - [ ] No sensitive SOC/customer data committed
 - [ ] Authentication/authorization impact reviewed
 - [ ] External service/data transfer impact reviewed
+- [ ] AI/Qdrant/remediation decision boundaries preserved
+- [ ] Documentation validators passed
 - [ ] Not security relevant
 
 ## Screenshots
@@ -74,4 +88,3 @@ List any known limitations or follow-up work.
 - [ ] Tests/builds completed
 - [ ] Branch is up to date with `main`
 - [ ] Ready for review
-

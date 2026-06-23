@@ -95,6 +95,14 @@ All demo profiles default to `qwen3.5:4b` so a basic evaluation needs only one
 local model. Operators can select different profile models in their untracked
 demo environment file.
 
+External AI providers are not configured by the committed demo profile.
+OpenRouter or another OpenAI-compatible provider must remain an explicit local
+operator choice with provider allowlists, API key handling and AI Data Control.
+
+Qdrant is included, but useful semantic features still require a populated
+collection. Run knowledge/playbook indexing explicitly after the application
+stack and dependencies are ready.
+
 ## Validation
 
 The default validator is read-only and does not build images or contact

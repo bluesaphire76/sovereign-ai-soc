@@ -1,6 +1,8 @@
 # AI SOC Safe Start/Stop Scripts v2
 
-These scripts safely stop and start the AI SOC runtime without deleting Docker volumes, images, containers, databases, or Wazuh/Grafana/Prometheus state.
+These scripts safely stop and start the configured AI SOC runtime without
+deleting Docker volumes, images, containers, databases, semantic memory or
+Wazuh/observability state.
 
 ## Files
 
@@ -38,6 +40,10 @@ cd ~/lab/ai-soc-assistant/bin
 - Uses a lock file to avoid start/stop running at the same time.
 - Uses `docker compose stop` for stop and `docker compose up -d` for start. No volumes are removed.
 
+The scripts are host convenience wrappers. They are separate from the
+role-governed Service Operations API and do not create Operation History
+records.
+
 ## Safety guarantees
 
 The scripts do not run:
@@ -49,6 +55,8 @@ docker volume rm
 docker rm
 docker rmi
 ```
+
+They also do not prune Qdrant, Loki, Prometheus or Grafana volumes.
 
 ## Current environment defaults
 

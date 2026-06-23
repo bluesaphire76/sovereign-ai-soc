@@ -24,6 +24,7 @@ Before opening a pull request, make sure your change:
 - Does not introduce hardcoded secrets, credentials, tokens, or private data.
 - Does not expose stack traces or internal exception details to users.
 - Does not send SOC data to external services unless explicitly documented and approved.
+- Preserves AI provider, AI Data Control and Qdrant decision boundaries.
 - Keeps the UI usable, compact, and aligned with the enterprise SOC console design.
 - Is small enough to review safely.
 
@@ -68,49 +69,38 @@ Frontend:
 
 ```bash
 cd frontend
-npm install
+npm ci
 ```
 
 ---
 
 ## Required Validation Before Pull Request
 
-Backend compile check:
+Repository validation:
 
 ```bash
-cd ~/lab/ai-soc-assistant
-
-.venv/bin/python -m py_compile \
-  api.py \
-  auth_utils.py \
-  models.py \
-  database.py \
-  report_builder.py \
-  evidence_pack_builder.py \
-  executive_pdf_builder.py \
-  case_ai_analysis.py \
-  case_action_suggestions.py \
-  case_timeline.py \
-  platform_health.py \
-  wazuh_ingest_state.py \
-  scripts/create_users_table.py \
-  scripts/create_default_admin_user.py
+git diff --check
+./ai-soc docs-validate
+.venv/bin/python scripts/validate_docs_structure.py
+.venv/bin/python -m pytest -q
+git ls-files -z '*.py' | xargs -0 .venv/bin/python -m py_compile
 ```
 
 Frontend build:
 
 ```bash
-cd ~/lab/ai-soc-assistant/frontend
-
-rm -rf .next
+cd frontend
+npm ci
 npm run build
+cd ..
 ```
 
-Recommended smoke tests:
+Recommended release/readiness checks:
 
 ```bash
-curl -s http://localhost:8008/health | python3 -m json.tool
-curl -s http://localhost:8008/platform/health | python3 -m json.tool | head -80
+./ai-soc validate
+./ai-soc package-validate
+./ai-soc release-check --skip-runtime
 ```
 
 ---
@@ -144,6 +134,15 @@ Do not commit:
 
 If a contribution touches authentication, authorization, reporting, evidence export, or external integrations, explicitly describe the security impact in the pull request.
 
+Changes to AI providers, AI Data Control, semantic memory, Detection Control,
+remediation or Service Operations must document:
+
+- role and approval behavior;
+- data leaving the local environment, if any;
+- redaction/audit behavior;
+- deterministic fallback and failure mode;
+- actions that remain explicitly unsupported.
+
 ---
 
 ## UI Contribution Guidelines
@@ -164,6 +163,10 @@ For frontend changes:
 AI-generated content must remain analyst decision support.
 
 Do not present AI output as authoritative or final. Analyst review must remain explicit in the workflow.
+
+Qdrant retrieval and historical similarity are also advisory. They must not
+become a hidden decision source for severity, suppression, closure or
+remediation.
 
 ---
 
@@ -189,6 +192,7 @@ Use clear commit messages:
 Add GUI synthetic test runner
 Fix auth token validation
 Update README for v0.2 release candidate
+Refresh v0.7 semantic memory documentation
 Document PostCSS advisory exposure assessment
 ```
 

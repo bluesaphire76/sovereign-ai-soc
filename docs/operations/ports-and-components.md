@@ -17,6 +17,10 @@ existing services.
 | Prometheus | `127.0.0.1:9090` | Optional observability | Not included in the Docker demo foundation. |
 | Alertmanager | `127.0.0.1:9093` | Optional alerting | Not included in the Docker demo foundation. |
 | Loki | `127.0.0.1:3100` | Optional logging | Not included in the Docker demo foundation. |
+| Grafana Alloy | `127.0.0.1:12345` | Optional log collector UI/health | Forwards selected Docker/journal logs to Loki. |
+| cAdvisor | `127.0.0.1:8082` | Optional container metrics | Scraped by Prometheus. |
+| node-exporter | `127.0.0.1:9100` | Optional host metrics | Scraped by Prometheus. |
+| ntfy bridge | `127.0.0.1:8011` | Optional Alertmanager notification bridge | Requires an intentionally untracked local environment file. |
 
 Wazuh and Suricata use deployment-specific ports and integrations and are
 treated as advanced external telemetry sources rather than part of the basic
@@ -33,7 +37,9 @@ Docker demo.
 | GPU | Not required | Optional performance improvement |
 | Wazuh | Not required | Required for real host/security telemetry |
 | Suricata | Not required | Required for real network IDS telemetry |
-| Grafana/Prometheus/Loki/Alertmanager | Not required | Optional operational observability |
+| Grafana/Prometheus/Alertmanager | Not required | Optional metrics, dashboards and alerting |
+| Loki/Grafana Alloy | Not required | Optional selected platform-log troubleshooting |
+| External AI provider | Not required | Optional; disabled by default and policy-governed |
 
 ## Host and Docker names
 

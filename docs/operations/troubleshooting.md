@@ -114,6 +114,26 @@ apply operations.
 - Deterministic workflows and fallback output remain available when Ollama is
   unavailable, but the full AI-assisted value requires a working model runtime.
 
+## External AI provider and AI Data Control issues
+
+- External providers are disabled by default. A configured API key alone does
+  not enable a request.
+- Check, in order:
+  1. `AI_EXTERNAL_PROVIDERS_ENABLED`;
+  2. provider enabled/configured state;
+  3. provider feature allowlist;
+  4. provider redaction mode;
+  5. AI Data Control feature mode, provider allowlist and role allowlist;
+  6. any required confirmation.
+- Use the AI Data Control evaluation/redaction preview before changing policy.
+- Provider test is ADMIN-only and requires explicit confirmation. It sends a
+  harmless connectivity prompt, not incident data.
+- `ProviderNotAllowedByPolicy`, `ExternalProvidersGloballyDisabled`,
+  `ProviderDisabled`, `ProviderNotConfigured` and blocking redaction modes are
+  safe denials, not transport failures.
+- Review Health and Security Audit for safe provider metadata. Do not print or
+  paste the API key.
+
 ## PostgreSQL and Qdrant issues
 
 - Confirm the configured PostgreSQL host, port, database, and user without
@@ -125,6 +145,24 @@ apply operations.
 - Qdrant can be reachable while the configured collection is missing or empty;
   in that case semantic-memory features remain degraded until the knowledge
   base is indexed.
+- If playbook content changed, use selective reindex rather than recreating all
+  memory:
+
+  ```bash
+  PYTHONPATH=. .venv/bin/python scripts/reindex_qdrant_playbooks.py --dry-run
+  PYTHONPATH=. .venv/bin/python scripts/reindex_qdrant_playbooks.py --apply
+  PYTHONPATH=. .venv/bin/python scripts/validate_qdrant_playbook_expansion.py
+  ```
+
+- If Recommended Playbooks cross Windows/Linux boundaries, treat it as a
+  retrieval-quality failure. Validate authoritative incident telemetry,
+  playbook metadata and platform/type filters; do not loosen semantic matching
+  to hide the problem.
+- Automatic index failure is best-effort and should appear in
+  `/semantic-memory/auto-index-status`; it must not roll back the original SOC
+  write.
+- Retention cleanup targets only historical incident memory. Always dry-run
+  before apply.
 
 See [Ports and Components](ports-and-components.md) for the default endpoints.
 
@@ -171,6 +209,20 @@ unit status and logs using the normal administrative process for your host.
 These commands do not manage PostgreSQL, Qdrant, Ollama, Wazuh, Suricata, or
 the observability stack.
 
+## Service Operations and Operation History issues
+
+- A restart preview requires ADMIN or ANALYST and a non-empty reason.
+- Restart execution requires ADMIN and explicit confirmation.
+- `ai_soc_api` restart is intentionally blocked because the API cannot safely
+  restart itself through the same request.
+- A systemd permission error means non-interactive sudo does not match the
+  committed allowlist. Review `deploy/sudoers/ai-soc-service-operations`; do
+  not grant broad unrestricted `systemctl`.
+- Docker-managed Wazuh/Suricata operations require the configured container
+  names to exist.
+- Operation History may contain failed/denied previews by design. Use the safe
+  message/error and pre/post state; command output is truncated and redacted.
+
 ## Observability after a manual start
 
 First inspect the read-only plan:
@@ -195,6 +247,11 @@ Loki stores logs; Alloy collects and forwards them. If Grafana has no logs,
 validate the Loki datasource, then inspect Alloy collection errors. These are
 manual runtime diagnostics—the installer only validates files and Compose
 configuration and never starts or restarts the stack.
+
+Grafana, Prometheus and Alertmanager can be `WARN` without degrading the
+application overall status because they are optional non-blocking components.
+Loki and Alloy are not separate components in `/platform/health`; validate
+their own readiness endpoints and Grafana datasource.
 
 ## Wazuh and Suricata expectations
 
@@ -225,6 +282,7 @@ their deployment is an advanced integration task.
 ./ai-soc demo-info
 ./ai-soc demo-validate
 ./ai-soc release-check
+PYTHONPATH=. .venv/bin/python scripts/validate_qdrant_playbook_expansion.py
 ```
 
 For the complete first-run sequence, see the

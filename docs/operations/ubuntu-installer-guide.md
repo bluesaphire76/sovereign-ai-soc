@@ -101,6 +101,10 @@ Ollama is optional for basic deterministic demo workflows and required for the
 full local AI-assisted experience. A GPU is optional; CPU inference is
 supported but slower. Models are selected and downloaded manually.
 
+External AI providers are not required and are never enabled by the installer.
+If OpenRouter is configured later, review provider allowlists and AI Data
+Control before any non-synthetic use.
+
 ## Observability stack
 
 The repository contains:

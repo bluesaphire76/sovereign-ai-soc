@@ -186,7 +186,7 @@ Prefer specific wording such as:
 
 ## Current Categories
 
-The initial incident-specific playbook set covers:
+The active set currently contains 61 incident-specific playbooks across:
 
 - SSH brute force;
 - SSH success after failures;
@@ -201,6 +201,12 @@ The initial incident-specific playbook set covers:
 - suspicious malware and script execution;
 - suspicious outbound traffic and data exfiltration;
 - false-positive classification.
+
+Recommended Playbooks applies deterministic platform and incident-type
+compatibility before optional LLM synthesis. Windows/Linux cross-platform
+spillover is a retrieval-quality defect, not an acceptable semantic match.
+Authoritative incident telemetry and playbook metadata must drive eligibility;
+AI analysis and correlation summaries are explanatory context only.
 
 ## Future Expansion
 

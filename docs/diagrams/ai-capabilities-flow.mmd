@@ -1,14 +1,18 @@
 flowchart LR
-  evidence["Evidence / Context"] --> incident_ai["Incident AI Analysis"]
+  evidence["Deterministic Evidence / Context"] --> data_control["AI Data Control"]
+  semantic["Qdrant Advisory Semantic Memory"] --> data_control
+  data_control --> provider["Policy-selected AI Provider"]
+  provider --> incident_ai["Incident AI Analysis"]
   incident_ai --> command_brief["Local AI Command Brief"]
   command_brief --> risk["Risk Rationale"]
   command_brief --> evidence_summary["Evidence Summary"]
   command_brief --> actions["Recommended Actions"]
   actions --> how_to["HOW TO EXECUTE Guidance"]
 
-  evidence --> correlation["Correlation Explanation"]
-  evidence --> case_ai["Case AI Analysis"]
-  evidence --> detection_quality["Detection Quality Assistance"]
+  provider --> case_ai["Case AI Analysis"]
+  provider --> detection_quality["Detection Quality Assistance"]
+  evidence --> correlation["Deterministic Correlation Explanation"]
+  semantic --> playbooks["Recommended Playbooks"]
 
   case_ai --> case_workflow["Case Workflow Support"]
   detection_quality --> remediation["AI Remediation Suggestion"]
@@ -21,5 +25,6 @@ flowchart LR
 
   how_to --> human["Human Approval / Analyst Control"]
   remediation --> human
+  playbooks --> human
   reviewer --> human
   executive --> human

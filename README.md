@@ -1,7 +1,7 @@
 # Sovereign AI SOC
 
 ![Release](https://img.shields.io/badge/latest%20tag-v0.6.0-953fdc0)
-![v0.6](https://img.shields.io/badge/v0.6.0-AI%20investigation%20%26%20governed%20remediation-0891b2)
+![main](https://img.shields.io/badge/main-v0.7%20implemented%20%2F%20unreleased-0891b2)
 [![Dependency Graph](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/dependabot/update-graph/badge.svg)](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/dependabot/update-graph)
 [![CodeQL](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/github-code-scanning/codeql)
 [![Public CI](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/ci.yml/badge.svg)](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/ci.yml)
@@ -16,10 +16,22 @@
 ![Human-in-the-loop](https://img.shields.io/badge/Human--in--the--loop-by%20design-7c3aed)
 ![Grafana](https://img.shields.io/badge/Grafana-Observability-F46800)
 ![Prometheus](https://img.shields.io/badge/Prometheus-Metrics-E6522C)
+![Alertmanager](https://img.shields.io/badge/Alertmanager-Alerting-E6522C)
+![Loki](https://img.shields.io/badge/Loki-Logs-F2CC0C)
+![Alloy](https://img.shields.io/badge/Grafana%20Alloy-Collection-F46800)
 
-Sovereign AI SOC is a local-first AI-powered security operations platform combining Wazuh, Suricata, correlation-first incident detection, local AI analysis, investigation intelligence, human-governed remediation, case workflow, executive reporting and human-in-the-loop security operations.
+Sovereign AI SOC is a local-first, human-governed security operations platform
+combining Wazuh, Suricata, correlation-first detection, governed AI providers,
+Qdrant Semantic Memory, investigation intelligence, Detection Control,
+remediation governance, case workflow, reporting and observability.
 
-It is built as a product-grade prototype for teams that want AI-assisted SOC workflows without making external AI providers a mandatory dependency for sensitive security data.
+It is built for teams that want AI-assisted SOC workflows without making
+external AI providers mandatory. Ollama remains the default; OpenRouter and
+other OpenAI-compatible endpoints are optional, disabled by default and
+controlled by explicit provider/data policies.
+
+The current `main` branch contains the v0.7 implementation baseline. The latest
+published Git tag remains `v0.6.0`.
 
 ## Product Preview
 
@@ -146,9 +158,11 @@ Additional screenshots are available in [`docs/assets/screenshots`](docs/assets/
 1. Security events are collected from local detection sources such as Wazuh and Suricata.
 2. The ingestion pipeline normalizes, deduplicates and suppresses known operational noise.
 3. Relevant signals are correlated into explainable incidents.
-4. Local AI supports the analyst with risk rationale, evidence summary, recommended checks and remediation guidance.
-5. The analyst remains in control through human-in-the-loop case workflow and approval gates.
-6. Health and observability views provide operational confidence across the platform.
+4. Qdrant retrieves advisory playbooks and historical/operational context.
+5. A policy-selected AI provider produces structured analysis with deterministic fallback.
+6. Analysts investigate through timelines, graphs, cases and Recommended Playbooks.
+7. Detection and remediation changes pass through lifecycle, approval and audit controls.
+8. Health, Operation History, metrics, alerts and selected logs provide operational confidence.
 
 ## Why Sovereign AI SOC
 
@@ -156,8 +170,10 @@ SOC teams need faster interpretation, clearer evidence handling and better decis
 
 Sovereign AI SOC demonstrates a local-first approach:
 
-- Security telemetry stays in the local environment.
-- AI analysis runs through a local Ollama runtime.
+- Security telemetry and semantic memory can stay in the local environment.
+- AI analysis runs through local Ollama by default.
+- External providers require explicit enablement, allowlisting, redaction and
+  AI Data Control approval.
 - Deterministic ingestion, suppression and correlation decide what becomes an incident.
 - Analysts remain in control of escalation, response, case closure and reporting.
 - Reports and evidence packs are generated locally for audit and executive communication.
@@ -170,24 +186,27 @@ Sovereign AI SOC demonstrates a local-first approach:
 | Event model | Separation between raw events, security alerts, incidents and cases |
 | Ingestion quality | Aggregation, deduplication, watermarking, backlog tracking and noise suppression |
 | Incident creation | Correlation-first logic before incident creation, with observed-only and suppressed paths |
-| Incident workflow | Incident Command Center, lifecycle updates, analyst notes, AI Situation Brief, correlation visualization and evidence context |
-| Case workflow | Ownership, SLA posture, closure readiness, linked incidents, Kanban and case AI analysis |
-| AI workflow | Incident analysis, Command Brief, risk rationale, evidence summaries, configurable local LLM model routing, recommended actions and HOW TO EXECUTE guidance |
-| Remediation workflow | LLM-backed remediation intelligence, approval gates, dry-run simulation, rollback readiness, execution audit trail, replay simulation and controlled internal workflow actions |
-| Detection engineering | Detection Quality dashboard, synthetic scenarios, coverage posture and AI-generated remediation suggestions |
+| Incident workflow | Incident Command Center, lifecycle, Advanced Timeline, Investigation Graph, Similar Incidents, Recommended Playbooks and evidence context |
+| Case workflow | Ownership, SLA posture, closure readiness, linked incidents, persisted AI jobs, semantic closure context, graph and Kanban |
+| AI providers | On-demand Ollama profiles plus optional governed OpenRouter/OpenAI-compatible routing with visible provider/model/fallback metadata |
+| AI Data Control | Per-feature role/provider policy, deterministic redaction, previews and audit-safe decision history |
+| Semantic memory | Qdrant knowledge base, historical incidents, Detection Control and approved/final Case Closure memory |
+| Remediation workflow | LLM-backed intelligence, persistent proposals, approvals, dry-run, rollback readiness, replay and safe internal conversions |
+| Detection engineering | Detection Quality plus Detection Control inventory, lifecycle, validation, versioning, rollback, exceptions and noise operations |
 | Executive workflow | Executive dashboard, executive insights, decision brief and concise management reporting |
 | Reporting | Incident reports, case reports, evidence packs, executive PDFs and professional export naming |
-| Governance | RBAC for ADMIN, ANALYST and VIEWER, Security Audit, user management and session hardening |
-| Observability | Enterprise Health page plus a dedicated Grafana/Prometheus observability layer with historical platform metrics, worker and ingest telemetry, source freshness, AI runtime status, active users, GPU/runtime visibility, SOC pipeline quality, AI triage outcomes and noise reduction insights |
+| Governance | Backend-default-deny RBAC, Security Audit, user management, semantic-memory boundaries and Operation History |
+| Observability | Expanded Health, Prometheus/Grafana metrics, Alertmanager/optional ntfy notifications and Loki/Grafana Alloy selected-log troubleshooting |
 
 ## AI Capabilities
 
 AI is used across the workflow, not only for triage.
 
 - Incident AI analysis for situation summaries, risk rationale and evidence interpretation.
-- Structured Local AI Command Brief for analyst-facing decision support.
+- Structured AI Command Brief with provider/model visibility.
 - Evidence summaries that connect raw alert context, correlation data, network evidence and DNS context without inventing causality.
-- Recommended actions and remediation guidance, including AI-generated HOW TO EXECUTE steps for detection quality recommendations.
+- Qdrant-backed, platform-aware Recommended Playbooks with deterministic fallback.
+- Recommended actions and remediation guidance, including HOW TO EXECUTE steps.
 - Case analysis, open gaps, decision points and workflow support.
 - Correlation explanation to help answer why an event became an incident.
 - Detection Quality assistance for synthetic scenarios, weak coverage areas and next recommended action.
@@ -195,8 +214,13 @@ AI is used across the workflow, not only for triage.
 - Controlled SOAR support for allowlisted internal workflow actions such as remediation tasks, notes, case actions and audit records.
 - Executive insights and report enrichment for management-ready summaries.
 - Runtime observability, timeout handling, deterministic fallback and visible LLM profile/model metadata when the local model is unavailable or routed by task.
+- External-provider policy, deterministic redaction and audit-safe data-control decisions.
 
-The platform does not autonomously execute destructive or external operational response actions. AI provides interpretation, recommendations and draft guidance; the analyst remains responsible for validation and action. Controlled SOAR execution is limited to safe internal product workflow records unless future connector/playbook integrations are explicitly added and governed.
+The platform does not autonomously execute destructive or external operational
+response actions. AI and semantic memory provide interpretation,
+recommendations and draft guidance. Controlled execution is limited to
+allowlisted internal product records; firewall, EDR, identity, ticketing and
+external SOAR connectors remain disabled/proposal-only.
 
 See [AI Capabilities](docs/product/ai-capabilities.md) for the full model.
 
@@ -216,8 +240,10 @@ See [Detection Sources](docs/product/detection-sources.md).
 The product is designed for analyst-controlled security operations:
 
 - Deterministic policy determines suppression, correlation and incident creation.
-- AI explains, summarizes and recommends.
+- AI and semantic memory explain, retrieve, summarize and recommend.
 - Analysts decide escalation, ownership, response, closure and reporting.
+- ADMIN controls external AI enablement, Detection Control apply/rollback,
+  semantic-memory operations and privileged service restarts.
 - Remediation remains human-governed through approval, dry-run, rollback readiness and audit trail checks.
 - Controlled SOAR actions are limited to allowlisted internal workflow records; external host, identity, firewall or endpoint changes are not executed.
 - Admin-only areas such as Security Audit and user management remain protected by RBAC.
@@ -230,12 +256,15 @@ The core runtime is local:
 - Browser and Next.js frontend.
 - FastAPI backend.
 - PostgreSQL operational datastore.
+- Qdrant local semantic memory.
 - Wazuh and Suricata signal sources.
 - Local Ollama/LLM runtime.
+- Optional governed OpenAI-compatible providers such as OpenRouter.
+- Prometheus, Grafana, Alertmanager, Loki and Grafana Alloy.
 - Local report and evidence pack generation.
 - Nginx and systemd deployment for production-style demo environments.
 
-No mandatory external AI provider is required for the core product flow.
+No external AI provider is required for the core product flow.
 
 ![High-level architecture](docs/assets/architecture/high-level-architecture.svg)
 
@@ -248,14 +277,16 @@ A concise product demo can follow this path:
 1. Open the Dashboard or Executive Dashboard to show SOC posture.
 2. Review active incidents, risk distribution and operational health.
 3. Open a correlated incident in the Incident Command Room.
-4. Explain the AI Command Brief, risk rationale, evidence summary and recommended actions.
-5. Review Remediation Governance, replay simulation and controlled internal workflow action eligibility.
-6. Inspect Correlation Visualization to show why the platform created the incident.
-7. Review endpoint DNS context or Suricata network evidence where available.
-8. Open Detection Quality and show synthetic scenario coverage plus AI-generated remediation guidance.
-9. Create or open a case, assign ownership, review SLA posture and closure readiness.
-10. Generate an incident report, case report or analyst evidence pack.
-11. Open Health, Grafana Observability and Security Audit to show operational observability and governance.
+4. Explain provider/model visibility, AI Command Brief and evidence boundaries.
+5. Review the Advanced Timeline, Investigation Graph and Recommended Playbooks.
+6. Inspect Correlation Visualization to show why deterministic policy created the incident.
+7. Review endpoint DNS context or Suricata evidence where available.
+8. Create/review a Governed Remediation proposal and its approval boundary.
+9. Open Detection Control to show lifecycle, versions, exceptions/noise and semantic context.
+10. Create or open a case and review SLA, graph, playbooks and closure context.
+11. Open AI Providers, AI Data Control and Semantic Memory.
+12. Open Health, Operation History and Grafana observability.
+13. Generate reports and close with Security Audit/RBAC.
 
 See [Demo Guide](docs/product/demo-guide.md) for presenter talking points.
 
@@ -418,7 +449,14 @@ Optional local knowledge base indexing for Qdrant-backed RAG:
 PYTHONPATH=. .venv/bin/python rag_index.py --recreate
 ```
 
-The AI triage, incident brief, case analysis and bounded investigation retrieval paths can use the configured `QDRANT_COLLECTION` for contextual SOC playbook evidence. The Health page reports `WARN` when Qdrant is reachable but the configured knowledge base collection is missing or empty.
+Incident brief, case analysis, Similar Incidents, Detection Quality/Control
+context and Recommended Playbooks can use the configured `QDRANT_COLLECTION`.
+The Health page reports `WARN` when Qdrant is reachable but the configured
+collection is missing or empty.
+
+For playbook-only changes, use the selective dry-run/apply reindex documented in
+[Qdrant Semantic Memory](docs/architecture/v0.7-qdrant-semantic-memory.md) so
+historical and operational memory is preserved.
 
 Production-style demo deployments in this repository use Nginx and systemd service names already documented in `deploy/`:
 
@@ -451,6 +489,7 @@ python3 scripts/validate_public_ci_baseline.py
 
 ## Documentation Index
 
+- [Documentation Home](docs/README.md)
 - [External User Quickstart](docs/external-user-quickstart.md)
 - [Ubuntu Guided Demo Installer](docs/ubuntu-installer-guide.md)
 - [Troubleshooting](docs/troubleshooting.md)
@@ -469,6 +508,15 @@ python3 scripts/validate_public_ci_baseline.py
 - [Security Model](docs/architecture/security-model.md)
 - [Reporting Guide](docs/product/reporting-guide.md)
 - [Observability Architecture and Operations Guide](docs/operations/v0.6.0-observability.md)
+- [Alertmanager Wazuh Backlog Alerting](docs/operations/v0.7.0-alertmanager-wazuh-backlog-alerting.md)
+- [Loki and Grafana Alloy](docs/operations/v0.7.0-minimal-loki-observability.md)
+- [AI Providers](docs/architecture/v0.7-external-ai-provider-abstraction.md)
+- [AI Data Control](docs/architecture/v0.7-ai-data-control-policy.md)
+- [Qdrant Semantic Memory](docs/architecture/v0.7-qdrant-semantic-memory.md)
+- [Investigation Graph](docs/architecture/v0.7-investigation-graph.md)
+- [Governed Remediation Connectors](docs/architecture/v0.7-governed-remediation-connectors.md)
+- [Service Operations and Operation History](docs/operations/v0.7-service-operations-history.md)
+- [v0.7.0 Unreleased Main-Branch Summary](docs/releases/RELEASE_NOTES_v0.7.0.md)
 - [v0.6.0 Release Notes](docs/releases/RELEASE_NOTES_v0.6.0.md)
 - [v0.6 Release Checklist](docs/validation/v0.6-release-checklist.md)
 - [Roadmap](docs/product/roadmap.md)
@@ -498,7 +546,7 @@ Existing release and validation notes:
 | v0.4 | Completed | Ingestion quality, event separation, correlation-first incident creation, noise suppression, AI hardening, reporting and observability |
 | v0.5 | Completed | Demo scenario pack, enterprise UX, Incident Command Room, case workflow, report/export polish, Suricata, DNS context and correlation visualization |
 | v0.6 | Released | AI investigation intelligence, human-governed remediation, Incident Command Center rewrite, replay simulation, controlled internal SOAR workflow actions and observability improvements |
-| v0.7 | Candidate | Additional connectors, deeper case collaboration, stronger reporting automation and broader validation tooling |
+| v0.7 | Implemented on `main`, unreleased | Governed AI providers/data control, semantic memory, Recommended Playbooks, graph/timeline, Detection Control lifecycle, governed connectors, Operation History, Alertmanager/Loki/Alloy and installability |
 
 See [Roadmap](docs/product/roadmap.md).
 

@@ -81,3 +81,19 @@ Report export naming is designed to be professional and predictable, such as:
 ## Local Storage
 
 Generated reports are local artifacts and may contain sensitive security data. Do not commit generated reports or report directories unless a sanitized example is intentionally added.
+
+## v0.7 Context Boundaries
+
+Not every interactive v0.7 panel is automatically embedded in every report.
+Advanced Timeline, Investigation Graph, Recommended Playbooks, Semantic Memory
+and Governed Remediation remain separate product views unless a report builder
+explicitly serializes their stored source records.
+
+When semantic or AI-derived context is included:
+
+- label it as advisory;
+- preserve provider/model/fallback metadata where available;
+- do not present similarity as proof;
+- keep current incident evidence authoritative;
+- do not include provider secrets, raw policy previews or unredacted external
+  request payloads.

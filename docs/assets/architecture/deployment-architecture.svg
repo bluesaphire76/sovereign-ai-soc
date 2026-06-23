@@ -1,9 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="760" viewBox="0 0 1240 760" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="880" viewBox="0 0 1240 880" role="img" aria-labelledby="title desc">
   <title id="title">Deployment architecture</title>
-  <desc id="desc">Nginx routes browser traffic to the Next.js frontend and FastAPI backend. Backend connects to PostgreSQL, Ollama, reports and health metrics. Wazuh, Suricata and DNS workers feed local storage.</desc>
+  <desc id="desc">Nginx routes browser traffic to the Next.js frontend and FastAPI backend. Backend connects to PostgreSQL, Qdrant, governed AI providers, local reports, health metrics, service operations and the optional Prometheus, Alertmanager, Alloy, Loki and Grafana observability stack.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L0,6 L9,3 z" fill="#22d3ee"/>
+    </marker>
+    <marker id="mutedArrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#64748b"/>
     </marker>
     <style>
       .bg { fill: #020617; }
@@ -12,18 +15,24 @@
       .store { fill: #0b1220; stroke: #60a5fa; stroke-width: 1.2; rx: 8; }
       .ai { fill: #17112b; stroke: #a78bfa; stroke-width: 1.2; rx: 8; }
       .worker { fill: #052e2b; stroke: #10b981; stroke-width: 1.2; rx: 8; }
+      .external { fill: #1f2937; stroke: #64748b; stroke-width: 1.2; stroke-dasharray: 5 4; rx: 8; }
+      .guardrail { fill: #2b1d0b; stroke: #f59e0b; stroke-width: 1.2; rx: 8; }
       .title { fill: #e5e7eb; font: 700 28px Arial, sans-serif; }
       .subtitle { fill: #94a3b8; font: 400 14px Arial, sans-serif; }
+      .section { fill: #94a3b8; font: 700 12px Arial, sans-serif; letter-spacing: 1px; }
       .label { fill: #e5e7eb; font: 700 14px Arial, sans-serif; text-anchor: middle; }
       .small { fill: #cbd5e1; font: 400 11px Arial, sans-serif; text-anchor: middle; }
       .edge { stroke: #22d3ee; stroke-width: 1.6; fill: none; marker-end: url(#arrow); }
-      .muted { stroke: #64748b; stroke-width: 1.35; fill: none; marker-end: url(#arrow); }
+      .muted { stroke: #64748b; stroke-width: 1.35; fill: none; marker-end: url(#mutedArrow); }
+      .optional { stroke: #64748b; stroke-width: 1.25; fill: none; stroke-dasharray: 5 4; marker-end: url(#mutedArrow); }
+      .aiEdge { stroke: #a78bfa; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
     </style>
   </defs>
-  <rect class="bg" width="1240" height="760"/>
+  <rect class="bg" width="1240" height="880"/>
   <text class="title" x="48" y="54">Deployment Architecture</text>
-  <text class="subtitle" x="48" y="80">Production-style demo deployment with Nginx, systemd workers, PostgreSQL and local AI.</text>
+  <text class="subtitle" x="48" y="80">Production-style local deployment with governed external AI and optional observability components.</text>
 
+  <text class="section" x="60" y="122">WEB AND API TIER</text>
   <rect class="node" x="60" y="150" width="160" height="62"/>
   <text class="label" x="140" y="177">User Browser</text>
   <text class="small" x="140" y="198">SOC console</text>
@@ -35,49 +44,96 @@
   <text class="small" x="612" y="138">Next.js</text>
   <rect class="service" x="520" y="210" width="185" height="62"/>
   <text class="label" x="612" y="237">ai-soc-api</text>
-  <text class="small" x="612" y="258">FastAPI</text>
+  <text class="small" x="612" y="258">FastAPI / RBAC</text>
 
-  <rect class="store" x="805" y="90" width="170" height="62"/>
-  <text class="label" x="890" y="117">PostgreSQL</text>
-  <text class="small" x="890" y="138">Operational data</text>
-  <rect class="ai" x="805" y="210" width="170" height="62"/>
-  <text class="label" x="890" y="237">Ollama</text>
-  <text class="small" x="890" y="258">Local AI runtime</text>
-  <rect class="worker" x="805" y="330" width="170" height="62"/>
-  <text class="label" x="890" y="357">Report Storage</text>
-  <text class="small" x="890" y="378">Local exports</text>
-  <rect class="worker" x="805" y="450" width="170" height="62"/>
-  <text class="label" x="890" y="477">Health Metrics</text>
-  <text class="small" x="890" y="498">Workers and runtime</text>
-
-  <rect class="node" x="60" y="510" width="160" height="62"/>
-  <text class="label" x="140" y="537">Wazuh Manager</text>
-  <text class="small" x="140" y="558">Indexer / alerts</text>
-  <rect class="worker" x="280" y="430" width="170" height="62"/>
-  <text class="label" x="365" y="457">Wazuh Ingest</text>
-  <text class="small" x="365" y="478">API worker path</text>
-  <rect class="node" x="60" y="630" width="160" height="62"/>
-  <text class="label" x="140" y="657">Suricata eve.json</text>
-  <text class="small" x="140" y="678">Network sensor log</text>
-  <rect class="worker" x="280" y="630" width="170" height="62"/>
-  <text class="label" x="365" y="657">Suricata Ingest</text>
-  <text class="small" x="365" y="678">systemd worker</text>
-  <rect class="worker" x="280" y="535" width="170" height="62"/>
-  <text class="label" x="365" y="562">DNS Collector</text>
-  <text class="small" x="365" y="583">systemd worker</text>
+  <rect class="store" x="805" y="60" width="170" height="62"/>
+  <text class="label" x="890" y="87">PostgreSQL</text>
+  <text class="small" x="890" y="108">Operational data</text>
+  <rect class="store" x="805" y="150" width="170" height="62"/>
+  <text class="label" x="890" y="177">Qdrant</text>
+  <text class="small" x="890" y="198">Semantic memory</text>
+  <rect class="guardrail" x="805" y="240" width="170" height="62"/>
+  <text class="label" x="890" y="267">AI Data Control</text>
+  <text class="small" x="890" y="288">Provider policy</text>
+  <rect class="ai" x="805" y="330" width="170" height="62"/>
+  <text class="label" x="890" y="357">Ollama</text>
+  <text class="small" x="890" y="378">Local AI runtime</text>
+  <rect class="external" x="1010" y="240" width="170" height="62"/>
+  <text class="label" x="1095" y="267">External AI</text>
+  <text class="small" x="1095" y="288">OpenRouter optional</text>
+  <rect class="worker" x="1010" y="330" width="170" height="62"/>
+  <text class="label" x="1095" y="357">Report Storage</text>
+  <text class="small" x="1095" y="378">Local exports</text>
 
   <path class="edge" d="M220 181 H280"/>
   <path class="edge" d="M450 181 H485 V121 H520"/>
   <path class="edge" d="M450 181 H485 V241 H520"/>
-  <path class="edge" d="M705 241 H750 V121 H805"/>
+  <path class="edge" d="M705 241 H755 V91 H805"/>
+  <path class="edge" d="M705 241 H755 V181 H805"/>
   <path class="edge" d="M705 241 H805"/>
-  <path class="edge" d="M705 241 H750 V361 H805"/>
-  <path class="edge" d="M705 241 H750 V481 H805"/>
-  <path class="edge" d="M705 121 H750 V481 H805"/>
+  <path class="aiEdge" d="M890 302 V330"/>
+  <path class="optional" d="M975 271 H1010"/>
+  <path class="edge" d="M705 241 H755 V361 H805"/>
+  <path class="edge" d="M705 241 H735 V410 H1095 V392"/>
 
-  <path class="edge" d="M220 541 H280"/>
-  <path class="edge" d="M450 461 H760 V121 H805"/>
-  <path class="edge" d="M220 661 H280"/>
-  <path class="edge" d="M450 661 H760 V121 H805"/>
-  <path class="edge" d="M365 535 V510 H220"/>
+  <text class="section" x="60" y="428">LOCAL TELEMETRY SOURCES</text>
+  <rect class="node" x="60" y="455" width="160" height="62"/>
+  <text class="label" x="140" y="482">Wazuh Manager</text>
+  <text class="small" x="140" y="503">Indexer / alerts</text>
+  <rect class="worker" x="280" y="415" width="170" height="62"/>
+  <text class="label" x="365" y="442">Wazuh Ingest</text>
+  <text class="small" x="365" y="463">API worker path</text>
+  <rect class="node" x="60" y="575" width="160" height="62"/>
+  <text class="label" x="140" y="602">Suricata eve.json</text>
+  <text class="small" x="140" y="623">Network sensor log</text>
+  <rect class="worker" x="280" y="575" width="170" height="62"/>
+  <text class="label" x="365" y="602">Suricata Ingest</text>
+  <text class="small" x="365" y="623">systemd worker</text>
+  <rect class="worker" x="280" y="675" width="170" height="62"/>
+  <text class="label" x="365" y="702">DNS Collector</text>
+  <text class="small" x="365" y="723">systemd worker</text>
+
+  <rect class="worker" x="520" y="440" width="185" height="62"/>
+  <text class="label" x="612" y="467">Health Page</text>
+  <text class="small" x="612" y="488">Runtime components</text>
+  <rect class="worker" x="520" y="540" width="185" height="62"/>
+  <text class="label" x="612" y="567">Service Ops</text>
+  <text class="small" x="612" y="588">Preview / restart</text>
+  <rect class="worker" x="520" y="640" width="185" height="62"/>
+  <text class="label" x="612" y="667">Operation History</text>
+  <text class="small" x="612" y="688">Audited outcomes</text>
+
+  <path class="edge" d="M220 486 H250 V446 H280"/>
+  <path class="edge" d="M450 446 H470 V405 H785 V91 H805"/>
+  <path class="edge" d="M220 606 H280"/>
+  <path class="edge" d="M450 606 H760 V91 H805"/>
+  <path class="edge" d="M365 675 V650 H240 V548 H140 V517"/>
+  <path class="edge" d="M705 241 H735 V471 H705"/>
+  <path class="edge" d="M705 241 H735 V571 H705"/>
+  <path class="edge" d="M612 602 V640"/>
+
+  <text class="section" x="805" y="452">OPTIONAL OBSERVABILITY STACK</text>
+  <rect class="worker" x="805" y="480" width="170" height="62"/>
+  <text class="label" x="890" y="507">Prometheus</text>
+  <text class="small" x="890" y="528">Metrics scrape</text>
+  <rect class="worker" x="1010" y="480" width="170" height="62"/>
+  <text class="label" x="1095" y="507">Alertmanager</text>
+  <text class="small" x="1095" y="528">Optional ntfy bridge</text>
+  <rect class="worker" x="805" y="600" width="170" height="62"/>
+  <text class="label" x="890" y="627">Grafana Alloy</text>
+  <text class="small" x="890" y="648">Log forwarding</text>
+  <rect class="worker" x="1010" y="600" width="170" height="62"/>
+  <text class="label" x="1095" y="627">Loki</text>
+  <text class="small" x="1095" y="648">Log store</text>
+  <rect class="worker" x="905" y="720" width="170" height="62"/>
+  <text class="label" x="990" y="747">Grafana</text>
+  <text class="small" x="990" y="768">Dashboards</text>
+
+  <path class="edge" d="M705 241 H735 V511 H805"/>
+  <path class="edge" d="M975 511 H1010"/>
+  <path class="muted" d="M890 542 V600"/>
+  <path class="muted" d="M975 631 H1010"/>
+  <path class="muted" d="M1095 662 V700 H990 V720"/>
+  <path class="muted" d="M890 662 V700 H990 V720"/>
+  <path class="muted" d="M890 542 V570 H760 V751 H905"/>
 </svg>

@@ -1,9 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="720" viewBox="0 0 1240 720" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="760" viewBox="0 0 1240 760" role="img" aria-labelledby="title desc">
   <title id="title">AI capabilities flow</title>
-  <desc id="desc">Evidence flows into incident analysis, command brief, risk rationale, recommended actions, HOW TO EXECUTE guidance, case analysis, detection quality assistance, report enrichment and human approval.</desc>
+  <desc id="desc">Deterministic evidence and Qdrant semantic memory flow through AI data control and provider policy into incident analysis, command brief, recommended playbooks, guarded remediation suggestions, case analysis, detection quality guidance, report enrichment and human approval.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L0,6 L9,3 z" fill="#a78bfa"/>
+    </marker>
+    <marker id="actionArrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#22d3ee"/>
     </marker>
     <style>
       .bg { fill: #020617; }
@@ -11,21 +14,33 @@
       .ai { fill: #17112b; stroke: #a78bfa; stroke-width: 1.2; rx: 8; }
       .action { fill: #082f49; stroke: #22d3ee; stroke-width: 1.2; rx: 8; }
       .human { fill: #052e2b; stroke: #10b981; stroke-width: 1.2; rx: 8; }
+      .guardrail { fill: #2b1d0b; stroke: #f59e0b; stroke-width: 1.2; rx: 8; }
       .title { fill: #e5e7eb; font: 700 28px Arial, sans-serif; }
       .subtitle { fill: #94a3b8; font: 400 14px Arial, sans-serif; }
       .label { fill: #e5e7eb; font: 700 14px Arial, sans-serif; text-anchor: middle; }
       .small { fill: #cbd5e1; font: 400 11px Arial, sans-serif; text-anchor: middle; }
       .edge { stroke: #a78bfa; stroke-width: 1.6; fill: none; marker-end: url(#arrow); }
-      .edge2 { stroke: #22d3ee; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+      .edge2 { stroke: #22d3ee; stroke-width: 1.4; fill: none; marker-end: url(#actionArrow); }
+      .guard { stroke: #f59e0b; stroke-width: 1.35; fill: none; marker-end: url(#actionArrow); }
     </style>
   </defs>
-  <rect class="bg" width="1240" height="720"/>
+  <rect class="bg" width="1240" height="760"/>
   <text class="title" x="48" y="54">AI Capabilities Flow</text>
-  <text class="subtitle" x="48" y="80">Local AI supports analysis, explanation, remediation guidance and reporting while the analyst remains in control.</text>
+  <text class="subtitle" x="48" y="80">AI assists analysis and remediation only through policy, evidence boundaries and analyst approval.</text>
 
-  <rect class="node" x="50" y="300" width="170" height="62"/>
-  <text class="label" x="135" y="327">Evidence / Context</text>
-  <text class="small" x="135" y="348">Incidents, cases, telemetry</text>
+  <rect class="node" x="50" y="260" width="170" height="62"/>
+  <text class="label" x="135" y="287">Evidence / Context</text>
+  <text class="small" x="135" y="308">Incidents, cases, telemetry</text>
+  <rect class="node" x="50" y="370" width="170" height="62"/>
+  <text class="label" x="135" y="397">Semantic Memory</text>
+  <text class="small" x="135" y="418">Qdrant advisory context</text>
+
+  <rect class="guardrail" x="280" y="260" width="170" height="62"/>
+  <text class="label" x="365" y="287">AI Data Control</text>
+  <text class="small" x="365" y="308">Redaction and policy</text>
+  <rect class="ai" x="510" y="260" width="170" height="62"/>
+  <text class="label" x="595" y="287">AI Provider</text>
+  <text class="small" x="595" y="308">Local or governed route</text>
 
   <rect class="ai" x="280" y="118" width="170" height="62"/>
   <text class="label" x="365" y="145">Incident AI Analysis</text>
@@ -47,56 +62,60 @@
   <text class="label" x="1055" y="223">HOW TO EXECUTE</text>
   <text class="small" x="1055" y="244">Explicit AI guidance</text>
 
-  <rect class="ai" x="280" y="300" width="170" height="62"/>
-  <text class="label" x="365" y="327">Correlation</text>
-  <text class="small" x="365" y="348">Incident explanation</text>
-  <rect class="action" x="510" y="300" width="170" height="62"/>
-  <text class="label" x="595" y="327">Incident Reasoning</text>
-  <text class="small" x="595" y="348">Why it was created</text>
+  <rect class="ai" x="280" y="430" width="170" height="62"/>
+  <text class="label" x="365" y="457">Case AI Analysis</text>
+  <text class="small" x="365" y="478">Gaps and decisions</text>
+  <rect class="action" x="510" y="430" width="170" height="62"/>
+  <text class="label" x="595" y="457">Case Workflow</text>
+  <text class="small" x="595" y="478">Owner, SLA, closure</text>
+  <rect class="action" x="740" y="430" width="170" height="62"/>
+  <text class="label" x="825" y="457">Report Enrichment</text>
+  <text class="small" x="825" y="478">Evidence and executive</text>
+  <rect class="action" x="970" y="430" width="170" height="62"/>
+  <text class="label" x="1055" y="457">Executive Insights</text>
+  <text class="small" x="1055" y="478">Management summary</text>
 
-  <rect class="ai" x="280" y="432" width="170" height="62"/>
-  <text class="label" x="365" y="459">Case AI Analysis</text>
-  <text class="small" x="365" y="480">Gaps and decisions</text>
-  <rect class="action" x="510" y="432" width="170" height="62"/>
-  <text class="label" x="595" y="459">Case Workflow</text>
-  <text class="small" x="595" y="480">Owner, SLA, closure</text>
-  <rect class="action" x="740" y="432" width="170" height="62"/>
-  <text class="label" x="825" y="459">Report Enrichment</text>
-  <text class="small" x="825" y="480">Evidence and executive</text>
-  <rect class="action" x="970" y="432" width="170" height="62"/>
-  <text class="label" x="1055" y="459">Executive Insights</text>
-  <text class="small" x="1055" y="480">Management summary</text>
+  <rect class="ai" x="280" y="560" width="170" height="62"/>
+  <text class="label" x="365" y="587">Detection Quality</text>
+  <text class="small" x="365" y="608">Coverage assistance</text>
+  <rect class="guardrail" x="510" y="560" width="170" height="62"/>
+  <text class="label" x="595" y="587">Remediation</text>
+  <text class="small" x="595" y="608">Governed suggestion</text>
+  <rect class="action" x="740" y="560" width="170" height="62"/>
+  <text class="label" x="825" y="587">Playbooks</text>
+  <text class="small" x="825" y="608">Recommended incident runbooks</text>
 
-  <rect class="ai" x="280" y="564" width="170" height="62"/>
-  <text class="label" x="365" y="591">Detection Quality</text>
-  <text class="small" x="365" y="612">Coverage assistance</text>
-  <rect class="action" x="510" y="564" width="170" height="62"/>
-  <text class="label" x="595" y="591">AI Suggestion</text>
-  <text class="small" x="595" y="612">Remediation support</text>
+  <rect class="action" x="510" y="650" width="170" height="62"/>
+  <text class="label" x="595" y="677">Investigation Graph</text>
+  <text class="small" x="595" y="698">Timeline and relationships</text>
+  <rect class="human" x="970" y="560" width="170" height="62"/>
+  <text class="label" x="1055" y="587">Human Approval</text>
+  <text class="small" x="1055" y="608">Validate, decide, act</text>
 
-  <rect class="human" x="970" y="320" width="170" height="62"/>
-  <text class="label" x="1055" y="347">Human Approval</text>
-  <text class="small" x="1055" y="368">Validate, decide, act</text>
-
-  <path class="edge" d="M220 331 H260 V149 H280"/>
+  <path class="guard" d="M220 291 H280"/>
+  <path class="guard" d="M220 401 H250 V291 H280"/>
+  <path class="edge" d="M450 291 H510"/>
+  <path class="edge" d="M595 260 V205 H365 V180"/>
   <path class="edge" d="M450 149 H510"/>
   <path class="edge" d="M680 149 H720 V71 H740"/>
   <path class="edge" d="M680 149 H740"/>
   <path class="edge" d="M680 149 H720 V227 H740"/>
   <path class="edge" d="M910 227 H970"/>
-  <path class="edge" d="M1055 258 V320"/>
+  <path class="edge" d="M1055 258 V285 H1165 V591 H1140"/>
 
-  <path class="edge2" d="M220 331 H280"/>
-  <path class="edge2" d="M450 331 H510"/>
-  <path class="edge2" d="M680 331 H970"/>
+  <path class="edge2" d="M680 291 H710 V461 H740"/>
+  <path class="edge2" d="M680 291 H710 V591 H740"/>
+  <path class="edge2" d="M680 291 H710 V681 H680"/>
+  <path class="edge2" d="M595 322 V430"/>
+  <path class="edge2" d="M450 461 H510"/>
+  <path class="edge2" d="M680 461 H740"/>
+  <path class="edge2" d="M910 461 H970"/>
+  <path class="edge2" d="M1055 492 V560"/>
 
-  <path class="edge2" d="M220 331 H245 V463 H280"/>
-  <path class="edge2" d="M450 463 H510"/>
-  <path class="edge2" d="M680 463 H740"/>
-  <path class="edge2" d="M910 463 H970"/>
-  <path class="edge2" d="M1055 432 V382"/>
-
-  <path class="edge2" d="M220 331 H245 V595 H280"/>
-  <path class="edge2" d="M450 595 H510"/>
-  <path class="edge2" d="M680 595 H930 V351 H970"/>
+  <path class="edge2" d="M220 291 H245 V591 H280"/>
+  <path class="guard" d="M450 591 H510"/>
+  <path class="guard" d="M680 591 H740"/>
+  <path class="edge2" d="M910 591 H970"/>
+  <path class="edge2" d="M220 401 H250 V681 H510"/>
+  <path class="edge2" d="M680 681 H930 V591 H970"/>
 </svg>

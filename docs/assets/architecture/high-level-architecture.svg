@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="980" viewBox="0 0 1600 980" role="img" aria-labelledby="title desc">
   <title id="title">Sovereign AI SOC high-level architecture</title>
-  <desc id="desc">High-level local-first SOC architecture showing analyst console, FastAPI, PostgreSQL, Ollama, Wazuh, Suricata, DNS telemetry, event normalization, correlation, incidents, cases and reports.</desc>
+  <desc id="desc">High-level local-first SOC architecture showing analyst console, FastAPI, PostgreSQL, Qdrant semantic memory, AI provider data control, Wazuh, Suricata, DNS telemetry, correlation, incidents, cases, investigation graph, governed remediation and observability.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L0,6 L9,3 z" fill="#22d3ee"/>
@@ -16,6 +16,8 @@
       .ai { fill: #17112b; stroke: #a78bfa; stroke-width: 1.2; rx: 8; }
       .workflow { fill: #082f49; stroke: #22d3ee; stroke-width: 1.2; rx: 8; }
       .report { fill: #052e2b; stroke: #10b981; stroke-width: 1.2; rx: 8; }
+      .external { fill: #1f2937; stroke: #64748b; stroke-width: 1.2; stroke-dasharray: 5 4; rx: 8; }
+      .guardrail { fill: #2b1d0b; stroke: #f59e0b; stroke-width: 1.2; rx: 8; }
       .title { fill: #e5e7eb; font: 700 28px Arial, sans-serif; }
       .subtitle { fill: #94a3b8; font: 400 14px Arial, sans-serif; }
       .section { fill: #94a3b8; font: 700 12px Arial, sans-serif; letter-spacing: 1px; }
@@ -23,13 +25,15 @@
       .small { fill: #cbd5e1; font: 400 10.5px Arial, sans-serif; text-anchor: middle; }
       .edge { stroke: #22d3ee; stroke-width: 1.55; fill: none; marker-end: url(#arrow); }
       .storeEdge { stroke: #64748b; stroke-width: 1.15; fill: none; stroke-dasharray: 5 4; marker-end: url(#storeArrow); opacity: 0.85; }
+      .policyEdge { stroke: #a78bfa; stroke-width: 1.35; fill: none; marker-end: url(#arrow); }
+      .optionalEdge { stroke: #64748b; stroke-width: 1.2; fill: none; stroke-dasharray: 5 4; marker-end: url(#storeArrow); opacity: 0.9; }
     </style>
   </defs>
-  <rect class="bg" width="1600" height="900"/>
+  <rect class="bg" width="1600" height="980"/>
   <text class="title" x="48" y="54">Sovereign AI SOC - High-level Architecture</text>
-  <text class="subtitle" x="48" y="80">Local-first detection, correlation, AI-assisted analysis and human-controlled SOC workflow.</text>
+  <text class="subtitle" x="48" y="80">Local-first detection, semantic memory, governed AI assistance and human-controlled remediation.</text>
 
-  <text class="section" x="54" y="120">ANALYST CONSOLE AND LOCAL SERVICES</text>
+  <text class="section" x="54" y="120">ANALYST CONSOLE, LOCAL SERVICES AND AI GOVERNANCE</text>
   <rect class="node" x="50" y="145" width="140" height="58"/>
   <text class="label" x="120" y="170">Analyst</text>
   <text class="small" x="120" y="190">Human-in-loop</text>
@@ -42,20 +46,39 @@
   <rect class="workflow" x="560" y="145" width="140" height="58"/>
   <text class="label" x="630" y="170">FastAPI API</text>
   <text class="small" x="630" y="190">RBAC / exports</text>
-  <rect class="store" x="790" y="90" width="150" height="58"/>
-  <text class="label" x="865" y="115">PostgreSQL</text>
-  <text class="small" x="865" y="135">Operational store</text>
-  <rect class="ai" x="790" y="190" width="150" height="58"/>
-  <text class="label" x="865" y="215">Ollama</text>
-  <text class="small" x="865" y="235">Local AI runtime</text>
+
+  <rect class="store" x="780" y="90" width="150" height="58"/>
+  <text class="label" x="855" y="115">PostgreSQL</text>
+  <text class="small" x="855" y="135">Operational store</text>
+  <rect class="store" x="960" y="90" width="150" height="58"/>
+  <text class="label" x="1035" y="115">Qdrant</text>
+  <text class="small" x="1035" y="135">Semantic memory</text>
+  <rect class="guardrail" x="780" y="190" width="150" height="58"/>
+  <text class="label" x="855" y="215">AI Data Control</text>
+  <text class="small" x="855" y="235">Provider policy</text>
+  <rect class="ai" x="960" y="190" width="150" height="58"/>
+  <text class="label" x="1035" y="215">Ollama</text>
+  <text class="small" x="1035" y="235">Local AI runtime</text>
+  <rect class="external" x="1140" y="190" width="150" height="58"/>
+  <text class="label" x="1215" y="215">External AI</text>
+  <text class="small" x="1215" y="235">OpenRouter optional</text>
+  <rect class="report" x="1320" y="90" width="180" height="58"/>
+  <text class="label" x="1410" y="115">Health / History</text>
+  <text class="small" x="1410" y="135">Runtime visibility</text>
+  <rect class="report" x="1320" y="190" width="180" height="58"/>
+  <text class="label" x="1410" y="215">Observability</text>
+  <text class="small" x="1410" y="235">Prometheus / Loki</text>
 
   <path class="edge" d="M190 174 H220"/>
   <path class="edge" d="M360 174 H390"/>
   <path class="edge" d="M530 174 H560"/>
-  <path class="edge" d="M700 174 H748 V119 H790"/>
-  <path class="edge" d="M700 174 H748 V219 H790"/>
-  <path class="edge" d="M790 219 H748 V174 H700"/>
-  <path class="edge" d="M700 174 H720 V659 H1240"/>
+  <path class="edge" d="M700 174 H738 V119 H780"/>
+  <path class="edge" d="M700 174 H738 V219 H780"/>
+  <path class="storeEdge" d="M700 174 H720 V70 H1035 V90"/>
+  <path class="policyEdge" d="M930 219 H960"/>
+  <path class="optionalEdge" d="M1110 219 H1140"/>
+  <path class="edge" d="M700 174 H720 V70 H1410 V90"/>
+  <path class="edge" d="M700 174 H720 V280 H1410 V248"/>
 
   <text class="section" x="54" y="300">CORRELATION-FIRST INCIDENT PIPELINE</text>
   <rect class="source" x="50" y="330" width="140" height="58"/>
@@ -115,30 +138,63 @@
   <text class="label" x="630" y="655">DNS Events</text>
   <text class="small" x="630" y="675">Context only</text>
 
-  <rect class="workflow" x="1410" y="480" width="140" height="58"/>
-  <text class="label" x="1480" y="505">Cases</text>
-  <text class="small" x="1480" y="525">Owner / SLA</text>
-  <rect class="report" x="1240" y="630" width="140" height="58"/>
-  <text class="label" x="1310" y="655">Reports</text>
-  <text class="small" x="1310" y="675">Evidence exports</text>
+  <rect class="ai" x="900" y="480" width="140" height="58"/>
+  <text class="label" x="970" y="505">Recommended</text>
+  <text class="small" x="970" y="525">Playbooks</text>
+  <rect class="workflow" x="1070" y="480" width="140" height="58"/>
+  <text class="label" x="1140" y="505">Timeline</text>
+  <text class="small" x="1140" y="525">Investigation graph</text>
+  <rect class="workflow" x="1240" y="480" width="140" height="58"/>
+  <text class="label" x="1310" y="505">Cases</text>
+  <text class="small" x="1310" y="525">Owner / SLA</text>
+  <rect class="guardrail" x="1410" y="480" width="140" height="58"/>
+  <text class="label" x="1480" y="505">Remediation</text>
+  <text class="small" x="1480" y="525">Governed proposals</text>
 
-  <rect class="store" x="760" y="765" width="260" height="64"/>
-  <text class="label" x="890" y="792">PostgreSQL</text>
-  <text class="small" x="890" y="814">Raw events, alerts, incidents, cases and context tables</text>
+  <rect class="workflow" x="900" y="630" width="140" height="58"/>
+  <text class="label" x="970" y="655">Detection</text>
+  <text class="small" x="970" y="675">Control lifecycle</text>
+  <rect class="report" x="1070" y="630" width="140" height="58"/>
+  <text class="label" x="1140" y="655">Reports</text>
+  <text class="small" x="1140" y="675">Evidence exports</text>
+  <rect class="report" x="1240" y="630" width="140" height="58"/>
+  <text class="label" x="1310" y="655">Operation</text>
+  <text class="small" x="1310" y="675">History</text>
+  <rect class="report" x="1410" y="630" width="140" height="58"/>
+  <text class="label" x="1480" y="655">Alerting</text>
+  <text class="small" x="1480" y="675">Alertmanager</text>
+
+  <rect class="store" x="730" y="820" width="300" height="64"/>
+  <text class="label" x="880" y="847">PostgreSQL</text>
+  <text class="small" x="880" y="869">Events, alerts, incidents, cases, detection and operation state</text>
+  <rect class="store" x="1080" y="820" width="220" height="64"/>
+  <text class="label" x="1190" y="847">Qdrant Knowledge</text>
+  <text class="small" x="1190" y="869">Advisory memory and playbooks</text>
 
   <path class="edge" d="M190 509 H390"/>
   <path class="edge" d="M530 509 H560"/>
   <path class="edge" d="M190 659 H390"/>
   <path class="edge" d="M530 659 H560"/>
   <path class="edge" d="M1480 388 V480"/>
-  <path class="edge" d="M1410 509 H1395 V659 H1380"/>
-  <path class="edge" d="M1480 538 V720 H1310 V688"/>
-  <path class="edge" d="M1550 359 H1570 V610 H1310 V630"/>
+  <path class="edge" d="M1410 509 H1380"/>
+  <path class="edge" d="M1240 509 H1210"/>
+  <path class="edge" d="M1070 509 H1040"/>
+  <path class="policyEdge" d="M1110 119 H1130 V70 H1575 V455 H970 V480"/>
+  <path class="edge" d="M1480 538 V590 H970 V630"/>
+  <path class="edge" d="M1310 538 V630"/>
+  <path class="edge" d="M1480 538 V630"/>
+  <path class="edge" d="M1240 509 H1215 V659 H1210"/>
+  <path class="edge" d="M1480 388 V455 H1140 V480"/>
+  <path class="edge" d="M1550 359 H1570 V659 H1550"/>
 
-  <path class="storeEdge" d="M630 388 V765"/>
-  <path class="storeEdge" d="M800 388 V765"/>
-  <path class="storeEdge" d="M630 538 V765"/>
-  <path class="storeEdge" d="M630 688 V765"/>
-  <path class="storeEdge" d="M1480 388 V797 H1020"/>
-  <path class="storeEdge" d="M1480 538 V797 H1020"/>
+  <path class="storeEdge" d="M630 388 V410 H720 V852 H730"/>
+  <path class="storeEdge" d="M800 388 V820"/>
+  <path class="storeEdge" d="M630 538 V560 H720 V852 H730"/>
+  <path class="storeEdge" d="M630 688 V760 H880 V820"/>
+  <path class="storeEdge" d="M1480 388 V415 H1575 V930 H880 V884"/>
+  <path class="storeEdge" d="M1310 538 V565 H1575 V930 H880 V884"/>
+  <path class="storeEdge" d="M1480 538 V565 H1575 V930 H880 V884"/>
+  <path class="storeEdge" d="M970 688 V820"/>
+  <path class="storeEdge" d="M970 538 V565 H1575 V852 H1300"/>
+  <path class="storeEdge" d="M1190 820 V760 H1575 V60 H1035 V90"/>
 </svg>

@@ -1,8 +1,15 @@
-# Validation Notes
+# Validation Documentation
 
-This folder contains validation notes, release checklists, dry-run reports, smoke validation material, telemetry pilots and validation-oriented scenario documentation for Sovereign AI SOC.
+The current validation entry point is the
+[v0.7 expanded validation harness](v0.7-expanded-validation-harness.md).
+Other files are retained as historical release evidence, scenario definitions
+or migration validation notes.
 
-## Available validation documents
+## Current Validation
+
+- [v0.7 expanded validation harness](v0.7-expanded-validation-harness.md)
+
+## Historical Validation Documents
 
 - [v0.2 synthetic attack scenarios](v0.2_synthetic_attack_scenarios.md)
 - [v0.3 final validation](v0.3-final-validation.md)
@@ -18,4 +25,3 @@ This folder contains validation notes, release checklists, dry-run reports, smok
 - [v0.6 remediation approval dry run](v0.6-remediation-approval-dry-run.md)
 - [v0.6 remediation dry run simulation](v0.6-remediation-dry-run-simulation.md)
 - [v0.6 remediation execution audit rollback readiness](v0.6-remediation-execution-audit-rollback-readiness.md)
-- [v0.7 expanded validation harness](v0.7-expanded-validation-harness.md)

@@ -23,8 +23,13 @@ Editable Mermaid source: [ingestion-correlation-pipeline.mmd](../diagrams/ingest
 4. **Suppress noise** that should not become SOC incidents.
 5. **Evaluate correlation candidates** using score, type, recent volume, attack chain and related context.
 6. **Create incidents** only when policy supports escalation.
-7. **Attach AI analysis** and briefings for analyst review.
-8. **Promote into cases** when investigation workflow is needed.
+7. **Attach AI analysis** and briefings for analyst review after provider/data
+   policy checks.
+8. **Retrieve advisory semantic context** such as playbooks or similar
+   historical incidents.
+9. **Promote into cases** when investigation workflow is needed.
+10. **Visualize** linked records through the Advanced Timeline and
+    Investigation Graph.
 
 ## Observed, Suppressed or Incident-created
 
@@ -38,7 +43,10 @@ This model is important for vulnerability/package findings and other high-volume
 
 ## Noise Suppression
 
-Noise suppression prevents known low-value telemetry from creating incident backlog. It is configured through runtime policy and specialized suppression logic.
+Noise suppression prevents known low-value telemetry from creating incident
+backlog. v0.7 exposes governed suppression and exception inventory, match
+previews, review dates, lifecycle validation, configuration versioning and
+rollback. These controls remain deterministic and auditable.
 
 The platform must not reintroduce behavior that treats routine Wazuh vulnerability/package findings as direct SOC incidents.
 
@@ -57,8 +65,14 @@ This allows the product to explain why an incident exists rather than simply dis
 
 ## AI Placement
 
-AI is used after deterministic policy decisions. It supports explanation, summarization and next-action guidance; it does not replace suppression or correlation policy.
+AI and Qdrant are used after deterministic policy decisions. They support
+explanation, retrieval, summarization and next-action guidance; they do not
+replace suppression, correlation, severity or closure policy.
 
 ## Worker and Backlog Metrics
 
-Health and operational pages expose worker posture, ingest freshness, backlog thresholds and runtime availability so operators can distinguish platform health issues from security posture issues.
+Health and operational pages expose worker posture, ingest freshness, backlog
+thresholds and runtime availability. Prometheus rules can route Wazuh backlog
+alerts through Alertmanager, while Loki/Alloy provide selected platform-log
+troubleshooting. Operation History separately records governed service checks
+and restart activity.
