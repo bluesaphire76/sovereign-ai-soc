@@ -74,8 +74,8 @@
         "graphMode": "none",
         "justifyMode": "auto",
         "text": {
-          "titleSize": 18,
-          "valueSize": 30
+          "titleSize": 13,
+          "valueSize": 21
         }
       }
     },
@@ -149,8 +149,8 @@
         "graphMode": "none",
         "justifyMode": "auto",
         "text": {
-          "titleSize": 18,
-          "valueSize": 30
+          "titleSize": 13,
+          "valueSize": 21
         }
       }
     },
@@ -220,8 +220,8 @@
         "graphMode": "none",
         "justifyMode": "auto",
         "text": {
-          "titleSize": 18,
-          "valueSize": 30
+          "titleSize": 13,
+          "valueSize": 21
         }
       }
     },
@@ -280,8 +280,8 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "text": {
-          "titleSize": 18,
-          "valueSize": 30
+          "titleSize": 13,
+          "valueSize": 21
         }
       }
     },
@@ -1146,8 +1146,8 @@
         "graphMode": "none",
         "justifyMode": "auto",
         "text": {
-          "titleSize": 18,
-          "valueSize": 30
+          "titleSize": 13,
+          "valueSize": 18
         }
       }
     },
@@ -1204,8 +1204,8 @@
         "graphMode": "none",
         "justifyMode": "auto",
         "text": {
-          "titleSize": 18,
-          "valueSize": 30
+          "titleSize": 13,
+          "valueSize": 18
         }
       }
     },
@@ -1276,8 +1276,8 @@
         "graphMode": "none",
         "justifyMode": "auto",
         "text": {
-          "titleSize": 18,
-          "valueSize": 30
+          "titleSize": 13,
+          "valueSize": 18
         }
       }
     },
@@ -1334,8 +1334,8 @@
         "graphMode": "none",
         "justifyMode": "auto",
         "text": {
-          "titleSize": 18,
-          "valueSize": 30
+          "titleSize": 13,
+          "valueSize": 18
         }
       }
     },
@@ -1392,8 +1392,8 @@
         "graphMode": "none",
         "justifyMode": "auto",
         "text": {
-          "titleSize": 18,
-          "valueSize": 30
+          "titleSize": 13,
+          "valueSize": 18
         }
       }
     }

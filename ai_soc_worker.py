@@ -83,6 +83,8 @@ def _llm_worker_details() -> dict:
             {
                 "llm_last_profile": metadata.get("profile"),
                 "llm_last_model": metadata.get("model"),
+                "llm_last_provider_key": metadata.get("provider_key"),
+                "llm_last_provider_type": metadata.get("provider_type"),
                 "llm_last_fallback_used": metadata.get("fallback_used"),
                 "llm_last_error_type": metadata.get("error_type"),
                 "llm_last_latency_ms": metadata.get("latency_ms"),
