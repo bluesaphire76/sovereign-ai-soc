@@ -2,12 +2,21 @@ import importlib
 import os
 from unittest.mock import patch
 
+import pytest
 import requests
 
 import ai_triage_hardening
 import llm_client
 from ai_model_config import LlmProfile
 from ai_model_policy import AiTask, select_profile
+
+
+@pytest.fixture(autouse=True)
+def isolated_provider_config(monkeypatch, tmp_path):
+    monkeypatch.setenv("AI_PROVIDER_CONFIG_PATH", str(tmp_path / "ai_providers.json"))
+    monkeypatch.setenv("AI_DATA_POLICY_CONFIG_PATH", str(tmp_path / "ai_data_control_policy.json"))
+    monkeypatch.setenv("AI_PROVIDER_DEFAULT", "local_ollama")
+    monkeypatch.setenv("AI_LLM_PROVIDER", "ollama")
 
 
 def _reload_config_with_env(values: dict[str, str]):

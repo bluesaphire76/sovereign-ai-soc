@@ -14,9 +14,10 @@ from ai_provider_abstraction import AIProviderResponse, build_provider_client
 from ai_provider_audit import record_ai_provider_audit
 from ai_provider_redaction import REDACTION_BLOCK_EXTERNAL, REDACTION_LOCAL_ONLY
 from ai_provider_registry import (
-    PROVIDER_LOCAL_OLLAMA,
+    PROVIDER_LOCAL_LLAMA_CPP,
     ProviderConfig,
     ProviderRegistry,
+    is_local_provider_type,
     load_provider_registry,
 )
 
@@ -150,7 +151,7 @@ def generate_with_provider(
             safe_error=policy_decision.reason or "AIDataPolicyDenied",
         )
 
-    if config.provider_type == PROVIDER_LOCAL_OLLAMA:
+    if is_local_provider_type(config.provider_type):
         client = build_provider_client(config)
         return client.generate(
             feature=feature_key,
@@ -221,6 +222,7 @@ def provider_capabilities() -> dict[str, Any]:
     return {
         "provider_types": [
             "LOCAL_OLLAMA",
+            "LOCAL_LLAMA_CPP",
             "OPENAI_COMPATIBLE",
             "AZURE_OPENAI_COMPATIBLE",
             "ANTHROPIC_COMPATIBLE",
@@ -238,6 +240,7 @@ def provider_capabilities() -> dict[str, Any]:
             | {item["feature_key"] for item in FEATURE_DEFINITIONS}
         ),
         "external_provider_adapter_status": {
+            PROVIDER_LOCAL_LLAMA_CPP: "implemented",
             "OPENAI_COMPATIBLE": "implemented",
             "AZURE_OPENAI_COMPATIBLE": "configuration_visible",
             "ANTHROPIC_COMPATIBLE": "configuration_visible",

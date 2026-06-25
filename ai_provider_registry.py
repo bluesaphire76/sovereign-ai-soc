@@ -7,6 +7,12 @@ from pathlib import Path
 from typing import Any
 
 from ai_model_config import OLLAMA_BASE_URL as LEGACY_OLLAMA_BASE_URL, get_profile
+from llama_cpp_profiles import (
+    LLAMA_CPP_DEFAULT_API_BASE_URL,
+    LLAMA_CPP_DEFAULT_LOCK_PATH,
+    LLAMA_CPP_DEFAULT_ROUTER_BASE_URL,
+    llama_cpp_profile_models,
+)
 from ai_provider_redaction import (
     REDACTION_BLOCK_EXTERNAL,
     REDACTION_LOCAL_ONLY,
@@ -15,6 +21,7 @@ from ai_provider_redaction import (
 
 
 PROVIDER_LOCAL_OLLAMA = "LOCAL_OLLAMA"
+PROVIDER_LOCAL_LLAMA_CPP = "LOCAL_LLAMA_CPP"
 PROVIDER_OPENAI_COMPATIBLE = "OPENAI_COMPATIBLE"
 PROVIDER_AZURE_OPENAI_COMPATIBLE = "AZURE_OPENAI_COMPATIBLE"
 PROVIDER_ANTHROPIC_COMPATIBLE = "ANTHROPIC_COMPATIBLE"
@@ -23,6 +30,7 @@ PROVIDER_DISABLED = "DISABLED"
 
 PROVIDER_TYPES = {
     PROVIDER_LOCAL_OLLAMA,
+    PROVIDER_LOCAL_LLAMA_CPP,
     PROVIDER_OPENAI_COMPATIBLE,
     PROVIDER_AZURE_OPENAI_COMPATIBLE,
     PROVIDER_ANTHROPIC_COMPATIBLE,
@@ -32,6 +40,7 @@ PROVIDER_TYPES = {
 
 PROVIDER_DISPLAY_NAMES = {
     "local_ollama": "Ollama",
+    "local_llama_cpp": "llama.cpp",
     "openrouter": "Openrouter",
     "openai_compatible": "OpenAI",
     "azure_openai_compatible": "MS Azure",
@@ -61,6 +70,16 @@ LOCAL_FEATURE_ALLOWLIST = [
 ]
 
 
+LOCAL_PROVIDER_TYPES = {
+    PROVIDER_LOCAL_OLLAMA,
+    PROVIDER_LOCAL_LLAMA_CPP,
+}
+
+
+def is_local_provider_type(provider_type: str | None) -> bool:
+    return str(provider_type or "").upper().strip() in LOCAL_PROVIDER_TYPES
+
+
 @dataclass(frozen=True)
 class ProviderConfig:
     key: str
@@ -79,7 +98,7 @@ class ProviderConfig:
 
     @property
     def configured(self) -> bool:
-        if self.provider_type == PROVIDER_LOCAL_OLLAMA:
+        if is_local_provider_type(self.provider_type):
             return bool(self.base_url and self.model)
 
         if self.provider_type == PROVIDER_DISABLED:
@@ -142,6 +161,23 @@ def _env_int(name: str, default: int | None = None) -> int | None:
         return default
 
 
+def _optional_api_key_value(value: str | None) -> str | None:
+    if not value:
+        return None
+    if str(value).strip().lower() in {"no-key", "none", "null", "local-only"}:
+        return None
+    return str(value).strip()
+
+
+def _env_optional_api_key(name: str) -> str | None:
+    value = _env_str(name)
+    if not value:
+        return None
+    if value.lower() in {"no-key", "none", "null", "local-only"}:
+        return None
+    return value
+
+
 def _csv(value: str | None) -> list[str]:
     if not value:
         return []
@@ -167,6 +203,20 @@ def _feature_overrides_from_env() -> dict[str, str]:
             overrides[feature] = provider_key
 
     return overrides
+
+
+def _logical_provider_key(value: str | None) -> str | None:
+    normalized = str(value or "").lower().strip()
+    if not normalized:
+        return None
+    mapping = {
+        "ollama": "local_ollama",
+        "local_ollama": "local_ollama",
+        "llama_cpp": "local_llama_cpp",
+        "llama.cpp": "local_llama_cpp",
+        "local_llama_cpp": "local_llama_cpp",
+    }
+    return mapping.get(normalized, normalized)
 
 
 def _external_provider_from_env(
@@ -224,9 +274,43 @@ def _providers_from_env() -> dict[str, ProviderConfig]:
             "feature_allowlist_env": "AI_OLLAMA_FEATURE_ALLOWLIST",
         },
     )
+    llama_cpp_models = llama_cpp_profile_models()
+    llama_cpp_router_base_url = _env_str("LLAMA_CPP_BASE_URL", LLAMA_CPP_DEFAULT_ROUTER_BASE_URL)
+    llama_cpp_api_base_url = _env_str("LLAMA_CPP_API_BASE_URL", LLAMA_CPP_DEFAULT_API_BASE_URL)
+    local_llama_cpp = ProviderConfig(
+        key="local_llama_cpp",
+        provider_type=PROVIDER_LOCAL_LLAMA_CPP,
+        display_name=PROVIDER_DISPLAY_NAMES["local_llama_cpp"],
+        enabled=_env_bool("LLAMA_CPP_ENABLED", False),
+        external=False,
+        base_url=llama_cpp_api_base_url,
+        model=llama_cpp_models["fast"],
+        api_key=_env_optional_api_key("LLAMA_CPP_API_KEY"),
+        timeout_seconds=_env_float("LLAMA_CPP_TIMEOUT_SECONDS", 30),
+        feature_allowlist=LOCAL_FEATURE_ALLOWLIST,
+        redaction_mode=REDACTION_LOCAL_ONLY,
+        metadata={
+            "enabled_env": "LLAMA_CPP_ENABLED",
+            "router_enabled_env": "LLAMA_CPP_ROUTER_ENABLED",
+            "base_url_env": "LLAMA_CPP_BASE_URL",
+            "api_base_url_env": "LLAMA_CPP_API_BASE_URL",
+            "api_key_env": "LLAMA_CPP_API_KEY",
+            "timeout_seconds_env": "LLAMA_CPP_TIMEOUT_SECONDS",
+            "fast_model_env": "LLAMA_CPP_FAST_MODEL",
+            "standard_model_env": "LLAMA_CPP_STANDARD_MODEL",
+            "quality_model_env": "LLAMA_CPP_QUALITY_MODEL",
+            "auto_profile_switch_env": "LLAMA_CPP_AUTO_PROFILE_SWITCH",
+            "exclusive_model_env": "LLAMA_CPP_EXCLUSIVE_MODEL",
+            "profile_switch_lock_env": "LLAMA_CPP_PROFILE_SWITCH_LOCK",
+            "router_base_url": llama_cpp_router_base_url,
+            "native_ui_url": llama_cpp_router_base_url,
+            "profile_switch_lock": _env_str("LLAMA_CPP_PROFILE_SWITCH_LOCK", LLAMA_CPP_DEFAULT_LOCK_PATH),
+        },
+    )
 
     providers = {
         local.key: local,
+        local_llama_cpp.key: local_llama_cpp,
         "openrouter": _external_provider_from_env(
             key="openrouter",
             provider_type=PROVIDER_OPENAI_COMPATIBLE,
@@ -299,6 +383,11 @@ def _apply_file_config(
         provider_type = str(item.get("type") or (existing.provider_type if existing else PROVIDER_DISABLED)).upper()
         if provider_type not in PROVIDER_TYPES:
             provider_type = PROVIDER_DISABLED
+        local_provider = is_local_provider_type(provider_type)
+        api_key_env = str(item.get("api_key_env") or "")
+        api_key_value = _env_str(api_key_env) or (existing.api_key if existing else None)
+        if local_provider:
+            api_key_value = _optional_api_key_value(api_key_value)
 
         configured[key] = replace(
             existing
@@ -307,7 +396,7 @@ def _apply_file_config(
                 provider_type=provider_type,
                 display_name=key.replace("_", " ").title(),
                 enabled=False,
-                external=provider_type != PROVIDER_LOCAL_OLLAMA,
+                external=not local_provider,
             ),
             provider_type=provider_type,
             display_name=PROVIDER_DISPLAY_NAMES.get(
@@ -315,10 +404,10 @@ def _apply_file_config(
                 str(item.get("display_name") or (existing.display_name if existing else key)),
             ),
             enabled=bool(item.get("enabled", existing.enabled if existing else False)),
-            external=bool(item.get("external", provider_type != PROVIDER_LOCAL_OLLAMA)),
+            external=False if local_provider else bool(item.get("external", True)),
             base_url=_env_str(str(item.get("base_url_env") or "")) or item.get("base_url") or (existing.base_url if existing else None),
             model=_env_str(str(item.get("model_env") or "")) or item.get("model") or (existing.model if existing else None),
-            api_key=_env_str(str(item.get("api_key_env") or "")) or (existing.api_key if existing else None),
+            api_key=api_key_value,
             timeout_seconds=float(item.get("timeout_seconds", existing.timeout_seconds if existing else 30)),
             max_tokens=item.get("max_tokens", existing.max_tokens if existing else 800),
             feature_allowlist=list(item.get("feature_allowlist") or (existing.feature_allowlist if existing else [])),
@@ -341,7 +430,9 @@ def load_provider_registry() -> ProviderRegistry:
         str(file_config.get("default_provider") or "").strip()
         if isinstance(file_config, dict)
         else ""
-    ) or _env_str("AI_PROVIDER_DEFAULT", "local_ollama")
+    ) or _logical_provider_key(_env_str("AI_PROVIDER_DEFAULT")) or _logical_provider_key(
+        _env_str("AI_LLM_PROVIDER", "ollama")
+    ) or "local_ollama"
     if default_provider not in providers:
         default_provider = "local_ollama"
 

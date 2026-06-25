@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import time
 from typing import Any
 
@@ -10,7 +11,8 @@ from ai_model_config import DEFAULT_LLM_MODE, LlmProfile, get_profile
 from ai_model_policy import AiTask, select_profile
 from ai_provider_abstraction import build_provider_client
 from ai_provider_policy import generate_with_provider, normalize_feature, select_provider_config
-from ai_provider_registry import PROVIDER_LOCAL_OLLAMA, load_provider_registry
+from ai_provider_registry import PROVIDER_LOCAL_LLAMA_CPP, PROVIDER_LOCAL_OLLAMA, load_provider_registry
+from llama_cpp_profiles import get_llama_cpp_profile, select_llama_cpp_profile
 
 
 def generate_ai_response(
@@ -35,6 +37,39 @@ def generate_ai_response(
     feature = normalize_feature(task)
     registry = load_provider_registry()
     provider = select_provider_config(feature=feature, registry=registry)
+
+    if provider.provider_type == PROVIDER_LOCAL_LLAMA_CPP:
+        llama_profile_name = select_llama_cpp_profile(
+            task=task,
+            severity=severity,
+            requested_mode=requested_mode,
+            user_triggered=user_triggered,
+        )
+        profile = get_llama_cpp_profile(llama_profile_name)
+        response = generate_with_provider(
+            feature=feature,
+            prompt=prompt,
+            messages=messages,
+            options=_profile_options(profile=profile, timeout_seconds=timeout_seconds),
+        )
+        if response.safe_error and _logical_provider_key(os.getenv("AI_LLM_FALLBACK_PROVIDER", "ollama")) == "local_ollama":
+            fallback = _call_ollama_with_fallback(
+                feature=feature,
+                prompt=prompt,
+                messages=messages,
+                profile_name=getattr(response, "profile", None) or profile.name,
+                timeout_seconds=timeout_seconds,
+            )
+            fallback["fallback_used"] = True
+            fallback["error_type"] = response.safe_error
+            fallback["safe_error"] = response.safe_error
+            return fallback
+        return _provider_result(
+            response=response,
+            profile=profile,
+            fallback_used=False,
+            error_type=response.safe_error,
+        )
 
     if provider.provider_type != PROVIDER_LOCAL_OLLAMA:
         profile = get_profile(profile_name)
@@ -205,11 +240,24 @@ def _result(
 def _profile_options(*, profile: LlmProfile, timeout_seconds: float | None) -> dict[str, Any]:
     return {
         "model": profile.model,
+        "llm_profile": profile.name,
         "num_ctx": profile.num_ctx,
         "temperature": profile.temperature,
         "timeout_seconds": timeout_seconds or profile.timeout_seconds,
         "keep_alive": profile.keep_alive,
     }
+
+
+def _logical_provider_key(value: str | None) -> str | None:
+    normalized = str(value or "").lower().strip()
+    mapping = {
+        "ollama": "local_ollama",
+        "local_ollama": "local_ollama",
+        "llama_cpp": "local_llama_cpp",
+        "llama.cpp": "local_llama_cpp",
+        "local_llama_cpp": "local_llama_cpp",
+    }
+    return mapping.get(normalized, normalized or None)
 
 
 def _provider_result(
@@ -221,7 +269,7 @@ def _provider_result(
 ) -> dict[str, Any]:
     return {
         "text": response.text,
-        "profile": profile.name,
+        "profile": getattr(response, "profile", None) or profile.name,
         "model": response.model or profile.model,
         "fallback_used": fallback_used or response.fallback_used,
         "error_type": error_type,
