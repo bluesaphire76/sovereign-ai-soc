@@ -19,6 +19,7 @@ def isolated_runtime_config(monkeypatch, tmp_path):
 
 def test_local_ollama_is_default_and_external_is_disabled(monkeypatch):
     monkeypatch.delenv("AI_PROVIDER_DEFAULT", raising=False)
+    monkeypatch.delenv("AI_LLM_PROVIDER", raising=False)
     monkeypatch.delenv("AI_EXTERNAL_PROVIDERS_ENABLED", raising=False)
     monkeypatch.delenv("AI_OPENROUTER_ENABLED", raising=False)
     monkeypatch.delenv("AI_OPENROUTER_API_KEY", raising=False)
