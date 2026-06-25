@@ -26,6 +26,10 @@ Wazuh and Suricata use deployment-specific ports and integrations and are
 treated as advanced external telemetry sources rather than part of the basic
 Docker demo.
 
+The hosted operator Grafana endpoint is published through Cloudflare at
+`https://grafana.varqon.net/grafana/`. Keep Prometheus, Alertmanager,
+exporters, Loki, Alloy and application `/metrics` endpoints private/local.
+
 ## Mandatory and optional components
 
 | Component | Synthetic demo | Full feature value |
