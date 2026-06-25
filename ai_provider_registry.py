@@ -219,6 +219,39 @@ def _logical_provider_key(value: str | None) -> str | None:
     return mapping.get(normalized, normalized)
 
 
+def _provider_can_be_default(
+    providers: dict[str, ProviderConfig],
+    provider_key: str | None,
+) -> bool:
+    config = providers.get(str(provider_key or "").strip())
+    if config is None:
+        return False
+    if not config.enabled or not config.configured:
+        return False
+    return True
+
+
+def _fallback_default_provider(
+    providers: dict[str, ProviderConfig],
+    *,
+    file_config: dict[str, Any],
+) -> str:
+    persisted_default = (
+        _logical_provider_key(str(file_config.get("default_provider") or ""))
+        if isinstance(file_config, dict)
+        else None
+    )
+    env_default = _logical_provider_key(_env_str("AI_PROVIDER_DEFAULT")) or _logical_provider_key(
+        _env_str("AI_LLM_PROVIDER", "ollama")
+    )
+
+    for candidate in (persisted_default, env_default, "local_ollama"):
+        if _provider_can_be_default(providers, candidate):
+            return str(candidate)
+
+    return "local_ollama" if "local_ollama" in providers else next(iter(providers), "")
+
+
 def _external_provider_from_env(
     *,
     key: str,
@@ -426,20 +459,16 @@ def load_provider_registry() -> ProviderRegistry:
     config_path = _env_str("AI_PROVIDER_CONFIG_PATH", "storage/config/ai_providers.json")
     file_config = _load_config_file(config_path)
     providers = _apply_file_config(providers, file_config)
-    default_provider = (
-        str(file_config.get("default_provider") or "").strip()
-        if isinstance(file_config, dict)
-        else ""
-    ) or _logical_provider_key(_env_str("AI_PROVIDER_DEFAULT")) or _logical_provider_key(
-        _env_str("AI_LLM_PROVIDER", "ollama")
-    ) or "local_ollama"
-    if default_provider not in providers:
-        default_provider = "local_ollama"
 
     if isinstance(file_config, dict) and "external_providers_enabled" in file_config:
         external_enabled = bool(file_config.get("external_providers_enabled"))
     else:
         external_enabled = _env_bool("AI_EXTERNAL_PROVIDERS_ENABLED", False)
+
+    default_provider = _fallback_default_provider(
+        providers,
+        file_config=file_config,
+    )
 
     overrides = _feature_overrides_from_env()
     if isinstance(file_config, dict) and isinstance(file_config.get("feature_overrides"), dict):
@@ -459,6 +488,19 @@ def load_provider_registry() -> ProviderRegistry:
 
 
 def provider_public_dict(config: ProviderConfig, *, include_api_key_presence: bool) -> dict[str, Any]:
+    runtime_details: dict[str, Any] = {}
+    if config.provider_type == PROVIDER_LOCAL_LLAMA_CPP:
+        profile_models = llama_cpp_profile_models()
+        runtime_details = {
+            "router_base_url": config.metadata.get("router_base_url"),
+            "api_base_url": config.base_url,
+            "native_ui_url": config.metadata.get("native_ui_url"),
+            "profile_models": [
+                {"profile": profile, "model": model}
+                for profile, model in profile_models.items()
+            ],
+        }
+
     return {
         "key": config.key,
         "type": config.provider_type,
@@ -474,6 +516,7 @@ def provider_public_dict(config: ProviderConfig, *, include_api_key_presence: bo
         "max_tokens": config.max_tokens,
         "feature_allowlist": list(config.feature_allowlist),
         "redaction_mode": config.redaction_mode,
+        "runtime": runtime_details,
     }
 
 

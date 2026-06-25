@@ -1,4 +1,5 @@
 import importlib
+import logging
 import os
 from unittest.mock import patch
 
@@ -98,7 +99,7 @@ def test_policy_does_not_honor_quality_override_for_automatic_work():
     )
 
 
-def test_llm_client_falls_back_to_fast_when_primary_profile_fails():
+def test_llm_client_falls_back_to_fast_when_primary_profile_fails(caplog):
     profiles = {
         "standard": LlmProfile(
             name="standard",
@@ -130,22 +131,52 @@ def test_llm_client_falls_back_to_fast_when_primary_profile_fails():
 
         return "fast response"
 
-    with patch("llm_client.get_profile", side_effect=fake_get_profile):
-        with patch("llm_client._call_ollama", side_effect=fake_call_ollama):
-            result = llm_client.generate_ai_response(
-                prompt="test",
-                task=AiTask.ACTION_HOW_TO,
-                requested_mode="standard",
-                user_triggered=True,
-            )
+    with caplog.at_level(logging.INFO, logger="llm_client"):
+        with patch("llm_client.get_profile", side_effect=fake_get_profile):
+            with patch("llm_client._call_ollama", side_effect=fake_call_ollama):
+                result = llm_client.generate_ai_response(
+                    prompt="test",
+                    task=AiTask.ACTION_HOW_TO,
+                    requested_mode="standard",
+                    user_triggered=True,
+                )
 
     assert calls == ["standard", "fast"]
+    assert "AI provider fallback primary=local_ollama fallback=local_ollama task=detection_quality_how_to_execute reason=Timeout" in caplog.text
+    assert "AI provider selected provider=local_ollama type=LOCAL_OLLAMA task=detection_quality_how_to_execute profile=fast resolved_model=fast:model external=false fallback=true redaction_mode=LOCAL_ONLY" in caplog.text
+    assert "test" not in caplog.text
     assert result["text"] == "fast response"
     assert result["profile"] == "fast"
     assert result["model"] == "fast:model"
     assert result["fallback_used"] is True
     assert result["error_type"] == "Timeout"
     assert isinstance(result["latency_ms"], int)
+
+
+def test_llm_client_logs_provider_metadata_without_prompt(caplog):
+    profile = LlmProfile(
+        name="fast",
+        model="fast:model",
+        num_ctx=2048,
+        temperature=0.1,
+        timeout_seconds=20,
+        keep_alive="30s",
+    )
+
+    with caplog.at_level(logging.INFO, logger="llm_client"):
+        with patch("llm_client.get_profile", return_value=profile):
+            with patch("llm_client._call_ollama", return_value="ok"):
+                result = llm_client.generate_ai_response(
+                    prompt="secret prompt text",
+                    task=AiTask.ROUTING,
+                    requested_mode="fast",
+                    user_triggered=False,
+                )
+
+    assert result["provider_key"] == "local_ollama"
+    assert "AI provider selected provider=local_ollama" in caplog.text
+    assert "resolved_model=fast:model" in caplog.text
+    assert "secret prompt text" not in caplog.text
 
 
 def test_legacy_call_ollama_chat_uses_routed_client_and_records_metadata():

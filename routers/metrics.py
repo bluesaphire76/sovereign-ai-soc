@@ -104,6 +104,41 @@ AI_RUNTIME_CONFIGURED_MODEL_SIZE_BYTES = Gauge(
     "Size in bytes of the configured AI model when reported by the runtime.",
 )
 
+AI_PROVIDER_ACTIVE_INFO = Gauge(
+    "ai_soc_ai_provider_active_info",
+    "Active AI provider selected by the AI SOC provider registry.",
+    ["provider_key", "provider_type", "model", "external"],
+)
+
+AI_PROVIDER_FALLBACK_INFO = Gauge(
+    "ai_soc_ai_provider_fallback_info",
+    "Configured AI provider fallback target.",
+    ["provider_key"],
+)
+
+LLAMA_CPP_ROUTER_UP = Gauge(
+    "ai_soc_llama_cpp_router_up",
+    "Whether the local llama.cpp router provider health check is reachable.",
+)
+
+LLAMA_CPP_MODEL_LOADED = Gauge(
+    "ai_soc_llama_cpp_model_loaded",
+    "Whether an AI SOC managed llama.cpp model is loaded.",
+    ["model_id"],
+)
+
+LLAMA_CPP_MODEL_AVAILABLE = Gauge(
+    "ai_soc_llama_cpp_model_available",
+    "Whether an AI SOC managed llama.cpp model is listed by the router.",
+    ["model_id"],
+)
+
+LLAMA_CPP_MODEL_STATUS = Gauge(
+    "ai_soc_llama_cpp_model_status",
+    "AI SOC managed llama.cpp model status exposed as stable labels.",
+    ["model_id", "status"],
+)
+
 LATEST_RAW_EVENT_FRESHNESS_SECONDS = Gauge(
     "ai_soc_latest_raw_event_freshness_seconds",
     "Freshness age in seconds of the latest raw event when available.",
@@ -374,6 +409,75 @@ def _collect_ai_runtime_metrics(details: dict[str, Any]) -> None:
         AI_RUNTIME_CONFIGURED_MODEL_SIZE_BYTES,
         configured_model_details.get("size_bytes"),
     )
+    _collect_ai_provider_metrics(details)
+
+
+def _clear_gauge(gauge: Gauge) -> None:
+    if hasattr(gauge, "clear"):
+        gauge.clear()
+
+
+def _collect_ai_provider_metrics(details: dict[str, Any]) -> None:
+    registry = _nested(details, "provider_registry")
+    active_provider = _nested(registry, "active_provider")
+    fallback_provider = _nested(registry, "fallback_provider_details")
+    providers = registry.get("providers")
+
+    _clear_gauge(AI_PROVIDER_ACTIVE_INFO)
+    _clear_gauge(AI_PROVIDER_FALLBACK_INFO)
+    _clear_gauge(LLAMA_CPP_MODEL_LOADED)
+    _clear_gauge(LLAMA_CPP_MODEL_AVAILABLE)
+    _clear_gauge(LLAMA_CPP_MODEL_STATUS)
+    LLAMA_CPP_ROUTER_UP.set(0)
+
+    if active_provider:
+        AI_PROVIDER_ACTIVE_INFO.labels(
+            provider_key=str(active_provider.get("provider_key") or "unknown"),
+            provider_type=str(active_provider.get("provider_type") or "unknown"),
+            model=str(active_provider.get("model") or "unknown"),
+            external=str(bool(active_provider.get("external"))).lower(),
+        ).set(1)
+
+    fallback_key = (
+        fallback_provider.get("provider_key")
+        or registry.get("fallback_provider")
+        or details.get("fallback_provider")
+        or "unknown"
+    )
+    AI_PROVIDER_FALLBACK_INFO.labels(provider_key=str(fallback_key)).set(1)
+
+    if not isinstance(providers, list):
+        return
+
+    llama_provider = next(
+        (
+            item
+            for item in providers
+            if isinstance(item, dict) and item.get("provider_type") == "LOCAL_LLAMA_CPP"
+        ),
+        None,
+    )
+    if not isinstance(llama_provider, dict):
+        return
+
+    LLAMA_CPP_ROUTER_UP.set(1 if llama_provider.get("reachable") is True else 0)
+    llama_details = _nested(llama_provider, "details")
+    profiles = llama_details.get("profiles")
+    if not isinstance(profiles, list):
+        return
+
+    for item in profiles:
+        if not isinstance(item, dict):
+            continue
+        model_id = str(item.get("model") or "").strip()
+        if not model_id.startswith("ai-soc-"):
+            continue
+        status = str(item.get("status") or "unknown").strip().lower() or "unknown"
+        available = 1 if item.get("available") is True else 0
+        loaded = 1 if item.get("active") is True else 0
+        LLAMA_CPP_MODEL_AVAILABLE.labels(model_id=model_id).set(available)
+        LLAMA_CPP_MODEL_LOADED.labels(model_id=model_id).set(loaded)
+        LLAMA_CPP_MODEL_STATUS.labels(model_id=model_id, status=status).set(1)
 
 
 def _collect_wazuh_ingest_metrics(details: dict[str, Any]) -> None:

@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Cpu,
+  ExternalLink,
   RefreshCw,
   Save,
   ShieldCheck,
@@ -30,10 +31,19 @@ type ProviderConfig = {
   max_tokens: number | null;
   feature_allowlist: string[];
   redaction_mode: string;
+  is_default?: boolean;
+  is_fallback?: boolean;
+  runtime?: {
+    router_base_url?: string | null;
+    api_base_url?: string | null;
+    native_ui_url?: string | null;
+    profile_models?: { profile: string; model: string }[];
+  };
 };
 
 type ProvidersResponse = {
   default_provider: string;
+  fallback_provider?: string;
   external_providers_enabled: boolean;
   feature_overrides: Record<string, string>;
   providers: ProviderConfig[];
@@ -50,9 +60,25 @@ type ProviderHealth = {
   latency_ms: number | null;
   safe_message: string;
   safe_error: string | null;
+  details?: {
+    router_enabled?: boolean;
+    router_base_url?: string;
+    api_base_url?: string;
+    native_ui_url?: string;
+    profiles?: {
+      profile: string;
+      model: string;
+      available: boolean;
+      active: boolean;
+      status?: string | null;
+    }[];
+    loaded_models?: string[];
+  };
 };
 
 type HealthResponse = {
+  default_provider: string;
+  fallback_provider?: string;
   providers: ProviderHealth[];
 };
 
@@ -160,6 +186,11 @@ function formatList(items: string[]) {
   if (!items.length) return "None";
   if (items.length <= 4) return items.join(", ");
   return `${items.slice(0, 4).join(", ")} +${items.length - 4}`;
+}
+
+function formatProfileModels(items: { profile: string; model: string }[] | undefined) {
+  if (!items?.length) return "-";
+  return items.map((item) => `${item.profile}: ${item.model}`).join(", ");
 }
 
 function providerToDraft(provider: ProviderConfig): ProviderDraft {
@@ -410,12 +441,18 @@ export default function AiProvidersPage() {
           </div>
         )}
 
-        <section className="mb-3 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+        <section className="mb-3 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
           <SummaryCard
             title="Default provider"
             value={providers?.default_provider ?? "Loading"}
             subtitle="selected"
             icon={<Cpu className="h-3.5 w-3.5" strokeWidth={1.75} />}
+          />
+          <SummaryCard
+            title="Fallback provider"
+            value={providers?.fallback_provider ?? health?.fallback_provider ?? "local_ollama"}
+            subtitle="on failure"
+            icon={<ShieldCheck className="h-3.5 w-3.5" strokeWidth={1.75} />}
           />
           <SummaryCard
             title="External providers"
@@ -495,6 +532,10 @@ export default function AiProvidersPage() {
             {(providers?.providers ?? []).map((provider) => {
               const providerHealth = healthByProvider[provider.key];
               const result = testResults[provider.key];
+              const runtime = provider.runtime ?? {};
+              const llamaDetails = providerHealth?.details;
+              const loadedModels = llamaDetails?.loaded_models ?? [];
+              const profileStatuses = llamaDetails?.profiles ?? [];
               const testDisabled =
                 !canTest ||
                 testingKey === provider.key ||
@@ -513,6 +554,14 @@ export default function AiProvidersPage() {
                       </div>
                     </div>
                     <div className="mt-2 flex flex-wrap gap-1">
+                      <StatusBadge
+                        value={provider.key === providers?.default_provider || provider.is_default}
+                        label={(provider.key === providers?.default_provider || provider.is_default) ? "Default" : "Not default"}
+                      />
+                      <StatusBadge
+                        value={provider.key === (providers?.fallback_provider ?? health?.fallback_provider) || provider.is_fallback}
+                        label={(provider.key === (providers?.fallback_provider ?? health?.fallback_provider) || provider.is_fallback) ? "Fallback" : "Not fallback"}
+                      />
                       <StatusBadge value={!provider.external} label={provider.external ? "External" : "Local"} />
                       <StatusBadge value={provider.enabled} label={provider.enabled ? "Enabled" : "Disabled"} />
                       <StatusBadge value={provider.configured} label={provider.configured ? "Configured" : "Not configured"} />
@@ -538,6 +587,13 @@ export default function AiProvidersPage() {
                         ? ` · API key ${provider.api_key_configured ? "present" : "missing"}`
                         : ""}
                     </div>
+                    {provider.type === "LOCAL_LLAMA_CPP" && (
+                      <div className="mt-2 space-y-1 text-[11px] text-slate-400">
+                        <div className="truncate">API {runtime.api_base_url ?? provider.base_url ?? "-"}</div>
+                        <div className="truncate">Router {llamaDetails?.router_base_url ?? runtime.router_base_url ?? "-"}</div>
+                        <div className="truncate">Loaded {loadedModels.length ? loadedModels.join(", ") : "none"}</div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="col-span-8 md:col-span-2">
@@ -563,7 +619,52 @@ export default function AiProvidersPage() {
                         {result.safe_message}
                       </div>
                     )}
+                    {provider.type === "LOCAL_LLAMA_CPP" && (llamaDetails?.native_ui_url ?? runtime.native_ui_url) && (
+                      <a
+                        href={llamaDetails?.native_ui_url ?? runtime.native_ui_url ?? "#"}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-[11px] text-cyan-300 hover:text-cyan-200"
+                      >
+                        <ExternalLink className="h-3 w-3" strokeWidth={1.75} />
+                        Open llama.cpp native UI
+                      </a>
+                    )}
                   </div>
+
+                  {provider.type === "LOCAL_LLAMA_CPP" && (
+                    <div className="col-span-12 rounded-sm border border-slate-800 bg-slate-900/40 p-3">
+                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-xs font-semibold text-slate-200">llama.cpp router</div>
+                        <div className="flex flex-wrap gap-1">
+                          <StatusBadge value={llamaDetails?.router_enabled} label={llamaDetails?.router_enabled ? "Router enabled" : "Router disabled"} />
+                          <StatusBadge value={providerHealth?.reachable} label={providerHealth?.reachable ? "Reachable" : "Not reachable"} />
+                        </div>
+                      </div>
+                      <div className="grid gap-2 text-[11px] text-slate-400 md:grid-cols-3">
+                        <div className="truncate">Configured models: {formatProfileModels(runtime.profile_models)}</div>
+                        <div className="truncate">Router base: {llamaDetails?.router_base_url ?? runtime.router_base_url ?? "-"}</div>
+                        <div className="truncate">Native UI: {llamaDetails?.native_ui_url ?? runtime.native_ui_url ?? "-"}</div>
+                      </div>
+                      <div className="mt-2 grid gap-2 md:grid-cols-3">
+                        {profileStatuses.map((profile) => (
+                          <div key={`${profile.profile}-${profile.model}`} className="rounded-sm border border-slate-800 bg-slate-950 px-2 py-1.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="truncate text-xs font-medium text-slate-200">{profile.profile}</span>
+                              <StatusBadge value={profile.active} label={profile.status || (profile.active ? "loaded" : "idle")} />
+                            </div>
+                            <div className="mt-1 truncate text-[11px] text-slate-500">{profile.model}</div>
+                            <div className="mt-1 text-[11px] text-slate-500">
+                              {profile.available ? "Available" : "Unavailable"}
+                            </div>
+                          </div>
+                        ))}
+                        {!profileStatuses.length && (
+                          <div className="text-[11px] text-slate-500">No AI SOC llama.cpp profiles reported.</div>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {canEdit && providerDrafts[provider.key] && (
                     <div className="col-span-12 rounded-sm border border-slate-800 bg-slate-900/50 p-3">

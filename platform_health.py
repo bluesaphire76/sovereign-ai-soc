@@ -195,8 +195,24 @@ def check_ai_runtime():
 
     try:
         details = get_ai_runtime_health_details()
+        active_provider = details.get("active_provider") or {}
+        active_health = details.get("active_provider_health") or {}
+        active_key = active_provider.get("provider_key") or "local_ollama"
 
-        if not details.get("model_present"):
+        if active_health:
+            if active_health.get("enabled") is False:
+                status = "WARN"
+                message = f"Active AI provider {active_key} is disabled."
+            elif active_health.get("reachable") is False:
+                status = "ERROR"
+                message = f"Active AI provider {active_key} is unavailable."
+            elif active_health.get("model_available") is False:
+                status = "WARN"
+                message = f"Active AI provider {active_key} is reachable, but configured model is unavailable."
+            else:
+                status = "OK"
+                message = f"Active AI provider {active_key} is reachable."
+        elif not details.get("model_present"):
             status = "WARN"
             message = "Configured AI model is not available in Ollama."
         else:

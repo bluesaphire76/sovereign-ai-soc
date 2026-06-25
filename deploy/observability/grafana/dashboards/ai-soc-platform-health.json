@@ -14,8 +14,8 @@
       "title": "Platform Health Collection",
       "datasource": null,
       "gridPos": {
-        "h": 4,
-        "w": 6,
+        "h": 3,
+        "w": 4,
         "x": 0,
         "y": 0
       },
@@ -72,7 +72,11 @@
         "textMode": "auto",
         "colorMode": "background",
         "graphMode": "none",
-        "justifyMode": "auto"
+        "justifyMode": "auto",
+        "text": {
+          "titleSize": 18,
+          "valueSize": 30
+        }
       }
     },
     {
@@ -81,9 +85,9 @@
       "title": "Components Healthy",
       "datasource": null,
       "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 6,
+        "h": 3,
+        "w": 4,
+        "x": 4,
         "y": 0
       },
       "targets": [
@@ -143,7 +147,11 @@
         "textMode": "auto",
         "colorMode": "background",
         "graphMode": "none",
-        "justifyMode": "auto"
+        "justifyMode": "auto",
+        "text": {
+          "titleSize": 18,
+          "valueSize": 30
+        }
       }
     },
     {
@@ -152,9 +160,9 @@
       "title": "AI Runtime",
       "datasource": null,
       "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 12,
+        "h": 3,
+        "w": 4,
+        "x": 8,
         "y": 0
       },
       "targets": [
@@ -210,7 +218,11 @@
         "textMode": "auto",
         "colorMode": "background",
         "graphMode": "none",
-        "justifyMode": "auto"
+        "justifyMode": "auto",
+        "text": {
+          "titleSize": 18,
+          "valueSize": 30
+        }
       }
     },
     {
@@ -219,9 +231,9 @@
       "title": "API p95 Latency",
       "datasource": null,
       "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 18,
+        "h": 3,
+        "w": 4,
+        "x": 12,
         "y": 0
       },
       "targets": [
@@ -266,7 +278,11 @@
         "textMode": "auto",
         "colorMode": "value",
         "graphMode": "area",
-        "justifyMode": "auto"
+        "justifyMode": "auto",
+        "text": {
+          "titleSize": 18,
+          "valueSize": 30
+        }
       }
     },
     {
@@ -278,7 +294,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 4
+        "y": 3
       },
       "targets": [
         {
@@ -329,7 +345,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 12
+        "y": 11
       },
       "targets": [
         {
@@ -397,7 +413,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 12
+        "y": 11
       },
       "targets": [
         {
@@ -450,7 +466,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 20
+        "y": 19
       },
       "targets": [
         {
@@ -495,7 +511,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 20
+        "y": 19
       },
       "targets": [
         {
@@ -544,7 +560,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 20
+        "y": 19
       },
       "targets": [
         {
@@ -595,7 +611,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 28
+        "y": 27
       },
       "targets": [
         {
@@ -651,7 +667,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 28
+        "y": 27
       },
       "targets": [
         {
@@ -699,7 +715,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 28
+        "y": 27
       },
       "targets": [
         {
@@ -755,7 +771,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 28
+        "y": 27
       },
       "targets": [
         {
@@ -811,7 +827,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 32
+        "y": 31
       },
       "targets": [
         {
@@ -856,7 +872,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 32
+        "y": 31
       },
       "targets": [
         {
@@ -901,7 +917,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 40
+        "y": 39
       },
       "targets": [
         {
@@ -946,7 +962,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 40
+        "y": 39
       },
       "targets": [
         {
@@ -991,7 +1007,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 48
+        "y": 47
       },
       "targets": [
         {
@@ -1036,7 +1052,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 48
+        "y": 47
       },
       "targets": [
         {
@@ -1074,6 +1090,310 @@
         "tooltip": {
           "mode": "multi",
           "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 40,
+      "type": "stat",
+      "title": "Active AI Provider",
+      "description": "Current AI provider selected by the AI SOC provider registry.",
+      "datasource": null,
+      "gridPos": {
+        "h": 3,
+        "w": 4,
+        "x": 0,
+        "y": 55
+      },
+      "targets": [
+        {
+          "expr": "ai_soc_ai_provider_active_info",
+          "legendFormat": "{{provider_key}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "name",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "text": {
+          "titleSize": 18,
+          "valueSize": 30
+        }
+      }
+    },
+    {
+      "id": 41,
+      "type": "stat",
+      "title": "Fallback AI Provider",
+      "description": "Configured fallback provider for local LLM provider failure paths.",
+      "datasource": null,
+      "gridPos": {
+        "h": 3,
+        "w": 4,
+        "x": 8,
+        "y": 55
+      },
+      "targets": [
+        {
+          "expr": "ai_soc_ai_provider_fallback_info",
+          "legendFormat": "{{provider_key}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "name",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "text": {
+          "titleSize": 18,
+          "valueSize": 30
+        }
+      }
+    },
+    {
+      "id": 42,
+      "type": "stat",
+      "title": "llama.cpp Router",
+      "description": "Reachability of the local llama.cpp router provider.",
+      "datasource": null,
+      "gridPos": {
+        "h": 3,
+        "w": 4,
+        "x": 12,
+        "y": 55
+      },
+      "targets": [
+        {
+          "expr": "max(ai_soc_llama_cpp_router_up) or vector(0)",
+          "legendFormat": "router",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "text": {
+          "titleSize": 18,
+          "valueSize": 30
+        }
+      }
+    },
+    {
+      "id": 43,
+      "type": "stat",
+      "title": "Loaded llama.cpp Model",
+      "description": "Loaded AI SOC managed llama.cpp model. The router default model is intentionally filtered out.",
+      "datasource": null,
+      "gridPos": {
+        "h": 3,
+        "w": 4,
+        "x": 4,
+        "y": 55
+      },
+      "targets": [
+        {
+          "expr": "ai_soc_llama_cpp_model_loaded == 1",
+          "legendFormat": "{{model_id}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "name",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "text": {
+          "titleSize": 18,
+          "valueSize": 30
+        }
+      }
+    },
+    {
+      "id": 44,
+      "type": "stat",
+      "title": "Available llama.cpp Models",
+      "description": "Count of AI SOC managed ai-soc-* llama.cpp model IDs reported by the router. The router default model is intentionally ignored.",
+      "datasource": null,
+      "gridPos": {
+        "h": 3,
+        "w": 4,
+        "x": 16,
+        "y": 55
+      },
+      "targets": [
+        {
+          "expr": "sum(ai_soc_llama_cpp_model_available) or vector(0)",
+          "legendFormat": "managed models",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "text": {
+          "titleSize": 18,
+          "valueSize": 30
         }
       }
     }

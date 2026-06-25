@@ -9,9 +9,11 @@ import {
   Activity,
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
   Clock,
   Cloud,
   Database,
+  ExternalLink,
   HeartPulse,
   RefreshCw,
   Server,
@@ -727,9 +729,10 @@ function WorkerIngestMetricsPanel({
       </div>
 
       <div className="grid gap-2 xl:grid-cols-3">
-        <MetricGroup
+        <CollapsibleMetricGroup
           title="Ingest & backlog"
           description="Worker cadence, queue pressure and watermark delay."
+          defaultOpen={false}
         >
           <MetricRow label="Alerts seen" value={formatNumber(alertsSeen)} />
           <MetricRow label="Pending events" value={formatNumber(pendingEvents)} />
@@ -737,11 +740,12 @@ function WorkerIngestMetricsPanel({
           <MetricRow label="Batch size" value={formatNumber(batchSize)} />
           <MetricRow label="Poll interval" value={formatNumber(pollInterval, "sec")} />
           <MetricRow label="Total processed" value={formatNumber(totalProcessed)} />
-        </MetricGroup>
+        </CollapsibleMetricGroup>
 
-        <MetricGroup
+        <CollapsibleMetricGroup
           title="Batch outcome"
           description="How the last worker batch was classified."
+          defaultOpen={false}
         >
           <MetricRow label="Processed" value={formatNumber(alertsProcessed)} tone={(alertsProcessed ?? 0) > 0 ? "OK" : "neutral"} />
           <MetricRow label="Skipped" value={formatNumber(alertsSkipped)} />
@@ -751,11 +755,12 @@ function WorkerIngestMetricsPanel({
           <MetricRow label="Duplicate doc id" value={formatNumber(duplicateDocId)} />
           <MetricRow label="No doc id" value={formatNumber(noDocId)} tone={(noDocId ?? 0) > 0 ? "WARN" : "neutral"} />
           <MetricRow label="Other skipped" value={formatNumber(otherSkipped)} tone={(otherSkipped ?? 0) > 0 ? "WARN" : "neutral"} />
-        </MetricGroup>
+        </CollapsibleMetricGroup>
 
-        <MetricGroup
+        <CollapsibleMetricGroup
           title="AI triage"
           description="LLM usage and deterministic fallback visibility."
+          defaultOpen={false}
         >
           <MetricRow label="AI triage success" value={formatNumber(aiTriageSuccess)} tone="OK" />
           <MetricRow label="AI fallback" value={formatNumber(aiTriageFallback)} tone={(aiTriageFallback ?? 0) > 0 ? "WARN" : "neutral"} />
@@ -771,7 +776,7 @@ function WorkerIngestMetricsPanel({
             value={lastLlmFallback}
             tone={lastLlmFallback === "true" ? "WARN" : "neutral"}
           />
-        </MetricGroup>
+        </CollapsibleMetricGroup>
       </div>
 
       <div className="mt-3 grid gap-2 lg:grid-cols-3">
@@ -829,6 +834,7 @@ function ExecutiveMetric({
 
 const AI_PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   local_ollama: "Ollama",
+  local_llama_cpp: "llama.cpp",
   openrouter: "Openrouter",
   openai_compatible: "OpenAI",
   azure_openai_compatible: "MS Azure",
@@ -838,6 +844,10 @@ const AI_PROVIDER_DISPLAY_NAMES: Record<string, string> = {
 
 function aiProviderDisplayName(providerKey: string) {
   return AI_PROVIDER_DISPLAY_NAMES[providerKey] ?? providerKey;
+}
+
+function isLocalProviderType(providerType: string) {
+  return providerType === "LOCAL_OLLAMA" || providerType === "LOCAL_LLAMA_CPP";
 }
 
 function aiProviderDescription(providerKey: string, providerType: string, message: string) {
@@ -866,9 +876,10 @@ function AiProviderRuntimePanel({
   if (!aiRuntime && providers.length === 0) return null;
 
   const defaultProvider = readString(registry, ["default_provider"], "local_ollama");
+  const fallbackProvider = readString(registry, ["fallback_provider"], "local_ollama");
   const externalEnabled = readUnknown(registry, ["external_providers_enabled"]) === true;
   const externalProviders = providers.filter(
-    (provider) => readString(provider, ["provider_type"], "") !== "LOCAL_OLLAMA"
+    (provider) => !isLocalProviderType(readString(provider, ["provider_type"], ""))
   );
   const enabledExternalProviders = externalProviders.filter(
     (provider) => readUnknown(provider, ["enabled"]) === true
@@ -890,6 +901,7 @@ function AiProviderRuntimePanel({
 
         <div className="flex flex-wrap gap-1.5">
           <StatusPill label="Default" value={aiProviderDisplayName(defaultProvider)} tone="neutral" />
+          <StatusPill label="Fallback" value={aiProviderDisplayName(fallbackProvider)} tone="neutral" />
           <StatusPill
             label="External switch"
             value={externalEnabled ? "enabled" : "disabled"}
@@ -916,16 +928,67 @@ function AiProviderRuntimePanel({
           const message = readString(provider, ["safe_message"], "-");
           const latency = readNumber(provider, ["latency_ms"]);
           const description = aiProviderDescription(key, type, message);
+          const details = readRecord(provider, ["details"]);
+          const isLlamaCpp = type === "LOCAL_LLAMA_CPP";
+          const loadedModelsValue = readUnknown(details, ["loaded_models"]);
+          const loadedModels = Array.isArray(loadedModelsValue)
+            ? loadedModelsValue.map((item) => String(item)).filter(Boolean)
+            : [];
+          const profilesValue = readUnknown(details, ["profiles"]);
+          const profiles = Array.isArray(profilesValue)
+            ? profilesValue.filter(isRecord)
+            : [];
 
           return (
-            <MetricGroup
+            <CollapsibleMetricGroup
               key={key}
               title={displayName}
               description={description}
+              defaultOpen={false}
             >
               <MetricRow label="Enabled" value={enabled ? "yes" : "no"} tone={enabled ? "OK" : "neutral"} />
               <MetricRow label="Configured" value={configured ? "yes" : "no"} tone={configured ? "OK" : "WARN"} />
               <MetricRow label="Configured model" value={configuredModel || "-"} />
+              {isLlamaCpp && (
+                <>
+                  <MetricRow
+                    label="Router enabled"
+                    value={readUnknown(details, ["router_enabled"]) === true ? "yes" : "no"}
+                    tone={readUnknown(details, ["router_enabled"]) === true ? "OK" : "WARN"}
+                  />
+                  <MetricRow label="Loaded model" value={loadedModels.length ? loadedModels.join(", ") : "none"} />
+                  <MetricRow label="Router base" value={readString(details, ["router_base_url"], "-")} />
+                  <MetricRow label="API base" value={readString(details, ["api_base_url"], "-")} />
+                  <div className="flex items-center justify-between gap-3 rounded-md border border-slate-800 bg-slate-900/70 px-2 py-1.5">
+                    <div className="truncate text-[11px] text-slate-400">Native UI</div>
+                    <a
+                      href={readString(details, ["native_ui_url"], "#")}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex max-w-[13rem] items-center gap-1 truncate text-[11px] font-medium text-cyan-300 hover:text-cyan-200"
+                    >
+                      <ExternalLink className="h-3 w-3 shrink-0" />
+                      Open llama.cpp native UI
+                    </a>
+                  </div>
+                  {profiles.map((profile) => {
+                    const profileName = readString(profile, ["profile"], "-");
+                    const profileModel = readString(profile, ["model"], "-");
+                    const status = readString(profile, ["status"], "unknown");
+                    const active = readUnknown(profile, ["active"]) === true;
+                    const available = readUnknown(profile, ["available"]) === true;
+
+                    return (
+                      <MetricRow
+                        key={`${profileName}-${profileModel}`}
+                        label={`${profileName} profile`}
+                        value={`${profileModel} · ${status}`}
+                        tone={active ? "OK" : available ? "neutral" : "WARN"}
+                      />
+                    );
+                  })}
+                </>
+              )}
               <MetricRow
                 label="Reachable"
                 value={reachable === null || reachable === undefined ? "not checked" : reachable ? "yes" : "no"}
@@ -937,11 +1000,53 @@ function AiProviderRuntimePanel({
                 tone={modelAvailable === false ? "WARN" : modelAvailable === true ? "OK" : "neutral"}
               />
               <MetricRow label="Latency" value={formatNumber(latency, "ms")} />
-            </MetricGroup>
+            </CollapsibleMetricGroup>
           );
         })}
       </div>
     </section>
+  );
+}
+
+function CollapsibleMetricGroup({
+  title,
+  description,
+  defaultOpen,
+  children,
+}: {
+  title: string;
+  description: string;
+  defaultOpen: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-950/70">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        aria-expanded={open}
+        className="flex w-full items-start justify-between gap-3 p-2.5 text-left"
+      >
+        <span className="min-w-0">
+          <span className="block truncate text-xs font-semibold text-slate-100">{title}</span>
+          <span className="mt-0.5 block text-[11px] leading-4 text-slate-500">
+            {description}
+          </span>
+        </span>
+        <span className="mt-0.5 inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-slate-800 bg-slate-900 px-2 text-[11px] font-medium text-slate-300">
+          {open ? "Collapse" : "Expand"}
+          <ChevronDown className={`h-3 w-3 transition-transform ${open ? "rotate-180" : ""}`} />
+        </span>
+      </button>
+
+      {open && (
+        <div className="space-y-1.5 border-t border-slate-800 p-2.5 pt-2">
+          {children}
+        </div>
+      )}
+    </div>
   );
 }
 

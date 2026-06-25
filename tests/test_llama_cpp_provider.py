@@ -12,7 +12,7 @@ from ai_provider_abstraction import (
     llama_cpp_managed_models,
 )
 from ai_provider_redaction import REDACTION_LOCAL_ONLY
-from ai_provider_registry import load_provider_registry
+from ai_provider_registry import load_provider_registry, provider_public_dict
 from llama_cpp_profiles import resolve_llama_cpp_profile
 
 
@@ -52,6 +52,26 @@ def test_llama_cpp_registered_disabled_and_not_default(monkeypatch):
     assert provider.configured is True
     assert provider.api_key_configured is False
     assert provider.redaction_mode == REDACTION_LOCAL_ONLY
+
+
+def test_llama_cpp_provider_public_payload_has_native_ui_and_profiles(monkeypatch):
+    registry = load_provider_registry()
+    provider = registry.providers["local_llama_cpp"]
+
+    payload = provider_public_dict(provider, include_api_key_presence=True)
+
+    assert payload["key"] == "local_llama_cpp"
+    assert payload["type"] == "LOCAL_LLAMA_CPP"
+    assert payload["external"] is False
+    assert payload["api_key_configured"] is False
+    assert payload["runtime"]["native_ui_url"] == "http://127.0.0.1:8081"
+    assert payload["runtime"]["router_base_url"] == "http://127.0.0.1:8081"
+    assert payload["runtime"]["api_base_url"] == "http://127.0.0.1:8081/v1"
+    assert payload["runtime"]["profile_models"] == [
+        {"profile": "fast", "model": "ai-soc-fast"},
+        {"profile": "standard", "model": "ai-soc-standard"},
+        {"profile": "quality", "model": "ai-soc-quality"},
+    ]
 
 
 def test_llama_cpp_managed_models_ignore_default_and_non_ai_soc_models():
@@ -169,6 +189,35 @@ def test_llama_cpp_provider_generates_openai_compatible_request(monkeypatch):
     assert response.profile == "fast"
     assert response.fallback_used is True
     assert response.used_external_provider is False
+
+
+def test_llama_cpp_health_filters_default_model(monkeypatch):
+    monkeypatch.setenv("LLAMA_CPP_ENABLED", "true")
+    registry = load_provider_registry()
+    client = build_provider_client(registry.providers["local_llama_cpp"])
+
+    def fake_get(url, **kwargs):
+        if url.endswith("/health"):
+            return _Response({"status": "ok"})
+        return _Response(
+            {
+                "data": [
+                    {"id": "default", "status": {"value": "loaded"}},
+                    {"id": "ai-soc-fast", "status": {"value": "loaded"}},
+                    {"id": "ai-soc-standard", "status": {"value": "unloaded"}},
+                ]
+            }
+        )
+
+    with patch("ai_provider_abstraction.requests.get", side_effect=fake_get):
+        health = client.health_check()
+
+    assert health.reachable is True
+    profile_models = [item["model"] for item in health.details["profiles"]]
+    assert "ai-soc-fast" in profile_models
+    assert "ai-soc-standard" in profile_models
+    assert "default" not in profile_models
+    assert health.details["loaded_models"] == ["ai-soc-fast"]
 
 
 def test_llama_cpp_data_policy_is_local_only(monkeypatch):

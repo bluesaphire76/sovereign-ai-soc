@@ -113,6 +113,40 @@ def get_ollama_runtime_snapshot() -> dict[str, Any]:
     }
 
 
+def _logical_provider_key(value: str | None) -> str:
+    normalized = str(value or "").lower().strip()
+    mapping = {
+        "ollama": "local_ollama",
+        "local_ollama": "local_ollama",
+        "llama_cpp": "local_llama_cpp",
+        "llama.cpp": "local_llama_cpp",
+        "local_llama_cpp": "local_llama_cpp",
+    }
+    return mapping.get(normalized, normalized or "local_ollama")
+
+
+def _safe_ollama_runtime_snapshot() -> dict[str, Any]:
+    try:
+        return get_ollama_runtime_snapshot()
+    except Exception as exc:
+        return {
+            "provider": "ollama",
+            "base_url": OLLAMA_BASE_URL,
+            "configured_model": OLLAMA_MODEL,
+            "configured_profile": "standard",
+            "configured_profiles": _configured_profiles(),
+            "model_present": False,
+            "available_model_count": 0,
+            "available_models": [],
+            "configured_model_details": _empty_model_details(),
+            "tags_latency_ms": None,
+            "health_chat_enabled": AI_RUNTIME_HEALTH_CHAT_ENABLED,
+            "health_timeout_seconds": AI_RUNTIME_HEALTH_TIMEOUT_SECONDS,
+            "health_chat_timeout_seconds": AI_RUNTIME_HEALTH_CHAT_TIMEOUT_SECONDS,
+            "ollama_safe_error": type(exc).__name__,
+        }
+
+
 def run_optional_ollama_chat_probe() -> dict[str, Any] | None:
     if not AI_RUNTIME_HEALTH_CHAT_ENABLED:
         return None
@@ -144,20 +178,62 @@ def run_optional_ollama_chat_probe() -> dict[str, Any] | None:
 
 
 def get_ai_runtime_health_details() -> dict[str, Any]:
-    snapshot = get_ollama_runtime_snapshot()
+    snapshot = _safe_ollama_runtime_snapshot()
     chat_probe = run_optional_ollama_chat_probe()
 
     if chat_probe is not None:
         snapshot["chat_probe"] = chat_probe
 
     registry = load_provider_registry()
+    fallback_provider = _logical_provider_key(os.getenv("AI_LLM_FALLBACK_PROVIDER", "ollama"))
+    provider_health = [
+        health_to_dict(build_provider_client(config).health_check())
+        for config in registry.providers.values()
+    ]
+    active_provider = registry.get(registry.default_provider)
+    fallback_config = registry.get(fallback_provider)
+    active_provider_health = next(
+        (
+            item
+            for item in provider_health
+            if item.get("provider_key") == registry.default_provider
+        ),
+        None,
+    )
+    fallback_provider_health = next(
+        (
+            item
+            for item in provider_health
+            if item.get("provider_key") == fallback_provider
+        ),
+        None,
+    )
+
+    snapshot["active_provider"] = {
+        "provider_key": active_provider.key,
+        "provider_type": active_provider.provider_type,
+        "model": active_provider.model,
+        "external": active_provider.external,
+        "redaction_mode": active_provider.redaction_mode,
+    } if active_provider else None
+    snapshot["fallback_provider"] = {
+        "provider_key": fallback_config.key,
+        "provider_type": fallback_config.provider_type,
+        "model": fallback_config.model,
+        "external": fallback_config.external,
+        "redaction_mode": fallback_config.redaction_mode,
+    } if fallback_config else {"provider_key": fallback_provider}
+    snapshot["active_provider_health"] = active_provider_health
+    snapshot["fallback_provider_health"] = fallback_provider_health
     snapshot["provider_registry"] = {
         "default_provider": registry.default_provider,
+        "fallback_provider": fallback_provider,
+        "active_provider": snapshot["active_provider"],
+        "fallback_provider_details": snapshot["fallback_provider"],
+        "active_provider_health": active_provider_health,
+        "fallback_provider_health": fallback_provider_health,
         "external_providers_enabled": registry.external_providers_enabled,
-        "providers": [
-            health_to_dict(build_provider_client(config).health_check())
-            for config in registry.providers.values()
-        ],
+        "providers": provider_health,
     }
 
     return snapshot
