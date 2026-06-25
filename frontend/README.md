@@ -42,11 +42,14 @@ Important variables:
 ```env
 NEXT_PUBLIC_API_BASE_URL=/api-backend
 NEXT_PUBLIC_AI_SOC_DEMO_MODE=false
-NEXT_PUBLIC_GRAFANA_URL=http://127.0.0.1:3002/grafana/
+NEXT_PUBLIC_GRAFANA_URL=https://grafana.varqon.net/grafana/
 ```
 
 Use `http://127.0.0.1:8008` as the API base only when running the frontend
 directly without Nginx.
+Use the public HTTPS Grafana URL for the deployed ADMIN/ANALYST Observability
+link. The local `http://127.0.0.1:3002/grafana/` URL is only for direct local
+Docker troubleshooting.
 
 Never place backend secrets or AI provider API keys in `NEXT_PUBLIC_*`
 variables. They are embedded into the browser bundle.
