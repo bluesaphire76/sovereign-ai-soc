@@ -704,7 +704,7 @@
       "id": 41,
       "type": "state-timeline",
       "title": "LLM Model In Use Over Time",
-      "description": "Effective AI SOC LLM profile/model from the latest worker heartbeat. Fallback indicates whether the last LLM call used the FAST fallback path.",
+      "description": "Effective AI SOC LLM profile/model pairs from worker heartbeat over time. Each row is one profile with its resolved LLM model.",
       "datasource": null,
       "gridPos": {
         "h": 6,
@@ -714,8 +714,8 @@
       },
       "targets": [
         {
-          "expr": "ai_soc_llm_model_in_use",
-          "legendFormat": "{{profile}} · {{model}} · fallback={{fallback}}",
+          "expr": "max by (profile, model) (ai_soc_llm_model_in_use)",
+          "legendFormat": "{{profile}} · {{model}}",
           "refId": "A"
         }
       ],
@@ -747,12 +747,12 @@
       "options": {
         "alignValue": "center",
         "legend": {
-          "displayMode": "table",
+          "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
         },
         "mergeValues": true,
-        "rowHeight": 0.9,
+        "rowHeight": 0.8,
         "showValue": "auto",
         "tooltip": {
           "mode": "multi",

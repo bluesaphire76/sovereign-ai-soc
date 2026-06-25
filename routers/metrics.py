@@ -221,7 +221,7 @@ WORKER_BATCH_METRICS = Gauge(
 LLM_MODEL_IN_USE = Gauge(
     "ai_soc_llm_model_in_use",
     "Effective AI SOC LLM model in use according to the latest worker heartbeat.",
-    ["profile", "model", "fallback"],
+    ["profile", "model"],
 )
 
 SURICATA_INGEST_EVENTS = Gauge(
@@ -529,22 +529,12 @@ def _collect_worker_metrics(details: dict[str, Any]) -> None:
         or details.get("ollama_model")
         or "unknown"
     ).strip() or "unknown"
-    fallback_value = details.get("llm_last_fallback_used")
-
-    if isinstance(fallback_value, bool):
-        fallback = str(fallback_value).lower()
-    elif fallback_value is None:
-        fallback = "unknown"
-    else:
-        fallback = str(fallback_value).strip().lower() or "unknown"
-
     if hasattr(LLM_MODEL_IN_USE, "clear"):
         LLM_MODEL_IN_USE.clear()
 
     LLM_MODEL_IN_USE.labels(
         profile=profile,
         model=model,
-        fallback=fallback,
     ).set(1)
 
 

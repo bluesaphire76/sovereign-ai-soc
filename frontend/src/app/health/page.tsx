@@ -867,6 +867,8 @@ function AiProviderRuntimePanel({
   components: HealthComponent[];
 }) {
   const aiRuntime = components.find((item) => item.component === "ai_runtime");
+  const worker = components.find((item) => item.component === "ai_soc_worker");
+  const workerDetails = readRecord(worker?.details, ["details"]);
   const registry = readRecord(aiRuntime?.details, ["provider_registry"]);
   const providersValue = readUnknown(registry, ["providers"]);
   const providers = Array.isArray(providersValue)
@@ -877,6 +879,21 @@ function AiProviderRuntimePanel({
 
   const defaultProvider = readString(registry, ["default_provider"], "local_ollama");
   const fallbackProvider = readString(registry, ["fallback_provider"], "local_ollama");
+  const activeProvider = readRecord(registry, ["active_provider"]);
+  const activeProviderKey = readString(activeProvider, ["provider_key"], defaultProvider);
+  const activeProviderModel = readString(activeProvider, ["model"], "-");
+  const currentLlmProvider = readString(workerDetails, ["llm_last_provider_key"], activeProviderKey);
+  const currentLlmModel = readString(
+    workerDetails,
+    ["llm_last_model"],
+    readString(workerDetails, ["llm_configured_model"], activeProviderModel)
+  );
+  const currentLlmLabel = [
+    aiProviderDisplayName(currentLlmProvider),
+    currentLlmModel,
+  ]
+    .filter((item) => item && item !== "-")
+    .join(" · ") || "-";
   const externalEnabled = readUnknown(registry, ["external_providers_enabled"]) === true;
   const externalProviders = providers.filter(
     (provider) => !isLocalProviderType(readString(provider, ["provider_type"], ""))
@@ -930,10 +947,6 @@ function AiProviderRuntimePanel({
           const description = aiProviderDescription(key, type, message);
           const details = readRecord(provider, ["details"]);
           const isLlamaCpp = type === "LOCAL_LLAMA_CPP";
-          const loadedModelsValue = readUnknown(details, ["loaded_models"]);
-          const loadedModels = Array.isArray(loadedModelsValue)
-            ? loadedModelsValue.map((item) => String(item)).filter(Boolean)
-            : [];
           const profilesValue = readUnknown(details, ["profiles"]);
           const profiles = Array.isArray(profilesValue)
             ? profilesValue.filter(isRecord)
@@ -956,7 +969,7 @@ function AiProviderRuntimePanel({
                     value={readUnknown(details, ["router_enabled"]) === true ? "yes" : "no"}
                     tone={readUnknown(details, ["router_enabled"]) === true ? "OK" : "WARN"}
                   />
-                  <MetricRow label="Loaded model" value={loadedModels.length ? loadedModels.join(", ") : "none"} />
+                  <MetricRow label="Current LLM" value={currentLlmLabel} />
                   <MetricRow label="Router base" value={readString(details, ["router_base_url"], "-")} />
                   <MetricRow label="API base" value={readString(details, ["api_base_url"], "-")} />
                   <div className="flex items-center justify-between gap-3 rounded-md border border-slate-800 bg-slate-900/70 px-2 py-1.5">
