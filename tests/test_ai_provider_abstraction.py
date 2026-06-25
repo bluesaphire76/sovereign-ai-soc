@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import os
 from unittest.mock import patch
 
 import pytest
@@ -8,7 +10,7 @@ from ai_model_policy import AiTask
 from ai_provider_abstraction import build_provider_client
 from ai_provider_policy import external_block_reason, generate_with_provider
 from ai_provider_redaction import redact_text
-from ai_provider_registry import load_provider_registry, provider_public_dict
+from ai_provider_registry import load_provider_registry, provider_public_dict, save_registry_settings
 
 
 @pytest.fixture(autouse=True)
@@ -41,6 +43,108 @@ def test_local_ollama_is_default_and_external_is_disabled(monkeypatch):
     assert registry.providers["openai_compatible"].enabled is False
     assert registry.providers["openai_compatible"].feature_allowlist == []
     assert registry.providers["openai_compatible"].redaction_mode == "BLOCK_EXTERNAL"
+
+
+def test_old_provider_config_still_exposes_llama_cpp_builtin(monkeypatch):
+    path = os.environ["AI_PROVIDER_CONFIG_PATH"]
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(
+            {
+                "default_provider": "local_ollama",
+                "external_providers_enabled": False,
+                "feature_overrides": {},
+                "providers": [
+                    {
+                        "key": "local_ollama",
+                        "type": "LOCAL_OLLAMA",
+                        "display_name": "Ollama",
+                        "enabled": True,
+                        "external": False,
+                        "base_url": "http://localhost:11434",
+                        "model": "qwen3.5:4b",
+                        "redaction_mode": "LOCAL_ONLY",
+                    }
+                ],
+            },
+            handle,
+        )
+
+    registry = load_provider_registry()
+
+    assert "local_llama_cpp" in registry.providers
+    assert registry.providers["local_llama_cpp"].external is False
+
+
+def test_persisted_valid_llama_cpp_default_is_honored(monkeypatch):
+    path = os.environ["AI_PROVIDER_CONFIG_PATH"]
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(
+            {
+                "default_provider": "local_llama_cpp",
+                "external_providers_enabled": False,
+                "providers": [
+                    {
+                        "key": "local_llama_cpp",
+                        "type": "LOCAL_LLAMA_CPP",
+                        "display_name": "llama.cpp",
+                        "enabled": True,
+                        "external": False,
+                        "base_url": "http://127.0.0.1:8081/v1",
+                        "model": "ai-soc-fast",
+                        "redaction_mode": "LOCAL_ONLY",
+                    }
+                ],
+            },
+            handle,
+        )
+
+    registry = load_provider_registry()
+
+    assert registry.default_provider == "local_llama_cpp"
+
+
+def test_invalid_persisted_default_falls_back_to_safe_local_provider(monkeypatch):
+    path = os.environ["AI_PROVIDER_CONFIG_PATH"]
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(
+            {
+                "default_provider": "local_llama_cpp",
+                "external_providers_enabled": False,
+                "providers": [
+                    {
+                        "key": "local_llama_cpp",
+                        "type": "LOCAL_LLAMA_CPP",
+                        "display_name": "llama.cpp",
+                        "enabled": False,
+                        "external": False,
+                        "base_url": "http://127.0.0.1:8081/v1",
+                        "model": "ai-soc-fast",
+                        "redaction_mode": "LOCAL_ONLY",
+                    }
+                ],
+            },
+            handle,
+        )
+
+    registry = load_provider_registry()
+
+    assert registry.default_provider == "local_ollama"
+
+
+def test_provider_selection_persistence_includes_llama_cpp(monkeypatch):
+    monkeypatch.setenv("LLAMA_CPP_ENABLED", "true")
+
+    registry = save_registry_settings(default_provider="local_llama_cpp")
+    path = os.environ["AI_PROVIDER_CONFIG_PATH"]
+    saved = json.loads(open(path, encoding="utf-8").read())
+
+    assert registry.default_provider == "local_llama_cpp"
+    assert saved["default_provider"] == "local_llama_cpp"
+    assert any(item["key"] == "local_llama_cpp" for item in saved["providers"])
+
+    registry = save_registry_settings(default_provider="local_ollama")
+
+    assert registry.default_provider == "local_ollama"
 
 
 def test_public_provider_dict_never_returns_raw_api_key(monkeypatch):

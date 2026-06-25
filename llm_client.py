@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import time
 from typing import Any
@@ -13,6 +14,9 @@ from ai_provider_abstraction import build_provider_client
 from ai_provider_policy import generate_with_provider, normalize_feature, select_provider_config
 from ai_provider_registry import PROVIDER_LOCAL_LLAMA_CPP, PROVIDER_LOCAL_OLLAMA, load_provider_registry
 from llama_cpp_profiles import get_llama_cpp_profile, select_llama_cpp_profile
+
+
+logger = logging.getLogger(__name__)
 
 
 def generate_ai_response(
@@ -53,6 +57,13 @@ def generate_ai_response(
             options=_profile_options(profile=profile, timeout_seconds=timeout_seconds),
         )
         if response.safe_error and _logical_provider_key(os.getenv("AI_LLM_FALLBACK_PROVIDER", "ollama")) == "local_ollama":
+            logger.warning(
+                "AI provider fallback primary=%s fallback=%s task=%s reason=%s",
+                provider.key,
+                "local_ollama",
+                feature,
+                response.safe_error,
+            )
             fallback = _call_ollama_with_fallback(
                 feature=feature,
                 prompt=prompt,
@@ -63,13 +74,34 @@ def generate_ai_response(
             fallback["fallback_used"] = True
             fallback["error_type"] = response.safe_error
             fallback["safe_error"] = response.safe_error
+            _log_provider_selected(
+                provider_key="local_ollama",
+                provider_type=PROVIDER_LOCAL_OLLAMA,
+                task=feature,
+                profile=str(fallback.get("profile") or "unknown"),
+                model=str(fallback.get("model") or "unknown"),
+                external=False,
+                fallback=True,
+                redaction_mode=str(fallback.get("redaction_mode") or "LOCAL_ONLY"),
+            )
             return fallback
-        return _provider_result(
+        result = _provider_result(
             response=response,
             profile=profile,
             fallback_used=False,
             error_type=response.safe_error,
         )
+        _log_provider_selected(
+            provider_key=response.provider_key,
+            provider_type=response.provider_type,
+            task=feature,
+            profile=str(result.get("profile") or profile.name),
+            model=str(result.get("model") or profile.model),
+            external=response.used_external_provider,
+            fallback=bool(result.get("fallback_used")),
+            redaction_mode=response.redaction_mode,
+        )
+        return result
 
     if provider.provider_type != PROVIDER_LOCAL_OLLAMA:
         profile = get_profile(profile_name)
@@ -79,20 +111,42 @@ def generate_ai_response(
             messages=messages,
             options=_profile_options(profile=profile, timeout_seconds=timeout_seconds),
         )
-        return _provider_result(
+        result = _provider_result(
             response=response,
             profile=profile,
             fallback_used=False,
             error_type=response.safe_error,
         )
+        _log_provider_selected(
+            provider_key=response.provider_key,
+            provider_type=response.provider_type,
+            task=feature,
+            profile=str(result.get("profile") or profile.name),
+            model=str(result.get("model") or profile.model),
+            external=response.used_external_provider,
+            fallback=bool(result.get("fallback_used")),
+            redaction_mode=response.redaction_mode,
+        )
+        return result
 
-    return _call_ollama_with_fallback(
+    result = _call_ollama_with_fallback(
         feature=feature,
         prompt=prompt,
         messages=messages,
         profile_name=profile_name,
         timeout_seconds=timeout_seconds,
     )
+    _log_provider_selected(
+        provider_key="local_ollama",
+        provider_type=PROVIDER_LOCAL_OLLAMA,
+        task=feature,
+        profile=str(result.get("profile") or profile_name),
+        model=str(result.get("model") or "unknown"),
+        external=False,
+        fallback=bool(result.get("fallback_used")),
+        redaction_mode=str(result.get("redaction_mode") or "LOCAL_ONLY"),
+    )
+    return result
 
 
 def _call_ollama_with_fallback(
@@ -132,6 +186,13 @@ def _call_ollama_with_fallback(
             )
 
         fallback = get_profile("fast")
+        logger.warning(
+            "AI provider fallback primary=%s fallback=%s task=%s reason=%s",
+            "local_ollama",
+            "local_ollama",
+            feature,
+            type(exc).__name__,
+        )
 
         try:
             text = _call_ollama(
@@ -246,6 +307,30 @@ def _profile_options(*, profile: LlmProfile, timeout_seconds: float | None) -> d
         "timeout_seconds": timeout_seconds or profile.timeout_seconds,
         "keep_alive": profile.keep_alive,
     }
+
+
+def _log_provider_selected(
+    *,
+    provider_key: str,
+    provider_type: str,
+    task: str,
+    profile: str,
+    model: str,
+    external: bool,
+    fallback: bool,
+    redaction_mode: str,
+) -> None:
+    logger.info(
+        "AI provider selected provider=%s type=%s task=%s profile=%s resolved_model=%s external=%s fallback=%s redaction_mode=%s",
+        provider_key,
+        provider_type,
+        task,
+        profile,
+        model,
+        str(external).lower(),
+        str(fallback).lower(),
+        redaction_mode,
+    )
 
 
 def _logical_provider_key(value: str | None) -> str | None:

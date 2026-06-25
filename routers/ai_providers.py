@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -17,11 +18,11 @@ from ai_provider_policy import (
     provider_capabilities,
 )
 from ai_provider_registry import (
-    PROVIDER_LOCAL_OLLAMA,
     load_provider_registry,
     provider_public_dict,
     save_provider_settings,
     save_registry_settings,
+    is_local_provider_type,
 )
 from ai_triage_hardening import get_last_llm_call_metadata
 
@@ -60,15 +61,33 @@ def _is_admin(request: Request) -> bool:
 
 
 def _provider_list_response(registry, *, include_api_key_presence: bool) -> dict[str, Any]:
+    fallback_provider = _logical_fallback_provider()
     return {
         "default_provider": registry.default_provider,
+        "fallback_provider": fallback_provider,
         "external_providers_enabled": registry.external_providers_enabled,
         "feature_overrides": dict(registry.feature_overrides),
         "providers": [
-            provider_public_dict(config, include_api_key_presence=include_api_key_presence)
+            {
+                **provider_public_dict(config, include_api_key_presence=include_api_key_presence),
+                "is_default": config.key == registry.default_provider,
+                "is_fallback": config.key == fallback_provider,
+            }
             for config in registry.providers.values()
         ],
     }
+
+
+def _logical_fallback_provider() -> str:
+    normalized = os.getenv("AI_LLM_FALLBACK_PROVIDER", "ollama").strip().lower()
+    mapping = {
+        "ollama": "local_ollama",
+        "local_ollama": "local_ollama",
+        "llama_cpp": "local_llama_cpp",
+        "llama.cpp": "local_llama_cpp",
+        "local_llama_cpp": "local_llama_cpp",
+    }
+    return mapping.get(normalized, normalized or "local_ollama")
 
 
 @router.get("/ai-providers")
@@ -114,8 +133,22 @@ def ai_provider_effective_policy(request: Request):
 @router.get("/ai-providers/health")
 def ai_provider_health():
     registry = load_provider_registry()
+    fallback_provider = _logical_fallback_provider()
+    active_config = registry.get(registry.default_provider)
     return {
         "default_provider": registry.default_provider,
+        "fallback_provider": fallback_provider,
+        "active_provider": (
+            {
+                "provider_key": active_config.key,
+                "provider_type": active_config.provider_type,
+                "model": active_config.model,
+                "external": active_config.external,
+                "redaction_mode": active_config.redaction_mode,
+            }
+            if active_config
+            else None
+        ),
         "external_providers_enabled": registry.external_providers_enabled,
         "providers": [
             health_to_dict(build_provider_client(config).health_check())
@@ -297,7 +330,7 @@ def test_ai_provider(provider_key: str, payload: ProviderTestRequest, request: R
     if config is None:
         raise HTTPException(status_code=404, detail="Provider not found.")
 
-    if config.provider_type == PROVIDER_LOCAL_OLLAMA:
+    if is_local_provider_type(config.provider_type):
         decision = enforce_ai_data_policy(
             feature_key="provider_test",
             provider_config=config,
@@ -333,6 +366,7 @@ def test_ai_provider(provider_key: str, payload: ProviderTestRequest, request: R
             "success": bool(health.reachable),
             "safe_message": health.safe_message,
             "latency_ms": health.latency_ms,
+            "safe_error": health.safe_error,
         }
 
     block_reason = None
