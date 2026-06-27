@@ -9,19 +9,16 @@ from database import SessionLocal
 from models import AppUser
 from schemas.auth import LoginRequest
 from security.audit import write_security_audit
-from security.auth import get_current_user, serialize_user
+from security.auth import get_current_user
+from services.users import normalize_username, serialize_user
 
 
 router = APIRouter()
 
 
-def _normalize_username(username: str) -> str:
-    return username.strip().lower()
-
-
 @router.post("/auth/login")
 def login(payload: LoginRequest, request: Request):
-    username = _normalize_username(payload.username)
+    username = normalize_username(payload.username)
 
     db = SessionLocal()
 
