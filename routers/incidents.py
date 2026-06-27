@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 from fastapi import APIRouter, HTTPException, Query, Request
 from sqlalchemy import func, or_
 
 from database import SessionLocal
 from demo_data_management import (
-    case_demo_origin,
     demo_incident_filter,
     incident_demo_origin,
 )
@@ -23,6 +20,7 @@ from models import (
 from qdrant_auto_index import schedule_incident_auto_index
 from schemas.incidents import IncidentNoteCreate, IncidentStatusUpdate
 from security.audit import security_audit_actor, write_security_audit
+from services.cases import serialize_case
 from timezone_utils import APP_TIMEZONE, format_timestamp_local, normalize_timestamp_utc
 
 
@@ -40,91 +38,6 @@ VALID_INCIDENT_STATUSES = {
     # Legacy-compatible status kept for existing records and executive metrics.
     "ESCALATED",
 }
-
-
-def _calculate_case_sla_status(case: IncidentCase) -> str:
-    status = (case.status or "OPEN").upper()
-
-    if status in {"CLOSED", "FALSE_POSITIVE"}:
-        return "COMPLETED"
-
-    if not case.sla_due_at:
-        return "NOT_SET"
-
-    due_at = case.sla_due_at
-
-    if due_at.tzinfo is None:
-        due_at = due_at.replace(tzinfo=timezone.utc)
-
-    now = datetime.now(timezone.utc)
-
-    if now <= due_at:
-        return "WITHIN_SLA"
-
-    return "BREACHED"
-
-
-def _calculate_case_sla_breach_risk(case: IncidentCase) -> str:
-    status = (case.status or "OPEN").upper()
-
-    if status in {"CLOSED", "FALSE_POSITIVE"}:
-        return "NONE"
-
-    if not case.sla_due_at:
-        return "UNKNOWN"
-
-    due_at = case.sla_due_at
-
-    if due_at.tzinfo is None:
-        due_at = due_at.replace(tzinfo=timezone.utc)
-
-    now = datetime.now(timezone.utc)
-    seconds_to_due = (due_at - now).total_seconds()
-
-    if seconds_to_due < 0:
-        return "BREACHED"
-
-    if seconds_to_due <= 4 * 60 * 60:
-        return "HIGH"
-
-    if seconds_to_due <= 24 * 60 * 60:
-        return "MEDIUM"
-
-    return "LOW"
-
-
-def _serialize_case_for_incident(
-    case: IncidentCase,
-    incident_count: int | None = None,
-) -> dict:
-    return {
-        "id": case.id,
-        "group_key": case.group_key,
-        "title": case.title,
-        "status": case.status,
-        "severity": case.severity,
-        "agent": case.agent,
-        "correlation_type": case.correlation_type,
-        "risk_score": case.risk_score,
-        "summary": case.summary,
-        "created_by": case.created_by,
-        "created_at": case.created_at.isoformat() if case.created_at else None,
-        "updated_at": case.updated_at.isoformat() if case.updated_at else None,
-        "incident_count": incident_count,
-        "owner": case.owner,
-        "assignee": case.assignee,
-        "sla_due_at": case.sla_due_at.isoformat() if case.sla_due_at else None,
-        "sla_status": _calculate_case_sla_status(case),
-        "sla_breach_risk": _calculate_case_sla_breach_risk(case),
-        "severity_review": case.severity_review,
-        "status_reason": case.status_reason,
-        "last_reviewed_by": case.last_reviewed_by,
-        "last_reviewed_at": case.last_reviewed_at.isoformat()
-        if case.last_reviewed_at
-        else None,
-        "is_demo": case_demo_origin(case) is not None,
-        "demo_origin": case_demo_origin(case),
-    }
 
 
 @router.get("/incidents")
@@ -403,7 +316,7 @@ def create_case_from_incident(incident_id: int, request: Request):
                 return {
                     "created": False,
                     "case_id": existing_case.id,
-                    "item": _serialize_case_for_incident(existing_case, incident_count),
+                    "item": serialize_case(existing_case, incident_count),
                 }
 
         actor = security_audit_actor(request) or {}
@@ -429,7 +342,7 @@ def create_case_from_incident(incident_id: int, request: Request):
             return {
                 "created": False,
                 "case_id": existing_case_by_group.id,
-                "item": _serialize_case_for_incident(
+                "item": serialize_case(
                     existing_case_by_group,
                     incident_count,
                 ),
@@ -517,7 +430,7 @@ def create_case_from_incident(incident_id: int, request: Request):
         return {
             "created": True,
             "case_id": case_row.id,
-            "item": _serialize_case_for_incident(case_row, 1),
+            "item": serialize_case(case_row, 1),
         }
 
     except HTTPException:
