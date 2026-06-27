@@ -10,12 +10,14 @@ from routers.case_closure_semantic_context import router as case_closure_semanti
 from routers.cases import router as cases_router
 from routers.dashboard_metrics import router as dashboard_metrics_router
 from routers.dns_events import router as dns_events_router
+from routers.executive import router as executive_router
 from routers.health import router as health_router
 from routers.incidents import router as incidents_router
 from routers.incident_ai_brief import router as incident_ai_brief_router
 from routers.incident_timeline import router as incident_timeline_router
 from routers.incident_network_evidence import router as incident_network_evidence_router
 from routers.investigation_graph import router as investigation_graph_router
+from routers.metrics_summary import router as metrics_summary_router
 from routers.network_events import router as network_events_router
 from routers.playbook_recommendations import router as playbook_recommendations_router
 from routers.reports import router as reports_router
@@ -37,6 +39,8 @@ def include_app_routers(app: FastAPI) -> None:
     app.include_router(security_audit_router)
     app.include_router(incidents_router)
     app.include_router(cases_router)
+    app.include_router(executive_router)
+    app.include_router(metrics_summary_router)
     app.include_router(dashboard_metrics_router)
     app.include_router(health_router)
     app.include_router(reports_router)
