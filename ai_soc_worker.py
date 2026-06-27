@@ -88,6 +88,7 @@ def _llm_worker_details() -> dict:
                 "llm_last_fallback_used": metadata.get("fallback_used"),
                 "llm_last_error_type": metadata.get("error_type"),
                 "llm_last_latency_ms": metadata.get("latency_ms"),
+                "llm_last_recorded_at": metadata.get("recorded_at"),
             }
         )
 

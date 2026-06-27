@@ -86,6 +86,7 @@ def test_llm_model_in_use_metric_exposes_current_profile_model_pair(monkeypatch)
                         "llm_last_provider_key": "local_llama_cpp",
                         "llm_last_provider_type": "LOCAL_LLAMA_CPP",
                         "llm_last_fallback_used": False,
+                        "llm_last_recorded_at": 100.0,
                     }
                 },
             }
@@ -104,6 +105,7 @@ def test_llm_model_in_use_metric_exposes_current_profile_model_pair(monkeypatch)
                         "llm_last_provider_key": "local_llama_cpp",
                         "llm_last_provider_type": "LOCAL_LLAMA_CPP",
                         "llm_last_fallback_used": False,
+                        "llm_last_recorded_at": 200.0,
                     }
                 },
             }
@@ -111,6 +113,7 @@ def test_llm_model_in_use_metric_exposes_current_profile_model_pair(monkeypatch)
     }
 
     monkeypatch.setattr(metrics_router, "get_platform_health", lambda: quality_payload)
+    monkeypatch.setattr(metrics_router, "get_last_llm_call_metadata", lambda: {})
 
     metrics_router._collect_platform_health_metrics()
     output = metrics_router.generate_latest().decode("utf-8")
@@ -123,6 +126,7 @@ def test_llm_model_in_use_metric_exposes_current_profile_model_pair(monkeypatch)
     assert 'ai_soc_llm_model_in_use{model="ai-soc-quality",profile="quality"} 1.0' in output
     assert all("provider_key=" not in line for line in llm_lines)
     assert all("fallback=" not in line for line in llm_lines)
+
     assert 'model="qwen3.5:4b"' not in output
 
     monkeypatch.setattr(metrics_router, "get_platform_health", lambda: fast_payload)
@@ -139,3 +143,40 @@ def test_llm_model_in_use_metric_exposes_current_profile_model_pair(monkeypatch)
     assert 'ai_soc_llm_model_in_use{model="ai-soc-quality",profile="quality"}' not in output
     assert all("provider_key=" not in line for line in llm_lines)
     assert all("fallback=" not in line for line in llm_lines)
+
+
+def test_llm_model_in_use_metric_prefers_newer_api_process_metadata(monkeypatch):
+    worker_payload = {
+        "status": "OK",
+        "components": [
+            {
+                "component": "ai_soc_worker",
+                "status": "OK",
+                "details": {
+                    "details": {
+                        "llm_last_profile": "standard",
+                        "llm_last_model": "qwen3.5:4b",
+                        "llm_last_recorded_at": 100.0,
+                    }
+                },
+            }
+        ],
+    }
+
+    monkeypatch.setattr(metrics_router, "get_platform_health", lambda: worker_payload)
+    monkeypatch.setattr(
+        metrics_router,
+        "get_last_llm_call_metadata",
+        lambda: {
+            "profile": "quality",
+            "model": "ai-soc-quality",
+            "recorded_at": 200.0,
+        },
+    )
+
+    metrics_router._collect_platform_health_metrics()
+    output = metrics_router.generate_latest().decode("utf-8")
+
+    assert 'ai_soc_llm_model_in_use{model="ai-soc-quality",profile="quality"} 1.0' in output
+    assert 'ai_soc_llm_model_in_use{model="qwen3.5:4b",profile="standard"}' not in output
+    assert 'model="qwen3.5:4b"' not in output

@@ -1,5 +1,6 @@
 import json
 import os
+import time
 from threading import Lock
 from typing import Any
 
@@ -116,6 +117,7 @@ def _record_llm_call_metadata(result: dict[str, Any]) -> None:
                 "used_external_provider": result.get("used_external_provider"),
                 "redaction_applied": result.get("redaction_applied"),
                 "redaction_mode": result.get("redaction_mode"),
+                "recorded_at": time.time(),
             }
         )
 

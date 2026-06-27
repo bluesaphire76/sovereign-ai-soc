@@ -120,8 +120,30 @@ def _as_list(value: Any) -> list[Any]:
 
 
 def _as_text(value: Any, fallback: str) -> str:
+    if isinstance(value, dict):
+        parts = [
+            str(value.get(key) or "").strip()
+            for key in ("title", "description", "reason", "expected_signal")
+            if str(value.get(key) or "").strip()
+        ]
+        text = " - ".join(parts)
+        return text or fallback
+
     text = str(value).strip() if value is not None else ""
     return text or fallback
+
+
+def _as_text_list(value: Any, *, max_items: int) -> list[str]:
+    items: list[str] = []
+
+    for item in _as_list(value):
+        text = _as_text(item, "")
+        if text:
+            items.append(text)
+        if len(items) >= max_items:
+            break
+
+    return items
 
 
 def _enum_value(enum_type: type[Enum], value: Any, fallback: Enum) -> Enum:
@@ -350,11 +372,11 @@ def _plan_from_intelligence(intelligence: dict[str, Any]) -> RemediationPlan:
                 "Record limitations where rollback is partial or unavailable.",
             ],
             recovery_notes="Rollback readiness is advisory in Step 14 simulation.",
-            limitations=list(_as_list(raw_plan.get("rollback_considerations"))[:6]),
+            limitations=_as_text_list(raw_plan.get("rollback_considerations"), max_items=6),
         ),
         approval_required=True,
         evidence_used=[evidence for action in actions for evidence in action.evidence],
-        limitations=list(_as_list(raw_plan.get("limitations"))[:8]),
+        limitations=_as_text_list(raw_plan.get("limitations"), max_items=8),
         execution_supported=False,
         simulation_supported=True,
     )
