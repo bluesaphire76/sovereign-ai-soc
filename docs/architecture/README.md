@@ -3,6 +3,7 @@
 ## Current Architecture and Governance
 
 - [Architecture](architecture.md)
+- [API composition root](api-composition-root.md)
 - [Ingestion and correlation pipeline](ingestion-correlation-pipeline.md)
 - [Security model](security-model.md)
 - [Current RBAC permission matrix](permission-matrix-v0.3.md)
