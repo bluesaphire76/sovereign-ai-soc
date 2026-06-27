@@ -8,6 +8,7 @@ from sqlalchemy.orm import sessionmaker
 import api
 import models
 from models import Base, Incident, IncidentCase
+from routers import incidents as incidents_router
 from scripts import demo_seed
 
 
@@ -52,8 +53,8 @@ def test_incident_demo_filter_returns_seed_and_gui_synthetic_records(
         )
         db.commit()
 
-    monkeypatch.setattr(api, "SessionLocal", factory)
-    response = api.list_incidents(
+    monkeypatch.setattr(incidents_router, "SessionLocal", factory)
+    response = incidents_router.list_incidents(
         page=1,
         limit=20,
         status=None,
