@@ -21,6 +21,7 @@ from routers.remediation import router as remediation_router
 from routers.service_operations import router as service_operations_router
 from routers.semantic_memory import router as semantic_memory_router
 from routers.similar_incidents import router as similar_incidents_router
+from routers.users import router as users_router
 from routers.metrics import metrics_router, prometheus_metrics_middleware
 
 
@@ -28,6 +29,7 @@ def include_app_routers(app: FastAPI) -> None:
     app.middleware("http")(prometheus_metrics_middleware)
     app.include_router(metrics_router)
     app.include_router(auth_router)
+    app.include_router(users_router)
     app.include_router(dashboard_metrics_router)
     app.include_router(health_router)
     app.include_router(reports_router)

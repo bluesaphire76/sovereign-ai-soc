@@ -5,19 +5,7 @@ from fastapi import Depends, Header, HTTPException
 from auth_utils import decode_access_token
 from database import SessionLocal
 from models import AppUser
-
-
-def serialize_user(user: AppUser) -> dict:
-    return {
-        "id": user.id,
-        "username": user.username,
-        "display_name": user.display_name,
-        "role": user.role,
-        "is_active": user.is_active,
-        "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
-        "created_at": user.created_at.isoformat() if user.created_at else None,
-        "updated_at": user.updated_at.isoformat() if user.updated_at else None,
-    }
+from services.users import serialize_user
 
 
 def get_current_user(authorization: str | None = Header(None)) -> dict:
