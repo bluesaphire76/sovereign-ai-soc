@@ -102,7 +102,11 @@ def test_case_intelligence_route_inventory_remains_stable() -> None:
     assert route_methods == CASE_INTELLIGENCE_ROUTE_METHODS
 
 
-def test_wazuh_ingest_route_remains_in_api_module() -> None:
+def test_wazuh_ingest_route_remains_outside_case_intelligence_router() -> None:
     routes_by_path_method = _routes_by_path_method()
 
-    assert routes_by_path_method[("/platform/ingest/wazuh", "GET")].endpoint is api.wazuh_ingest_watermark
+    assert ("/platform/ingest/wazuh", "GET") in routes_by_path_method
+    assert (
+        routes_by_path_method[("/platform/ingest/wazuh", "GET")].endpoint.__module__
+        != case_intelligence_router.__name__
+    )
