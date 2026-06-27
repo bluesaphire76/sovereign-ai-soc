@@ -27,6 +27,16 @@ from wazuh_ingest_state import get_watermark_snapshot
 from auth_utils import create_access_token, hash_password, verify_password
 from qdrant_auto_index import schedule_case_closure_auto_index, schedule_incident_auto_index
 from routers import include_app_routers
+from schemas.auth import LoginRequest
+from schemas.cases import (
+    CaseActionCreate,
+    CaseActionUpdate,
+    CaseClosureChecklistUpdate,
+    CaseWorkflowUpdate,
+)
+from schemas.incidents import IncidentNoteCreate, IncidentStatusUpdate
+from schemas.synthetic_tests import SyntheticTestRunCreate
+from schemas.users import UserCreate, UserPasswordUpdate, UserUpdate
 from security.audit import security_audit_actor, write_security_audit
 from security.auth import get_current_user, require_admin, serialize_user
 from security.rbac import (
@@ -37,8 +47,6 @@ from security.rbac import (
 )
 
 from fastapi.middleware.cors import CORSMiddleware
-
-from pydantic import BaseModel
 
 app = FastAPI(
     title="Sovereign AI SOC API",
@@ -138,93 +146,11 @@ CLOSURE_REQUIRED_FIELDS = {
 }
 
 
-class IncidentStatusUpdate(BaseModel):
-    status: str
-    comment: str | None = None
-
-
-class IncidentNoteCreate(BaseModel):
-    note: str
-    created_by: str | None = None
-
-class CaseWorkflowUpdate(BaseModel):
-    owner: str | None = None
-    assignee: str | None = None
-    status: str | None = None
-    severity: str | None = None
-    sla_due_at: str | None = None
-    status_reason: str | None = None
-    reviewed_by: str | None = None
-
-
-class CaseActionCreate(BaseModel):
-    title: str
-    description: str | None = None
-    category: str = "INVESTIGATION"
-    priority: str = "MEDIUM"
-    status: str | None = None
-    due_at: str | None = None
-    created_by: str | None = None
-
-
-class CaseActionUpdate(BaseModel):
-    title: str | None = None
-    description: str | None = None
-    category: str | None = None
-    priority: str | None = None
-    status: str | None = None
-    due_at: str | None = None
-    updated_by: str | None = None
-
-
-class CaseClosureChecklistUpdate(BaseModel):
-    root_cause: str | None = None
-    evidence_reviewed: str | None = None
-    actions_summary: str | None = None
-    closure_reason: str | None = None
-    closure_decision: str | None = None
-    final_severity: str | None = None
-    residual_risk: str | None = None
-    closure_approved: bool | None = None
-    closure_approved_by: str | None = None
-    reviewed_by: str | None = None
-
-
 VALID_USER_ROLES = {
     "ADMIN",
     "ANALYST",
     "VIEWER",
 }
-
-
-class LoginRequest(BaseModel):
-    username: str
-    password: str
-
-
-class UserCreate(BaseModel):
-    username: str
-    password: str
-    display_name: str | None = None
-    role: str = "ANALYST"
-    is_active: bool = True
-
-
-class UserUpdate(BaseModel):
-    display_name: str | None = None
-    role: str | None = None
-    is_active: bool | None = None
-
-
-class UserPasswordUpdate(BaseModel):
-    password: str
-
-
-class SyntheticTestRunCreate(BaseModel):
-    scenario: str = "all"
-    count: int = 1
-    host: str | None = None
-    created_by: str | None = None
 
 
 def normalize_username(username: str) -> str:
