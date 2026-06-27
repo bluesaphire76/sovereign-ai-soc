@@ -10,6 +10,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, ge
 
 from platform_health import get_platform_health
 from active_users import get_active_users_snapshot
+from ai_triage_hardening import get_last_llm_call_metadata
 
 
 metrics_router = APIRouter(tags=["metrics"])
@@ -518,17 +519,10 @@ def _collect_worker_metrics(details: dict[str, Any]) -> None:
     for key, value in batch_metrics.items():
         _set_labeled_number(WORKER_BATCH_METRICS, str(key), value)
 
-    profile = str(
-        details.get("llm_last_profile")
-        or details.get("llm_configured_profile")
-        or "unknown"
-    ).strip() or "unknown"
-    model = str(
-        details.get("llm_last_model")
-        or details.get("llm_configured_model")
-        or details.get("ollama_model")
-        or "unknown"
-    ).strip() or "unknown"
+    llm_metadata = _latest_llm_metadata(details)
+    profile = str(llm_metadata.get("profile") or "unknown").strip() or "unknown"
+    model = str(llm_metadata.get("model") or "unknown").strip() or "unknown"
+
     if hasattr(LLM_MODEL_IN_USE, "clear"):
         LLM_MODEL_IN_USE.clear()
 
@@ -536,6 +530,33 @@ def _collect_worker_metrics(details: dict[str, Any]) -> None:
         profile=profile,
         model=model,
     ).set(1)
+
+
+def _latest_llm_metadata(worker_details: dict[str, Any]) -> dict[str, Any]:
+    worker_metadata = {
+        "profile": worker_details.get("llm_last_profile")
+        or worker_details.get("llm_configured_profile")
+        or "unknown",
+        "model": worker_details.get("llm_last_model")
+        or worker_details.get("llm_configured_model")
+        or worker_details.get("ollama_model")
+        or "unknown",
+        "recorded_at": worker_details.get("llm_last_recorded_at"),
+    }
+    api_metadata = get_last_llm_call_metadata()
+
+    if not api_metadata.get("profile") or not api_metadata.get("model"):
+        return worker_metadata
+
+    worker_recorded_at = _to_float(worker_metadata.get("recorded_at"))
+    api_recorded_at = _to_float(api_metadata.get("recorded_at"))
+
+    if api_recorded_at is None:
+        return api_metadata
+    if worker_recorded_at is None or api_recorded_at >= worker_recorded_at:
+        return api_metadata
+
+    return worker_metadata
 
 
 

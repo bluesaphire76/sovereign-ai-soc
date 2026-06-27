@@ -73,6 +73,30 @@ class RemediationAuditTrailTests(unittest.TestCase):
 
         self.assertIn(RemediationAuditTrailEventType.DETERMINISTIC_FALLBACK_USED, event_types)
 
+    def test_plan_builder_accepts_structured_rollback_considerations(self):
+        payload = intelligence_payload("local_ai")
+        payload["plan"]["rollback_considerations"] = [
+            {
+                "title": "Review control configuration",
+                "description": "Confirm whether the control change is reversible.",
+                "reason": "Generated remediation output used structured rollback text.",
+            }
+        ]
+        payload["plan"]["limitations"] = [
+            {
+                "title": "Human validation required",
+                "description": "The plan is advisory and does not execute changes.",
+            }
+        ]
+
+        plan = build_remediation_plan_from_intelligence(payload)
+
+        self.assertIn(
+            "Review control configuration",
+            plan.rollback_plan.limitations[0],
+        )
+        self.assertIn("Human validation required", plan.limitations[0])
+
     def test_endpoint_service_returns_structured_audit_trail(self):
         with patch(
             "remediation.audit_trail.generate_remediation_intelligence",

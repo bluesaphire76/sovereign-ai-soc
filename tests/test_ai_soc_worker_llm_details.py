@@ -15,6 +15,7 @@ def test_worker_llm_details_include_last_provider_metadata(monkeypatch):
             "fallback_used": False,
             "error_type": None,
             "latency_ms": 42,
+            "recorded_at": 123.45,
         },
     )
 
@@ -26,3 +27,4 @@ def test_worker_llm_details_include_last_provider_metadata(monkeypatch):
     assert details["llm_last_provider_type"] == "LOCAL_LLAMA_CPP"
     assert details["llm_last_fallback_used"] is False
     assert details["llm_last_latency_ms"] == 42
+    assert details["llm_last_recorded_at"] == 123.45
