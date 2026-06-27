@@ -1,5 +1,4 @@
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
 from models import CaseAction, Incident, IncidentAudit, IncidentCase, IncidentNote
@@ -10,6 +9,7 @@ from remediation.controlled_soar import (
     execute_approved_controlled_soar_action,
 )
 from remediation.models import RemediationActionType
+from security.rbac import is_request_authorized
 
 
 def remediation_intelligence_payload(action_type: str = "CREATE_TICKET"):
@@ -204,11 +204,19 @@ class ControlledSoarExecutorTests(unittest.TestCase):
         self.assertIn("not supported", unsupported.unsupported_reason.lower())
 
     def test_rbac_allows_execute_approved_only_for_operator_roles(self):
-        api_source = Path("api.py").read_text(encoding="utf-8")
-
-        self.assertIn(
-            '("POST", r"^/incidents/\\d+/remediation-actions/[^/]+/execute-approved$", OPERATOR_ROLES)',
-            api_source,
+        self.assertTrue(
+            is_request_authorized(
+                "POST",
+                "/incidents/42/remediation-actions/create-ticket/execute-approved",
+                {"role": "ANALYST"},
+            )
+        )
+        self.assertFalse(
+            is_request_authorized(
+                "POST",
+                "/incidents/42/remediation-actions/create-ticket/execute-approved",
+                {"role": "VIEWER"},
+            )
         )
 
 

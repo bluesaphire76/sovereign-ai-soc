@@ -1,5 +1,4 @@
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
 from routers.remediation import get_incident_remediation_dry_run
@@ -8,6 +7,7 @@ from remediation.simulation import (
     RemediationRollbackReadinessPreview,
     generate_incident_remediation_dry_run,
 )
+from security.rbac import is_request_authorized
 
 
 def remediation_intelligence_payload(incident_id: int = 42):
@@ -91,11 +91,12 @@ class RemediationDryRunRouterTests(unittest.TestCase):
         self.assertEqual(getattr(context.exception, "status_code", None), 404)
 
     def test_rbac_allows_read_only_dry_run_endpoint(self):
-        api_source = Path("api.py").read_text(encoding="utf-8")
-
-        self.assertIn(
-            '("GET", r"^/incidents/\\d+/remediation-dry-run$", ALL_ROLES)',
-            api_source,
+        self.assertTrue(
+            is_request_authorized(
+                "GET",
+                "/incidents/42/remediation-dry-run",
+                {"role": "VIEWER"},
+            )
         )
 
 
