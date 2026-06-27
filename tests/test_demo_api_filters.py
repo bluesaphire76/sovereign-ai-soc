@@ -8,6 +8,7 @@ from sqlalchemy.orm import sessionmaker
 import api
 import models
 from models import Base, Incident, IncidentCase
+from routers import cases as cases_router
 from routers import incidents as incidents_router
 from scripts import demo_seed
 
@@ -91,8 +92,8 @@ def test_case_demo_filter_excludes_operational_cases(monkeypatch) -> None:
         )
         db.commit()
 
-    monkeypatch.setattr(api, "SessionLocal", factory)
-    response = api.list_cases(
+    monkeypatch.setattr(cases_router, "SessionLocal", factory)
+    response = cases_router.list_cases(
         page=1,
         limit=20,
         status=None,
