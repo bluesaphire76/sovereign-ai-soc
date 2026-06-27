@@ -1,6 +1,5 @@
 from fastapi import FastAPI
 
-from wazuh_ingest_state import get_watermark_snapshot
 from routers import include_app_routers
 from security.rbac import (
     enforce_api_authentication,
@@ -29,7 +28,3 @@ app.add_middleware(
 
 include_app_routers(app)
 app.middleware("http")(enforce_api_authentication)
-
-@app.get("/platform/ingest/wazuh")
-def wazuh_ingest_watermark():
-    return get_watermark_snapshot()

@@ -20,6 +20,7 @@ from routers.incident_network_evidence import router as incident_network_evidenc
 from routers.investigation_graph import router as investigation_graph_router
 from routers.metrics_summary import router as metrics_summary_router
 from routers.network_events import router as network_events_router
+from routers.platform_ingest import router as platform_ingest_router
 from routers.playbook_recommendations import router as playbook_recommendations_router
 from routers.reports import router as reports_router
 from routers.remediation import router as remediation_router
@@ -61,6 +62,7 @@ def include_app_routers(app: FastAPI) -> None:
     app.include_router(synthetic_tests_router)
     app.include_router(dns_events_router)
     app.include_router(network_events_router)
+    app.include_router(platform_ingest_router)
     app.include_router(remediation_router)
     app.include_router(service_operations_router)
     app.include_router(semantic_memory_router)
