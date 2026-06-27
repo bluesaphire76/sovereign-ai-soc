@@ -1,5 +1,4 @@
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
 from remediation.audit_trail import (
@@ -9,6 +8,7 @@ from remediation.audit_trail import (
 )
 from remediation.simulation import build_remediation_plan_from_intelligence
 from routers.remediation import get_incident_remediation_audit_trail
+from security.rbac import is_request_authorized
 
 
 def intelligence_payload(source: str = "deterministic_fallback"):
@@ -126,11 +126,12 @@ class RemediationAuditTrailTests(unittest.TestCase):
         self.assertEqual(getattr(context.exception, "status_code", None), 404)
 
     def test_rbac_allows_read_only_audit_trail_endpoint(self):
-        api_source = Path("api.py").read_text(encoding="utf-8")
-
-        self.assertIn(
-            '("GET", r"^/incidents/\\d+/remediation-audit-trail$", ALL_ROLES)',
-            api_source,
+        self.assertTrue(
+            is_request_authorized(
+                "GET",
+                "/incidents/42/remediation-audit-trail",
+                {"role": "VIEWER"},
+            )
         )
 
 
