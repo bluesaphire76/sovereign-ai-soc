@@ -19,11 +19,30 @@ if str(REPO_ROOT) not in sys.path:
 from api import app  # noqa: E402
 
 
+def iter_api_routes(routes=None):
+    route_candidates = app.routes if routes is None else routes
+    for route in route_candidates:
+        if isinstance(route, APIRoute):
+            yield route
+            continue
+
+        effective_candidates = getattr(route, "effective_candidates", None)
+        if callable(effective_candidates):
+            yield from iter_api_routes(effective_candidates())
+            continue
+
+        nested_routes = getattr(route, "routes", None)
+        if nested_routes is not None:
+            yield from iter_api_routes(nested_routes)
+            continue
+
+        if all(hasattr(route, attr) for attr in ("path", "methods", "endpoint", "tags")):
+            yield route
+
+
 def build_route_inventory() -> list[dict[str, object]]:
     inventory: list[dict[str, object]] = []
-    for route in app.routes:
-        if not isinstance(route, APIRoute):
-            continue
+    for route in iter_api_routes():
         inventory.append(
             {
                 "path": route.path,

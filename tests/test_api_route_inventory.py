@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from fastapi.routing import APIRoute
-
-from api import app
+from scripts.export_api_route_inventory import iter_api_routes
 
 
 CRITICAL_ROUTE_METHODS = {
@@ -29,9 +27,7 @@ CRITICAL_ROUTE_METHODS = {
 
 def get_route_methods() -> dict[str, set[str]]:
     route_methods: dict[str, set[str]] = {}
-    for route in app.routes:
-        if not isinstance(route, APIRoute):
-            continue
+    for route in iter_api_routes():
         route_methods.setdefault(route.path, set()).update(route.methods or set())
     return route_methods
 
