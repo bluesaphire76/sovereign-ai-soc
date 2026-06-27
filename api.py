@@ -24,10 +24,9 @@ from case_timeline import build_case_timeline
 from models import Incident, IncidentAudit, IncidentNote, IncidentCase, CaseIncident, CaseAIAnalysis, CaseAudit, CaseAction, CaseClosureChecklist, AppUser, SecurityAuditEvent, RawEvent, SecurityAlert, EventAggregate, utc_now
 from timezone_utils import APP_TIMEZONE, format_timestamp_local, normalize_timestamp_utc
 from wazuh_ingest_state import get_watermark_snapshot
-from auth_utils import create_access_token, hash_password, verify_password
+from auth_utils import hash_password
 from qdrant_auto_index import schedule_case_closure_auto_index, schedule_incident_auto_index
 from routers import include_app_routers
-from schemas.auth import LoginRequest
 from schemas.cases import (
     CaseActionCreate,
     CaseActionUpdate,
@@ -162,72 +161,6 @@ def hash_password_or_400(password: str) -> str:
         return hash_password(password)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Invalid request.")
-
-
-@app.post("/auth/login")
-def login(payload: LoginRequest, request: Request):
-    username = normalize_username(payload.username)
-
-    db = SessionLocal()
-
-    try:
-        user = db.query(AppUser).filter(AppUser.username == username).first()
-
-        if not user or not verify_password(payload.password, user.password_hash):
-            write_security_audit(
-                event_type="AUTH_LOGIN_FAILURE",
-                outcome="FAILURE",
-                target_type="USER",
-                target_username=username,
-                request=request,
-                details={"reason": "invalid_credentials"},
-            )
-            raise HTTPException(status_code=401, detail="Invalid username or password.")
-
-        if not user.is_active:
-            write_security_audit(
-                event_type="AUTH_LOGIN_FAILURE",
-                outcome="FAILURE",
-                target_type="USER",
-                target_id=user.id,
-                target_username=user.username,
-                request=request,
-                details={"reason": "disabled_account"},
-            )
-            raise HTTPException(status_code=403, detail="User account is disabled.")
-
-        user.last_login_at = datetime.now(timezone.utc)
-        user.updated_at = datetime.now(timezone.utc)
-        db.commit()
-        db.refresh(user)
-
-        token = create_access_token(
-            user_id=user.id,
-            username=user.username,
-            role=user.role,
-        )
-
-        write_security_audit(
-            event_type="AUTH_LOGIN_SUCCESS",
-            outcome="SUCCESS",
-            current_user=serialize_user(user),
-            target_type="USER",
-            target_id=user.id,
-            target_username=user.username,
-            request=request,
-        )
-
-        return {
-            **token,
-            "user": serialize_user(user),
-        }
-    finally:
-        db.close()
-
-
-@app.get("/auth/me")
-def auth_me(current_user: dict = Depends(get_current_user)):
-    return current_user
 
 
 @app.get("/users")
