@@ -547,6 +547,7 @@ Existing release and validation notes:
 | v0.5 | Completed | Demo scenario pack, enterprise UX, Incident Command Room, case workflow, report/export polish, Suricata, DNS context and correlation visualization |
 | v0.6 | Released | AI investigation intelligence, human-governed remediation, Incident Command Center rewrite, replay simulation, controlled internal SOAR workflow actions and observability improvements |
 | v0.7 | Released | Governed AI providers/data control, semantic memory, Recommended Playbooks, graph/timeline, Detection Control lifecycle, governed connectors, Operation History, Alertmanager/Loki/Alloy and installability |
+| v0.7.1 | Released | Llama.cpp runtime foundation, operational Qdrant memory, HTTPS-first platform access, modular `api.py` composition root and API refactor guardrails |
 
 See [Roadmap](docs/product/roadmap.md).
 
