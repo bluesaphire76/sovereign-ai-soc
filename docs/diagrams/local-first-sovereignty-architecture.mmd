@@ -4,7 +4,9 @@ flowchart LR
   api --> postgres["Local PostgreSQL"]
   api --> qdrant["Local Qdrant Semantic Memory"]
   api --> policy["AI Provider + Data Control Policy"]
-  policy --> ollama["Local Ollama / LLM Runtime"]
+  policy --> local_ai["Local AI Runtime"]
+  local_ai --> ollama["Ollama"]
+  local_ai --> llama_cpp["llama.cpp Router / GGUF"]
   api --> reports["Local Reports / Evidence Packs"]
 
   wazuh["Local Wazuh Signals"] --> api

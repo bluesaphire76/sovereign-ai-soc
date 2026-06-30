@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="980" viewBox="0 0 1600 980" role="img" aria-labelledby="title desc">
   <title id="title">Sovereign AI SOC high-level architecture</title>
-  <desc id="desc">High-level local-first SOC architecture showing analyst console, FastAPI, PostgreSQL, Qdrant semantic memory, AI provider data control, Wazuh, Suricata, DNS telemetry, correlation, incidents, cases, investigation graph, governed remediation and observability.</desc>
+  <desc id="desc">High-level local-first SOC architecture showing analyst console, modular FastAPI, PostgreSQL, Qdrant semantic memory, AI provider data control, Ollama, llama.cpp, Wazuh, Suricata, DNS telemetry, correlation, incidents, cases, investigation graph, governed remediation and observability.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L0,6 L9,3 z" fill="#22d3ee"/>
@@ -45,7 +45,7 @@
   <text class="small" x="460" y="190">Frontend</text>
   <rect class="workflow" x="560" y="145" width="140" height="58"/>
   <text class="label" x="630" y="170">FastAPI API</text>
-  <text class="small" x="630" y="190">RBAC / exports</text>
+  <text class="small" x="630" y="190">Modular routers</text>
 
   <rect class="store" x="780" y="90" width="150" height="58"/>
   <text class="label" x="855" y="115">PostgreSQL</text>
@@ -57,8 +57,8 @@
   <text class="label" x="855" y="215">AI Data Control</text>
   <text class="small" x="855" y="235">Provider policy</text>
   <rect class="ai" x="960" y="190" width="150" height="58"/>
-  <text class="label" x="1035" y="215">Ollama</text>
-  <text class="small" x="1035" y="235">Local AI runtime</text>
+  <text class="label" x="1035" y="215">Ollama + llama.cpp</text>
+  <text class="small" x="1035" y="235">Local AI runtimes</text>
   <rect class="external" x="1140" y="190" width="150" height="58"/>
   <text class="label" x="1215" y="215">External AI</text>
   <text class="small" x="1215" y="235">OpenRouter optional</text>

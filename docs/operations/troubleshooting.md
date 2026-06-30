@@ -102,16 +102,21 @@ apply operations.
   include backend and frontend dependencies. It builds images but does not
   start containers.
 
-## Ollama and local AI issues
+## Ollama, llama.cpp and local AI issues
 
 - Check whether Ollama is reachable at the configured URL, commonly
   `http://127.0.0.1:11434`.
 - A reachable runtime still needs the configured model to be installed.
 - Model selection and download are manual operator actions. CI, the installer,
   and packaging validation do not download models.
+- llama.cpp is optional and disabled by default. If enabled, confirm
+  `LLAMA_CPP_ENABLED`, `LLAMA_CPP_BASE_URL`, `LLAMA_CPP_API_BASE_URL`, router
+  health and the configured `fast`, `standard` and `quality` model names.
+- If `LLAMA_CPP_AUTO_PROFILE_SWITCH` is enabled, check the profile switch lock
+  and whether the router can unload/load the requested local model.
 - CPU inference is supported and may be noticeably slower. A GPU improves
   performance but is not required for the basic local demo.
-- Deterministic workflows and fallback output remain available when Ollama is
+- Deterministic workflows and fallback output remain available when local AI is
   unavailable, but the full AI-assisted value requires a working model runtime.
 
 ## External AI provider and AI Data Control issues
@@ -234,7 +239,8 @@ First inspect the read-only plan:
 
 If you manually started the stack and a component is unavailable:
 
-- Grafana: check `http://127.0.0.1:3002/grafana/`.
+- Grafana: check the configured HTTPS path first when deployed through a
+  proxy; use `http://127.0.0.1:3002/grafana/` for direct local diagnostics.
 - Prometheus: check `http://127.0.0.1:9090/-/ready`.
 - Alertmanager: check `http://127.0.0.1:9093/-/ready`.
 - cAdvisor and node-exporter: inspect Prometheus targets and confirm ports
@@ -268,6 +274,9 @@ their deployment is an advanced integration task.
 - Rotate any credential immediately if it has been exposed.
 - Keep default application and infrastructure ports bound to loopback where
   documented.
+- Expose Grafana, Qdrant, llama.cpp native/router UI and other operational
+  consoles only through trusted internal/HTTPS access paths when browser access
+  is needed.
 - Do not expose the local demo directly to the public Internet. Add proper
   authentication, TLS, network controls, secret management, and deployment
   hardening first.

@@ -18,6 +18,7 @@ Editable Mermaid source: [deployment-architecture.mmd](../diagrams/deployment-ar
 | Wazuh | Host/security telemetry source. |
 | Suricata | Network IDS telemetry source. |
 | Ollama | Default local AI runtime. |
+| llama.cpp router/runtime | Optional local GGUF runtime path, disabled by default. |
 | External AI providers | Optional OpenAI-compatible endpoints such as OpenRouter, disabled by default. |
 | Prometheus/Grafana/Alertmanager | Optional metrics, dashboards and Wazuh backlog alerting. |
 | Loki/Grafana Alloy | Optional selected platform-log storage and collection. |
@@ -39,6 +40,7 @@ Set local values for:
 - PostgreSQL host, database, user and password.
 - Qdrant URL, collection and knowledge base path if RAG context is enabled.
 - Ollama model and base URL.
+- Optional llama.cpp router URL, OpenAI-compatible API URL and profile models.
 - AI provider registry and AI Data Control policy paths.
 - External provider credentials only when explicitly governed.
 - Authentication secret.
@@ -96,12 +98,22 @@ and retention runbooks in
 
 ## AI Providers
 
-Local Ollama requires no external credential. OpenRouter uses the
-OpenAI-compatible adapter and is disabled by default.
+Local Ollama requires no external credential and remains the default local
+path. llama.cpp is an optional local runtime path configured with
+`LLAMA_CPP_ENABLED`, `LLAMA_CPP_BASE_URL`, `LLAMA_CPP_API_BASE_URL` and the
+`LLAMA_CPP_FAST_MODEL`, `LLAMA_CPP_STANDARD_MODEL` and
+`LLAMA_CPP_QUALITY_MODEL` profile settings.
+
+OpenRouter uses the OpenAI-compatible adapter and is disabled by default.
 
 Do not enable an external provider until provider allowlists and AI Data
 Control policy are configured. The real provider and policy JSON files are
 local ignored runtime files; use the committed examples as templates.
+
+When internal consoles or runtime UIs are exposed through a reverse proxy, keep
+the browser-facing path HTTPS-first. Direct loopback URLs remain appropriate
+for local health checks, Docker service-to-service traffic and operator
+troubleshooting.
 
 ## Observability
 
@@ -169,7 +181,8 @@ After deployment or restart:
 2. Confirm API, PostgreSQL and Qdrant are healthy/populated as expected.
 3. Confirm Wazuh and Suricata/network freshness if those sources are expected;
    inspect DNS telemetry on its dedicated page.
-4. Confirm Ollama and provider-registry state.
+4. Confirm Ollama, optional llama.cpp router/profile state and
+   provider-registry state.
 5. Confirm optional Grafana, Prometheus and Alertmanager state when deployed.
 6. Open `/incidents`, `/executive`, `/detection-quality`,
    `/settings/semantic-memory` and `/system-information/operation-history`.

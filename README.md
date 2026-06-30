@@ -12,7 +12,7 @@
 ![Qdrant](https://img.shields.io/badge/Qdrant-Vector%20DB-DC244C)
 ![Wazuh](https://img.shields.io/badge/Wazuh-endpoint%20monitoring-2563eb)
 ![Suricata](https://img.shields.io/badge/Suricata-network%20IDS-b91c1c)
-![Local AI](https://img.shields.io/badge/Local%20AI-Ollama-0f766e)
+![Local AI](https://img.shields.io/badge/Local%20AI-Ollama%20%2B%20llama.cpp-0f766e)
 ![Human-in-the-loop](https://img.shields.io/badge/Human--in--the--loop-by%20design-7c3aed)
 ![Grafana](https://img.shields.io/badge/Grafana-Observability-F46800)
 ![Prometheus](https://img.shields.io/badge/Prometheus-Metrics-E6522C)
@@ -26,11 +26,20 @@ Qdrant Semantic Memory, investigation intelligence, Detection Control,
 remediation governance, case workflow, reporting and observability.
 
 It is built for teams that want AI-assisted SOC workflows without making
-external AI providers mandatory. Ollama remains the default; OpenRouter and
-other OpenAI-compatible endpoints are optional, disabled by default and
-controlled by explicit provider/data policies.
+external AI providers mandatory. Ollama remains the default local path;
+llama.cpp is available as an optional governed local runtime foundation; and
+OpenRouter or other OpenAI-compatible endpoints are optional, disabled by
+default and controlled by explicit provider/data policies.
 
 The current release baseline is `v0.7.1`.
+
+## For First-Time Visitors
+
+- Want to understand the product? Start with [Product Overview](docs/product/product-overview.md).
+- Want to evaluate it safely? Start with [Evaluation Guide](docs/product/evaluation-guide.md).
+- Want to run it locally? Start with [External User Quickstart](docs/product/external-user-quickstart.md).
+- Want to see the architecture? Start with [Architecture](docs/architecture/architecture.md).
+- Want to evaluate the current release? Start with [v0.7.1 Release Notes](docs/releases/RELEASE_NOTES_v0.7.1.md).
 
 ## Product Preview
 
@@ -170,7 +179,8 @@ SOC teams need faster interpretation, clearer evidence handling and better decis
 Sovereign AI SOC demonstrates a local-first approach:
 
 - Security telemetry and semantic memory can stay in the local environment.
-- AI analysis runs through local Ollama by default.
+- AI analysis runs through local Ollama by default, with optional local
+  llama.cpp profiles when configured.
 - External providers require explicit enablement, allowlisting, redaction and
   AI Data Control approval.
 - Deterministic ingestion, suppression and correlation decide what becomes an incident.
@@ -187,7 +197,7 @@ Sovereign AI SOC demonstrates a local-first approach:
 | Incident creation | Correlation-first logic before incident creation, with observed-only and suppressed paths |
 | Incident workflow | Incident Command Center, lifecycle, Advanced Timeline, Investigation Graph, Similar Incidents, Recommended Playbooks and evidence context |
 | Case workflow | Ownership, SLA posture, closure readiness, linked incidents, persisted AI jobs, semantic closure context, graph and Kanban |
-| AI providers | On-demand Ollama profiles plus optional governed OpenRouter/OpenAI-compatible routing with visible provider/model/fallback metadata |
+| AI providers | On-demand Ollama profiles, optional llama.cpp local profiles and optional governed OpenRouter/OpenAI-compatible routing with visible provider/model/profile/fallback metadata |
 | AI Data Control | Per-feature role/provider policy, deterministic redaction, previews and audit-safe decision history |
 | Semantic memory | Qdrant knowledge base, historical incidents, Detection Control and approved/final Case Closure memory |
 | Remediation workflow | LLM-backed intelligence, persistent proposals, approvals, dry-run, rollback readiness, replay and safe internal conversions |
@@ -257,13 +267,20 @@ The core runtime is local:
 - PostgreSQL operational datastore.
 - Qdrant local semantic memory.
 - Wazuh and Suricata signal sources.
-- Local Ollama/LLM runtime.
+- Local AI runtime through Ollama by default and optional llama.cpp router/GGUF profiles.
 - Optional governed OpenAI-compatible providers such as OpenRouter.
 - Prometheus, Grafana, Alertmanager, Loki and Grafana Alloy.
 - Local report and evidence pack generation.
 - Nginx and systemd deployment for production-style demo environments.
 
 No external AI provider is required for the core product flow.
+
+## What This Is Not
+
+- Not an autonomous response engine.
+- Not a SaaS SOC or hosted data-processing service.
+- Not a production one-command installer.
+- Not a replacement for analyst validation, RBAC, audit review or governed approval.
 
 ![High-level architecture](docs/assets/architecture/high-level-architecture.svg)
 
@@ -291,20 +308,13 @@ See [Demo Guide](docs/product/demo-guide.md) for presenter talking points.
 
 ## Quick Start / Demo Start
 
-The repository is designed for a local lab or product demo environment. Runtime values are configured through `.env`, which must never be committed.
+The repository is designed for a local lab or product demo environment.
+Runtime values are configured through `.env`, which must never be committed.
+For the shortest safe path, use the canonical
+[External User Quickstart](docs/product/external-user-quickstart.md) and
+[Ubuntu Guided Demo Installer](docs/operations/ubuntu-installer-guide.md).
 
-### For external users
-
-New to the project? Start here:
-
-1. [Ubuntu Guided Demo Installer](docs/ubuntu-installer-guide.md)
-2. [External User Quickstart](docs/external-user-quickstart.md)
-3. [Installation and Demo Guide](INSTALL.md)
-4. [Troubleshooting](docs/troubleshooting.md)
-5. [Docker Demo Packaging](docs/docker-demo-packaging.md)
-6. [Demo Guide](docs/demo-guide.md)
-
-For Ubuntu 24.04 LTS or newer, the recommended low-technical path is:
+Recommended first pass on Ubuntu 24.04 LTS or newer:
 
 ```bash
 ./install-demo.sh --check
@@ -319,10 +329,10 @@ Alertmanager, cAdvisor, node-exporter, Loki, Grafana Alloy, and the optional
 ntfy bridge, then shows safe next steps.
 
 It is not a production installer: it never runs `sudo` or `apt`, starts or
-stops Docker Compose or containers, pulls Ollama models, or exposes dashboards
-publicly.
+stops Docker Compose or containers, pulls Ollama/llama.cpp models, seeds demo
+data, or exposes dashboards publicly.
 
-The shortest reviewed preparation and demo-data path is:
+After the repository-local preparation succeeds, use one reviewed demo path:
 
 ```bash
 ./ai-soc install --profile demo --dry-run
@@ -335,48 +345,15 @@ The shortest reviewed preparation and demo-data path is:
 
 This prepares a local lab workflow, not a production deployment. Wazuh and
 Suricata are optional for synthetic demo data and required only when evaluating
-their real telemetry. Ollama is optional for deterministic workflows but is
-needed for the complete local AI-assisted experience; a GPU is not required.
+their real telemetry. Ollama is the default local AI path; llama.cpp is an
+optional local runtime path; both require operator-managed local models for
+the complete AI-assisted experience. A GPU is not required.
 
-See [INSTALL.md](INSTALL.md) for the complete local installation and
-10-minute demo-readiness workflow.
+See [INSTALL.md](INSTALL.md), [Evaluation Guide](docs/product/evaluation-guide.md)
+and [Demo Guide](docs/product/demo-guide.md) for the complete workflow.
 
-```bash
-git clone <repository-url>
-cd <repository-directory>
-```
-
-Use the guided local installer after reviewing its dry-run plan:
-
-```bash
-./ai-soc install --profile demo --dry-run
-./ai-soc install --profile demo --apply
-```
-
-This is a local preparation helper, not a production installer. Apply mode
-installs dependencies and initializes `.env` safely, but does not start
-services, containers, demo data or Ollama model downloads.
-
-Initialize a local configuration without overwriting an existing `.env`, then run the readiness and public validation checks:
-
-```bash
-./ai-soc init --profile demo
-./ai-soc doctor
-./ai-soc validate
-./ai-soc validate-runtime
-./ai-soc demo-seed --dry-run
-./ai-soc demo-seed --apply
-./ai-soc demo-info
-./ai-soc demo-reset --dry-run
-./ai-soc demo-validate
-./ai-soc demo-status
-./ai-soc demo-up --dry-run
-./ai-soc demo-up --apply
-./ai-soc demo-down --dry-run
-./ai-soc demo-down --apply
-```
-
-Review the generated `.env` and set environment-specific PostgreSQL, Wazuh and local runtime values before starting services.
+Review the generated `.env` and set environment-specific PostgreSQL, Wazuh,
+Qdrant and local runtime values before starting services.
 
 `validate-runtime` performs read-only checks against a running local instance.
 `demo-seed` uses dry-run mode by default and creates clearly marked synthetic
@@ -388,8 +365,9 @@ validation artifact with `./ai-soc demo-validate --write-report`.
 default to a dry run and modify service state only when `--apply` is passed.
 They manage only the local `ai-soc-api` and `ai-soc-frontend` application
 services, not Wazuh, Suricata, PostgreSQL, Qdrant, Grafana, Prometheus,
-Alertmanager, Loki, Ollama or Docker Compose. If systemd permissions are
-required, the lifecycle helper fails safely and prints the manual commands.
+Alertmanager, Loki, Ollama, llama.cpp or Docker Compose. If systemd
+permissions are required, the lifecycle helper fails safely and prints the
+manual commands.
 
 Before publishing or sharing a release, run the read-only release checker:
 
@@ -489,10 +467,12 @@ python3 scripts/validate_public_ci_baseline.py
 ## Documentation Index
 
 - [Documentation Home](docs/README.md)
-- [External User Quickstart](docs/external-user-quickstart.md)
-- [Ubuntu Guided Demo Installer](docs/ubuntu-installer-guide.md)
-- [Troubleshooting](docs/troubleshooting.md)
-- [Ports and Components](docs/ports-and-components.md)
+- [External User Quickstart](docs/product/external-user-quickstart.md)
+- [Evaluation Guide](docs/product/evaluation-guide.md)
+- [Feature Map](docs/product/feature-map.md)
+- [Ubuntu Guided Demo Installer](docs/operations/ubuntu-installer-guide.md)
+- [Troubleshooting](docs/operations/troubleshooting.md)
+- [Ports and Components](docs/operations/ports-and-components.md)
 - [Product Overview](docs/product/product-overview.md)
 - [Architecture](docs/architecture/architecture.md)
 - [Installation and Demo Guide](INSTALL.md)
@@ -510,6 +490,7 @@ python3 scripts/validate_public_ci_baseline.py
 - [Alertmanager Wazuh Backlog Alerting](docs/operations/v0.7.0-alertmanager-wazuh-backlog-alerting.md)
 - [Loki and Grafana Alloy](docs/operations/v0.7.0-minimal-loki-observability.md)
 - [AI Providers](docs/architecture/v0.7-external-ai-provider-abstraction.md)
+- [llama.cpp Runtime](docs/architecture/v0.7.1-llama-cpp-runtime.md)
 - [AI Data Control](docs/architecture/v0.7-ai-data-control-policy.md)
 - [Qdrant Semantic Memory](docs/architecture/v0.7-qdrant-semantic-memory.md)
 - [Investigation Graph](docs/architecture/v0.7-investigation-graph.md)
@@ -523,6 +504,13 @@ python3 scripts/validate_public_ci_baseline.py
 - [Screenshot Checklist](docs/assets/screenshots/README.md)
 - [Architecture Asset Notes](docs/assets/architecture/README.md)
 
+Compatibility quick links retained for external validators and older bookmarks:
+
+- [External User Quickstart compatibility link](docs/external-user-quickstart.md)
+- [Ubuntu Guided Demo Installer compatibility link](docs/ubuntu-installer-guide.md)
+- [Troubleshooting compatibility link](docs/troubleshooting.md)
+- [Docker Demo Packaging compatibility link](docs/docker-demo-packaging.md)
+- [Demo Guide compatibility link](docs/demo-guide.md)
 
 Existing release and validation notes:
 

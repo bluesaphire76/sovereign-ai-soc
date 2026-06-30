@@ -12,8 +12,8 @@ It combines deterministic SOC controls with governed AI and semantic retrieval:
 - Raw events, security alerts, incidents and cases as separate entities.
 - Correlation-first incident creation and explainable noise suppression.
 - Advanced incident timelines and investigation relationship graphs.
-- Local Ollama model routing with optional governed external providers such as
-  OpenRouter.
+- Local Ollama model routing, optional llama.cpp local profiles and optional
+  governed external providers such as OpenRouter.
 - AI Data Control policies, deterministic redaction and provider auditability.
 - Qdrant Semantic Memory and incident-specific Recommended Playbooks.
 - Detection Control lifecycle, configuration versioning and rollback governance.
@@ -69,6 +69,9 @@ The frontend includes pages for:
 - Operation History
 - Users / RBAC
 - Security Audit
+
+For a cross-reference between user-facing features, implementation areas,
+documentation and validation, see [Feature Map](feature-map.md).
 
 ## Intended Audiences
 

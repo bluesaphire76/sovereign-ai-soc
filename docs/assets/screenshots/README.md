@@ -33,17 +33,25 @@ When screenshots are updated:
 - verify local Markdown links before committing;
 - avoid committing temporary captures, drafts or large duplicate images.
 
-## v0.7 Coverage Gap
+## v0.7.1 Capture Plan
 
-The current committed screenshot set predates several implemented v0.7 pages.
-The next sanitized capture pass should add stable screenshots for:
+The current committed screenshot set is useful but still predates several
+v0.7.x and v0.7.1 surfaces. The next sanitized capture pass should add stable
+screenshots for:
 
-- Advanced Incident Timeline and Investigation Graph;
-- Recommended Playbooks and governed remediation proposals;
-- AI Providers and AI Data Control;
-- Semantic Memory and Operation History;
-- Detection Control lifecycle/versioning;
-- Loki platform logs and Qdrant semantic-memory dashboards.
+- AI Providers showing Ollama plus llama.cpp provider/profile metadata;
+- AI Data Control policy and redaction preview;
+- Semantic Memory with source counts, index freshness and Qdrant health;
+- Operation History;
+- Advanced Incident Timeline;
+- Investigation Graph;
+- Recommended Playbooks;
+- Detection Control lifecycle and versioning;
+- Health page with provider, fallback and Qdrant state;
+- Grafana Qdrant Semantic Memory dashboard;
+- Loki Platform Logs Overview;
+- HTTPS-first internal platform access where visually useful.
 
-Until those captures exist, the current user and architecture guides are the
-source of truth for these views.
+Do not claim these screenshots exist until the PNG files are committed and this
+inventory is updated. Until then, the current user, architecture and operations
+guides are the source of truth for these views.

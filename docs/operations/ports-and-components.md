@@ -13,6 +13,7 @@ existing services.
 | PostgreSQL | `127.0.0.1:5432` | Core datastore | Host-runtime default. Docker demo keeps PostgreSQL internal as `postgres:5432`. |
 | Qdrant | `127.0.0.1:6333` | Required for semantic memory | Docker-internal name is `qdrant:6333`. |
 | Ollama | `127.0.0.1:11434` | Optional for deterministic flow; needed for full local AI | Docker-internal name is `ollama:11434`. |
+| llama.cpp router/API | `127.0.0.1:8081` | Optional local AI runtime | Disabled by default; exposes router control and local OpenAI-compatible API when configured. |
 | Grafana | `127.0.0.1:3002/grafana/` | Optional observability | Not included in the Docker demo foundation. |
 | Prometheus | `127.0.0.1:9090` | Optional observability | Not included in the Docker demo foundation. |
 | Alertmanager | `127.0.0.1:9093` | Optional alerting | Not included in the Docker demo foundation. |
@@ -29,6 +30,9 @@ Docker demo.
 The hosted operator Grafana endpoint is published through Cloudflare at
 `https://grafana.varqon.net/grafana/`. Keep Prometheus, Alertmanager,
 exporters, Loki, Alloy and application `/metrics` endpoints private/local.
+When Qdrant, Grafana, llama.cpp native/router UI or other operational consoles
+are exposed beyond loopback, prefer the configured HTTPS reverse-proxy path and
+keep direct HTTP endpoints for local health checks and service-to-service use.
 
 ## Mandatory and optional components
 
@@ -38,6 +42,7 @@ exporters, Loki, Alloy and application `/metrics` endpoints private/local.
 | PostgreSQL | Required | Required |
 | Qdrant | Needed for semantic-memory/playbook retrieval | Recommended |
 | Ollama and local model | Optional for deterministic fallback | Required for full AI-assisted analysis |
+| llama.cpp local runtime | Optional local provider path | Optional for GGUF/profile-based local AI evaluation |
 | GPU | Not required | Optional performance improvement |
 | Wazuh | Not required | Required for real host/security telemetry |
 | Suricata | Not required | Required for real network IDS telemetry |
@@ -55,6 +60,7 @@ Docker demo network use Compose service names:
 | `http://127.0.0.1:8008` | `http://ai-soc-api:8008` where applicable |
 | `http://127.0.0.1:6333` | `http://qdrant:6333` |
 | `http://127.0.0.1:11434` | `http://ollama:11434` |
+| `http://127.0.0.1:8081` | operator-managed llama.cpp router/runtime |
 | `127.0.0.1:5432` | `postgres:5432` |
 
 The Docker demo publishes frontend, API, Qdrant, and Ollama ports on loopback.

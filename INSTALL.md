@@ -50,8 +50,10 @@ recommended.
 The frontend requires Node.js and npm. Docker Engine and the Docker Compose
 plugin are system prerequisites for infrastructure stacks. Ollama is optional
 for deterministic fallback workflows and provides the default full AI
-experience. PostgreSQL, Qdrant, Grafana, Prometheus, Alertmanager, Loki,
-Grafana Alloy, Wazuh and Suricata depend on the selected deployment mode.
+experience. llama.cpp is an optional local runtime path for deployments that
+manage a local router and GGUF models. PostgreSQL, Qdrant, Grafana,
+Prometheus, Alertmanager, Loki, Grafana Alloy, Wazuh and Suricata depend on
+the selected deployment mode.
 
 ## System prerequisites
 
@@ -182,8 +184,21 @@ Use `--profile local` instead when preparing a non-demo local configuration.
 
 ## Configure AI providers safely
 
-Local Ollama is enabled by default. External providers are disabled by default
-and are not required for installation or demo use.
+Local Ollama is enabled by default. llama.cpp is available as an optional local
+provider path and remains disabled until `LLAMA_CPP_ENABLED=true` and the local
+router/runtime are configured. External providers are disabled by default and
+are not required for installation or demo use.
+
+Key llama.cpp settings in `.env.example` include:
+
+```bash
+LLAMA_CPP_ENABLED=false
+LLAMA_CPP_BASE_URL=http://127.0.0.1:8081
+LLAMA_CPP_API_BASE_URL=http://127.0.0.1:8081/v1
+LLAMA_CPP_FAST_MODEL=ai-soc-fast
+LLAMA_CPP_STANDARD_MODEL=ai-soc-standard
+LLAMA_CPP_QUALITY_MODEL=ai-soc-quality
+```
 
 OpenRouter requires local `.env` values for base URL, model and API key, plus:
 
@@ -199,7 +214,8 @@ Do not place API keys in tracked JSON files. Start from:
 - `storage/config/ai_data_control_policy.example.json`.
 
 See [AI Providers](docs/architecture/v0.7-external-ai-provider-abstraction.md)
-and [AI Data Control](docs/architecture/v0.7-ai-data-control-policy.md).
+and [AI Data Control](docs/architecture/v0.7-ai-data-control-policy.md). For
+llama.cpp, see [llama.cpp Runtime](docs/architecture/v0.7.1-llama-cpp-runtime.md).
 
 ## Initialize Qdrant semantic memory
 
@@ -289,8 +305,9 @@ Lifecycle actions default to a dry run:
 The current lifecycle helper manages only `ai-soc-api` and
 `ai-soc-frontend`. The worker is opt-in with `--include-worker`. It does not
 start or stop Wazuh, Suricata, PostgreSQL, Qdrant, Grafana, Prometheus,
-Alertmanager, Loki, Ollama or Docker Compose. It never invokes `sudo`; if
-systemd permissions are required, it prints actionable manual guidance.
+Alertmanager, Loki, Ollama, llama.cpp or Docker Compose. It never invokes
+`sudo`; if systemd permissions are required, it prints actionable manual
+guidance.
 
 ## 10-minute demo flow
 
@@ -332,6 +349,10 @@ PostgreSQL, Qdrant, demo data, and systemd, use the
   `./ai-soc validate-runtime`.
 - **Ollama is unreachable:** local deterministic workflows remain available,
   but AI-backed features may use fallback behavior.
+- **llama.cpp is unreachable:** confirm `LLAMA_CPP_ENABLED`,
+  `LLAMA_CPP_BASE_URL`, `LLAMA_CPP_API_BASE_URL`, router health and configured
+  profile names. Ollama remains the default local path unless routing is
+  changed.
 - **External provider is denied:** check global enablement, provider allowlist,
   redaction mode and AI Data Control; a configured key alone is insufficient.
 - **Qdrant is unreachable:** semantic-memory features will be unavailable or

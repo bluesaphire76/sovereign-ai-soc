@@ -150,7 +150,8 @@ Before presenting, also confirm that the latest [Public CI workflow](https://git
 
 ### Local-first and Governed AI
 
-- AI analysis runs through local Ollama by default.
+- AI analysis runs through local Ollama by default, with optional local
+  llama.cpp profiles when configured.
 - Sensitive security data does not require a mandatory external AI provider.
 - External providers are disabled by default and require provider allowlists,
   data policy, redaction and role authorization.
