@@ -33,7 +33,7 @@ import {
 
 const GRAFANA_URL =
   process.env.NEXT_PUBLIC_GRAFANA_URL ||
-  "http://127.0.0.1:3002/grafana/d/ai-soc-platform-health/ai-soc-platform-health?orgId=1&refresh=30s";
+  "https://grafana.varqon.net/grafana/d/ai-soc-platform-health/ai-soc-platform-health?orgId=1&refresh=30s";
 
 type NavItem = {
   href: string;

@@ -1,7 +1,7 @@
 # Roadmap
 
 This roadmap separates published releases from future work. The current release
-baseline is `v0.7.0`.
+baseline is `v0.7.1`.
 
 | Version | Status | Theme | Highlights |
 |---|---:|---|---|
