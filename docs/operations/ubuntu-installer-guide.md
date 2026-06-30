@@ -95,11 +95,16 @@ user must be able to reach the daemon. If access fails, the installer prints
 manual service and Docker-group guidance. Group changes may require logout and
 login. The installer never runs `sudo`, `usermod`, or `newgrp`.
 
-### Ollama
+### Ollama and llama.cpp
 
 Ollama is optional for basic deterministic demo workflows and required for the
 full local AI-assisted experience. A GPU is optional; CPU inference is
 supported but slower. Models are selected and downloaded manually.
+
+llama.cpp is also optional and disabled by default. The installer does not
+start a llama.cpp router, download GGUF models or change `LLAMA_CPP_*`
+settings. Configure it manually only after reviewing the local runtime and AI
+Data Control boundaries.
 
 External AI providers are not required and are never enabled by the installer.
 If OpenRouter is configured later, review provider allowlists and AI Data
@@ -142,7 +147,9 @@ Default local endpoints, when the relevant stack is started, include Grafana
 on `127.0.0.1:3002`, Prometheus on `127.0.0.1:9090`, Alertmanager on
 `127.0.0.1:9093`, cAdvisor on `127.0.0.1:8082`, node-exporter on
 `127.0.0.1:9100`, Loki on `127.0.0.1:3100`, Alloy on `127.0.0.1:12345`, and
-the ntfy bridge on `127.0.0.1:8011`.
+the ntfy bridge on `127.0.0.1:8011`. Browser-facing access to Grafana or other
+operational consoles should use the configured HTTPS/internal path when
+exposed beyond direct local diagnostics.
 
 ## After successful preparation
 

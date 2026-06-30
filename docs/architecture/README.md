@@ -13,6 +13,7 @@
 - [Advanced Incident Timeline](v0.7-advanced-incident-timeline.md)
 - [Investigation Graph](v0.7-investigation-graph.md)
 - [External AI provider abstraction](v0.7-external-ai-provider-abstraction.md)
+- [llama.cpp Runtime](v0.7.1-llama-cpp-runtime.md)
 - [AI Data Control policy](v0.7-ai-data-control-policy.md)
 - [Qdrant Semantic Memory](v0.7-qdrant-semantic-memory.md)
 - [Qdrant playbook metadata indexing](v0.7.0-qdrant-playbook-metadata-indexing.md)

@@ -178,11 +178,14 @@ rollback and service restart execution.
 ## AI Providers
 
 AI Providers shows the default provider, external-provider global state, local
-Ollama profiles, configured models, allowlists, redaction mode and health.
+Ollama profiles, optional llama.cpp profiles, configured models, allowlists,
+redaction mode and health.
 
-Local Ollama is the default. OpenRouter and other external configurations do
-not receive SOC data unless all provider and AI Data Control checks allow it.
-Only ADMIN can change provider settings or run the confirmed provider test.
+Local Ollama is the default. llama.cpp appears as a local provider path when
+configured and remains disabled by default unless `LLAMA_CPP_ENABLED=true`.
+OpenRouter and other external configurations do not receive SOC data unless
+all provider and AI Data Control checks allow it. Only ADMIN can change
+provider settings or run the confirmed provider test.
 
 ## AI Data Control
 
@@ -218,6 +221,7 @@ Health shows platform and runtime posture:
 - API and component status.
 - Wazuh freshness.
 - Suricata/network ingest status.
+- Ollama and llama.cpp provider/profile/fallback metadata where available.
 - Worker and backlog metrics.
 - PostgreSQL, Qdrant and Ollama runtime context.
 - Local and external AI provider health/configuration state.

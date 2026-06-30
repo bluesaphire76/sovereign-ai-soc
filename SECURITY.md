@@ -17,6 +17,7 @@ The project is designed to support:
 - Qdrant semantic memory;
 - Detection Control and remediation governance;
 - service-operation auditability.
+- local AI runtime governance for Ollama and optional llama.cpp.
 
 AI is used to support investigation, summarization and remediation planning.
 Semantic memory supports retrieval. Neither is an autonomous decision or
@@ -26,7 +27,7 @@ response authority.
 
 | Version | Security support |
 |---|---|
-| `main` / v0.7 development baseline | Supported |
+| `main` / v0.7.1 current baseline | Supported |
 | v0.6.x | Supported |
 | v0.4-v0.5 | Best-effort critical fixes only |
 | < v0.4 | Not supported |
@@ -109,8 +110,10 @@ Recommended secure deployment practices:
 - regularly review Security Audit events.
 - keep external AI providers disabled until allowlists, redaction and AI Data
   Control are explicitly reviewed;
-- bind Qdrant, Ollama, Grafana, Prometheus, Alertmanager, Loki and Alloy to
-  trusted local networks/endpoints;
+- bind Qdrant, Ollama, llama.cpp, Grafana, Prometheus, Alertmanager, Loki and
+  Alloy to trusted local networks/endpoints;
+- expose Grafana, Qdrant, llama.cpp native/router UI and other operational
+  consoles only through trusted internal or HTTPS-first access paths;
 - use narrow sudoers rules for Service Operations.
 
 ## Secrets handling

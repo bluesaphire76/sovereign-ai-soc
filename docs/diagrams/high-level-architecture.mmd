@@ -1,13 +1,15 @@
 flowchart LR
   analyst["Analyst / Human-in-the-loop"] --> browser["Browser"]
   browser --> frontend["Next.js Frontend"]
-  frontend --> api["FastAPI Backend"]
+  frontend --> api["FastAPI Backend / Modular Routers"]
 
   api --> postgres["PostgreSQL"]
   api --> qdrant["Qdrant Semantic Memory"]
   api --> reports["Reports / Evidence Packs"]
   api --> provider_policy["AI Provider + Data Control"]
-  provider_policy --> ollama["Ollama / Local AI Runtime"]
+  provider_policy --> local_ai["Local AI Runtime"]
+  local_ai --> ollama["Ollama"]
+  local_ai --> llama_cpp["llama.cpp Router / GGUF"]
   provider_policy -. "explicitly enabled + redacted" .-> external_ai["OpenRouter / OpenAI-compatible"]
 
   wazuh_agents["Wazuh Agents"] --> wazuh["Wazuh Manager / Indexer"]
@@ -46,4 +48,6 @@ flowchart LR
 
   api --> observability["Health / Metrics / Operation History"]
   observability --> prometheus["Prometheus / Alertmanager"]
-  observability --> loki["Loki / Grafana Alloy / Grafana"]
+  observability --> consoles["HTTPS-first Internal Consoles"]
+  consoles --> loki["Loki / Grafana Alloy / Grafana"]
+  consoles --> qdrant_console["Qdrant / llama.cpp UI if exposed"]

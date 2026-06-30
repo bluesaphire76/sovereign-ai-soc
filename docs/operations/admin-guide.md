@@ -56,6 +56,7 @@ Watch:
 - Suricata network event freshness.
 - Worker backlog and lag.
 - Ollama/local AI runtime status.
+- llama.cpp router/profile/model status when enabled.
 - configured AI providers and external-provider global state.
 - Qdrant collection state, point count and auto-index freshness.
 - optional Grafana, Prometheus and Alertmanager reachability.
@@ -69,6 +70,12 @@ separate Health component.
 
 `Settings > AI Providers` is readable by authenticated users and editable by
 ADMIN. External providers are disabled by default.
+
+Ollama remains the default local provider. llama.cpp is an optional local
+provider path for deployments that configure the local router/runtime and set
+`LLAMA_CPP_ENABLED=true`. It is not an external provider and should still be
+reviewed through Health, AI Providers and AI Data Control before operational
+use.
 
 Before enabling OpenRouter or another OpenAI-compatible endpoint:
 
@@ -142,7 +149,7 @@ Important configuration areas:
 
 - Wazuh indexer connection.
 - PostgreSQL connection.
-- Ollama model and base URL.
+- Ollama model/base URL and optional llama.cpp router/API/profile settings.
 - Authentication signing secret.
 - Ingestion polling and backlog thresholds.
 - Noise suppression policy.
@@ -159,5 +166,7 @@ Important configuration areas:
 - Review Security Audit after RBAC or user changes.
 - Keep AI output as decision support, not automatic response.
 - Keep semantic memory advisory and external providers disabled until governed.
+- Keep local AI runtimes bound to trusted local interfaces or HTTPS-first
+  internal access paths when exposed through a proxy.
 - Review Operation History after managed service changes.
 - Treat DNS telemetry as contextual host/time-window activity only.

@@ -8,6 +8,8 @@ published v0.7 product surface unless a page is explicitly marked historical.
 ## Start Here
 
 - [Product overview](product/product-overview.md)
+- [Feature map](product/feature-map.md)
+- [Evaluation guide](product/evaluation-guide.md)
 - [External user quickstart](product/external-user-quickstart.md)
 - [Installation and demo guide](../INSTALL.md)
 - [User guide](product/user-guide.md)
@@ -15,11 +17,22 @@ published v0.7 product surface unless a page is explicitly marked historical.
 - [Admin guide](operations/admin-guide.md)
 - [Troubleshooting](operations/troubleshooting.md)
 
-## Current v0.7 Capability Guides
+## Choose Your Path
+
+| Audience | Start here | Goal |
+|---|---|---|
+| First-time GitHub visitor | [Product overview](product/product-overview.md) and [Evaluation guide](product/evaluation-guide.md) | Understand the platform and evaluate it safely. |
+| SOC analyst / manager | [User guide](product/user-guide.md) and [Demo guide](product/demo-guide.md) | Understand workflows, cases, reports and demo narrative. |
+| Operator / admin | [Installation guide](../INSTALL.md), [Admin guide](operations/admin-guide.md) and [Deployment guide](operations/deployment-guide.md) | Prepare and validate a local/demo deployment. |
+| Security reviewer | [Security model](architecture/security-model.md), [AI Data Control](architecture/v0.7-ai-data-control-policy.md) and [Qdrant Semantic Memory](architecture/v0.7-qdrant-semantic-memory.md) | Review governance, data boundaries and advisory memory. |
+| Contributor | [Contributing](../CONTRIBUTING.md), [API composition root](architecture/api-composition-root.md) and docs validation below | Make safe, reviewable changes. |
+
+## Current v0.7.x / v0.7.1 Capability Guides
 
 | Area | Documentation |
 |---|---|
-| AI providers and OpenRouter | [External AI provider abstraction](architecture/v0.7-external-ai-provider-abstraction.md) |
+| Product surface | [Feature map](product/feature-map.md) and [Evaluation guide](product/evaluation-guide.md) |
+| AI providers, Ollama, llama.cpp and OpenRouter | [External AI provider abstraction](architecture/v0.7-external-ai-provider-abstraction.md) and [llama.cpp Runtime](architecture/v0.7.1-llama-cpp-runtime.md) |
 | AI data governance | [AI Data Control policy](architecture/v0.7-ai-data-control-policy.md) |
 | Qdrant semantic memory | [Qdrant Semantic Memory](architecture/v0.7-qdrant-semantic-memory.md) |
 | Recommended playbooks | [Metadata-aware indexing](architecture/v0.7.0-qdrant-playbook-metadata-indexing.md) and [LLM synthesis](architecture/v0.7.0-qdrant-recommended-playbooks-llm.md) |

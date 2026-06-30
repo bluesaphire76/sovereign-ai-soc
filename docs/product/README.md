@@ -6,6 +6,8 @@ kept separately and labeled as such.
 ## Current Guides
 
 - [Product overview](product-overview.md)
+- [Feature map](feature-map.md)
+- [Evaluation guide](evaluation-guide.md)
 - [User guide](user-guide.md)
 - [AI capabilities](ai-capabilities.md)
 - [Detection sources](detection-sources.md)

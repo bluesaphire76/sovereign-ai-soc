@@ -181,6 +181,12 @@ Update documentation when changing:
 - User workflows
 - Security behavior
 - Release scope
+- Runtime providers or model routing
+- AI Data Control, semantic memory, Qdrant, diagrams or public product claims
+
+Architecture, provider, security-boundary or release-scope changes should also
+update the relevant docs indexes, diagrams and release notes so first-time
+readers do not see stale behavior.
 
 ---
 

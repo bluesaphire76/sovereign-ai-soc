@@ -23,20 +23,24 @@ The AI layer is designed around evidence-based support:
 
 ## 2. AI Runtime and Provider Routing
 
-The platform uses Ollama as the default local LLM runtime. Runtime configuration
-is controlled through `.env` values such as `OLLAMA_MODEL`,
-`OLLAMA_BASE_URL` and the `AI_SOC_LLM_*` profile routing settings.
+The platform uses Ollama as the default local LLM runtime. v0.7.1 also includes
+an optional llama.cpp local provider path for router-managed GGUF profiles.
+Runtime configuration is controlled through `.env` values such as
+`OLLAMA_MODEL`, `OLLAMA_BASE_URL`, `AI_SOC_LLM_*`, and the `LLAMA_CPP_*`
+profile settings.
 
 The routing policy selects a model profile by task, severity and whether the action is user-triggered. The intent is to load the appropriate model when needed, not to keep every configured model active at the same time.
 
-v0.7 also provides a governed provider registry. OpenRouter is available through
-the OpenAI-compatible adapter, while external AI remains globally disabled by
-default. External requests require provider enablement, configuration,
+v0.7 also provides a governed provider registry. `LOCAL_OLLAMA` remains the
+default local provider. `LOCAL_LLAMA_CPP` is local and disabled by default
+through `LLAMA_CPP_ENABLED=false`. OpenRouter is available through the
+OpenAI-compatible external adapter, while external AI remains globally disabled
+by default. External requests require provider enablement, configuration,
 feature allowlisting and a compatible AI Data Control decision.
 
 The Health and AI Providers pages expose configured models, loaded Ollama
-models, provider state, last LLM profile/model and fallback metadata where
-available.
+models, llama.cpp router/profile state, provider state, last LLM profile/model
+and fallback metadata where available.
 
 ## 3. AI Data Control
 

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1180" height="700" viewBox="0 0 1180 700" role="img" aria-labelledby="title desc">
   <title id="title">Local-first sovereignty architecture</title>
-  <desc id="desc">Browser, frontend, API, PostgreSQL, Qdrant semantic memory, Ollama, Wazuh, Suricata, DNS, reports, audit, health and operation history run inside the local architecture. External AI is disabled by default and only reachable through explicit AI data control policy.</desc>
+  <desc id="desc">Browser, frontend, API, PostgreSQL, Qdrant semantic memory, Ollama, llama.cpp, Wazuh, Suricata, DNS, reports, audit, health and operation history run inside the local architecture. External AI is disabled by default and only reachable through explicit AI data control policy.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L0,6 L9,3 z" fill="#22d3ee"/>
@@ -57,8 +57,8 @@
   <text class="label" x="355" y="347">AI Policy</text>
   <text class="small" x="355" y="368">Data control</text>
   <rect class="ai" x="80" y="320" width="150" height="62"/>
-  <text class="label" x="155" y="347">Ollama / LLM</text>
-  <text class="small" x="155" y="368">Local AI runtime</text>
+  <text class="label" x="155" y="347">Ollama + llama.cpp</text>
+  <text class="small" x="155" y="368">Local AI runtimes</text>
 
   <rect class="local" x="680" y="450" width="150" height="62"/>
   <text class="label" x="755" y="477">Security Audit</text>

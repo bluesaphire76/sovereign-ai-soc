@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1240" height="880" viewBox="0 0 1240 880" role="img" aria-labelledby="title desc">
   <title id="title">Deployment architecture</title>
-  <desc id="desc">Nginx routes browser traffic to the Next.js frontend and FastAPI backend. Backend connects to PostgreSQL, Qdrant, governed AI providers, local reports, health metrics, service operations and the optional Prometheus, Alertmanager, Alloy, Loki and Grafana observability stack.</desc>
+  <desc id="desc">Nginx routes browser traffic to the Next.js frontend and modular FastAPI backend. Backend connects to PostgreSQL, Qdrant, governed local AI runtimes including Ollama and llama.cpp, external provider policy, local reports, health metrics, service operations and the optional Prometheus, Alertmanager, Alloy, Loki and Grafana observability stack.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L0,6 L9,3 z" fill="#22d3ee"/>
@@ -44,7 +44,7 @@
   <text class="small" x="612" y="138">Next.js</text>
   <rect class="service" x="520" y="210" width="185" height="62"/>
   <text class="label" x="612" y="237">ai-soc-api</text>
-  <text class="small" x="612" y="258">FastAPI / RBAC</text>
+  <text class="small" x="612" y="258">FastAPI / routers</text>
 
   <rect class="store" x="805" y="60" width="170" height="62"/>
   <text class="label" x="890" y="87">PostgreSQL</text>
@@ -56,8 +56,8 @@
   <text class="label" x="890" y="267">AI Data Control</text>
   <text class="small" x="890" y="288">Provider policy</text>
   <rect class="ai" x="805" y="330" width="170" height="62"/>
-  <text class="label" x="890" y="357">Ollama</text>
-  <text class="small" x="890" y="378">Local AI runtime</text>
+  <text class="label" x="890" y="357">Ollama + llama.cpp</text>
+  <text class="small" x="890" y="378">Local AI runtimes</text>
   <rect class="external" x="1010" y="240" width="170" height="62"/>
   <text class="label" x="1095" y="267">External AI</text>
   <text class="small" x="1095" y="288">OpenRouter optional</text>
@@ -126,7 +126,7 @@
   <text class="label" x="1095" y="627">Loki</text>
   <text class="small" x="1095" y="648">Log store</text>
   <rect class="worker" x="905" y="720" width="170" height="62"/>
-  <text class="label" x="990" y="747">Grafana</text>
+  <text class="label" x="990" y="747">Grafana HTTPS</text>
   <text class="small" x="990" y="768">Dashboards</text>
 
   <path class="edge" d="M705 241 H735 V511 H805"/>

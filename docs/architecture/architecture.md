@@ -1,9 +1,9 @@
 # Architecture
 
 Sovereign AI SOC uses a local-first architecture with a Next.js frontend,
-FastAPI backend, PostgreSQL operational datastore, Qdrant semantic memory,
-Wazuh and Suricata signal sources, local Ollama inference and optional governed
-external AI providers.
+modular FastAPI backend, PostgreSQL operational datastore, Qdrant semantic
+memory, Wazuh and Suricata signal sources, local AI runtime paths through
+Ollama and optional llama.cpp, and optional governed external AI providers.
 
 ## System Overview
 
@@ -16,13 +16,13 @@ Editable Mermaid source: [high-level-architecture.mmd](../diagrams/high-level-ar
 | Component | Role |
 |---|---|
 | Next.js frontend | Enterprise SOC console for dashboards, incidents, cases, Detection Control, AI governance, semantic memory, health and system information. |
-| FastAPI backend | API, RBAC and governance layer for SOC workflow, AI routing, semantic retrieval, remediation and operations. |
+| FastAPI backend | Modular API, RBAC and governance layer for SOC workflow, AI routing, semantic retrieval, remediation and operations. `api.py` is a guarded composition root. |
 | PostgreSQL | Operational storage for events, alerts, incidents, cases, users, audit, detection lifecycle, remediation proposals and operation history. |
 | Qdrant | Local semantic memory for knowledge-base chunks, historical incidents, Detection Control and approved/final Case Closure context. |
 | Wazuh | Host and endpoint security monitoring source. |
 | Suricata | Network IDS source normalized into network events. |
 | DNS telemetry | Endpoint DNS context normalized into `dns_events`. |
-| AI provider layer | Ollama by default; optional OpenAI-compatible providers such as OpenRouter under explicit data-control policy. |
+| AI provider layer | Ollama by default; optional local llama.cpp profiles; optional OpenAI-compatible providers such as OpenRouter under explicit data-control policy. |
 | Nginx | TLS reverse proxy and security headers for production-style demo deployments. |
 | Detection Control | Governed rules, exceptions, suppression, lifecycle, versioning and rollback. |
 | Remediation governance | Proposal lifecycle, internal connectors, approvals, dry-run, rollback and audit views. |
@@ -81,12 +81,23 @@ The governed AI layer supports:
 - Detection Quality remediation suggestions.
 - Executive insight and report enrichment.
 
-Provider selection is server-side. External providers are disabled by default
-and must pass AI Data Control before receiving metadata or redacted context.
+Provider selection is server-side. Ollama remains the default local provider.
+llama.cpp is an optional local provider path with router/profile metadata.
+External providers are disabled by default and must pass AI Data Control before
+receiving metadata or redacted context.
 
 AI and semantic memory do not decide access control, mutate lifecycle state by
 themselves or execute arbitrary response actions. See
-[AI Capabilities](../product/ai-capabilities.md).
+[AI Capabilities](../product/ai-capabilities.md) and
+[llama.cpp Runtime](v0.7.1-llama-cpp-runtime.md).
+
+## API Composition Boundary
+
+`api.py` creates the FastAPI application, configures middleware/CORS and calls
+`include_app_routers(app)`. Endpoint logic belongs in routers and supporting
+schemas/services/security modules. This keeps route inventory and OpenAPI
+behavior reviewable while preventing the application entry point from growing
+back into a monolith. See [API composition root](api-composition-root.md).
 
 ## Local-first Sovereignty View
 
@@ -105,11 +116,15 @@ The repository includes deployment artifacts for:
 - DNS collector worker.
 - PostgreSQL lab runtime.
 - Qdrant local vector knowledge base.
-- Ollama local runtime.
+- Ollama default local runtime.
+- Optional llama.cpp local router/GGUF runtime.
 - Optional governed external AI endpoints.
 - Prometheus/Grafana/Alertmanager observability.
 - Loki/Grafana Alloy logging.
 - Qdrant backfill and retention timers.
+Operational consoles such as Grafana, Qdrant and llama.cpp native/router UIs
+should be reached through trusted internal or HTTPS-first paths when exposed
+beyond local diagnostics.
 
 ![Deployment architecture](../assets/architecture/deployment-architecture.svg)
 

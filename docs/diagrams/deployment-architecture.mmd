@@ -1,12 +1,14 @@
 flowchart LR
   user["User Browser"] --> nginx["Nginx TLS Reverse Proxy"]
   nginx --> frontend["ai-soc-frontend / Next.js"]
-  nginx --> api["ai-soc-api / FastAPI"]
+  nginx --> api["ai-soc-api / FastAPI modular routers"]
 
   api --> postgres["PostgreSQL"]
   api --> qdrant["Qdrant Semantic Memory"]
   api --> ai_policy["AI Provider + Data Control"]
-  ai_policy --> ollama["Ollama Local AI Runtime"]
+  ai_policy --> local_ai["Local AI Runtime"]
+  local_ai --> ollama["Ollama"]
+  local_ai --> llama_cpp["llama.cpp router / GGUF"]
   ai_policy -. "optional governed route" .-> external_ai["OpenRouter / OpenAI-compatible"]
   api --> reports["Local Report Storage"]
 
@@ -23,6 +25,6 @@ flowchart LR
   api --> operations["Service Operations / Operation History"]
   prometheus["Prometheus"] --> alertmanager["Alertmanager / optional ntfy"]
   alloy["Grafana Alloy"] --> loki["Loki"]
-  prometheus --> grafana["Grafana"]
+  prometheus --> grafana["Grafana via HTTPS/internal path"]
   loki --> grafana
   api --> prometheus
