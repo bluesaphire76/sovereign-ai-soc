@@ -2,7 +2,7 @@
 
 This is the canonical documentation entry point for the repository.
 
-The current release baseline is v0.7.0. The documentation below describes the
+The current release baseline is v0.7.1. The documentation below describes the
 published v0.7 product surface unless a page is explicitly marked historical.
 
 ## Start Here
@@ -35,7 +35,7 @@ published v0.7 product surface unless a page is explicitly marked historical.
 - `docs/product/`: user-facing behavior, workflows, demos and roadmap.
 - `docs/architecture/`: current architecture, security model and feature design.
 - `docs/operations/`: installation, administration, observability and runbooks.
-- `docs/releases/`: immutable release notes, including the current v0.7.0 release.
+- `docs/releases/`: immutable release notes, including the current v0.7.1 release.
 - `docs/validation/`: historical validation evidence and current validation guides.
 - `docs/diagrams/`: editable Mermaid architecture sources.
 - `docs/assets/`: committed screenshots and rendered architecture assets.
