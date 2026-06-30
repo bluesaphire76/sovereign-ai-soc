@@ -12,6 +12,7 @@ baseline is `v0.7.1`.
 | v0.5 | Completed | Enterprise demo and workflow polish | Demo scenario pack, enterprise UX, Incident Command Room, AI workflow refinement, Detection Quality review, report/export polish, Suricata network telemetry, DNS context and correlation visualization. |
 | v0.6 | Released | AI investigation and governed remediation | Investigation intelligence, evidence confidence, LLM-backed remediation intelligence, approval gates, dry-run simulation, rollback readiness, execution audit trail, replay simulation, controlled internal SOAR workflow actions, Incident Command Center rewrite and observability improvements. |
 | v0.7 | Released | Governed AI, semantic memory and operational control | AI providers/OpenRouter, AI Data Control, Qdrant Semantic Memory, Recommended Playbooks, investigation graph, advanced timeline, Detection Control lifecycle/versioning, governed remediation connectors, Operation History, Alertmanager, Loki/Alloy, installability and expanded validation. |
+| v0.7.1 | Released | Runtime, memory and API hardening | Llama.cpp local runtime foundation, operational Qdrant semantic memory, HTTPS-first internal platform access, modular `api.py` composition root and permanent API refactor guardrails. |
 
 ## Completed Product Themes
 
@@ -27,6 +28,7 @@ baseline is `v0.7.1`.
 - RBAC and audit governance.
 - Local AI runtime with fallback behavior.
 - Optional governed external AI providers, disabled by default.
+- Llama.cpp local runtime foundation for controlled local model execution.
 - AI Data Control policies with deterministic redaction and audit-safe previews.
 - Qdrant Semantic Memory for knowledge, historical incident, Detection Control
   and approved/final Case Closure context.
@@ -37,10 +39,12 @@ baseline is `v0.7.1`.
   and rollback.
 - Governed remediation proposals and internal connectors.
 - Service Operations and Operation History.
+- HTTPS-first internal platform and observability access alignment.
+- Modular FastAPI architecture with `api.py` as a guarded composition root.
 - Prometheus/Alertmanager alerting and Loki/Grafana Alloy logging.
 - Executive-ready reporting and evidence packs.
 
-## Candidate Post-v0.7 Direction
+## Candidate Post-v0.7.1 Direction
 
 These are candidate directions, not implemented commitments:
 
