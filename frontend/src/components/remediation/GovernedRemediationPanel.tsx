@@ -197,7 +197,16 @@ function linkedObjectHref(proposal: RemediationProposal) {
   return null;
 }
 
-export default function GovernedRemediationPanel({
+export default function GovernedRemediationPanel(props: Props) {
+  const targetKey =
+    props.scope === "incident"
+      ? `incident:${props.incidentId ?? "missing"}`
+      : `case:${props.caseId ?? "missing"}`;
+
+  return <GovernedRemediationPanelContent key={targetKey} {...props} />;
+}
+
+function GovernedRemediationPanelContent({
   scope,
   incidentId,
   caseId,
@@ -214,7 +223,7 @@ export default function GovernedRemediationPanel({
   const [draft, setDraft] = useState<ProposalDraft>(DEFAULT_DRAFT);
   const [playbookKey, setPlaybookKey] = useState("");
   const [formOpen, setFormOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -231,40 +240,81 @@ export default function GovernedRemediationPanel({
     return mapped;
   }, [actions]);
 
-  const load = useCallback(async () => {
+  const fetchData = useCallback(async () => {
     if ((scope === "incident" && !incidentId) || (scope === "case" && !caseId)) return;
+
+    const [proposalResponse, actionResponse, playbookResponse] = await Promise.all([
+      authFetch(endpoint, { cache: "no-store" }),
+      authFetch("/remediation/catalog/actions", { cache: "no-store" }),
+      authFetch("/remediation/catalog/playbooks", { cache: "no-store" }),
+    ]);
+
+    if (!proposalResponse.ok) throw new Error(`Proposal API error ${proposalResponse.status}`);
+    if (!actionResponse.ok) throw new Error(`Action catalog API error ${actionResponse.status}`);
+    if (!playbookResponse.ok) throw new Error(`Playbook catalog API error ${playbookResponse.status}`);
+
+    const [proposalPayload, actionPayload, playbookPayload] = await Promise.all([
+      proposalResponse.json() as Promise<ProposalResponse>,
+      actionResponse.json() as Promise<{ items: ActionCatalogItem[] }>,
+      playbookResponse.json() as Promise<{ items: PlaybookTemplate[] }>,
+    ]);
+
+    return {
+      proposalPayload,
+      actionPayload,
+      playbookPayload,
+    };
+  }, [caseId, endpoint, incidentId, scope]);
+
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [proposalResponse, actionResponse, playbookResponse] = await Promise.all([
-        authFetch(endpoint, { cache: "no-store" }),
-        authFetch("/remediation/catalog/actions", { cache: "no-store" }),
-        authFetch("/remediation/catalog/playbooks", { cache: "no-store" }),
-      ]);
+      const result = await fetchData();
+      if (!result) return;
 
-      if (!proposalResponse.ok) throw new Error(`Proposal API error ${proposalResponse.status}`);
-      if (!actionResponse.ok) throw new Error(`Action catalog API error ${actionResponse.status}`);
-      if (!playbookResponse.ok) throw new Error(`Playbook catalog API error ${playbookResponse.status}`);
-
-      const proposalPayload = (await proposalResponse.json()) as ProposalResponse;
-      const actionPayload = (await actionResponse.json()) as { items: ActionCatalogItem[] };
-      const playbookPayload = (await playbookResponse.json()) as { items: PlaybookTemplate[] };
-
-      setProposals(proposalPayload.items || []);
-      setSummary(proposalPayload.summary || null);
-      setActions(actionPayload.items || []);
-      setPlaybooks(playbookPayload.items || []);
-      setPlaybookKey((current) => current || playbookPayload.items?.[0]?.playbook_key || "");
+      setProposals(result.proposalPayload.items || []);
+      setSummary(result.proposalPayload.summary || null);
+      setActions(result.actionPayload.items || []);
+      setPlaybooks(result.playbookPayload.items || []);
+      setPlaybookKey(
+        (current) => current || result.playbookPayload.items?.[0]?.playbook_key || ""
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load governed remediation.");
     } finally {
       setLoading(false);
     }
-  }, [caseId, endpoint, incidentId, scope]);
+  }, [fetchData]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    let active = true;
+
+    fetchData()
+      .then((result) => {
+        if (!active || !result) return;
+
+        setProposals(result.proposalPayload.items || []);
+        setSummary(result.proposalPayload.summary || null);
+        setActions(result.actionPayload.items || []);
+        setPlaybooks(result.playbookPayload.items || []);
+        setPlaybookKey(result.playbookPayload.items?.[0]?.playbook_key || "");
+      })
+      .catch((err) => {
+        if (active) {
+          setError(err instanceof Error ? err.message : "Unable to load governed remediation.");
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [fetchData]);
 
   async function mutate(path: string, body: Record<string, unknown>, successMessage: string) {
     setSaving(true);

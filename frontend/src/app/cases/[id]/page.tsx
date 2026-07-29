@@ -6,6 +6,7 @@ import { authFetch } from "@/lib/auth";
 import { Component, useCallback, useEffect, useMemo, useState, type ErrorInfo, type ReactNode } from "react";
 import Link from "next/link";
 import AppNavigation from "../../../components/AppNavigation";
+import ContextualAssistantPanel from "../../../components/assistant/ContextualAssistantPanel";
 import InvestigationGraph from "../../../components/investigation-graph/InvestigationGraph";
 import GovernedRemediationPanel, {
   type GovernedRemediationRecommendation,
@@ -335,29 +336,6 @@ function timelineEventLabel(value: string | null | undefined) {
 function slaLabel(value: string | null | undefined) {
   if (!value) return "NOT SET";
   return value.replace("_", " ");
-}
-
-function slaRiskLabel(value: string | null | undefined) {
-  if (!value) return "UNKNOWN";
-  return value.replaceAll("_", " ");
-}
-
-function slaRiskClass(value: string | null | undefined) {
-  const risk = value ?? "UNKNOWN";
-
-  if (risk === "BREACHED" || risk === "HIGH") {
-    return "border-red-700 bg-red-950 text-red-200";
-  }
-
-  if (risk === "MEDIUM") {
-    return "border-orange-700 bg-orange-950 text-orange-200";
-  }
-
-  if (risk === "LOW" || risk === "NONE") {
-    return "border-emerald-700 bg-emerald-950 text-emerald-200";
-  }
-
-  return "border-slate-700 bg-slate-950 text-slate-300";
 }
 
 function toDatetimeLocalValue(value: string | null | undefined) {
@@ -1686,6 +1664,11 @@ function CaseClosureSemanticContextPanel({
 export default function CaseDetailPage() {
   const params = useParams();
   const caseId = String(params.id);
+
+  return <CaseDetailPageContent key={caseId} caseId={caseId} />;
+}
+
+function CaseDetailPageContent({ caseId }: { caseId: string }) {
   const caseReportId = reportId(caseId);
 
   const [caseData, setCaseData] = useState<IncidentCase | null>(null);
@@ -1697,13 +1680,13 @@ export default function CaseDetailPage() {
   const [closureSemanticContext, setClosureSemanticContext] =
     useState<CaseClosureSemanticContextResponse | null>(null);
   const [loadingClosureSemanticContext, setLoadingClosureSemanticContext] =
-    useState(false);
+    useState(true);
   const [closureSemanticContextError, setClosureSemanticContextError] =
     useState<string | null>(null);
   const [playbookRecommendations, setPlaybookRecommendations] =
     useState<RecommendedPlaybooksResponse | null>(null);
   const [loadingPlaybookRecommendations, setLoadingPlaybookRecommendations] =
-    useState(false);
+    useState(true);
   const [playbookRecommendationsError, setPlaybookRecommendationsError] =
     useState<string | null>(null);
   const [caseTimeline, setCaseTimeline] = useState<CaseTimelineItem[]>([]);
@@ -1769,8 +1752,6 @@ export default function CaseDetailPage() {
 
   const loadClosureSemanticContext = useCallback(async () => {
     try {
-      setLoadingClosureSemanticContext(true);
-      setClosureSemanticContextError(null);
       const context = await fetchCaseClosureSemanticContext(caseId);
       setClosureSemanticContext(context);
     } catch (err) {
@@ -1785,8 +1766,6 @@ export default function CaseDetailPage() {
 
   const loadPlaybookRecommendations = useCallback(async () => {
     try {
-      setLoadingPlaybookRecommendations(true);
-      setPlaybookRecommendationsError(null);
       const response = await fetchCaseRecommendedPlaybooks(caseId);
       setPlaybookRecommendations(response);
     } catch (err) {
@@ -1798,6 +1777,18 @@ export default function CaseDetailPage() {
       setLoadingPlaybookRecommendations(false);
     }
   }, [caseId]);
+
+  const refreshClosureSemanticContext = useCallback(async () => {
+    setLoadingClosureSemanticContext(true);
+    setClosureSemanticContextError(null);
+    await loadClosureSemanticContext();
+  }, [loadClosureSemanticContext]);
+
+  const refreshPlaybookRecommendations = useCallback(async () => {
+    setLoadingPlaybookRecommendations(true);
+    setPlaybookRecommendationsError(null);
+    await loadPlaybookRecommendations();
+  }, [loadPlaybookRecommendations]);
 
   const loadCase = useCallback(async () => {
     try {
@@ -2015,7 +2006,7 @@ export default function CaseDetailPage() {
       setClosureForm(closureFormFromResponse(response));
       setAuditTrail(await fetchCaseAudit(caseId));
       if (canOperate) {
-        void loadClosureSemanticContext();
+        void refreshClosureSemanticContext();
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
@@ -2266,16 +2257,55 @@ export default function CaseDetailPage() {
 
   useEffect(() => {
     if (!canOperate) {
-      setClosureSemanticContext(null);
-      setClosureSemanticContextError(null);
-      setPlaybookRecommendations(null);
-      setPlaybookRecommendationsError(null);
       return;
     }
 
-    void loadClosureSemanticContext();
-    void loadPlaybookRecommendations();
-  }, [canOperate, loadClosureSemanticContext, loadPlaybookRecommendations]);
+    let active = true;
+
+    fetchCaseClosureSemanticContext(caseId)
+      .then((context) => {
+        if (active) {
+          setClosureSemanticContext(context);
+        }
+      })
+      .catch((err) => {
+        if (active) {
+          setClosureSemanticContextError(
+            err instanceof Error ? err.message : "Unknown semantic memory error"
+          );
+          setClosureSemanticContext(null);
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setLoadingClosureSemanticContext(false);
+        }
+      });
+
+    fetchCaseRecommendedPlaybooks(caseId)
+      .then((response) => {
+        if (active) {
+          setPlaybookRecommendations(response);
+        }
+      })
+      .catch((err) => {
+        if (active) {
+          setPlaybookRecommendations(null);
+          setPlaybookRecommendationsError(
+            err instanceof Error ? err.message : "Unknown playbook recommendation error"
+          );
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setLoadingPlaybookRecommendations(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [canOperate, caseId]);
 
   useEffect(() => {
     let active = true;
@@ -2872,6 +2902,13 @@ export default function CaseDetailPage() {
                 </CaseAiAnalysisBoundary>
               )}
             </section>
+
+            <ContextualAssistantPanel
+              scope="case"
+              targetId={caseData.id}
+              targetLabel={`Case #${caseData.id}`}
+              userRole={currentUser?.role}
+            />
 
             <CaseCollapsibleSection
               id="case-workflow"
@@ -3541,7 +3578,7 @@ export default function CaseDetailPage() {
                   response={playbookRecommendations}
                   loading={loadingPlaybookRecommendations}
                   error={playbookRecommendationsError}
-                  onRefresh={() => void loadPlaybookRecommendations()}
+                  onRefresh={() => void refreshPlaybookRecommendations()}
                 />
               </CaseCollapsibleSection>
             )}
@@ -3617,7 +3654,7 @@ export default function CaseDetailPage() {
                   context={closureSemanticContext}
                   loading={loadingClosureSemanticContext}
                   error={closureSemanticContextError}
-                  onRefresh={() => void loadClosureSemanticContext()}
+                  onRefresh={() => void refreshClosureSemanticContext()}
                 />
               )}
 

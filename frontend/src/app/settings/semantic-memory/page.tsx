@@ -720,7 +720,7 @@ export default function SemanticMemoryPage() {
   const [detectionCaseResult, setDetectionCaseResult] = useState<SemanticOperationResult | null>(null);
   const [retentionResult, setRetentionResult] = useState<SemanticOperationResult | null>(null);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [refreshing, setRefreshing] = useState(true);
   const [searching, setSearching] = useState(false);
   const [operationRunning, setOperationRunning] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -730,54 +730,104 @@ export default function SemanticMemoryPage() {
   const canView = user?.role === "ADMIN" || user?.role === "ANALYST";
   const canOperate = user?.role === "ADMIN";
 
+  const fetchData = useCallback(async () => {
+    const current = await fetchCurrentUser();
+
+    if (current.role !== "ADMIN" && current.role !== "ANALYST") {
+      return {
+        current,
+        forbidden: true as const,
+        nextIndexStatus: null,
+        nextCapabilities: null,
+        nextAutoIndexStatus: null,
+      };
+    }
+
+    const [indexResponse, capabilitiesResponse, autoIndexResponse] = await Promise.all([
+      authFetch("/semantic-memory/index-status"),
+      authFetch("/semantic-memory/capabilities"),
+      authFetch("/semantic-memory/auto-index-status"),
+    ]);
+
+    if (!indexResponse.ok) {
+      throw new Error(`Index status API error ${indexResponse.status}`);
+    }
+
+    if (!capabilitiesResponse.ok) {
+      throw new Error(`Capabilities API error ${capabilitiesResponse.status}`);
+    }
+
+    if (!autoIndexResponse.ok) {
+      throw new Error(`Auto-index status API error ${autoIndexResponse.status}`);
+    }
+
+    const [nextIndexStatus, nextCapabilities, nextAutoIndexStatus] = await Promise.all([
+      indexResponse.json() as Promise<IndexStatusResponse>,
+      capabilitiesResponse.json() as Promise<CapabilitiesResponse>,
+      autoIndexResponse.json() as Promise<AutoIndexStatusResponse>,
+    ]);
+
+    return {
+      current,
+      forbidden: false as const,
+      nextIndexStatus,
+      nextCapabilities,
+      nextAutoIndexStatus,
+    };
+  }, []);
+
   const load = useCallback(async () => {
     setRefreshing(true);
     setError(null);
 
     try {
-      const current = await fetchCurrentUser();
-      setUser(current);
-
-      if (current.role !== "ADMIN" && current.role !== "ANALYST") {
-        setIndexStatus(null);
-        setCapabilities(null);
-        setAutoIndexStatus(null);
+      const result = await fetchData();
+      setUser(result.current);
+      setIndexStatus(result.nextIndexStatus);
+      setCapabilities(result.nextCapabilities);
+      setAutoIndexStatus(result.nextAutoIndexStatus);
+      if (result.forbidden) {
         setError("Forbidden: Semantic Memory is available only to ADMIN and ANALYST users.");
-        return;
       }
-
-      const [indexResponse, capabilitiesResponse, autoIndexResponse] = await Promise.all([
-        authFetch("/semantic-memory/index-status"),
-        authFetch("/semantic-memory/capabilities"),
-        authFetch("/semantic-memory/auto-index-status"),
-      ]);
-
-      if (!indexResponse.ok) {
-        throw new Error(`Index status API error ${indexResponse.status}`);
-      }
-
-      if (!capabilitiesResponse.ok) {
-        throw new Error(`Capabilities API error ${capabilitiesResponse.status}`);
-      }
-
-      if (!autoIndexResponse.ok) {
-        throw new Error(`Auto-index status API error ${autoIndexResponse.status}`);
-      }
-
-      setIndexStatus(await indexResponse.json());
-      setCapabilities(await capabilitiesResponse.json());
-      setAutoIndexStatus(await autoIndexResponse.json());
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "Unable to load semantic memory.");
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [fetchData]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    let active = true;
+
+    fetchData()
+      .then((result) => {
+        if (!active) return;
+
+        setUser(result.current);
+        setIndexStatus(result.nextIndexStatus);
+        setCapabilities(result.nextCapabilities);
+        setAutoIndexStatus(result.nextAutoIndexStatus);
+        if (result.forbidden) {
+          setError("Forbidden: Semantic Memory is available only to ADMIN and ANALYST users.");
+        }
+      })
+      .catch((exc) => {
+        if (active) {
+          setError(exc instanceof Error ? exc.message : "Unable to load semantic memory.");
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setLoading(false);
+          setRefreshing(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [fetchData]);
 
   async function runSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

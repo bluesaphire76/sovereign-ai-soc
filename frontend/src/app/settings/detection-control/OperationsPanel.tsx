@@ -317,8 +317,6 @@ export default function OperationsPanel({ currentUser }: { currentUser: AuthUser
     let cancelled = false;
 
     if (!selectedItem) {
-      setMatches(null);
-      setPreview(null);
       return;
     }
 
@@ -526,6 +524,8 @@ export default function OperationsPanel({ currentUser }: { currentUser: AuthUser
               onClick={() => {
                 setCategory(item.key);
                 setSelectedItem(null);
+                setMatches(null);
+                setPreview(null);
               }}
               className={`rounded-md border px-2.5 py-1.5 text-xs font-medium transition ${
                 category === item.key
@@ -568,6 +568,7 @@ export default function OperationsPanel({ currentUser }: { currentUser: AuthUser
             onPreview={runPreview}
             onSelect={(item) => {
               setSelectedItem(item);
+              setMatches(null);
               setPreview(null);
               setReviewDate(item.expires_at ? item.expires_at.slice(0, 10) : "");
               setReviewNotes(item.review_notes || "");

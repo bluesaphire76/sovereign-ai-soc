@@ -429,52 +429,102 @@ export default function AiDataControlPage() {
   const canEdit = user?.role === "ADMIN";
   const canPreview = user?.role === "ADMIN" || user?.role === "ANALYST";
 
+  const fetchData = useCallback(async () => {
+    const [currentUser, policiesResponse, providersResponse, decisionsResponse] = await Promise.all([
+      fetchCurrentUser(),
+      authFetch("/ai-data-control/policies"),
+      authFetch("/ai-providers"),
+      authFetch("/ai-data-control/decisions?limit=40"),
+    ]);
+
+    if (!policiesResponse.ok) throw new Error(`Policies API error ${policiesResponse.status}`);
+    if (!providersResponse.ok) throw new Error(`Providers API error ${providersResponse.status}`);
+    if (!decisionsResponse.ok) throw new Error(`Decisions API error ${decisionsResponse.status}`);
+
+    const [nextPolicies, nextProviders, decisionPayload] = await Promise.all([
+      policiesResponse.json() as Promise<PoliciesResponse>,
+      providersResponse.json() as Promise<ProvidersResponse>,
+      decisionsResponse.json() as Promise<{ decisions?: DecisionRow[] }>,
+    ]);
+
+    return {
+      currentUser,
+      nextPolicies,
+      nextProviders,
+      nextDecisions: decisionPayload.decisions ?? [],
+    };
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const [currentUser, policiesResponse, providersResponse, decisionsResponse] = await Promise.all([
-        fetchCurrentUser(),
-        authFetch("/ai-data-control/policies"),
-        authFetch("/ai-providers"),
-        authFetch("/ai-data-control/decisions?limit=40"),
-      ]);
-
-      if (!policiesResponse.ok) throw new Error(`Policies API error ${policiesResponse.status}`);
-      if (!providersResponse.ok) throw new Error(`Providers API error ${providersResponse.status}`);
-      if (!decisionsResponse.ok) throw new Error(`Decisions API error ${decisionsResponse.status}`);
-
-      const nextPolicies: PoliciesResponse = await policiesResponse.json();
-      setUser(currentUser);
-      setPolicies(nextPolicies);
-      setProviders(await providersResponse.json());
-      const decisionPayload = await decisionsResponse.json();
-      setDecisions(decisionPayload.decisions ?? []);
+      const result = await fetchData();
+      setUser(result.currentUser);
+      setPolicies(result.nextPolicies);
+      setProviders(result.nextProviders);
+      setDecisions(result.nextDecisions);
 
       const nextSelected =
-        nextPolicies.features.find((policy) => policy.feature_key === selectedKey)?.feature_key ??
-        nextPolicies.features[0]?.feature_key ??
+        result.nextPolicies.features.find((policy) => policy.feature_key === selectedKey)?.feature_key ??
+        result.nextPolicies.features[0]?.feature_key ??
         "incident_triage";
       setSelectedKey(nextSelected);
-      const nextPolicy = nextPolicies.features.find((policy) => policy.feature_key === nextSelected);
+      const nextPolicy = result.nextPolicies.features.find(
+        (policy) => policy.feature_key === nextSelected
+      );
       if (nextPolicy) setEditState(policyToEditState(nextPolicy));
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "Unable to load AI data control.");
     } finally {
       setLoading(false);
     }
-  }, [selectedKey]);
+  }, [fetchData, selectedKey]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    let active = true;
 
-  useEffect(() => {
-    if (selectedPolicy) {
-      setEditState(policyToEditState(selectedPolicy));
-    }
-  }, [selectedPolicy]);
+    fetchData()
+      .then((result) => {
+        if (!active) return;
+
+        setUser(result.currentUser);
+        setPolicies(result.nextPolicies);
+        setProviders(result.nextProviders);
+        setDecisions(result.nextDecisions);
+
+        const nextSelected =
+          result.nextPolicies.features.find((policy) => policy.feature_key === "incident_triage")
+            ?.feature_key ??
+          result.nextPolicies.features[0]?.feature_key ??
+          "incident_triage";
+        setSelectedKey(nextSelected);
+        const nextPolicy = result.nextPolicies.features.find(
+          (policy) => policy.feature_key === nextSelected
+        );
+        if (nextPolicy) setEditState(policyToEditState(nextPolicy));
+      })
+      .catch((exc) => {
+        if (active) {
+          setError(exc instanceof Error ? exc.message : "Unable to load AI data control.");
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [fetchData]);
+
+  function selectPolicy(policy: FeaturePolicy) {
+    setSelectedKey(policy.feature_key);
+    setEditState(policyToEditState(policy));
+  }
 
   async function savePolicy() {
     if (!selectedPolicy || !editState || !canEdit) return;
@@ -651,7 +701,7 @@ export default function AiDataControlPage() {
                         <button
                           key={policy.feature_key}
                           type="button"
-                          onClick={() => setSelectedKey(policy.feature_key)}
+                          onClick={() => selectPolicy(policy)}
                           className={`w-full rounded-sm border px-2 py-2 text-left transition ${
                             selected
                               ? "border-cyan-700 bg-cyan-950/35"

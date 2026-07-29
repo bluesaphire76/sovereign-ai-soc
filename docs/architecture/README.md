@@ -10,6 +10,7 @@
 
 ## v0.7 Implemented Architecture
 
+- [Contextual AI Assistant UI](v0.8-ai-assistant-contextual-ui.md)
 - [AI Assistant Foundation](v0.8-ai-assistant-foundation.md)
 - [Advanced Incident Timeline](v0.7-advanced-incident-timeline.md)
 - [Investigation Graph](v0.7-investigation-graph.md)

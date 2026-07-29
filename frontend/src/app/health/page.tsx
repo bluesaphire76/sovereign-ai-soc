@@ -1063,29 +1063,6 @@ function CollapsibleMetricGroup({
   );
 }
 
-function MetricGroup({
-  title,
-  description,
-  children,
-}: {
-  title: string;
-  description: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-2.5">
-      <div className="mb-2 border-b border-slate-800 pb-2">
-        <div className="text-xs font-semibold text-slate-100">{title}</div>
-        <div className="mt-0.5 text-[11px] leading-4 text-slate-500">
-          {description}
-        </div>
-      </div>
-
-      <div className="space-y-1.5">{children}</div>
-    </div>
-  );
-}
-
 function MetricRow({
   label,
   value,
