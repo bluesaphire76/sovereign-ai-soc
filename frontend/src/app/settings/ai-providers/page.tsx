@@ -237,53 +237,95 @@ export default function AiProvidersPage() {
     return mapped;
   }, [health]);
 
+  const fetchData = useCallback(async () => {
+    const [currentUser, providersResponse, healthResponse, profilesResponse] = await Promise.all([
+      fetchCurrentUser(),
+      authFetch("/ai-providers"),
+      authFetch("/ai-providers/health"),
+      authFetch("/ai-providers/local-profiles"),
+    ]);
+
+    if (!providersResponse.ok) {
+      throw new Error(`Providers API error ${providersResponse.status}`);
+    }
+
+    if (!healthResponse.ok) {
+      throw new Error(`Provider health API error ${healthResponse.status}`);
+    }
+
+    if (!profilesResponse.ok) {
+      throw new Error(`Local profiles API error ${profilesResponse.status}`);
+    }
+
+    const [providersPayload, healthPayload, profilesPayload] = await Promise.all([
+      providersResponse.json() as Promise<ProvidersResponse>,
+      healthResponse.json() as Promise<HealthResponse>,
+      profilesResponse.json() as Promise<LocalProfilesResponse>,
+    ]);
+    const drafts: Record<string, ProviderDraft> = {};
+    for (const provider of providersPayload.providers) {
+      drafts[provider.key] = providerToDraft(provider);
+    }
+
+    return {
+      currentUser,
+      providersPayload,
+      drafts,
+      healthPayload,
+      profilesPayload,
+    };
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const [currentUser, providersResponse, healthResponse, profilesResponse] = await Promise.all([
-        fetchCurrentUser(),
-        authFetch("/ai-providers"),
-        authFetch("/ai-providers/health"),
-        authFetch("/ai-providers/local-profiles"),
-      ]);
-
-      if (!providersResponse.ok) {
-        throw new Error(`Providers API error ${providersResponse.status}`);
-      }
-
-      if (!healthResponse.ok) {
-        throw new Error(`Provider health API error ${healthResponse.status}`);
-      }
-
-      if (!profilesResponse.ok) {
-        throw new Error(`Local profiles API error ${profilesResponse.status}`);
-      }
-
-      const providersPayload: ProvidersResponse = await providersResponse.json();
-      const drafts: Record<string, ProviderDraft> = {};
-      for (const provider of providersPayload.providers) {
-        drafts[provider.key] = providerToDraft(provider);
-      }
-
-      setUser(currentUser);
-      setProviders(providersPayload);
-      setProviderDrafts(drafts);
-      setDefaultProviderDraft(providersPayload.default_provider);
-      setExternalEnabledDraft(providersPayload.external_providers_enabled);
-      setHealth(await healthResponse.json());
-      setProfiles(await profilesResponse.json());
+      const result = await fetchData();
+      setUser(result.currentUser);
+      setProviders(result.providersPayload);
+      setProviderDrafts(result.drafts);
+      setDefaultProviderDraft(result.providersPayload.default_provider);
+      setExternalEnabledDraft(result.providersPayload.external_providers_enabled);
+      setHealth(result.healthPayload);
+      setProfiles(result.profilesPayload);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "Unable to load AI providers.");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fetchData]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    let active = true;
+
+    fetchData()
+      .then((result) => {
+        if (!active) return;
+
+        setUser(result.currentUser);
+        setProviders(result.providersPayload);
+        setProviderDrafts(result.drafts);
+        setDefaultProviderDraft(result.providersPayload.default_provider);
+        setExternalEnabledDraft(result.providersPayload.external_providers_enabled);
+        setHealth(result.healthPayload);
+        setProfiles(result.profilesPayload);
+      })
+      .catch((exc) => {
+        if (active) {
+          setError(exc instanceof Error ? exc.message : "Unable to load AI providers.");
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [fetchData]);
 
   async function testProvider(provider: ProviderConfig) {
     if (provider.external) {

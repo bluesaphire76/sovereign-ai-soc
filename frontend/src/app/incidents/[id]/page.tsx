@@ -3647,8 +3647,13 @@ function IncidentCommandCenterRefoundation({
 
 export default function IncidentDetailPage() {
   const params = useParams();
-  const router = useRouter();
   const incidentId = String(params.id);
+
+  return <IncidentDetailPageContent key={incidentId} incidentId={incidentId} />;
+}
+
+function IncidentDetailPageContent({ incidentId }: { incidentId: string }) {
+  const router = useRouter();
   const incidentReportId = reportId(incidentId);
 
   const [incident, setIncident] = useState<IncidentDetail | null>(null);
@@ -3663,7 +3668,7 @@ export default function IncidentDetailPage() {
   const [playbookRecommendations, setPlaybookRecommendations] =
     useState<RecommendedPlaybooksResponse | null>(null);
   const [playbookRecommendationsLoading, setPlaybookRecommendationsLoading] =
-    useState(false);
+    useState(true);
   const [playbookRecommendationsError, setPlaybookRecommendationsError] =
     useState<string | null>(null);
   const [remediationPlan, setRemediationPlan] = useState<RemediationPlanPreview | null>(null);
@@ -3790,8 +3795,6 @@ export default function IncidentDetailPage() {
 
   const loadIncidentPlaybookRecommendations = useCallback(async () => {
     try {
-      setPlaybookRecommendationsLoading(true);
-      setPlaybookRecommendationsError(null);
       const data = await fetchIncidentRecommendedPlaybooks(incidentId);
       setPlaybookRecommendations(data);
     } catch (err) {
@@ -3803,6 +3806,12 @@ export default function IncidentDetailPage() {
       setPlaybookRecommendationsLoading(false);
     }
   }, [incidentId]);
+
+  const refreshIncidentPlaybookRecommendations = useCallback(async () => {
+    setPlaybookRecommendationsLoading(true);
+    setPlaybookRecommendationsError(null);
+    await loadIncidentPlaybookRecommendations();
+  }, [loadIncidentPlaybookRecommendations]);
 
   async function addNote() {
     if (!canOperate) return;
@@ -3918,15 +3927,35 @@ export default function IncidentDetailPage() {
 
   useEffect(() => {
     if (!canOperate) {
-      if (currentUser?.role === "VIEWER") {
-        setPlaybookRecommendations(null);
-        setPlaybookRecommendationsError(null);
-      }
       return;
     }
 
-    void loadIncidentPlaybookRecommendations();
-  }, [canOperate, currentUser?.role, loadIncidentPlaybookRecommendations]);
+    let active = true;
+
+    fetchIncidentRecommendedPlaybooks(incidentId)
+      .then((data) => {
+        if (active) {
+          setPlaybookRecommendations(data);
+        }
+      })
+      .catch((err) => {
+        if (active) {
+          setPlaybookRecommendations(null);
+          setPlaybookRecommendationsError(
+            err instanceof Error ? err.message : "Playbook recommendations unavailable",
+          );
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setPlaybookRecommendationsLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [canOperate, incidentId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -4330,7 +4359,7 @@ export default function IncidentDetailPage() {
             onStatusDraftChange={setStatusDraft}
             onApplyStatus={() => updateStatus(statusDraft)}
             onGenerateAiBrief={() => refreshAiBrief(true)}
-            onRefreshPlaybookRecommendations={loadIncidentPlaybookRecommendations}
+            onRefreshPlaybookRecommendations={refreshIncidentPlaybookRecommendations}
             onNoteDraftChange={setNoteDraft}
             onAddNote={addNote}
             onExecuteApprovedAction={executeControlledWorkflowAction}
