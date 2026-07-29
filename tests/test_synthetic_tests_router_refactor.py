@@ -79,7 +79,7 @@ def test_synthetic_test_route_inventory_remains_non_trivial() -> None:
         if item["path"] in SYNTHETIC_TEST_ROUTE_METHODS
     }
 
-    assert len(inventory) == 171
+    assert len(inventory) == 173
     assert route_methods == SYNTHETIC_TEST_ROUTE_METHODS
 
 

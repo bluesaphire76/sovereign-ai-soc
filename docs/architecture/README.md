@@ -10,6 +10,7 @@
 
 ## v0.7 Implemented Architecture
 
+- [AI Assistant Foundation](v0.8-ai-assistant-foundation.md)
 - [Advanced Incident Timeline](v0.7-advanced-incident-timeline.md)
 - [Investigation Graph](v0.7-investigation-graph.md)
 - [External AI provider abstraction](v0.7-external-ai-provider-abstraction.md)

@@ -46,6 +46,10 @@ RBAC_RULES: list[tuple[str, str, set[str]]] = [
     # Security audit
     ("GET", r"^/security-audit/events$", {ROLE_ADMIN}),
 
+    # Grounded SOC assistant
+    ("GET", r"^/assistant/capabilities$", OPERATOR_ROLES),
+    ("POST", r"^/assistant/query$", OPERATOR_ROLES),
+
     # Synthetic tests
     ("GET", r"^/synthetic-tests/scenarios$", OPERATOR_ROLES),
     ("POST", r"^/synthetic-tests/run$", OPERATOR_ROLES),

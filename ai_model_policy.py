@@ -7,6 +7,7 @@ class AiTask(StrEnum):
     INCIDENT_TRIAGE = "incident_triage"
     INCIDENT_ANALYSIS = "incident_analysis"
     COMMAND_ROOM = "command_room"
+    SOC_ASSISTANT = "soc_assistant"
     REMEDIATION = "remediation"
     REPORT = "report"
     EXECUTIVE_SUMMARY = "executive_summary"
@@ -49,6 +50,7 @@ def select_profile(
         AiTask.DETECTION_QUALITY.value,
         AiTask.ACTION_HOW_TO.value,
         AiTask.CASE_ANALYSIS.value,
+        AiTask.SOC_ASSISTANT.value,
     }:
         return "standard"
 

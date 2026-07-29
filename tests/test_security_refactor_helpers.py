@@ -71,5 +71,12 @@ def test_rbac_denies_known_invalid_route_for_role() -> None:
     )
 
 
+def test_rbac_allows_assistant_only_for_operator_roles() -> None:
+    assert is_request_authorized("GET", "/assistant/capabilities", {"role": "ADMIN"})
+    assert is_request_authorized("POST", "/assistant/query", {"role": "ANALYST"})
+    assert not is_request_authorized("GET", "/assistant/capabilities", {"role": "VIEWER"})
+    assert not is_request_authorized("GET", "/assistant/unknown", {"role": "ADMIN"})
+
+
 def test_public_auth_paths_include_existing_public_endpoints() -> None:
     assert {"/auth/login", "/health", "/metrics", "/openapi.json"} <= PUBLIC_AUTH_PATHS

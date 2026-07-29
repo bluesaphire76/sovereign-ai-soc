@@ -126,6 +126,7 @@ def select_llama_cpp_profile(
         AiTask.COMMAND_ROOM.value,
         AiTask.DETECTION_QUALITY.value,
         AiTask.INCIDENT_ANALYSIS.value,
+        AiTask.SOC_ASSISTANT.value,
         "case_ai_analysis",
         "detection_quality_how_to_execute",
         "incident_ai_analysis",
