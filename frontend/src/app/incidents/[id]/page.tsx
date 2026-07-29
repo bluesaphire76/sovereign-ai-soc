@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import AppNavigation from "../../../components/AppNavigation";
+import ContextualAssistantPanel from "../../../components/assistant/ContextualAssistantPanel";
 import IncidentTimeline from "../../../components/incidents/IncidentTimeline";
 import InvestigationGraph from "../../../components/investigation-graph/InvestigationGraph";
 import GovernedRemediationPanel, {
@@ -3468,6 +3469,13 @@ function IncidentCommandCenterRefoundation({
               ) : null}
             </div>
           </CompactDisclosure>
+
+          <ContextualAssistantPanel
+            scope="incident"
+            targetId={incident.id}
+            targetLabel={`Incident #${incident.id}`}
+            userRole={currentUser?.role}
+          />
 
           {canOperate && (
             <CompactDisclosure

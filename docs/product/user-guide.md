@@ -46,6 +46,7 @@ Key areas:
 
 - Incident overview and lifecycle.
 - AI Command Brief.
+- Contextual, read-only SOC Assistant for grounded incident questions.
 - Risk rationale and evidence summary.
 - Advanced Incident Timeline.
 - Investigation Graph.
@@ -130,6 +131,7 @@ Case Detail supports:
 - SLA target and status.
 - Linked incidents.
 - Case AI analysis.
+- Contextual, read-only SOC Assistant for grounded case questions.
 - Persisted AI generation job status.
 - Recommended Playbooks.
 - Investigation Graph.
@@ -138,6 +140,25 @@ Case Detail supports:
 - Notes and audit trail.
 - Closure checklist and readiness.
 - Case report and evidence exports.
+
+## Contextual SOC Assistant
+
+ADMIN and ANALYST users can use the SOC Assistant from Incident Detail and Case
+Detail. Select a suggested question or enter one, choose the response mode,
+optionally include advisory semantic memory, and submit explicitly. Suggested
+questions never run automatically. Ctrl+Enter or Cmd+Enter submits; Enter adds
+a new line.
+
+Operational database sources are marked `AUTHORITATIVE`. Qdrant semantic-memory
+sources are marked `ADVISORY`, and similarity does not prove identity, cause,
+severity, or closure readiness. Source citations open only validated internal
+application paths. The response is read-only and cannot update incidents,
+cases, workflows, detection controls, or remediation decisions.
+
+The panel keeps only the latest question and response in memory while the
+current detail page is open. It has no conversation history, browser
+persistence, streaming, or autonomous actions. VIEWER users do not receive the
+interactive panel.
 
 ## Case Kanban
 

@@ -6,6 +6,7 @@ import { authFetch } from "@/lib/auth";
 import { Component, useCallback, useEffect, useMemo, useState, type ErrorInfo, type ReactNode } from "react";
 import Link from "next/link";
 import AppNavigation from "../../../components/AppNavigation";
+import ContextualAssistantPanel from "../../../components/assistant/ContextualAssistantPanel";
 import InvestigationGraph from "../../../components/investigation-graph/InvestigationGraph";
 import GovernedRemediationPanel, {
   type GovernedRemediationRecommendation,
@@ -2901,6 +2902,13 @@ function CaseDetailPageContent({ caseId }: { caseId: string }) {
                 </CaseAiAnalysisBoundary>
               )}
             </section>
+
+            <ContextualAssistantPanel
+              scope="case"
+              targetId={caseData.id}
+              targetLabel={`Case #${caseData.id}`}
+              userRole={currentUser?.role}
+            />
 
             <CaseCollapsibleSection
               id="case-workflow"
