@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from routers.auth import router as auth_router
+from routers.assistant import router as assistant_router
 from routers.detection_control import router as detection_control_router
 from routers.detection_quality import router as detection_quality_router
 from routers.demo_management import router as demo_management_router
@@ -37,6 +38,7 @@ def include_app_routers(app: FastAPI) -> None:
     app.middleware("http")(prometheus_metrics_middleware)
     app.include_router(metrics_router)
     app.include_router(auth_router)
+    app.include_router(assistant_router)
     app.include_router(users_router)
     app.include_router(security_audit_router)
     app.include_router(incidents_router)

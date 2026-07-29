@@ -6,6 +6,8 @@ from scripts.export_api_route_inventory import iter_api_routes
 CRITICAL_ROUTE_METHODS = {
     "/auth/login": {"POST"},
     "/auth/me": {"GET"},
+    "/assistant/capabilities": {"GET"},
+    "/assistant/query": {"POST"},
     "/users": {"GET", "POST"},
     "/security-audit/events": {"GET"},
     "/incidents": {"GET"},

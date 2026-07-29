@@ -28,6 +28,8 @@ def generate_ai_response(
     requested_mode: str | None = None,
     user_triggered: bool = False,
     timeout_seconds: float | None = None,
+    context: dict[str, Any] | None = None,
+    current_user: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not prompt and not messages:
         raise ValueError("prompt or messages is required")
@@ -54,7 +56,9 @@ def generate_ai_response(
             feature=feature,
             prompt=prompt,
             messages=messages,
+            context=context,
             options=_profile_options(profile=profile, timeout_seconds=timeout_seconds),
+            current_user=current_user,
         )
         if response.safe_error and _logical_provider_key(os.getenv("AI_LLM_FALLBACK_PROVIDER", "ollama")) == "local_ollama":
             logger.warning(
@@ -70,6 +74,8 @@ def generate_ai_response(
                 messages=messages,
                 profile_name=getattr(response, "profile", None) or profile.name,
                 timeout_seconds=timeout_seconds,
+                context=context,
+                current_user=current_user,
             )
             fallback["fallback_used"] = True
             fallback["error_type"] = response.safe_error
@@ -109,7 +115,9 @@ def generate_ai_response(
             feature=feature,
             prompt=prompt,
             messages=messages,
+            context=context,
             options=_profile_options(profile=profile, timeout_seconds=timeout_seconds),
+            current_user=current_user,
         )
         result = _provider_result(
             response=response,
@@ -135,6 +143,8 @@ def generate_ai_response(
         messages=messages,
         profile_name=profile_name,
         timeout_seconds=timeout_seconds,
+        context=context,
+        current_user=current_user,
     )
     _log_provider_selected(
         provider_key="local_ollama",
@@ -156,17 +166,26 @@ def _call_ollama_with_fallback(
     messages: list[dict[str, Any]] | None,
     profile_name: str,
     timeout_seconds: float | None,
+    context: dict[str, Any] | None = None,
+    current_user: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     started = time.monotonic()
     profile = get_profile(profile_name)
+    call_kwargs = {
+        "feature": feature,
+        "prompt": prompt,
+        "messages": messages,
+        "timeout_seconds": timeout_seconds,
+    }
+    if context is not None:
+        call_kwargs["context"] = context
+    if current_user is not None:
+        call_kwargs["current_user"] = current_user
 
     try:
         text = _call_ollama(
-            feature=feature,
-            prompt=prompt,
-            messages=messages,
+            **call_kwargs,
             profile=profile,
-            timeout_seconds=timeout_seconds,
         )
         return _result(
             text=text,
@@ -196,11 +215,8 @@ def _call_ollama_with_fallback(
 
         try:
             text = _call_ollama(
-                feature=feature,
-                prompt=prompt,
-                messages=messages,
+                **call_kwargs,
                 profile=fallback,
-                timeout_seconds=timeout_seconds,
             )
             return _result(
                 text=text,
@@ -226,6 +242,8 @@ def _call_ollama(
     messages: list[dict[str, Any]] | None,
     profile: LlmProfile,
     timeout_seconds: float | None,
+    context: dict[str, Any] | None = None,
+    current_user: dict[str, Any] | None = None,
 ) -> str:
     registry = load_provider_registry()
     config = registry.get("local_ollama")
@@ -238,8 +256,8 @@ def _call_ollama(
         registry=registry,
         prompt=prompt,
         messages=messages,
-        context=None,
-        current_user=None,
+        context=context,
+        current_user=current_user,
     )
     if not policy_decision.allowed:
         raise RuntimeError(policy_decision.reason or "AIDataPolicyDenied")
@@ -249,7 +267,7 @@ def _call_ollama(
         feature=feature,
         prompt=policy_decision.transformed_prompt,
         messages=policy_decision.transformed_messages,
-        context=None,
+        context=policy_decision.transformed_context,
         options=_profile_options(profile=profile, timeout_seconds=timeout_seconds),
         data_control={
             "redaction_mode": policy_decision.mode,

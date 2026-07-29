@@ -87,5 +87,5 @@ def test_executive_and_metrics_route_inventory_remains_stable() -> None:
         if item["path"] in EXECUTIVE_METRICS_ROUTE_METHODS
     }
 
-    assert len(inventory) == 171
+    assert len(inventory) == 173
     assert route_methods == EXECUTIVE_METRICS_ROUTE_METHODS

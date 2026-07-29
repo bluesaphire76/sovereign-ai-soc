@@ -55,6 +55,7 @@ LOCAL_FEATURE_ALLOWLIST = [
     "incident_command_brief",
     "command_room",
     "case_ai_analysis",
+    "soc_assistant",
     "detection_quality",
     "detection_quality_how_to_execute",
     "action_how_to",

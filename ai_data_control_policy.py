@@ -51,6 +51,7 @@ FEATURE_ALIASES = {
     "detection_quality_how_to_execute": "how_to_execute",
     "executive_summary": "executive_insights",
     "incident_analysis": "incident_ai_analysis",
+    "assistant": "soc_assistant",
     "remediation": "remediation_planning",
     "remediation_explanation": "remediation_planning",
     "report": "report_generation",
@@ -77,6 +78,11 @@ FEATURE_DEFINITIONS: list[dict[str, str]] = [
         "feature_key": "case_ai_analysis",
         "display_name": "Case AI analysis",
         "description": "Case-level AI summaries and closure support.",
+    },
+    {
+        "feature_key": "soc_assistant",
+        "display_name": "SOC assistant",
+        "description": "Grounded SOC assistant decision support.",
     },
     {
         "feature_key": "recommended_actions",

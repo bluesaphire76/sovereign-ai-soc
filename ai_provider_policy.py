@@ -26,6 +26,7 @@ TASK_FEATURE_MAP = {
     AiTask.INCIDENT_TRIAGE.value: "incident_triage",
     AiTask.INCIDENT_ANALYSIS.value: "incident_ai_analysis",
     AiTask.COMMAND_ROOM.value: "incident_command_brief",
+    AiTask.SOC_ASSISTANT.value: "soc_assistant",
     AiTask.CASE_ANALYSIS.value: "case_ai_analysis",
     AiTask.DETECTION_QUALITY.value: "detection_quality_how_to_execute",
     AiTask.ACTION_HOW_TO.value: "detection_quality_how_to_execute",

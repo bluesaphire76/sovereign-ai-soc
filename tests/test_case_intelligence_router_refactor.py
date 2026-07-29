@@ -98,7 +98,7 @@ def test_case_intelligence_route_inventory_remains_stable() -> None:
         if item["path"] in CASE_INTELLIGENCE_ROUTE_METHODS:
             route_methods.setdefault(str(item["path"]), set()).update(item["methods"])
 
-    assert len(inventory) == 171
+    assert len(inventory) == 173
     assert route_methods == CASE_INTELLIGENCE_ROUTE_METHODS
 
 
