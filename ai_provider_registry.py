@@ -528,7 +528,18 @@ def resolve_provider_config_path(path: str | None = None) -> Path:
     return config_path
 
 
+def _is_sensitive_metadata_key(key: str) -> bool:
+    normalized = key.strip().lower()
+    sensitive_markers = ("password", "passwd", "secret", "token", "api_key", "apikey", "auth")
+    return any(marker in normalized for marker in sensitive_markers)
+
+
 def _provider_file_item(config: ProviderConfig) -> dict[str, Any]:
+    sanitized_metadata = {
+        str(k): v
+        for k, v in dict(config.metadata).items()
+        if not _is_sensitive_metadata_key(str(k))
+    }
     item: dict[str, Any] = {
         "key": config.key,
         "type": config.provider_type,
@@ -541,7 +552,7 @@ def _provider_file_item(config: ProviderConfig) -> dict[str, Any]:
         "max_tokens": config.max_tokens,
         "feature_allowlist": list(config.feature_allowlist),
         "redaction_mode": config.redaction_mode,
-        "metadata": dict(config.metadata),
+        "metadata": sanitized_metadata,
     }
     api_key_env = config.metadata.get("api_key_env")
     if api_key_env:
