@@ -33,7 +33,7 @@ PROVIDER_ERROR_CODES = {
 SOC_ASSISTANT_VISIBLE_MAX_TOKENS_DEFAULT = 384
 SOC_ASSISTANT_QUALITY_VISIBLE_MAX_TOKENS_DEFAULT = 512
 SOC_ASSISTANT_VISIBLE_MAX_TOKENS_MIN = 256
-SOC_ASSISTANT_VISIBLE_MAX_TOKENS_MAX = 384
+SOC_ASSISTANT_VISIBLE_MAX_TOKENS_MAX = 768
 SOC_ASSISTANT_QUALITY_VISIBLE_MAX_TOKENS_MAX = 512
 
 
@@ -51,6 +51,8 @@ def normalize_provider_error(value: Any) -> str | None:
         return "empty_visible_content"
     if "modelwarmingtimeout" in normalized or "model_warming_timeout" in normalized:
         return "model_warming_timeout"
+    if "structuredoutputrejected" in normalized:
+        return "invalid_response"
     if any(token in normalized for token in ("timeout", "timed_out", "readtimeout")):
         return "timeout"
     if any(
@@ -118,6 +120,7 @@ def generate_ai_response(
     allow_provider_fallback: bool = True,
     force_local_llama_cpp: bool = False,
     temperature: float | None = None,
+    response_format: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not prompt and not messages:
         raise ValueError("prompt or messages is required")
@@ -171,7 +174,9 @@ def generate_ai_response(
                     if assistant_reasoning_disabled
                     else None
                 ),
-                reasoning_retry_allowed=assistant_reasoning_disabled,
+                reasoning_retry_allowed=(
+                    assistant_reasoning_disabled and response_format is None
+                ),
                 qwen_no_think_compatibility=assistant_reasoning_disabled,
                 caller_kind=(
                     str((context or {}).get("caller_kind") or "")
@@ -184,6 +189,7 @@ def generate_ai_response(
                     else None
                 ),
                 temperature=temperature,
+                response_format=response_format,
             ),
             current_user=current_user,
             registry=registry,
@@ -364,6 +370,7 @@ def generate_ai_response(
                 timeout_seconds=timeout_seconds,
                 deadline_monotonic=deadline_monotonic,
                 availability_timeout_seconds=availability_timeout_seconds,
+                response_format=response_format,
             ),
             current_user=current_user,
             registry=registry,
@@ -715,6 +722,7 @@ def _profile_options(
     caller_kind: str | None = None,
     request_id_hash: str | None = None,
     temperature: float | None = None,
+    response_format: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     options = {
         "model": profile.model,
@@ -746,6 +754,8 @@ def _profile_options(
         options["caller_kind"] = caller_kind
     if request_id_hash and re.fullmatch(r"[a-f0-9]{8,64}", request_id_hash):
         options["request_id_hash"] = request_id_hash
+    if response_format is not None:
+        options["response_format"] = dict(response_format)
     return options
 
 

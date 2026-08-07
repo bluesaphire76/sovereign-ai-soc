@@ -13,10 +13,12 @@ from services.ai_execution.contracts import (
     AiExecutionRequest,
     AiExecutionResponse,
     GatewayStatus,
+    StructuredOutputSchema,
 )
 from services.ai_execution.errors import (
     AiExecutionError,
     GatewayDeadlineExceeded,
+    GatewayInvalidRequest,
     GatewayMalformedResponse,
     GatewayQueueFull,
     GatewayUnavailable,
@@ -93,9 +95,15 @@ class AiExecutionClient:
                     raise GatewayQueueFull()
                 if response.status_code == 504:
                     raise GatewayDeadlineExceeded()
+                if response.status_code == 422:
+                    raise GatewayInvalidRequest()
                 response.raise_for_status()
                 data = response.json()
-        except (GatewayQueueFull, GatewayDeadlineExceeded):
+        except (
+            GatewayQueueFull,
+            GatewayDeadlineExceeded,
+            GatewayInvalidRequest,
+        ):
             raise
         except (httpx.HTTPError, OSError, ValueError) as exc:
             raise GatewayUnavailable() from exc
@@ -168,6 +176,7 @@ def generate_ai_response(
     context: dict[str, Any] | None = None,
     current_user: dict[str, Any] | None = None,
     output_schema: str = "text_v1",
+    structured_output_schema: dict[str, Any] | None = None,
     client: AiExecutionClient | None = None,
 ) -> dict[str, Any]:
     del severity, fallback_timeout_seconds, availability_timeout_seconds
@@ -209,6 +218,14 @@ def generate_ai_response(
         system_instructions=system,
         input=input_text,
         output_schema=output_schema,
+        structured_output_schema=(
+            StructuredOutputSchema(
+                name=output_schema,
+                schema_document=structured_output_schema,
+            )
+            if structured_output_schema is not None
+            else None
+        ),
         max_output_tokens=_max_output_tokens(max_visible_tokens),
         temperature=0,
     )
@@ -219,6 +236,7 @@ def generate_ai_response(
         GatewayUnavailable,
         GatewayQueueFull,
         GatewayDeadlineExceeded,
+        GatewayInvalidRequest,
         GatewayMalformedResponse,
     ) as exc:
         safe_error = exc.safe_error

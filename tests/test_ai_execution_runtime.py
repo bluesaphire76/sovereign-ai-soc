@@ -6,6 +6,7 @@ import time
 
 import pytest
 
+from services.assistant.claims import grounded_claim_output_schema
 from services.ai_execution.contracts import AiExecutionRequest
 from services.ai_execution.runtime import GatewayModelRuntime
 
@@ -77,7 +78,10 @@ def _prewarm_result(
     }
 
 
-def _request() -> AiExecutionRequest:
+def _request(
+    *,
+    output_schema: str = "assistant_grounded_v1",
+) -> AiExecutionRequest:
     return AiExecutionRequest(
         task="soc_assistant",
         priority="interactive",
@@ -85,7 +89,15 @@ def _request() -> AiExecutionRequest:
         deadline_ms=30000,
         system_instructions="Return JSON only.",
         input="Explain.",
-        output_schema="assistant_grounded_v1",
+        output_schema=output_schema,
+        structured_output_schema=(
+            {
+                "name": "assistant_grounded_v2",
+                "schema_document": grounded_claim_output_schema(),
+            }
+            if output_schema == "assistant_grounded_v2"
+            else None
+        ),
         max_output_tokens=384,
         temperature=0,
     )
@@ -274,3 +286,159 @@ def test_generation_forces_local_llama_standard_zero_temperature(
     assert calls[0]["force_local_llama_cpp"] is True
     assert calls[0]["temperature"] == 0
     assert calls[0]["context"]["disable_reasoning"] is True
+    assert calls[0]["response_format"] == {"type": "json_object"}
+
+
+def test_v2_generation_passes_closed_json_schema_once(monkeypatch) -> None:
+    monkeypatch.setenv("AI_EXECUTION_MODE", "gateway")
+    monkeypatch.setenv("AI_INFERENCE_PROFILE", "standard")
+    calls = []
+    model_output = {
+        "claims": [
+            {
+                "claim_type": "RECORDED_FACT",
+                "field": "risk_score",
+                "value": 35,
+                "provenance": "recorded_operational",
+                "source_ids": ["S1"],
+            }
+        ],
+        "next_check": None,
+        "limitations": [],
+        "used_advisory_context": False,
+    }
+
+    def generate(**kwargs):
+        calls.append(kwargs)
+        import json
+
+        return {
+            "text": json.dumps(model_output),
+            "finish_reason": "stop",
+            "provider_diagnostics": {},
+        }
+
+    monkeypatch.setattr(
+        "services.ai_execution.runtime.generate_with_provider",
+        generate,
+    )
+    runtime = GatewayModelRuntime()
+    runtime._set_state("ready", "ready")
+
+    response = asyncio.run(
+        runtime.generate(
+            _request(output_schema="assistant_grounded_v2"),
+            time.monotonic() + 5,
+        )
+    )
+
+    assert response.status == "success"
+    assert response.output == model_output
+    assert len(calls) == 1
+    response_format = calls[0]["response_format"]
+    assert response_format["type"] == "json_schema"
+    assert response_format["json_schema"]["name"] == "assistant_grounded_v2"
+    assert response_format["json_schema"]["strict"] is True
+    assert response_format["json_schema"]["schema"] == (
+        grounded_claim_output_schema()
+    )
+
+
+@pytest.mark.parametrize(
+    ("output_schema", "model_text", "expected_output", "expected_format"),
+    [
+        ("text_v1", "Visible answer.", "Visible answer.", None),
+        ("json_v1", '{"ok":true}', {"ok": True}, {"type": "json_object"}),
+        (
+            "assistant_grounded_v1",
+            '{"direct_answer":"ok"}',
+            {"direct_answer": "ok"},
+            {"type": "json_object"},
+        ),
+    ],
+)
+def test_legacy_output_schemas_remain_compatible(
+    monkeypatch,
+    output_schema,
+    model_text,
+    expected_output,
+    expected_format,
+) -> None:
+    calls = []
+
+    def generate(**kwargs):
+        calls.append(kwargs)
+        return {
+            "text": model_text,
+            "finish_reason": "stop",
+            "provider_diagnostics": {},
+        }
+
+    monkeypatch.setattr(
+        "services.ai_execution.runtime.generate_with_provider",
+        generate,
+    )
+    runtime = GatewayModelRuntime()
+    runtime._set_state("ready", "ready")
+
+    response = asyncio.run(
+        runtime.generate(
+            _request(output_schema=output_schema),
+            time.monotonic() + 5,
+        )
+    )
+
+    assert response.status == "success"
+    assert response.output == expected_output
+    assert calls[0]["response_format"] == expected_format
+
+
+def test_malformed_and_provider_failed_outputs_remain_fail_closed(
+    monkeypatch,
+) -> None:
+    results = iter(
+        [
+            {
+                "text": "{not-json",
+                "finish_reason": "stop",
+                "provider_diagnostics": {},
+            },
+            {
+                "text": '{"claims":[]}',
+                "finish_reason": "stop",
+                "safe_error": "LlamaCppStructuredOutputRejected",
+                "error_type": "LlamaCppStructuredOutputRejected",
+                "provider_status": "invalid_response",
+                "provider_diagnostics": {},
+            },
+        ]
+    )
+    calls = 0
+
+    def generate(**kwargs):
+        nonlocal calls
+        calls += 1
+        return next(results)
+
+    monkeypatch.setattr(
+        "services.ai_execution.runtime.generate_with_provider",
+        generate,
+    )
+    runtime = GatewayModelRuntime()
+    runtime._set_state("ready", "ready")
+    request = _request(output_schema="assistant_grounded_v2")
+
+    malformed = asyncio.run(
+        runtime.generate(request, time.monotonic() + 5)
+    )
+    provider_failed = asyncio.run(
+        runtime.generate(request, time.monotonic() + 5)
+    )
+
+    assert malformed.status == "invalid_response"
+    assert malformed.safe_error == "invalid_json"
+    assert malformed.output is None
+    assert provider_failed.status == "failed"
+    assert provider_failed.safe_error == "invalid_visible_output"
+    assert provider_failed.output is None
+    assert calls == 2

@@ -28,6 +28,7 @@ from services.ai_execution.metrics import (
     GROUNDING_REJECTIONS,
 )
 from services.assistant.context_builder import build_assistant_context
+from services.assistant.claims import grounded_claim_output_schema
 from services.assistant.focus import (
     SemanticFocusRouter,
     build_focused_fact_view,
@@ -113,7 +114,7 @@ class AssistantSettings:
     semantic_limit: int = 4
     semantic_timeout_seconds: float = 2.0
     request_timeout_seconds: float = 30.0
-    max_output_tokens: int = 384
+    max_output_tokens: int = 768
 
 
 class AssistantError(Exception):
@@ -196,7 +197,7 @@ def get_assistant_settings() -> AssistantSettings:
         ),
         max_output_tokens=_env_int(
             "AI_INFERENCE_MAX_OUTPUT_TOKENS",
-            384,
+            768,
             minimum=64,
             maximum=2048,
         ),
@@ -255,11 +256,19 @@ def _fallback_reason(result: dict[str, Any]) -> AssistantFallbackReason:
         or result.get("provider_status")
         or ""
     ).lower()
-    if "deadline" in safe_error or "queue_full" in safe_error:
+    if safe_error in {"queue_deadline_exceeded", "queue_full"}:
         return "queue_deadline_exceeded"
-    if "timeout" in safe_error:
+    if safe_error == "generation_timeout" or "timeout" in safe_error:
         return "generation_timeout"
-    if "gateway" in safe_error or "unavailable" in safe_error:
+    if safe_error == "invalid_visible_output":
+        return "invalid_visible_output"
+    if safe_error == "invalid_json":
+        return "invalid_json"
+    if safe_error == "invalid_json_type":
+        return "invalid_json_type"
+    if safe_error == "invalid_structured_claim_schema":
+        return "invalid_structured_claim_schema"
+    if safe_error == "gateway_unavailable" or "unavailable" in safe_error:
         return "gateway_unavailable"
     return "invalid_structured_output"
 
@@ -500,6 +509,13 @@ def run_assistant_query(
                 "focus_degraded": focus_selection.focus_degraded,
             },
             output_schema="assistant_grounded_v2",
+            structured_output_schema=grounded_claim_output_schema(
+                fact_inventory=focused_fact_inventory,
+                allow_advisory=any(
+                    source.authority == "advisory"
+                    for source in candidate_sources
+                ),
+            ),
         )
 
     structured = result.get("structured_output")
@@ -517,17 +533,12 @@ def run_assistant_query(
         "max_tokens",
         "token_limit",
     }
-    if (
-        output is None
-        or truncated
-        or result.get("safe_error")
-        or result.get("error_type")
-    ):
-        fallback_reason = (
-            _fallback_reason(result)
-            if result.get("safe_error") or result.get("error_type")
-            else "invalid_structured_output"
-        )
+    if result.get("safe_error") or result.get("error_type"):
+        fallback_reason = _fallback_reason(result)
+    elif output is None:
+        fallback_reason = "invalid_structured_claim_schema"
+    elif truncated:
+        fallback_reason = "invalid_structured_output"
     else:
         grounding = validate_grounded_output(
             output,

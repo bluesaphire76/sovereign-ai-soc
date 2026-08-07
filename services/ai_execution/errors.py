@@ -21,5 +21,9 @@ class GatewayMalformedResponse(AiExecutionError):
     safe_error = "malformed_gateway_response"
 
 
+class GatewayInvalidRequest(AiExecutionError):
+    safe_error = "invalid_gateway_request"
+
+
 class GatewayShuttingDown(AiExecutionError):
     safe_error = "gateway_shutting_down"
