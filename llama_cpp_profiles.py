@@ -58,6 +58,21 @@ def llama_cpp_profile_models() -> dict[str, str]:
     }
 
 
+def llama_cpp_profile_model_family(profile: str | None) -> str:
+    normalized = normalize_llama_cpp_profile(profile)
+    env_names = {
+        "fast": "LLAMA_CPP_FAST_MODEL_FAMILY",
+        "standard": "LLAMA_CPP_STANDARD_MODEL_FAMILY",
+        "quality": "LLAMA_CPP_QUALITY_MODEL_FAMILY",
+    }
+    defaults = {
+        "fast": "qwen3",
+        "standard": "qwen3",
+        "quality": "llama",
+    }
+    return _env_str(env_names[normalized], defaults[normalized]).lower()
+
+
 def llama_cpp_profile_timeout(profile: str) -> int:
     normalized = normalize_llama_cpp_profile(profile)
     env_names = {

@@ -61,5 +61,5 @@ def test_platform_ingest_route_inventory_remains_stable() -> None:
         if item["path"] in PLATFORM_INGEST_ROUTE_METHODS
     }
 
-    assert len(inventory) == 173
+    assert len(inventory) == 176
     assert route_methods == PLATFORM_INGEST_ROUTE_METHODS

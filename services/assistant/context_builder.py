@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
+from typing import Any
 
 from services.assistant.sources import SourceRecord
 
@@ -11,71 +13,97 @@ class ContextBuildResult:
     limitations: list[str] = field(default_factory=list)
 
 
-def _bounded(value: str, *, max_chars: int) -> tuple[str, bool]:
-    text = str(value or "").strip()
+def _bounded_text(value: Any, *, max_chars: int) -> str:
+    text = " ".join(str(value or "").split())
     if len(text) <= max_chars:
-        return text, False
-    return f"{text[: max_chars - 3].rstrip()}...", True
+        return text
+    return f"{text[: max_chars - 3].rstrip()}..."
 
 
-def _format_source(record: SourceRecord, *, max_excerpt_chars: int) -> tuple[str, bool]:
-    excerpt, truncated = _bounded(record.excerpt, max_chars=max_excerpt_chars)
-    score = f", semantic_score={record.score:.3f}" if isinstance(record.score, (int, float)) else ""
-    section = f", section={record.section}" if record.section else ""
-    header = (
-        f"[{record.source_id}] {record.source_type}; "
-        f"authority={record.authority}; label={record.label}{score}{section}"
-    )
-    return f"{header}\n{excerpt}", truncated
+def _bounded_facts(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _bounded_facts(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_bounded_facts(item) for item in value[:10]]
+    if isinstance(value, str):
+        return _bounded_text(value, max_chars=1000)
+    return value
 
 
 def build_assistant_context(
     *,
     message: str,
+    fact_inventory: dict[str, Any],
     sources: list[SourceRecord],
     max_context_chars: int,
-    max_excerpt_chars: int = 1200,
 ) -> ContextBuildResult:
+    limit = max(1000, min(int(max_context_chars), 24000))
     limitations: list[str] = []
-    authoritative = [source for source in sources if source.authority == "authoritative"]
-    advisory = [source for source in sources if source.authority == "advisory"]
-
-    lines = [
-        "AUTHORITATIVE OPERATIONAL FACTS",
+    authoritative_facts = _bounded_facts(fact_inventory)
+    advisory = [
+        {
+            "source_id": source.source_id,
+            "source_type": source.source_type,
+            "label": _bounded_text(source.label, max_chars=160),
+            "section": _bounded_text(source.section, max_chars=160)
+            if source.section
+            else None,
+            "text": _bounded_text(source.excerpt, max_chars=500),
+        }
+        for source in sources
+        if source.authority == "advisory"
     ]
-    if not authoritative:
-        lines.append("No exact operational records were retrieved.")
+    allowed_sources = [
+        {
+            "source_id": source.source_id,
+            "source_type": source.source_type,
+            "authority": source.authority,
+            "label": _bounded_text(source.label, max_chars=160),
+        }
+        for source in sources
+        if source.source_id
+    ]
+    payload = {
+        "authoritative_facts": authoritative_facts,
+        "advisory_context": advisory,
+        "allowed_sources": allowed_sources,
+        "analyst_question": _bounded_text(message, max_chars=2000),
+    }
 
-    for source in authoritative:
-        block, truncated = _format_source(source, max_excerpt_chars=max_excerpt_chars)
-        lines.extend(["", block])
-        if truncated:
-            limitations.append(f"{source.source_id} was truncated to fit the per-source context budget.")
-
-    lines.extend(["", "ADVISORY SEMANTIC MEMORY"])
-    if not advisory:
-        lines.append("No advisory semantic memory was retrieved.")
-
-    for source in advisory:
-        block, truncated = _format_source(source, max_excerpt_chars=max_excerpt_chars)
-        lines.extend(["", block])
-        if truncated:
-            limitations.append(f"{source.source_id} was truncated to fit the per-source context budget.")
-
-    lines.extend(
-        [
-            "",
-            "USER QUESTION",
-            message,
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    while advisory and len(encoded) > limit:
+        removed = advisory.pop()
+        allowed_sources[:] = [
+            source
+            for source in allowed_sources
+            if source["source_id"] != removed["source_id"]
         ]
-    )
+        limitations.append(
+            "Advisory semantic context was abbreviated to preserve authoritative facts."
+        )
+        encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True)
 
-    context = "\n".join(lines)
-    bounded_context, truncated_context = _bounded(
-        context,
-        max_chars=max(1000, min(max_context_chars, 24000)),
-    )
-    if truncated_context:
-        limitations.append("Assistant context was truncated to fit the configured context budget.")
+    if len(encoded) > limit:
+        for key in (
+            "latest_stored_analysis",
+            "closure",
+            "linked_incidents",
+            "latest_actions",
+            "attack_chain",
+            "escalation_reason",
+            "correlation_summary",
+            "summary",
+        ):
+            if key not in authoritative_facts:
+                continue
+            authoritative_facts[key] = None
+            limitations.append(
+                "Some long-form authoritative context was omitted from the model prompt."
+            )
+            encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+            if len(encoded) <= limit:
+                break
 
-    return ContextBuildResult(context=bounded_context, limitations=limitations)
+    if len(encoded) > limit:
+        raise ValueError("authoritative fact inventory exceeds context budget")
+    return ContextBuildResult(context=encoded, limitations=list(dict.fromkeys(limitations)))

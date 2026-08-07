@@ -8,10 +8,9 @@ import requests
 
 from ai_model_config import PROFILES, get_profile
 from ai_model_policy import AiTask
-from ai_provider_abstraction import build_provider_client
-from ai_provider_policy import health_to_dict
 from ai_provider_registry import load_provider_registry
-from llm_client import generate_ai_response
+from services.ai_execution.client import AiExecutionClient, generate_ai_response
+from services.ai_execution.errors import AiExecutionError
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
 OLLAMA_MODEL = get_profile("standard").model
@@ -147,7 +146,7 @@ def _safe_ollama_runtime_snapshot() -> dict[str, Any]:
         }
 
 
-def run_optional_ollama_chat_probe() -> dict[str, Any] | None:
+def run_optional_gateway_generation_probe() -> dict[str, Any] | None:
     if not AI_RUNTIME_HEALTH_CHAT_ENABLED:
         return None
 
@@ -160,7 +159,7 @@ def run_optional_ollama_chat_probe() -> dict[str, Any] | None:
             }
         ],
         task=AiTask.ROUTING,
-        requested_mode="fast",
+        requested_mode="standard",
         user_triggered=False,
         timeout_seconds=AI_RUNTIME_HEALTH_CHAT_TIMEOUT_SECONDS,
     )
@@ -179,55 +178,53 @@ def run_optional_ollama_chat_probe() -> dict[str, Any] | None:
 
 def get_ai_runtime_health_details() -> dict[str, Any]:
     snapshot = _safe_ollama_runtime_snapshot()
-    chat_probe = run_optional_ollama_chat_probe()
+    chat_probe = run_optional_gateway_generation_probe()
 
     if chat_probe is not None:
         snapshot["chat_probe"] = chat_probe
 
     registry = load_provider_registry()
-    fallback_provider = _logical_provider_key(os.getenv("AI_LLM_FALLBACK_PROVIDER", "ollama"))
-    provider_health = [
-        health_to_dict(build_provider_client(config).health_check())
-        for config in registry.providers.values()
-    ]
-    active_provider = registry.get(registry.default_provider)
-    fallback_config = registry.get(fallback_provider)
-    active_provider_health = next(
-        (
-            item
-            for item in provider_health
-            if item.get("provider_key") == registry.default_provider
+    try:
+        gateway_status = AiExecutionClient().status()
+        reachable = True
+        gateway_error = None
+    except AiExecutionError as exc:
+        gateway_status = None
+        reachable = False
+        gateway_error = exc.safe_error
+    active_provider_health = {
+        "provider_key": "ai_execution_gateway",
+        "provider_type": "INFERENCE_GATEWAY",
+        "configured_model": "ai-soc-standard",
+        "configured": True,
+        "enabled": True,
+        "reachable": reachable,
+        "model_available": bool(
+            gateway_status and gateway_status.state == "ready"
         ),
-        None,
-    )
-    fallback_provider_health = next(
-        (
-            item
-            for item in provider_health
-            if item.get("provider_key") == fallback_provider
+        "latency_ms": None,
+        "safe_message": (
+            gateway_status.message
+            if gateway_status
+            else "Inference gateway is unavailable."
         ),
-        None,
-    )
-
+        "safe_error": gateway_error,
+    }
+    provider_health = [active_provider_health]
+    fallback_provider_health = None
     snapshot["active_provider"] = {
-        "provider_key": active_provider.key,
-        "provider_type": active_provider.provider_type,
-        "model": active_provider.model,
-        "external": active_provider.external,
-        "redaction_mode": active_provider.redaction_mode,
-    } if active_provider else None
-    snapshot["fallback_provider"] = {
-        "provider_key": fallback_config.key,
-        "provider_type": fallback_config.provider_type,
-        "model": fallback_config.model,
-        "external": fallback_config.external,
-        "redaction_mode": fallback_config.redaction_mode,
-    } if fallback_config else {"provider_key": fallback_provider}
+        "provider_key": "ai_execution_gateway",
+        "provider_type": "INFERENCE_GATEWAY",
+        "model": "ai-soc-standard",
+        "external": False,
+        "redaction_mode": "LOCAL_ONLY",
+    }
+    snapshot["fallback_provider"] = None
     snapshot["active_provider_health"] = active_provider_health
     snapshot["fallback_provider_health"] = fallback_provider_health
     snapshot["provider_registry"] = {
-        "default_provider": registry.default_provider,
-        "fallback_provider": fallback_provider,
+        "default_provider": "ai_execution_gateway",
+        "fallback_provider": None,
         "active_provider": snapshot["active_provider"],
         "fallback_provider_details": snapshot["fallback_provider"],
         "active_provider_health": active_provider_health,

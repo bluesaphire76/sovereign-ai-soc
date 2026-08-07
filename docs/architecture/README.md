@@ -8,10 +8,15 @@
 - [Security model](security-model.md)
 - [Current RBAC permission matrix](permission-matrix-v0.3.md)
 
-## v0.7 Implemented Architecture
+## v0.8 Implemented Architecture
 
+- [AI Execution Gateway](v0.8-ai-execution-gateway.md)
+- [Grounded Assistant Response](v0.8-ai-assistant-grounded-response.md)
 - [Contextual AI Assistant UI](v0.8-ai-assistant-contextual-ui.md)
 - [AI Assistant Foundation](v0.8-ai-assistant-foundation.md)
+
+## v0.7 Implemented Architecture
+
 - [Advanced Incident Timeline](v0.7-advanced-incident-timeline.md)
 - [Investigation Graph](v0.7-investigation-graph.md)
 - [External AI provider abstraction](v0.7-external-ai-provider-abstraction.md)

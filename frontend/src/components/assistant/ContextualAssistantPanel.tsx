@@ -74,6 +74,27 @@ function capabilityBadge(
       className: "border-slate-700 text-slate-400",
     };
   }
+  if (capabilities.runtime_state === "warming") {
+    return {
+      label: "WARMING",
+      className: "border-amber-800 text-amber-300",
+    };
+  }
+  if (capabilities.runtime_state === "ready") {
+    return {
+      label: "READY",
+      className: "border-emerald-800 text-emerald-300",
+    };
+  }
+  if (
+    capabilities.runtime_state === "failed" ||
+    capabilities.runtime_state === "stopped"
+  ) {
+    return {
+      label: "UNAVAILABLE",
+      className: "border-amber-900 text-amber-300",
+    };
+  }
   return {
     label: "AVAILABLE",
     className: "border-emerald-800 text-emerald-300",
@@ -365,6 +386,17 @@ function ContextualAssistantPanelContent({
             >
               {badge.label}
             </span>
+            {!capabilitiesLoading && capabilities ? (
+              <button
+                type="button"
+                onClick={() => void handleRetryCapabilities()}
+                className="inline-flex h-7 w-7 items-center justify-center border border-slate-700 text-slate-400 hover:border-cyan-800 hover:text-cyan-200"
+                aria-label="Refresh Assistant readiness"
+                title="Refresh Assistant readiness"
+              >
+                <RefreshCw aria-hidden="true" className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
           </div>
           <p className="mt-2 max-w-4xl text-xs leading-5 text-slate-400">
             Grounded analyst support using authoritative platform records and
@@ -374,6 +406,11 @@ function ContextualAssistantPanelContent({
             {capabilities?.decision_boundary ??
               "Platform records remain authoritative. AI output supports human review and cannot perform operational actions."}
           </p>
+          {capabilities?.runtime_message ? (
+            <p className="mt-1 max-w-4xl text-[11px] leading-5 text-slate-400">
+              {capabilities.runtime_message}
+            </p>
+          ) : null}
         </div>
       </div>
 

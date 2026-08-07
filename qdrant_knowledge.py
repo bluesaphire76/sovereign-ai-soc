@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import math
 import os
 import re
+import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 from uuid import NAMESPACE_URL, uuid5
 
 from investigation_ai.adapters import safe_text
@@ -72,6 +75,127 @@ DEFAULT_MEMORY_UPSERT_BATCH_SIZE = 256
 class EmbeddingModel(Protocol):
     def encode(self, text: str) -> Any:
         ...
+
+
+class SemanticEmbeddingNotReady(RuntimeError):
+    def __init__(self, cache_state: str) -> None:
+        super().__init__("SemanticEmbeddingNotReady")
+        self.cache_state = cache_state
+
+
+class SemanticRetrievalTimeout(TimeoutError):
+    def __init__(self, phase: str) -> None:
+        super().__init__("SemanticRetrievalTimeout")
+        self.phase = phase
+
+
+_EMBEDDING_CONDITION = threading.Condition()
+_EMBEDDING_ENCODERS: dict[str, EmbeddingModel] = {}
+_EMBEDDING_PREWARM_THREAD: threading.Thread | None = None
+_EMBEDDING_PREWARM_MODEL: str | None = None
+_EMBEDDING_PREWARM_STATE = "cold"
+_EMBEDDING_PREWARM_ELAPSED_MS: int | None = None
+_EMBEDDING_PREWARM_ERROR: str | None = None
+
+
+def _local_embedding_loader(model_name: str) -> EmbeddingModel:
+    from sentence_transformers import SentenceTransformer
+
+    return SentenceTransformer(model_name, local_files_only=True)
+
+
+def embedding_runtime_snapshot(model_name: str | None = None) -> dict[str, Any]:
+    resolved_model = model_name or config_from_env().embedding_model
+    with _EMBEDDING_CONDITION:
+        ready = resolved_model in _EMBEDDING_ENCODERS
+        state = "warm" if ready else _EMBEDDING_PREWARM_STATE
+        return {
+            "embedding_backend": "sentence_transformers_local",
+            "embedding_cache_state": state,
+            "embedding_ready": ready,
+            "embedding_prewarm_elapsed_ms": _EMBEDDING_PREWARM_ELAPSED_MS,
+            "embedding_error_category": _EMBEDDING_PREWARM_ERROR,
+        }
+
+
+def start_embedding_prewarm(
+    *,
+    model_name: str | None = None,
+    loader: Callable[[str], EmbeddingModel] | None = None,
+) -> bool:
+    global _EMBEDDING_PREWARM_THREAD, _EMBEDDING_PREWARM_MODEL
+    global _EMBEDDING_PREWARM_STATE, _EMBEDDING_PREWARM_ELAPSED_MS
+    global _EMBEDDING_PREWARM_ERROR
+
+    resolved_model = model_name or config_from_env().embedding_model
+    with _EMBEDDING_CONDITION:
+        if resolved_model in _EMBEDDING_ENCODERS:
+            return False
+        if (
+            _EMBEDDING_PREWARM_THREAD is not None
+            and _EMBEDDING_PREWARM_THREAD.is_alive()
+        ):
+            return False
+        _EMBEDDING_PREWARM_MODEL = resolved_model
+        _EMBEDDING_PREWARM_STATE = "loading"
+        _EMBEDDING_PREWARM_ELAPSED_MS = None
+        _EMBEDDING_PREWARM_ERROR = None
+
+        selected_loader = loader or _local_embedding_loader
+
+        def load_embedding() -> None:
+            global _EMBEDDING_PREWARM_STATE, _EMBEDDING_PREWARM_ELAPSED_MS
+            global _EMBEDDING_PREWARM_ERROR
+
+            started = time.monotonic()
+            try:
+                encoder = selected_loader(resolved_model)
+            except Exception as exc:
+                with _EMBEDDING_CONDITION:
+                    _EMBEDDING_PREWARM_STATE = "unavailable"
+                    _EMBEDDING_PREWARM_ERROR = exc.__class__.__name__
+                    _EMBEDDING_PREWARM_ELAPSED_MS = int(
+                        (time.monotonic() - started) * 1000
+                    )
+                    _EMBEDDING_CONDITION.notify_all()
+                logger.warning(
+                    "semantic_embedding_prewarm_failed backend=%s reason=%s elapsed_ms=%s",
+                    "sentence_transformers_local",
+                    exc.__class__.__name__,
+                    _EMBEDDING_PREWARM_ELAPSED_MS,
+                )
+                return
+
+            with _EMBEDDING_CONDITION:
+                _EMBEDDING_ENCODERS[resolved_model] = encoder
+                _EMBEDDING_PREWARM_STATE = "warm"
+                _EMBEDDING_PREWARM_ERROR = None
+                _EMBEDDING_PREWARM_ELAPSED_MS = int(
+                    (time.monotonic() - started) * 1000
+                )
+                _EMBEDDING_CONDITION.notify_all()
+            logger.info(
+                "semantic_embedding_prewarm_ready backend=%s elapsed_ms=%s",
+                "sentence_transformers_local",
+                _EMBEDDING_PREWARM_ELAPSED_MS,
+            )
+
+        thread = threading.Thread(
+            target=load_embedding,
+            name="assistant-semantic-embedding-prewarm",
+            daemon=True,
+        )
+        _EMBEDDING_PREWARM_THREAD = thread
+        thread.start()
+        return True
+
+
+def stop_embedding_prewarm(*, join_timeout_seconds: float = 0.1) -> bool:
+    with _EMBEDDING_CONDITION:
+        thread = _EMBEDDING_PREWARM_THREAD
+    if thread is not None:
+        thread.join(timeout=max(0.0, join_timeout_seconds))
+    return thread is None or not thread.is_alive()
 
 
 @dataclass(frozen=True)
@@ -655,9 +779,16 @@ class QdrantKnowledgeBase:
     @property
     def encoder(self) -> EmbeddingModel:
         if self._encoder is None:
+            with _EMBEDDING_CONDITION:
+                self._encoder = _EMBEDDING_ENCODERS.get(
+                    self.config.embedding_model
+                )
+        if self._encoder is None:
             from sentence_transformers import SentenceTransformer
 
             self._encoder = SentenceTransformer(self.config.embedding_model)
+            with _EMBEDDING_CONDITION:
+                _EMBEDDING_ENCODERS[self.config.embedding_model] = self._encoder
         return self._encoder
 
     def embed(self, text: str) -> list[float]:
@@ -893,28 +1024,112 @@ class QdrantKnowledgeBase:
         source_type: str | None = None,
         payload_filter: dict[str, Any] | None = None,
         payload_fields: list[str] | None = None,
+        timeout_seconds: float | None = None,
     ) -> list[dict[str, Any]]:
+        contexts, _ = self.retrieve_contexts_with_diagnostics(
+            query,
+            limit=limit,
+            source_type=source_type,
+            payload_filter=payload_filter,
+            payload_fields=payload_fields,
+            deadline_monotonic=None,
+            query_timeout_seconds=timeout_seconds,
+            require_ready_embedding=False,
+        )
+        return contexts
+
+    def retrieve_contexts_with_diagnostics(
+        self,
+        query: str,
+        *,
+        limit: int | None = None,
+        source_type: str | None = None,
+        payload_filter: dict[str, Any] | None = None,
+        payload_fields: list[str] | None = None,
+        deadline_monotonic: float | None,
+        query_timeout_seconds: float | None = None,
+        require_ready_embedding: bool = True,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        diagnostics: dict[str, Any] = {
+            "embedding_backend": "sentence_transformers_local",
+            "embedding_cache_state": "unknown",
+            "embedding_elapsed_ms": 0,
+            "qdrant_elapsed_ms": 0,
+            "normalization_elapsed_ms": 0,
+        }
         if not self.config.enabled:
-            return []
+            diagnostics["embedding_cache_state"] = "disabled"
+            return [], diagnostics
 
         text = safe_text(query)
         if not text:
-            return []
+            return [], diagnostics
+
+        def remaining() -> float | None:
+            if deadline_monotonic is None:
+                return None
+            return deadline_monotonic - clock()
+
+        def require_time(phase: str, *, minimum: float = 0.0) -> float | None:
+            value = remaining()
+            if value is not None and value <= minimum:
+                raise SemanticRetrievalTimeout(phase)
+            return value
 
         resolved_limit = max(1, min(limit or self.config.default_limit, 25))
+        require_time("embedding")
+        embedding_started = clock()
+        if self._encoder is None:
+            with _EMBEDDING_CONDITION:
+                self._encoder = _EMBEDDING_ENCODERS.get(
+                    self.config.embedding_model
+                )
+                cache_state = (
+                    "warm"
+                    if self._encoder is not None
+                    else _EMBEDDING_PREWARM_STATE
+                )
+        else:
+            cache_state = "warm"
+        diagnostics["embedding_cache_state"] = cache_state
+        if self._encoder is None and require_ready_embedding:
+            raise SemanticEmbeddingNotReady(cache_state)
         vector = self.embed(text)
+        diagnostics["embedding_elapsed_ms"] = int(
+            (clock() - embedding_started) * 1000
+        )
+        require_time("embedding")
+
+        if deadline_monotonic is not None:
+            qdrant_remaining = require_time("qdrant", minimum=1.0)
+            qdrant_timeout = max(1, math.floor(qdrant_remaining))
+        else:
+            qdrant_timeout = (
+                max(1, math.ceil(query_timeout_seconds))
+                if query_timeout_seconds is not None
+                else None
+            )
+        qdrant_started = clock()
         results = self.client.query_points(
             collection_name=self.config.collection_name,
             query=vector,
             query_filter=_source_type_query_filter(source_type, payload_filter=payload_filter),
             limit=resolved_limit,
             with_payload=True,
+            timeout=qdrant_timeout,
         )
+        diagnostics["qdrant_elapsed_ms"] = int(
+            (clock() - qdrant_started) * 1000
+        )
+        require_time("qdrant")
 
         contexts: list[dict[str, Any]] = []
         requested_payload_fields = payload_fields or []
+        normalization_started = clock()
 
         for point in getattr(results, "points", []):
+            require_time("normalization")
             score = getattr(point, "score", None)
             if self.config.score_threshold is not None and score is not None:
                 if float(score) < self.config.score_threshold:
@@ -937,7 +1152,11 @@ class QdrantKnowledgeBase:
 
             contexts.append(context)
 
-        return contexts
+        diagnostics["normalization_elapsed_ms"] = int(
+            (clock() - normalization_started) * 1000
+        )
+        require_time("normalization")
+        return contexts, diagnostics
 
 
     def capabilities(self) -> dict[str, Any]:
@@ -1304,6 +1523,22 @@ def get_knowledge_base() -> QdrantKnowledgeBase:
     if _DEFAULT_KNOWLEDGE_BASE is None:
         _DEFAULT_KNOWLEDGE_BASE = QdrantKnowledgeBase()
     return _DEFAULT_KNOWLEDGE_BASE
+
+
+def _reset_embedding_runtime_for_tests() -> None:
+    global _EMBEDDING_PREWARM_THREAD, _EMBEDDING_PREWARM_MODEL
+    global _EMBEDDING_PREWARM_STATE, _EMBEDDING_PREWARM_ELAPSED_MS
+    global _EMBEDDING_PREWARM_ERROR
+
+    stop_embedding_prewarm(join_timeout_seconds=1)
+    with _EMBEDDING_CONDITION:
+        _EMBEDDING_ENCODERS.clear()
+        _EMBEDDING_PREWARM_THREAD = None
+        _EMBEDDING_PREWARM_MODEL = None
+        _EMBEDDING_PREWARM_STATE = "cold"
+        _EMBEDDING_PREWARM_ELAPSED_MS = None
+        _EMBEDDING_PREWARM_ERROR = None
+        _EMBEDDING_CONDITION.notify_all()
 
 
 def retrieve_security_context(query: str, limit: int = 3) -> list[dict[str, Any]]:

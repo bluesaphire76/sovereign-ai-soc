@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from sqlalchemy import text as sql_text
 
 from ai_model_policy import AiTask
-from ai_triage_hardening import call_ollama_chat, get_last_llm_call_metadata
+from ai_triage_hardening import call_ai_gateway, get_last_llm_call_metadata
 from database import SessionLocal
 from llm_output import is_invalid_llm_output, sanitize_llm_output
 from models import Incident, IncidentAudit, utc_now
@@ -1553,8 +1553,8 @@ def generate_ai_brief(incident_id: int) -> dict[str, Any]:
         retry_attempted = False
         error_type = None
         provider_metadata: dict[str, Any] = {
-            "provider_key": "local_ollama",
-            "provider_type": "LOCAL_OLLAMA",
+            "provider_key": "ai_execution_gateway",
+            "provider_type": "INFERENCE_GATEWAY",
             "used_external_provider": False,
             "redaction_applied": False,
             "redaction_mode": "LOCAL_ONLY",
@@ -1565,7 +1565,7 @@ def generate_ai_brief(incident_id: int) -> dict[str, Any]:
         }
 
         try:
-            raw_output = call_ollama_chat(
+            raw_output = call_ai_gateway(
                 messages=[
                     {
                         "role": "system",
@@ -1582,7 +1582,7 @@ def generate_ai_brief(incident_id: int) -> dict[str, Any]:
                 timeout_seconds=AI_BRIEF_TIMEOUT_SECONDS,
                 task=AiTask.INCIDENT_ANALYSIS,
                 severity=incident_payload.get("recommended_priority"),
-                requested_mode="auto",
+                requested_mode="standard",
                 user_triggered=True,
             )
 
@@ -1592,7 +1592,7 @@ def generate_ai_brief(incident_id: int) -> dict[str, Any]:
             if parsed is None or is_invalid_llm_output(raw_output):
                 retry_attempted = True
 
-                raw_output = call_ollama_chat(
+                raw_output = call_ai_gateway(
                     messages=[
                         {
                             "role": "system",
@@ -1609,7 +1609,7 @@ def generate_ai_brief(incident_id: int) -> dict[str, Any]:
                     timeout_seconds=AI_BRIEF_TIMEOUT_SECONDS,
                     task=AiTask.INCIDENT_ANALYSIS,
                     severity=incident_payload.get("recommended_priority"),
-                    requested_mode="auto",
+                    requested_mode="standard",
                     user_triggered=True,
                 )
 

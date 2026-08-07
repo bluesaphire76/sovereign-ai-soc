@@ -144,21 +144,29 @@ Case Detail supports:
 ## Contextual SOC Assistant
 
 ADMIN and ANALYST users can use the SOC Assistant from Incident Detail and Case
-Detail. Select a suggested question or enter one, choose the response mode,
-optionally include advisory semantic memory, and submit explicitly. Suggested
-questions never run automatically. Ctrl+Enter or Cmd+Enter submits; Enter adds
-a new line.
+Detail. Select a suggested question or enter one, optionally include advisory
+semantic memory, and submit explicitly. Suggested questions never run
+automatically. Ctrl+Enter or Cmd+Enter submits; Enter adds a new line. All
+generative work uses the queued standard-profile inference gateway.
 
 Operational database sources are marked `AUTHORITATIVE`. Qdrant semantic-memory
-sources are marked `ADVISORY`, and similarity does not prove identity, cause,
-severity, or closure readiness. Source citations open only validated internal
-application paths. The response is read-only and cannot update incidents,
-cases, workflows, detection controls, or remediation decisions.
+sources are marked `ADVISORY`; semantic retrieval is bounded to two seconds and
+may fail open.
+Similarity does not prove identity, cause, severity, or closure readiness. The
+backend validates structured Direct answer, Analysis, Next check, and
+Limitations blocks and attaches source chips to validated internal application
+paths. The response is read-only and cannot update incidents, cases, workflows,
+detection controls, or remediation decisions.
 
 The panel keeps only the latest question and response in memory while the
 current detail page is open. It has no conversation history, browser
 persistence, streaming, or autonomous actions. VIEWER users do not receive the
 interactive panel.
+
+Incident and Case page loads retrieve stored or deterministic content only.
+New playbook suggestions, remediation analysis, and AI analysis require their
+explicit Generate or Refresh controls. A queued or running operation cannot be
+submitted twice.
 
 ## Case Kanban
 
@@ -198,15 +206,14 @@ rollback and service restart execution.
 
 ## AI Providers
 
-AI Providers shows the default provider, external-provider global state, local
-Ollama profiles, optional llama.cpp profiles, configured models, allowlists,
-redaction mode and health.
+AI Providers shows the gateway, external-provider global state, configured
+local providers, models, allowlists, redaction mode and health.
 
-Local Ollama is the default. llama.cpp appears as a local provider path when
-configured and remains disabled by default unless `LLAMA_CPP_ENABLED=true`.
-OpenRouter and other external configurations do not receive SOC data unless
-all provider and AI Data Control checks allow it. Only ADMIN can change
-provider settings or run the confirmed provider test.
+In gateway mode llama.cpp standard is the only active generation path. Other
+provider configurations remain visible for governance but cannot be selected
+by feature callers. OpenRouter and other external configurations do not
+receive SOC data unless all provider and AI Data Control checks allow it.
+Only ADMIN can change provider settings or run the confirmed gateway test.
 
 ## AI Data Control
 

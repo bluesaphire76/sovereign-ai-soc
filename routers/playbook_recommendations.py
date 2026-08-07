@@ -1487,6 +1487,25 @@ def get_incident_playbook_recommendations(
             db,
             incident_id,
             limit=limit,
+            generate_llm=False,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Incident not found.") from exc
+    finally:
+        db.close()
+
+
+@router.post("/incidents/{incident_id}/recommended-playbooks")
+def generate_incident_playbook_recommendations(
+    incident_id: int,
+    limit: int = Query(default=4, ge=1, le=8),
+):
+    db = SessionLocal()
+    try:
+        return build_incident_playbook_recommendations(
+            db,
+            incident_id,
+            limit=limit,
             generate_llm=True,
         )
     except ValueError as exc:
@@ -1502,6 +1521,25 @@ def get_case_playbook_recommendations(
 ):
     db = SessionLocal()
 
+    try:
+        return build_case_playbook_recommendations(
+            db,
+            case_id,
+            limit=limit,
+            generate_llm=False,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Case not found.") from exc
+    finally:
+        db.close()
+
+
+@router.post("/cases/{case_id}/recommended-playbooks")
+def generate_case_playbook_recommendations(
+    case_id: int,
+    limit: int = Query(default=4, ge=1, le=8),
+):
+    db = SessionLocal()
     try:
         return build_case_playbook_recommendations(
             db,

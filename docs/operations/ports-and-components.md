@@ -13,7 +13,8 @@ existing services.
 | PostgreSQL | `127.0.0.1:5432` | Core datastore | Host-runtime default. Docker demo keeps PostgreSQL internal as `postgres:5432`. |
 | Qdrant | `127.0.0.1:6333` | Required for semantic memory | Docker-internal name is `qdrant:6333`. |
 | Ollama | `127.0.0.1:11434` | Optional for deterministic flow; needed for full local AI | Docker-internal name is `ollama:11434`. |
-| llama.cpp router/API | `127.0.0.1:8081` | Optional local AI runtime | Disabled by default; exposes router control and local OpenAI-compatible API when configured. |
+| llama.cpp router/API | `127.0.0.1:8081` | Operator-managed local AI runtime | Required by gateway mode; keep the router bound to the local host. |
+| AI inference gateway | `/run/ai-soc/inference-gateway.sock` | Single-owner generative execution | Local Unix socket only; no TCP listener. |
 | Grafana | `127.0.0.1:3002/grafana/` | Optional observability | Not included in the Docker demo foundation. |
 | Prometheus | `127.0.0.1:9090` | Optional observability | Not included in the Docker demo foundation. |
 | Alertmanager | `127.0.0.1:9093` | Optional alerting | Not included in the Docker demo foundation. |

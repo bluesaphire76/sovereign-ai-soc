@@ -130,14 +130,19 @@ def generate_with_provider(
     options: dict[str, Any] | None = None,
     data_control: dict[str, Any] | None = None,
     current_user: dict[str, Any] | None = None,
+    registry: ProviderRegistry | None = None,
+    provider_config: ProviderConfig | None = None,
 ) -> AIProviderResponse:
     feature_key = normalize_feature(feature)
-    registry = load_provider_registry()
-    config = select_provider_config(feature=feature_key, registry=registry)
+    current_registry = registry or load_provider_registry()
+    config = provider_config or select_provider_config(
+        feature=feature_key,
+        registry=current_registry,
+    )
     policy_decision = enforce_ai_data_policy(
         feature_key=feature_key,
         provider_config=config,
-        registry=registry,
+        registry=current_registry,
         prompt=prompt,
         messages=messages,
         context=context,
@@ -163,7 +168,11 @@ def generate_with_provider(
             data_control=_decision_data_control(policy_decision, {"redaction_mode": REDACTION_LOCAL_ONLY}),
         )
 
-    block_reason = external_block_reason(config=config, feature=feature_key, registry=registry)
+    block_reason = external_block_reason(
+        config=config,
+        feature=feature_key,
+        registry=current_registry,
+    )
     if block_reason:
         response = _blocked_response(config=config, feature=feature_key, safe_error=block_reason)
         record_ai_provider_audit(

@@ -3,7 +3,7 @@
 import { downloadBackendFile } from "@/lib/download";
 import { authFetch } from "@/lib/auth";
 
-import { Component, useCallback, useEffect, useMemo, useState, type ErrorInfo, type ReactNode } from "react";
+import { Component, useCallback, useEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from "react";
 import Link from "next/link";
 import AppNavigation from "../../../components/AppNavigation";
 import ContextualAssistantPanel from "../../../components/assistant/ContextualAssistantPanel";
@@ -12,6 +12,7 @@ import GovernedRemediationPanel, {
   type GovernedRemediationRecommendation,
 } from "../../../components/remediation/GovernedRemediationPanel";
 import RecommendedPlaybooksPanel, {
+  type AiGenerationStatus,
   type RecommendedPlaybooksResponse,
 } from "../../../components/semantic-memory/RecommendedPlaybooksPanel";
 import { fetchCurrentUser, getStoredUser, type AuthUser } from "../../../lib/auth";
@@ -610,6 +611,24 @@ async function fetchCaseRecommendedPlaybooks(
     );
   }
 
+  return response.json();
+}
+
+async function generateCaseRecommendedPlaybooks(
+  id: string
+): Promise<RecommendedPlaybooksResponse> {
+  const response = await authFetch(`/cases/${id}/recommended-playbooks`, {
+    method: "POST",
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(
+      await extractApiErrorMessage(
+        response,
+        `Playbook generation failed ${response.status}`
+      )
+    );
+  }
   return response.json();
 }
 
@@ -1689,6 +1708,9 @@ function CaseDetailPageContent({ caseId }: { caseId: string }) {
     useState(true);
   const [playbookRecommendationsError, setPlaybookRecommendationsError] =
     useState<string | null>(null);
+  const [playbookGenerationStatus, setPlaybookGenerationStatus] =
+    useState<AiGenerationStatus>("idle");
+  const playbookGenerationActiveRef = useRef(false);
   const [caseTimeline, setCaseTimeline] = useState<CaseTimelineItem[]>([]);
   const [timelineExpanded, setTimelineExpanded] = useState(false);
   const [auditTrailExpanded, setAuditTrailExpanded] = useState(false);
@@ -1764,31 +1786,32 @@ function CaseDetailPageContent({ caseId }: { caseId: string }) {
     }
   }, [caseId]);
 
-  const loadPlaybookRecommendations = useCallback(async () => {
-    try {
-      const response = await fetchCaseRecommendedPlaybooks(caseId);
-      setPlaybookRecommendations(response);
-    } catch (err) {
-      setPlaybookRecommendations(null);
-      setPlaybookRecommendationsError(
-        err instanceof Error ? err.message : "Unknown playbook recommendation error"
-      );
-    } finally {
-      setLoadingPlaybookRecommendations(false);
-    }
-  }, [caseId]);
-
   const refreshClosureSemanticContext = useCallback(async () => {
     setLoadingClosureSemanticContext(true);
     setClosureSemanticContextError(null);
     await loadClosureSemanticContext();
   }, [loadClosureSemanticContext]);
 
-  const refreshPlaybookRecommendations = useCallback(async () => {
-    setLoadingPlaybookRecommendations(true);
+  const generatePlaybookRecommendations = useCallback(async () => {
+    if (playbookGenerationActiveRef.current) return;
+    playbookGenerationActiveRef.current = true;
+    setPlaybookGenerationStatus("queued");
     setPlaybookRecommendationsError(null);
-    await loadPlaybookRecommendations();
-  }, [loadPlaybookRecommendations]);
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    setPlaybookGenerationStatus("running");
+    try {
+      const response = await generateCaseRecommendedPlaybooks(caseId);
+      setPlaybookRecommendations(response);
+      setPlaybookGenerationStatus("completed");
+    } catch (err) {
+      setPlaybookRecommendationsError(
+        err instanceof Error ? err.message : "Playbook generation failed"
+      );
+      setPlaybookGenerationStatus("failed");
+    } finally {
+      playbookGenerationActiveRef.current = false;
+    }
+  }, [caseId]);
 
   const loadCase = useCallback(async () => {
     try {
@@ -3578,7 +3601,8 @@ function CaseDetailPageContent({ caseId }: { caseId: string }) {
                   response={playbookRecommendations}
                   loading={loadingPlaybookRecommendations}
                   error={playbookRecommendationsError}
-                  onRefresh={() => void refreshPlaybookRecommendations()}
+                  generationStatus={playbookGenerationStatus}
+                  onGenerate={() => void generatePlaybookRecommendations()}
                 />
               </CaseCollapsibleSection>
             )}

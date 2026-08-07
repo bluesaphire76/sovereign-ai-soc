@@ -1,0 +1,21 @@
+[Unit]
+Description=Sovereign AI SOC Inference Gateway
+After=network.target ai-soc-llama-cpp-router.service
+Requires=ai-soc-llama-cpp-router.service
+
+[Service]
+Type=simple
+User=ai-soc
+Group=ai-soc
+WorkingDirectory=/opt/sovereign-ai-soc
+EnvironmentFile=-/opt/sovereign-ai-soc/.env
+Environment="PYTHONUNBUFFERED=1"
+RuntimeDirectory=ai-soc
+RuntimeDirectoryMode=0750
+UMask=0007
+ExecStart=/opt/sovereign-ai-soc/.venv/bin/uvicorn services.ai_execution.app:app --uds /run/ai-soc/inference-gateway.sock
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

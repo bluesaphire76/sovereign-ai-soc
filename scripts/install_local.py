@@ -284,6 +284,11 @@ class Installer:
             "frontend/package.json",
             "scripts/doctor.py",
             "scripts/init_env.py",
+            "scripts/manage_systemd_units.py",
+            "systemd/ai-soc-inference-gateway.service",
+            "systemd/ai-soc-api.service",
+            "systemd/ai-soc-worker.service",
+            "systemd/ai-soc-frontend.service",
             "INSTALL.md",
         )
         missing = [
@@ -374,6 +379,11 @@ class Installer:
             self.planned_actions.append(
                 f"Run ./ai-soc init --profile {self.args.profile}{suffix}."
             )
+
+        self.planned_actions.append(
+            "Validate gateway, API, worker, and frontend systemd templates; "
+            "host installation remains an explicit operator action."
+        )
 
         if self.args.skip_validation:
             self.planned_actions.append("Skip post-install validation.")
@@ -643,6 +653,10 @@ def print_next_steps() -> None:
     print("  ./ai-soc demo-validate")
     print("  ./ai-soc demo-status")
     print("  ./ai-soc package-validate --build")
+    print(
+        "  python3 scripts/manage_systemd_units.py render "
+        "--output-dir /tmp/ai-soc-systemd"
+    )
     print(
         "  Ollama models are not pulled automatically; install the selected "
         "model manually only after the runtime is available."

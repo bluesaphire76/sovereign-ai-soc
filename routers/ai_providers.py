@@ -5,16 +5,11 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
-import requests
 
-from ai_data_control_policy import enforce_ai_data_policy
-from ai_model_config import DEFAULT_LLM_MODE, PROFILES
-from ai_model_policy import AiTask, select_profile
-from ai_provider_abstraction import build_provider_client
+from ai_model_config import get_profile
 from ai_provider_audit import record_ai_provider_audit
 from ai_provider_policy import (
     external_block_reason,
-    health_to_dict,
     provider_capabilities,
 )
 from ai_provider_registry import (
@@ -22,9 +17,9 @@ from ai_provider_registry import (
     provider_public_dict,
     save_provider_settings,
     save_registry_settings,
-    is_local_provider_type,
 )
-from ai_triage_hardening import get_last_llm_call_metadata
+from services.ai_execution.client import AiExecutionClient, generate_ai_response
+from services.ai_execution.errors import AiExecutionError
 
 
 router = APIRouter(tags=["AI Providers"])
@@ -133,108 +128,78 @@ def ai_provider_effective_policy(request: Request):
 @router.get("/ai-providers/health")
 def ai_provider_health():
     registry = load_provider_registry()
-    fallback_provider = _logical_fallback_provider()
-    active_config = registry.get(registry.default_provider)
+    try:
+        status = AiExecutionClient().status()
+        reachable = True
+        safe_error = None
+    except AiExecutionError as exc:
+        status = None
+        reachable = False
+        safe_error = exc.safe_error
     return {
-        "default_provider": registry.default_provider,
-        "fallback_provider": fallback_provider,
-        "active_provider": (
-            {
-                "provider_key": active_config.key,
-                "provider_type": active_config.provider_type,
-                "model": active_config.model,
-                "external": active_config.external,
-                "redaction_mode": active_config.redaction_mode,
-            }
-            if active_config
-            else None
-        ),
+        "default_provider": "ai_execution_gateway",
+        "fallback_provider": None,
+        "active_provider": {
+            "provider_key": "ai_execution_gateway",
+            "provider_type": "INFERENCE_GATEWAY",
+            "model": "ai-soc-standard",
+            "external": False,
+            "redaction_mode": "LOCAL_ONLY",
+        },
         "external_providers_enabled": registry.external_providers_enabled,
-        "providers": [
-            health_to_dict(build_provider_client(config).health_check())
-            for config in registry.providers.values()
-        ],
+        "providers": [{
+            "provider_key": "ai_execution_gateway",
+            "provider_type": "INFERENCE_GATEWAY",
+            "configured_model": "ai-soc-standard",
+            "configured": True,
+            "enabled": True,
+            "reachable": reachable,
+            "model_available": bool(status and status.state == "ready"),
+            "latency_ms": None,
+            "safe_message": (
+                status.message
+                if status
+                else "Inference gateway is unavailable."
+            ),
+            "safe_error": safe_error,
+        }],
     }
 
 
-def _loaded_ollama_models() -> tuple[list[dict[str, Any]], str | None]:
-    registry = load_provider_registry()
-    local = registry.get("local_ollama")
-    if local is None or not local.base_url:
-        return [], "LocalProviderMissing"
-
+def _gateway_status():
     try:
-        response = requests.get(
-            f"{str(local.base_url).rstrip('/')}/api/ps",
-            timeout=min(float(local.timeout_seconds), 2),
-        )
-        response.raise_for_status()
-        payload = response.json()
-        return [
-            item
-            for item in payload.get("models", [])
-            if isinstance(item, dict)
-        ], None
-    except Exception as exc:
-        return [], type(exc).__name__
+        return AiExecutionClient().status(), None
+    except AiExecutionError as exc:
+        return None, exc.safe_error
 
 
 @router.get("/ai-providers/local-profiles")
 def local_ai_profiles():
-    loaded_models, safe_error = _loaded_ollama_models()
-    loaded_names = {
-        str(item.get("name") or item.get("model") or "")
-        for item in loaded_models
-        if item.get("name") or item.get("model")
-    }
-    last_metadata = get_last_llm_call_metadata()
-    last_profile = str(last_metadata.get("profile") or "")
-    routing = {
-        AiTask.CLASSIFICATION.value: select_profile(AiTask.CLASSIFICATION),
-        AiTask.ROUTING.value: select_profile(AiTask.ROUTING),
-        AiTask.INCIDENT_TRIAGE.value: select_profile(AiTask.INCIDENT_TRIAGE),
-        AiTask.DETECTION_QUALITY.value: select_profile(AiTask.DETECTION_QUALITY),
-        AiTask.ACTION_HOW_TO.value: select_profile(AiTask.ACTION_HOW_TO),
-        AiTask.CASE_ANALYSIS.value: select_profile(AiTask.CASE_ANALYSIS),
-        AiTask.INCIDENT_ANALYSIS.value: select_profile(AiTask.INCIDENT_ANALYSIS),
-        AiTask.REMEDIATION.value: select_profile(AiTask.REMEDIATION),
-        AiTask.REPORT.value: select_profile(AiTask.REPORT),
-        AiTask.EXECUTIVE_SUMMARY.value: select_profile(AiTask.EXECUTIVE_SUMMARY),
-        "incident_analysis_critical_user_triggered": select_profile(
-            AiTask.INCIDENT_ANALYSIS,
-            severity="CRITICAL",
-            user_triggered=True,
-        ),
-        "report_user_triggered": select_profile(
-            AiTask.REPORT,
-            user_triggered=True,
-        ),
-    }
-    profile_to_features: dict[str, list[str]] = {name: [] for name in PROFILES}
-    for feature_key, profile_name in routing.items():
-        profile_to_features.setdefault(profile_name, []).append(feature_key)
-
+    status, safe_error = _gateway_status()
+    standard = get_profile("standard")
+    ready = bool(status and status.state == "ready")
     return {
-        "mode": DEFAULT_LLM_MODE,
-        "current_profile": last_profile or None,
-        "last_call": last_metadata,
+        "mode": "gateway",
+        "current_profile": "standard" if ready else None,
+        "last_call": {},
         "ollama_ps_error": safe_error,
-        "loaded_models": loaded_models,
-        "profiles": [
-            {
-                "name": profile.name,
-                "model": profile.model,
-                "num_ctx": profile.num_ctx,
-                "temperature": profile.temperature,
-                "timeout_seconds": profile.timeout_seconds,
-                "keep_alive": profile.keep_alive,
-                "active": profile.name == last_profile or profile.model in loaded_names,
-                "loaded": profile.model in loaded_names,
-                "last_used": profile.name == last_profile,
-                "routed_features": sorted(profile_to_features.get(profile.name, [])),
-            }
-            for profile in PROFILES.values()
-        ],
+        "loaded_models": (
+            [{"name": "ai-soc-standard", "state": status.state}]
+            if status
+            else []
+        ),
+        "profiles": [{
+            "name": "standard",
+            "model": "ai-soc-standard",
+            "num_ctx": standard.num_ctx,
+            "temperature": 0,
+            "timeout_seconds": standard.timeout_seconds,
+            "keep_alive": standard.keep_alive,
+            "active": ready,
+            "loaded": ready,
+            "last_used": ready,
+            "routed_features": ["all_generative_tasks"],
+        }],
     }
 
 
@@ -330,54 +295,8 @@ def test_ai_provider(provider_key: str, payload: ProviderTestRequest, request: R
     if config is None:
         raise HTTPException(status_code=404, detail="Provider not found.")
 
-    if is_local_provider_type(config.provider_type):
-        decision = enforce_ai_data_policy(
-            feature_key="provider_test",
-            provider_config=config,
-            registry=registry,
-            prompt="Local AI SOC provider connectivity test.",
-            messages=None,
-            context={},
-            current_user=_current_user(request),
-            confirmed=payload.confirm,
-        )
-        if not decision.allowed:
-            raise HTTPException(status_code=403, detail=decision.reason or "AI data policy denied provider test.")
-        health = build_provider_client(config).health_check()
-        record_ai_provider_audit(
-            event_type="AI_PROVIDER_TEST",
-            outcome="SUCCESS" if health.reachable else "FAILURE",
-            provider_key=config.key,
-            provider_type=config.provider_type,
-            feature="provider_test",
-            model=config.model,
-            external=False,
-            redaction_mode=config.redaction_mode,
-            redaction_applied=False,
-            input_character_count_after_redaction=0,
-            output_character_count=0,
-            latency_ms=health.latency_ms,
-            fallback_used=False,
-            safe_error=health.safe_error,
-            current_user=_current_user(request),
-        )
-        return {
-            "provider_key": config.key,
-            "success": bool(health.reachable),
-            "safe_message": health.safe_message,
-            "latency_ms": health.latency_ms,
-            "safe_error": health.safe_error,
-        }
-
-    block_reason = None
-    if not registry.external_providers_enabled:
-        block_reason = "ExternalProvidersGloballyDisabled"
-    elif not config.enabled:
-        block_reason = "ProviderDisabled"
-    elif not config.configured:
-        block_reason = "ProviderNotConfigured"
-
-    if block_reason:
+    if config.key != "local_llama_cpp":
+        block_reason = "GatewayFixedProviderPolicy"
         record_ai_provider_audit(
             event_type="AI_PROVIDER_TEST_BLOCKED",
             outcome="DENIED",
@@ -385,7 +304,7 @@ def test_ai_provider(provider_key: str, payload: ProviderTestRequest, request: R
             provider_type=config.provider_type,
             feature="provider_test",
             model=config.model,
-            external=True,
+            external=config.external,
             redaction_mode=config.redaction_mode,
             redaction_applied=False,
             input_character_count_after_redaction=0,
@@ -398,81 +317,46 @@ def test_ai_provider(provider_key: str, payload: ProviderTestRequest, request: R
         return {
             "provider_key": config.key,
             "success": False,
-            "safe_message": "Provider is disabled or not configured.",
+            "safe_message": "Generation is owned by the inference gateway.",
             "latency_ms": None,
             "safe_error": block_reason,
         }
 
-    decision = enforce_ai_data_policy(
-        feature_key="provider_test",
-        provider_config=config,
-        registry=registry,
-        prompt="Return only the word OK. This is a harmless AI SOC provider connectivity test.",
-        messages=None,
-        context={},
-        current_user=_current_user(request),
-        confirmed=payload.confirm,
+    response = generate_ai_response(
+        prompt="Return only the word OK.",
+        task="provider_test",
+        requested_mode="standard",
+        user_triggered=True,
+        timeout_seconds=10,
+        max_visible_tokens=16,
     )
-    if not decision.allowed:
-        record_ai_provider_audit(
-            event_type="AI_PROVIDER_TEST_BLOCKED",
-            outcome="DENIED",
-            provider_key=config.key,
-            provider_type=config.provider_type,
-            feature="provider_test",
-            model=config.model,
-            external=True,
-            redaction_mode=decision.mode,
-            redaction_applied=decision.redaction_applied,
-            input_character_count_after_redaction=decision.output_character_count,
-            output_character_count=0,
-            latency_ms=None,
-            fallback_used=False,
-            safe_error=decision.reason,
-            current_user=_current_user(request),
-        )
-        return {
-            "provider_key": config.key,
-            "success": False,
-            "safe_message": "Provider test was denied by AI data policy.",
-            "latency_ms": None,
-            "safe_error": decision.reason,
-        }
-
-    response = build_provider_client(config).generate(
-        feature="provider_test",
-        prompt=decision.transformed_prompt,
-        messages=decision.transformed_messages,
-        context=decision.transformed_context or {},
-        options={"max_tokens": 8, "temperature": 0},
-        data_control={
-            "redaction_mode": decision.mode,
-            "policy_preprocessed": True,
-            "policy_redaction_applied": decision.redaction_applied,
-            "policy_output_character_count": decision.output_character_count,
-        },
-    )
+    success = bool(response.get("text") and not response.get("safe_error"))
+    safe_error = response.get("safe_error")
     record_ai_provider_audit(
         event_type="AI_PROVIDER_TEST",
-        outcome="SUCCESS" if response.text and not response.safe_error else "FAILURE",
-        provider_key=config.key,
-        provider_type=config.provider_type,
+        outcome="SUCCESS" if success else "FAILURE",
+        provider_key="ai_execution_gateway",
+        provider_type="INFERENCE_GATEWAY",
         feature="provider_test",
-        model=config.model,
-        external=True,
-        redaction_mode=response.redaction_mode,
-        redaction_applied=response.redaction_applied,
-        input_character_count_after_redaction=response.input_character_count_after_redaction,
-        output_character_count=response.output_character_count,
-        latency_ms=response.latency_ms,
-        fallback_used=response.fallback_used,
-        safe_error=response.safe_error,
+        model="ai-soc-standard",
+        external=False,
+        redaction_mode="LOCAL_ONLY",
+        redaction_applied=False,
+        input_character_count_after_redaction=24,
+        output_character_count=len(str(response.get("text") or "")),
+        latency_ms=response.get("latency_ms"),
+        fallback_used=False,
+        safe_error=safe_error,
         current_user=_current_user(request),
     )
     return {
         "provider_key": config.key,
-        "success": bool(response.text and not response.safe_error),
-        "safe_message": "Provider test completed." if response.text else "Provider test failed safely.",
-        "latency_ms": response.latency_ms,
-        "safe_error": response.safe_error,
+        "success": success,
+        "safe_message": (
+            "Gateway test completed."
+            if success
+            else "Gateway test failed safely."
+        ),
+        "latency_ms": response.get("latency_ms"),
+        "safe_error": safe_error,
     }

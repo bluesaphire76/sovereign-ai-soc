@@ -21,7 +21,7 @@ from ai_triage_hardening import (
     AI_TRIAGE_TIMEOUT_SECONDS,
     build_ai_triage_failure_reason,
     build_fallback_analysis,
-    call_ollama_chat,
+    call_ai_gateway,
     compact_triage_prompt,
     get_last_llm_call_metadata,
     is_timeout_exception,
@@ -65,17 +65,15 @@ load_dotenv()
 WAZUH_INDEXER_URL = os.getenv("WAZUH_INDEXER_URL")
 WAZUH_USER = os.getenv("WAZUH_USER")
 WAZUH_PASSWORD = os.getenv("WAZUH_PASSWORD")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:8b")
-
 POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "30"))
 
 
 def _llm_worker_details() -> dict:
     metadata = get_last_llm_call_metadata()
     details = {
-        "ollama_model": OLLAMA_MODEL,
+        "ai_execution_owner": "ai_execution_gateway",
         "llm_configured_profile": "standard",
-        "llm_configured_model": OLLAMA_MODEL,
+        "llm_configured_model": "ai-soc-standard",
     }
 
     if metadata:
@@ -362,7 +360,7 @@ def analyze_alert_result(alert):
     retry_attempted = False
 
     try:
-        raw_analysis = call_ollama_chat(
+        raw_analysis = call_ai_gateway(
             messages=messages,
             timeout_seconds=AI_TRIAGE_TIMEOUT_SECONDS,
         )
@@ -373,7 +371,7 @@ def analyze_alert_result(alert):
                 raise ValueError("invalid_llm_output")
 
             retry_attempted = True
-            retry_response = call_ollama_chat(
+            retry_response = call_ai_gateway(
                 messages=_build_retry_messages(prompt),
                 timeout_seconds=AI_TRIAGE_TIMEOUT_SECONDS,
             )
@@ -401,7 +399,7 @@ def analyze_alert_result(alert):
             retry_attempted = True
 
             try:
-                retry_response = call_ollama_chat(
+                retry_response = call_ai_gateway(
                     messages=_build_timeout_retry_messages(prompt),
                     timeout_seconds=AI_TRIAGE_RETRY_TIMEOUT_SECONDS,
                 )
@@ -640,7 +638,7 @@ def process_alert(alert):
 def run_worker():
     print("[bold green]AI SOC Worker avviato.[/bold green]")
     print(f"Polling interval: {POLL_INTERVAL_SECONDS} secondi")
-    print(f"Modello Ollama: {OLLAMA_MODEL}")
+    print("Gateway AI: ai-soc-standard")
     print(f"Event aggregation window: {EVENT_AGGREGATION_WINDOW_MINUTES} minuti")
 
     update_worker_heartbeat(

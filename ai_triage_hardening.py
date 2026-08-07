@@ -13,7 +13,7 @@ except ModuleNotFoundError:
 
 from ai_model_config import get_profile
 from ai_model_policy import AiTask
-from llm_client import generate_ai_response
+from services.ai_execution.client import generate_ai_response
 
 load_dotenv()
 
@@ -177,12 +177,12 @@ def build_ai_triage_failure_reason(
     return "AI triage failed or returned invalid output."
 
 
-def call_ollama_chat(
+def call_ai_gateway(
     messages: list[dict],
     timeout_seconds: float | None = None,
     task: AiTask | str = AiTask.INCIDENT_TRIAGE,
     severity: str | None = None,
-    requested_mode: str | None = "auto",
+    requested_mode: str | None = "standard",
     user_triggered: bool = False,
 ) -> str:
     timeout = timeout_seconds or AI_TRIAGE_TIMEOUT_SECONDS

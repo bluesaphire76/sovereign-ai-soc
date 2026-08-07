@@ -1,35 +1,107 @@
 from __future__ import annotations
 
+import logging
+import math
 import os
 import re
+import time
 from dataclasses import dataclass
 from typing import Any, Callable
+from uuid import uuid4
 
 from ai_model_policy import AiTask
 from database import SessionLocal
-from llm_client import generate_ai_response
-from qdrant_knowledge import QdrantKnowledgeBase
+from qdrant_knowledge import get_knowledge_base
 from schemas.assistant import (
     AssistantCapabilitiesResponse,
+    AssistantFallbackReason,
     AssistantMetadata,
     AssistantQueryRequest,
     AssistantQueryResponse,
+    AssistantResponseLanguage,
+)
+from services.ai_execution.client import generate_ai_response
+from services.ai_execution.metrics import (
+    ASSISTANT_SEMANTIC_DEGRADED,
+    ASSISTANT_SEMANTIC_DURATION,
+    FALLBACK_TOTAL,
+    GROUNDING_REJECTIONS,
 )
 from services.assistant.context_builder import build_assistant_context
+from services.assistant.focus import (
+    SemanticFocusRouter,
+    build_focused_fact_view,
+    general_focus_selection,
+    get_semantic_focus_router,
+)
+from services.assistant.grounding import (
+    deterministic_claim_output,
+    parse_grounded_output,
+    validate_focus,
+    validate_grounded_output,
+)
 from services.assistant.prompting import build_assistant_messages
+from services.assistant.rendering import render_claim_output, response_blocks
 from services.assistant.retrieval import (
     CaseNotFound,
     IncidentNotFound,
-    RetrievalResult,
     retrieve_assistant_context,
 )
+from services.assistant.runtime import assistant_runtime_snapshot
 from services.assistant.sources import SourceRecord, assign_source_ids
 
 
 FEATURE_KEY = "soc_assistant"
-DECISION_BOUNDARY = "The assistant provides analyst decision support only."
-TIMEOUT_ERRORS = {"ReadTimeout", "Timeout", "TimeoutError", "TimeoutException"}
-SOURCE_TOKEN_RE = re.compile(r"\[S\d+\]")
+DECISION_BOUNDARY = "The assistant provides read-only analyst decision support."
+logger = logging.getLogger(__name__)
+_SEMANTIC_LIMITATION_KINDS = {
+    "Semantic memory was not requested for this assistant query.": "not_requested",
+    (
+        "Semantic memory was skipped because the assistant request budget "
+        "was exhausted."
+    ): "timed_out",
+    "Semantic memory is disabled; continuing without advisory context.": "disabled",
+    (
+        "Semantic memory was unavailable within its time budget; the answer "
+        "uses authoritative platform data."
+    ): "timed_out",
+    (
+        "Semantic memory retrieval failed safely; exact operational facts "
+        "remain usable."
+    ): "failed",
+}
+_SEMANTIC_LIMITATION_TEXT = {
+    "timed_out": {
+        "en": (
+            "Semantic memory was unavailable within its time budget; the answer "
+            "uses authoritative platform data."
+        ),
+        "it": (
+            "La memoria semantica non era disponibile entro il tempo previsto; "
+            "la risposta usa i dati autorevoli della piattaforma."
+        ),
+    },
+    "disabled": {
+        "en": (
+            "Semantic memory is disabled; the answer uses authoritative "
+            "platform data."
+        ),
+        "it": (
+            "La memoria semantica è disabilitata; la risposta usa i dati "
+            "autorevoli della piattaforma."
+        ),
+    },
+    "failed": {
+        "en": (
+            "Semantic memory retrieval failed; authoritative operational facts "
+            "remain available."
+        ),
+        "it": (
+            "Il recupero dalla memoria semantica non è riuscito; i fatti "
+            "operativi autorevoli restano disponibili."
+        ),
+    },
+}
 
 
 @dataclass(frozen=True)
@@ -39,7 +111,9 @@ class AssistantSettings:
     max_context_chars: int = 16000
     max_sources: int = 8
     semantic_limit: int = 4
-    timeout_seconds: int = 60
+    semantic_timeout_seconds: float = 2.0
+    request_timeout_seconds: float = 30.0
+    max_output_tokens: int = 384
 
 
 class AssistantError(Exception):
@@ -58,98 +132,242 @@ def _env_bool(name: str, default: bool) -> bool:
 
 
 def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
-    raw = os.getenv(name)
     try:
-        value = int(str(raw if raw is not None else default).strip())
-    except Exception:
+        value = int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
         value = default
-    return max(minimum, min(value, maximum))
+    return min(max(value, minimum), maximum)
+
+
+def _env_float(
+    name: str,
+    default: float,
+    *,
+    minimum: float,
+    maximum: float,
+) -> float:
+    try:
+        value = float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        value = default
+    if not math.isfinite(value):
+        value = default
+    return min(max(value, minimum), maximum)
 
 
 def get_assistant_settings() -> AssistantSettings:
     return AssistantSettings(
         enabled=_env_bool("AI_SOC_ASSISTANT_ENABLED", False),
-        max_message_chars=_env_int("AI_SOC_ASSISTANT_MAX_MESSAGE_CHARS", 2000, minimum=1, maximum=2000),
-        max_context_chars=_env_int("AI_SOC_ASSISTANT_MAX_CONTEXT_CHARS", 16000, minimum=1000, maximum=24000),
-        max_sources=_env_int("AI_SOC_ASSISTANT_MAX_SOURCES", 8, minimum=1, maximum=12),
-        semantic_limit=_env_int("AI_SOC_ASSISTANT_SEMANTIC_LIMIT", 4, minimum=1, maximum=8),
-        timeout_seconds=_env_int("AI_SOC_ASSISTANT_TIMEOUT_SECONDS", 60, minimum=1, maximum=180),
+        max_message_chars=_env_int(
+            "AI_SOC_ASSISTANT_MAX_MESSAGE_CHARS",
+            2000,
+            minimum=1,
+            maximum=2000,
+        ),
+        max_context_chars=_env_int(
+            "AI_SOC_ASSISTANT_MAX_CONTEXT_CHARS",
+            16000,
+            minimum=1000,
+            maximum=24000,
+        ),
+        max_sources=_env_int(
+            "AI_SOC_ASSISTANT_MAX_SOURCES",
+            8,
+            minimum=1,
+            maximum=12,
+        ),
+        semantic_limit=_env_int(
+            "AI_SOC_ASSISTANT_SEMANTIC_LIMIT",
+            4,
+            minimum=1,
+            maximum=8,
+        ),
+        semantic_timeout_seconds=_env_float(
+            "AI_SOC_ASSISTANT_SEMANTIC_TIMEOUT_SECONDS",
+            2.0,
+            minimum=0.1,
+            maximum=2.0,
+        ),
+        request_timeout_seconds=_env_float(
+            "AI_INFERENCE_REQUEST_TIMEOUT_SECONDS",
+            30.0,
+            minimum=1.0,
+            maximum=300.0,
+        ),
+        max_output_tokens=_env_int(
+            "AI_INFERENCE_MAX_OUTPUT_TOKENS",
+            384,
+            minimum=64,
+            maximum=2048,
+        ),
     )
 
 
-def assistant_capabilities(settings: AssistantSettings | None = None) -> AssistantCapabilitiesResponse:
+def assistant_capabilities(
+    settings: AssistantSettings | None = None,
+) -> AssistantCapabilitiesResponse:
     current = settings or get_assistant_settings()
+    runtime = assistant_runtime_snapshot()
     return AssistantCapabilitiesResponse(
         enabled=current.enabled,
         supported_scopes=["global", "incident", "case"],
-        supported_modes=["auto", "standard", "quality"],
+        supported_modes=["auto", "standard"],
         decision_boundary=DECISION_BOUNDARY,
+        runtime_state=runtime.get("runtime_state"),
+        loaded_profile=runtime.get("loaded_profile"),
+        runtime_message=runtime.get("runtime_message"),
     )
 
 
-def _metadata_from_result(result: dict[str, Any] | None = None) -> AssistantMetadata:
-    payload = result or {}
-    usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
-    latency = payload.get("latency_ms")
-    return AssistantMetadata(
-        provider_key=payload.get("provider_key"),
-        provider_type=payload.get("provider_type"),
-        profile=payload.get("profile"),
-        model=payload.get("model"),
-        fallback_used=bool(payload.get("fallback_used", False)),
-        latency_ms=int(latency) if isinstance(latency, int) else None,
-        usage=usage,
+def _response_language(message: str) -> AssistantResponseLanguage:
+    words = set(re.findall(r"[a-zàèéìòù]+", message.lower()))
+    strong_italian = {
+        "cosa",
+        "evidenze",
+        "incidente",
+        "perché",
+        "quali",
+        "riassumi",
+        "rischio",
+        "severità",
+        "spiega",
+        "verifica",
+    }
+    italian = strong_italian | {
+        "che",
+        "come",
+        "della",
+        "delle",
+        "non",
+        "questa",
+        "questo",
+        "stato",
+    }
+    if words & strong_italian:
+        return "it"
+    return "it" if len(words & italian) >= 2 else "en"
+
+
+def _fallback_reason(result: dict[str, Any]) -> AssistantFallbackReason:
+    safe_error = str(
+        result.get("safe_error")
+        or result.get("error_type")
+        or result.get("provider_status")
+        or ""
+    ).lower()
+    if "deadline" in safe_error or "queue_full" in safe_error:
+        return "queue_deadline_exceeded"
+    if "timeout" in safe_error:
+        return "generation_timeout"
+    if "gateway" in safe_error or "unavailable" in safe_error:
+        return "gateway_unavailable"
+    return "invalid_structured_output"
+
+
+def _selected_sources(
+    records: list[SourceRecord],
+    *,
+    used_advisory_context: bool,
+    max_sources: int,
+) -> list[SourceRecord]:
+    selected = [
+        source
+        for source in records
+        if source.authority == "authoritative"
+        or used_advisory_context
+    ]
+    return assign_source_ids(selected, max_sources=max_sources)
+
+
+def _human_limitations(
+    values: list[str],
+    *,
+    language: AssistantResponseLanguage,
+    semantic_status: str,
+) -> list[str]:
+    translated: list[str] = []
+    for value in values:
+        normalized = " ".join(str(value or "").split())
+        if not normalized:
+            continue
+        semantic_kind = _SEMANTIC_LIMITATION_KINDS.get(normalized)
+        if semantic_status == "not_requested" and (
+            semantic_kind is not None
+            or normalized.lower().startswith(
+                (
+                    "semantic memory",
+                    "la memoria semantica",
+                    "il recupero dalla memoria semantica",
+                )
+            )
+        ):
+            continue
+        if semantic_kind is not None:
+            effective_status = (
+                semantic_status
+                if semantic_status in _SEMANTIC_LIMITATION_TEXT
+                else semantic_kind
+            )
+            localized = _SEMANTIC_LIMITATION_TEXT.get(effective_status)
+            if localized is not None:
+                normalized = localized[language]
+        if normalized not in translated:
+            translated.append(normalized)
+    return translated
+
+
+def _build_response(
+    *,
+    payload: AssistantQueryRequest,
+    output,
+    source_records: list[SourceRecord],
+    retrieval,
+    response_language: AssistantResponseLanguage,
+    generation_kind: str,
+    fallback_reason: AssistantFallbackReason | None,
+    grounding_validation: str,
+    focus_validation: str,
+    result: dict[str, Any],
+    request_started: float,
+    clock: Callable[[], float],
+    settings: AssistantSettings,
+) -> AssistantQueryResponse:
+    sources = _selected_sources(
+        source_records,
+        used_advisory_context=output.used_advisory_context,
+        max_sources=settings.max_sources,
     )
-
-
-def _fallback_answer(*, sources: list[SourceRecord], category: str) -> str:
-    citations = " ".join(f"[{source.source_id}]" for source in sources[:3])
-    if citations:
-        return (
-            "I have grounded source records, but model generation is unavailable. "
-            f"Review the retrieved context manually using {citations}. "
-            "No operational action, severity change, closure, suppression, or remediation approval was performed."
-        )
-    return (
-        "I do not have enough grounded context to answer safely. Use incident or case scope for exact "
-        "operational facts, or enable semantic memory for advisory global context."
+    blocks = response_blocks(output, sources=sources)
+    answer = "\n\n".join(block.text for block in blocks)
+    metadata = AssistantMetadata(
+        generation_kind=generation_kind,
+        queue_wait_ms=max(0, int(result.get("queue_wait_ms") or 0)),
+        generation_ms=max(0, int(result.get("generation_ms") or 0)),
+        total_latency_ms=max(0, int((clock() - request_started) * 1000)),
+        semantic_status=retrieval.semantic_status,
+        semantic_elapsed_ms=max(0, retrieval.semantic_elapsed_ms),
+        semantic_degraded=retrieval.semantic_degraded,
+        grounding_validation=grounding_validation,
+        focus_validation=focus_validation,
+        fallback_reason=fallback_reason,
+        response_language=response_language,
+        source_count=len(sources),
     )
-
-
-def _sanitize_answer_citations(answer: str, sources: list[SourceRecord]) -> tuple[str, list[str]]:
-    valid_tokens = {f"[{source.source_id}]" for source in sources if source.source_id}
-    removed = False
-
-    def replace(match: re.Match[str]) -> str:
-        nonlocal removed
-        token = match.group(0)
-        if token in valid_tokens:
-            return token
-        removed = True
-        return ""
-
-    updated = SOURCE_TOKEN_RE.sub(replace, str(answer or "")).strip()
-    limitations = []
-    if removed:
-        limitations.append("Unsupported model citation tokens were removed from the answer.")
-    return updated, limitations
-
-
-def _provider_error_category(result: dict[str, Any]) -> str:
-    error_type = str(result.get("safe_error") or result.get("error_type") or "")
-    return "GenerationTimeout" if error_type in TIMEOUT_ERRORS else "ProviderUnavailable"
-
-
-def _no_context_response(payload: AssistantQueryRequest, limitations: list[str]) -> AssistantQueryResponse:
     return AssistantQueryResponse(
-        status="fallback",
-        answer=_fallback_answer(sources=[], category="NoGroundingContext"),
+        status="ok" if generation_kind == "model" else "fallback",
+        generation_kind=generation_kind,
+        answer=answer,
+        blocks=blocks,
         scope=payload.scope,
         incident_id=payload.incident_id,
         case_id=payload.case_id,
-        sources=[],
-        limitations=[*limitations, "NoGroundingContext"],
-        metadata=AssistantMetadata(),
+        sources=[source.to_response_source() for source in sources],
+        limitations=_human_limitations(
+            retrieval.limitations,
+            language=response_language,
+            semantic_status=retrieval.semantic_status,
+        ),
+        metadata=metadata,
     )
 
 
@@ -159,10 +377,16 @@ def run_assistant_query(
     current_user: dict[str, Any] | None = None,
     settings: AssistantSettings | None = None,
     db_factory: Callable[[], Any] = SessionLocal,
-    knowledge_base_factory=QdrantKnowledgeBase,
+    knowledge_base_factory=get_knowledge_base,
     generator: Callable[..., dict[str, Any]] = generate_ai_response,
+    focus_router: SemanticFocusRouter | None = None,
+    clock: Callable[[], float] = time.monotonic,
 ) -> AssistantQueryResponse:
+    del current_user
     current_settings = settings or get_assistant_settings()
+    request_started = clock()
+    request_id = uuid4().hex
+    response_language = _response_language(payload.message)
 
     if not current_settings.enabled:
         raise AssistantError(
@@ -170,10 +394,9 @@ def run_assistant_query(
             status_code=503,
             message="SOC assistant is disabled.",
         )
-
     if len(payload.message) > current_settings.max_message_chars:
         raise AssistantError(
-            category="NoGroundingContext",
+            category="InvalidAssistantRequest",
             status_code=422,
             message="Assistant message exceeds the configured limit.",
         )
@@ -185,6 +408,11 @@ def run_assistant_query(
             db=db,
             settings=current_settings,
             knowledge_base_factory=knowledge_base_factory,
+            semantic_timeout_seconds=current_settings.semantic_timeout_seconds,
+            deadline_monotonic=(
+                request_started + current_settings.semantic_timeout_seconds
+            ),
+            clock=clock,
         )
     except IncidentNotFound as exc:
         raise AssistantError(
@@ -203,73 +431,178 @@ def run_assistant_query(
         if callable(close):
             close()
 
-    sources = assign_source_ids(retrieval.sources, max_sources=current_settings.max_sources)
-    limitations = list(retrieval.limitations)
-    if len(sources) < len(retrieval.sources):
-        limitations.append("Source list was truncated to the configured source limit.")
+    semantic_seconds = max(0.0, retrieval.semantic_elapsed_ms / 1000)
+    ASSISTANT_SEMANTIC_DURATION.observe(semantic_seconds)
+    if retrieval.semantic_degraded:
+        ASSISTANT_SEMANTIC_DEGRADED.labels(
+            retrieval.semantic_status
+        ).inc()
 
-    if not sources:
-        return _no_context_response(payload, limitations)
-
-    context_result = build_assistant_context(
-        message=payload.message,
-        sources=sources,
-        max_context_chars=current_settings.max_context_chars,
+    selected_focus_router = focus_router or get_semantic_focus_router()
+    try:
+        focus_selection = selected_focus_router.route(payload.message)
+    except Exception:
+        focus_selection = general_focus_selection(
+            focus_degraded=True,
+            routing_status="router_failure",
+        )
+    focused_fact_inventory = build_focused_fact_view(
+        fact_inventory=retrieval.fact_inventory,
+        focus=focus_selection,
     )
-    limitations.extend(context_result.limitations)
-
-    result = generator(
-        messages=build_assistant_messages(context_result.context),
-        prompt=None,
-        task=AiTask.SOC_ASSISTANT,
-        requested_mode=payload.requested_mode,
-        user_triggered=True,
-        timeout_seconds=current_settings.timeout_seconds,
-        context={
-            "scope": payload.scope,
-            "incident_id": payload.incident_id,
-            "case_id": payload.case_id,
-            "source_count": len(sources),
-            "semantic_memory_attempted": retrieval.semantic_memory_attempted,
-        },
-        current_user=current_user,
+    candidate_sources = assign_source_ids(
+        retrieval.sources,
+        max_sources=current_settings.max_sources,
     )
 
-    metadata = _metadata_from_result(result)
-    text = str(result.get("text") or "").strip()
-    if not text or result.get("safe_error") or result.get("error_type"):
-        category = _provider_error_category(result)
-        return AssistantQueryResponse(
-            status="fallback",
-            answer=_fallback_answer(sources=sources, category=category),
-            scope=payload.scope,
-            incident_id=payload.incident_id,
-            case_id=payload.case_id,
-            sources=[source.to_response_source() for source in sources],
-            limitations=[*limitations, category],
-            metadata=metadata,
+    try:
+        context_result = build_assistant_context(
+            message=payload.message,
+            fact_inventory=focused_fact_inventory,
+            sources=candidate_sources,
+            max_context_chars=current_settings.max_context_chars,
+        )
+    except ValueError:
+        retrieval.limitations.append(
+            "The model context budget was unavailable; the response uses the "
+            "authoritative fact inventory directly."
+        )
+        result = {
+            "safe_error": "invalid_structured_output",
+            "error_type": "invalid_structured_output",
+        }
+    else:
+        if context_result.limitations:
+            retrieval.limitations.extend(context_result.limitations)
+        messages = build_assistant_messages(
+            context_result.context,
+            focus=focus_selection,
+            fact_inventory=focused_fact_inventory,
+            response_language=response_language,
+        )
+        result = generator(
+            messages=messages,
+            task=AiTask.SOC_ASSISTANT,
+            requested_mode="standard",
+            user_triggered=True,
+            timeout_seconds=current_settings.request_timeout_seconds,
+            max_visible_tokens=current_settings.max_output_tokens,
+            context={
+                "caller_kind": "assistant_primary",
+                "request_id_hash": request_id,
+                "focus_dimensions": [
+                    dimension.value for dimension in focus_selection.dimensions
+                ],
+                "focus_routing_ms": round(
+                    focus_selection.focus_routing_ms,
+                    3,
+                ),
+                "focus_degraded": focus_selection.focus_degraded,
+            },
+            output_schema="assistant_grounded_v2",
         )
 
-    answer, citation_limitations = _sanitize_answer_citations(text, sources)
-    if not answer:
-        return AssistantQueryResponse(
-            status="fallback",
-            answer=_fallback_answer(sources=sources, category="NoGroundingContext"),
-            scope=payload.scope,
-            incident_id=payload.incident_id,
-            case_id=payload.case_id,
-            sources=[source.to_response_source() for source in sources],
-            limitations=[*limitations, *citation_limitations, "NoGroundingContext"],
-            metadata=metadata,
-        )
+    structured = result.get("structured_output")
+    if structured is None:
+        structured = result.get("text")
+    output = parse_grounded_output(structured)
+    fallback_reason: AssistantFallbackReason | None = None
+    grounding_status = "not_run"
+    focus_status = "not_run"
 
-    return AssistantQueryResponse(
-        status="success",
-        answer=answer,
-        scope=payload.scope,
-        incident_id=payload.incident_id,
-        case_id=payload.case_id,
-        sources=[source.to_response_source() for source in sources],
-        limitations=[*limitations, *citation_limitations],
-        metadata=metadata,
+    finish_reason = str(result.get("finish_reason") or "").strip().lower()
+    truncated = finish_reason in {
+        "length",
+        "max_length",
+        "max_tokens",
+        "token_limit",
+    }
+    if (
+        output is None
+        or truncated
+        or result.get("safe_error")
+        or result.get("error_type")
+    ):
+        fallback_reason = (
+            _fallback_reason(result)
+            if result.get("safe_error") or result.get("error_type")
+            else "invalid_structured_output"
+        )
+    else:
+        grounding = validate_grounded_output(
+            output,
+            fact_inventory=focused_fact_inventory,
+            sources=candidate_sources,
+        )
+        grounding_status = "passed" if grounding.accepted else "failed"
+        if not grounding.accepted:
+            GROUNDING_REJECTIONS.labels(
+                grounding.reason or "grounding_validation_failed"
+            ).inc()
+            fallback_reason = "grounding_validation_failed"
+        else:
+            focus = validate_focus(
+                output,
+                focus=focus_selection,
+                fact_inventory=focused_fact_inventory,
+            )
+            focus_status = "passed" if focus.accepted else "failed"
+            if not focus.accepted:
+                GROUNDING_REJECTIONS.labels(
+                    focus.reason or "focus_validation_failed"
+                ).inc()
+                fallback_reason = "focus_validation_failed"
+
+    if fallback_reason is not None:
+        FALLBACK_TOTAL.labels(fallback_reason).inc()
+        output = deterministic_claim_output(
+            fact_inventory=focused_fact_inventory,
+            authoritative_source_ids=[
+                source.source_id
+                for source in candidate_sources
+                if source.authority == "authoritative" and source.source_id
+            ],
+        )
+        generation_kind = "deterministic_fallback"
+    else:
+        generation_kind = "model"
+    output = render_claim_output(
+        output,
+        fact_inventory=focused_fact_inventory,
+        response_language=response_language,
     )
+
+    response = _build_response(
+        payload=payload,
+        output=output,
+        source_records=candidate_sources,
+        retrieval=retrieval,
+        response_language=response_language,
+        generation_kind=generation_kind,
+        fallback_reason=fallback_reason,
+        grounding_validation=grounding_status,
+        focus_validation=focus_status,
+        result=result,
+        request_started=request_started,
+        clock=clock,
+        settings=current_settings,
+    )
+    logger.info(
+        "assistant_execution request_id=%s scope=%s target_id=%s "
+        "generation_kind=%s queue_wait_ms=%s generation_ms=%s "
+        "semantic_status=%s grounding_validation=%s focus_validation=%s "
+        "fallback_reason=%s source_count=%s profile=standard "
+        "model=ai-soc-standard",
+        request_id,
+        payload.scope,
+        payload.incident_id or payload.case_id,
+        response.generation_kind,
+        response.metadata.queue_wait_ms,
+        response.metadata.generation_ms,
+        response.metadata.semantic_status,
+        response.metadata.grounding_validation,
+        response.metadata.focus_validation,
+        response.metadata.fallback_reason,
+        response.metadata.source_count,
+    )
+    return response

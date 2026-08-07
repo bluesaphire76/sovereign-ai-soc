@@ -4,9 +4,29 @@ export const ASSISTANT_MESSAGE_MAX_LENGTH = 2000;
 
 export type AssistantScope = "global" | "incident" | "case";
 export type ContextualAssistantScope = Exclude<AssistantScope, "global">;
-export type AssistantMode = "auto" | "standard" | "quality";
-export type AssistantStatus = "success" | "fallback" | "unavailable";
+export type AssistantMode = "auto" | "standard";
+export type AssistantStatus = "ok" | "fallback";
 export type AssistantAuthority = "authoritative" | "advisory";
+export type AssistantGenerationKind = "model" | "deterministic_fallback";
+export type AssistantResponseLanguage = "it" | "en";
+export type AssistantRuntimeState =
+  | "warming"
+  | "ready"
+  | "failed"
+  | "stopped";
+export type AssistantBlockKind =
+  | "direct_answer"
+  | "analysis"
+  | "next_check"
+  | "limitations";
+export type AssistantValidationStatus = "passed" | "failed" | "not_run";
+export type AssistantFallbackReason =
+  | "gateway_unavailable"
+  | "queue_deadline_exceeded"
+  | "generation_timeout"
+  | "invalid_structured_output"
+  | "grounding_validation_failed"
+  | "focus_validation_failed";
 
 export type AssistantCapabilities = {
   enabled: boolean;
@@ -19,6 +39,10 @@ export type AssistantCapabilities = {
   semantic_memory_supported: boolean;
   write_actions_supported: boolean;
   decision_boundary: string;
+  runtime_state?: AssistantRuntimeState | null;
+  default_profile?: string | null;
+  loaded_profile?: string | null;
+  runtime_message?: string | null;
 };
 
 export type AssistantQueryRequest = {
@@ -42,18 +66,39 @@ export type AssistantSource = {
 };
 
 export type AssistantMetadata = {
-  provider_key: string | null;
-  provider_type: string | null;
-  profile: string | null;
-  model: string | null;
-  fallback_used: boolean;
-  latency_ms: number | null;
-  usage: Record<string, unknown>;
+  generation_kind: AssistantGenerationKind;
+  queue_wait_ms: number;
+  generation_ms: number;
+  total_latency_ms: number;
+  effective_profile: "standard";
+  effective_model: string;
+  semantic_status:
+    | "not_requested"
+    | "disabled"
+    | "ok"
+    | "timed_out"
+    | "failed";
+  semantic_elapsed_ms: number;
+  semantic_degraded: boolean;
+  grounding_validation: AssistantValidationStatus;
+  focus_validation: AssistantValidationStatus;
+  fallback_reason: AssistantFallbackReason | null;
+  response_language: AssistantResponseLanguage;
+  thinking_disabled: boolean;
+  source_count: number;
+};
+
+export type AssistantResponseBlock = {
+  kind: AssistantBlockKind;
+  text: string;
+  source_ids: string[];
 };
 
 export type AssistantQueryResponse = {
   status: AssistantStatus;
+  generation_kind: AssistantGenerationKind;
   answer: string;
+  blocks: AssistantResponseBlock[];
   scope: AssistantScope;
   incident_id: number | null;
   case_id: number | null;
@@ -97,6 +142,13 @@ export class AssistantApiError extends Error {
   }
 }
 
+export class AssistantContractError extends Error {
+  constructor() {
+    super("The SOC Assistant returned an incomplete response.");
+    this.name = "AssistantContractError";
+  }
+}
+
 function errorCategory(payload: unknown): string | null {
   if (!payload || typeof payload !== "object") return null;
 
@@ -129,11 +181,11 @@ export function fetchAssistantCapabilities(
   });
 }
 
-export function submitAssistantQuery(
+export async function submitAssistantQuery(
   payload: AssistantQueryRequest,
   signal?: AbortSignal,
 ): Promise<AssistantQueryResponse> {
-  return requestAssistantJson<AssistantQueryResponse>("/assistant/query", {
+  const response = await requestAssistantJson<AssistantQueryResponse>("/assistant/query", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -141,6 +193,15 @@ export function submitAssistantQuery(
     body: JSON.stringify(payload),
     signal,
   });
+  if (
+    typeof response.answer !== "string" ||
+    !response.answer.trim() ||
+    !Array.isArray(response.blocks) ||
+    response.blocks.length === 0
+  ) {
+    throw new AssistantContractError();
+  }
+  return response;
 }
 
 export function isSafeInternalAssistantUrl(value: string | null | undefined): value is string {
@@ -166,6 +227,16 @@ export function normalizeAssistantApiError(
       kind: "aborted",
       message: "The assistant request was cancelled.",
       retryable: false,
+      locksInteraction: false,
+    };
+  }
+
+  if (error instanceof AssistantContractError) {
+    return {
+      kind: "unavailable",
+      message:
+        `The SOC Assistant returned an incomplete response. No ${scope} state was changed.`,
+      retryable: true,
       locksInteraction: false,
     };
   }
@@ -221,7 +292,9 @@ export function normalizeAssistantApiError(
     if (
       error.status === 503 ||
       error.category === "ProviderUnavailable" ||
-      error.category === "GenerationTimeout"
+      error.category === "GenerationTimeout" ||
+      error.category === "provider_unavailable" ||
+      error.category === "timeout"
     ) {
       return {
         kind: "unavailable",

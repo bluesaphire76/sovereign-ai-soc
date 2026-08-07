@@ -20,6 +20,7 @@ def isolated_runtime_config(monkeypatch, tmp_path):
 
 
 def test_local_ollama_is_default_and_external_is_disabled(monkeypatch):
+    monkeypatch.setenv("AI_OLLAMA_ENABLED", "true")
     monkeypatch.delenv("AI_PROVIDER_DEFAULT", raising=False)
     monkeypatch.delenv("AI_LLM_PROVIDER", raising=False)
     monkeypatch.delenv("AI_EXTERNAL_PROVIDERS_ENABLED", raising=False)
@@ -132,6 +133,7 @@ def test_invalid_persisted_default_falls_back_to_safe_local_provider(monkeypatch
 
 
 def test_provider_selection_persistence_includes_llama_cpp(monkeypatch):
+    monkeypatch.setenv("AI_OLLAMA_ENABLED", "true")
     monkeypatch.setenv("LLAMA_CPP_ENABLED", "true")
 
     registry = save_registry_settings(default_provider="local_llama_cpp")

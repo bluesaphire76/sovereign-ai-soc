@@ -11,7 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from ai_governance.policy import assess_remediation_output_governance
 from ai_model_policy import AiTask
-from ai_triage_hardening import call_ollama_chat, get_last_llm_call_metadata
+from ai_triage_hardening import call_ai_gateway, get_last_llm_call_metadata
 from database import SessionLocal
 from llm_output import is_invalid_llm_output, sanitize_llm_output
 from models import Incident, IncidentAudit, utc_now
@@ -422,7 +422,11 @@ def _governance_payload(
     return assessment.to_payload()
 
 
-def generate_remediation_intelligence(incident_id: int) -> dict[str, Any]:
+def generate_remediation_intelligence(
+    incident_id: int,
+    *,
+    generate_llm: bool = True,
+) -> dict[str, Any]:
     cached = _cache_get(incident_id)
     if cached is not None:
         return cached
@@ -471,6 +475,29 @@ def generate_remediation_intelligence(incident_id: int) -> dict[str, Any]:
             return persistent
 
         incident_payload = _incident_payload(incident)
+        if not generate_llm:
+            plan = _normalize_plan(
+                _fallback_plan(
+                    incident_payload,
+                    "AI remediation analysis has not been generated for this incident.",
+                ),
+                incident_payload,
+            )
+            return {
+                "incident_id": incident_id,
+                "generated_at": utc_now().isoformat(),
+                "source": "deterministic_fallback",
+                "retry_attempted": False,
+                "error_type": None,
+                "model_timeout_seconds": REMEDIATION_INTELLIGENCE_TIMEOUT_SECONDS,
+                "execution_supported": False,
+                "plan": plan,
+                "governance": _governance_payload(
+                    plan,
+                    source="deterministic_fallback",
+                    execution_supported=False,
+                ),
+            }
         prompt = _build_prompt(incident_payload)
 
         source = "local_ai"
@@ -481,7 +508,7 @@ def generate_remediation_intelligence(incident_id: int) -> dict[str, Any]:
         error_type = None
 
         try:
-            raw_output = call_ollama_chat(
+            raw_output = call_ai_gateway(
                 messages=[
                     {
                         "role": "system",
@@ -495,7 +522,7 @@ def generate_remediation_intelligence(incident_id: int) -> dict[str, Any]:
                 timeout_seconds=REMEDIATION_INTELLIGENCE_TIMEOUT_SECONDS,
                 task=AiTask.REMEDIATION,
                 severity=incident_payload.get("recommended_priority"),
-                requested_mode="auto",
+                requested_mode="standard",
                 user_triggered=True,
             )
             llm_metadata = get_last_llm_call_metadata()
@@ -505,7 +532,7 @@ def generate_remediation_intelligence(incident_id: int) -> dict[str, Any]:
 
             if parsed is None or is_invalid_llm_output(raw_output):
                 retry_attempted = True
-                raw_output = call_ollama_chat(
+                raw_output = call_ai_gateway(
                     messages=[
                         {
                             "role": "system",
@@ -519,7 +546,7 @@ def generate_remediation_intelligence(incident_id: int) -> dict[str, Any]:
                     timeout_seconds=REMEDIATION_INTELLIGENCE_TIMEOUT_SECONDS,
                     task=AiTask.REMEDIATION,
                     severity=incident_payload.get("recommended_priority"),
-                    requested_mode="auto",
+                    requested_mode="standard",
                     user_triggered=True,
                 )
                 llm_metadata = get_last_llm_call_metadata()

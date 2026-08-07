@@ -86,6 +86,22 @@ class ServiceStatus:
 
 
 SERVICE_REGISTRY: dict[str, ServiceDefinition] = {
+    "ai_soc_inference_gateway": ServiceDefinition(
+        key="ai_soc_inference_gateway",
+        display_name="AI SOC Inference Gateway",
+        kind="systemd",
+        unit="ai-soc-inference-gateway",
+        risk_level="high",
+        description="Single-owner local generative AI execution service.",
+        impact=(
+            "Queued and active AI generation becomes temporarily unavailable "
+            "while the gateway restarts."
+        ),
+        post_restart_check=(
+            "Gateway status should return ready with the standard profile."
+        ),
+        command_family="systemd",
+    ),
     "ai_soc_worker": ServiceDefinition(
         key="ai_soc_worker",
         display_name="AI SOC Worker",

@@ -15,8 +15,12 @@ from typing import Callable, Sequence
 
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 COMMAND_TIMEOUT_SECONDS = 3.0
-APPLICATION_SERVICES = ("ai-soc-api", "ai-soc-frontend")
-WORKER_SERVICE = "ai-soc-worker"
+APPLICATION_SERVICES = (
+    "ai-soc-inference-gateway",
+    "ai-soc-api",
+    "ai-soc-worker",
+    "ai-soc-frontend",
+)
 
 
 @dataclass(frozen=True)
@@ -117,8 +121,6 @@ class DemoLifecycle:
 
     @property
     def services(self) -> tuple[str, ...]:
-        if self.include_worker:
-            return (*APPLICATION_SERVICES, WORKER_SERVICE)
         return APPLICATION_SERVICES
 
     def inspect_service(self, name: str) -> ServiceStatus:
@@ -180,14 +182,7 @@ class DemoLifecycle:
         return [self.inspect_service(name) for name in self.services]
 
     def planned_commands(self, action: str) -> list[list[str]]:
-        if self.include_worker:
-            startup_order = [
-                "ai-soc-api",
-                "ai-soc-worker",
-                "ai-soc-frontend",
-            ]
-        else:
-            startup_order = list(APPLICATION_SERVICES)
+        startup_order = list(APPLICATION_SERVICES)
         ordered_services = (
             list(reversed(startup_order))
             if action == "down"
