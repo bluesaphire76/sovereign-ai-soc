@@ -21,7 +21,12 @@ def create_repository(root: Path) -> None:
         "frontend/package-lock.json",
         "scripts/doctor.py",
         "scripts/init_env.py",
+        "scripts/manage_systemd_units.py",
         "scripts/validate_cli_smoke.py",
+        "systemd/ai-soc-inference-gateway.service",
+        "systemd/ai-soc-api.service",
+        "systemd/ai-soc-worker.service",
+        "systemd/ai-soc-frontend.service",
         "INSTALL.md",
     ):
         path = root / relative

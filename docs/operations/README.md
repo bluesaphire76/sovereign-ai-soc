@@ -3,6 +3,7 @@
 ## Current Runbooks
 
 - [Admin guide](admin-guide.md)
+- [AI Inference Gateway](ai-inference-gateway.md)
 - [Deployment guide](deployment-guide.md)
 - [Ports and components](ports-and-components.md)
 - [Troubleshooting](troubleshooting.md)

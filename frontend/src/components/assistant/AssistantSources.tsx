@@ -58,7 +58,8 @@ function SourceGroup({
             <li
               key={`${source.source_id}-${source.source_type}-${source.record_id ?? ""}-${sourceIndex}`}
               id={sourceAnchorId(anchorPrefix, sourceIndex)}
-              className="min-w-0 border border-slate-800 bg-slate-950 p-3"
+              tabIndex={-1}
+              className="min-w-0 border border-slate-800 bg-slate-950 p-3 outline-none focus:border-cyan-700"
             >
               <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
@@ -143,7 +144,7 @@ export default function AssistantSources({
   const advisory = sources.filter((source) => source.authority === "advisory");
 
   return (
-    <div className="space-y-4 border-t border-slate-800 pt-4">
+    <div className="space-y-4">
       <SourceGroup
         authority="authoritative"
         sources={authoritative}

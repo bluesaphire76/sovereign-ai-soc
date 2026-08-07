@@ -7,7 +7,7 @@ from typing import Any
 
 from ai_model_config import get_profile
 from ai_model_policy import AiTask
-from llm_client import generate_ai_response
+from services.ai_execution.client import generate_ai_response
 from llm_output import is_invalid_llm_output, sanitize_llm_output
 
 
@@ -103,8 +103,12 @@ def _llm_metadata(result: dict[str, Any] | None) -> dict[str, Any]:
         "llm_profile": result.get("profile"),
         "llm_fallback_used": bool(result.get("fallback_used", False)),
         "llm_latency_ms": result.get("latency_ms"),
-        "provider_key": result.get("provider_key") or "local_ollama",
-        "provider_type": result.get("provider_type") or "LOCAL_OLLAMA",
+        "provider_key": (
+            result.get("provider_key") or "ai_execution_gateway"
+        ),
+        "provider_type": (
+            result.get("provider_type") or "INFERENCE_GATEWAY"
+        ),
         "used_external_provider": bool(result.get("used_external_provider", False)),
         "redaction_applied": bool(result.get("redaction_applied", False)),
         "redaction_mode": result.get("redaction_mode") or "LOCAL_ONLY",

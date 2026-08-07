@@ -4,7 +4,12 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from api import app
-from schemas.assistant import AssistantMetadata, AssistantQueryResponse, AssistantSource
+from schemas.assistant import (
+    AssistantMetadata,
+    AssistantQueryResponse,
+    AssistantResponseBlock,
+    AssistantSource,
+)
 from services.assistant.orchestrator import AssistantError
 
 
@@ -16,14 +21,28 @@ def _auth(monkeypatch, role: str = "ANALYST") -> None:
         "security.rbac.get_current_user",
         lambda authorization: {"id": 1, "username": "ana", "role": role},
     )
-    monkeypatch.setattr("security.rbac.mark_active_user", lambda current_user: None)
-    monkeypatch.setattr("security.rbac.write_security_audit", lambda **kwargs: None)
+    monkeypatch.setattr(
+        "security.rbac.mark_active_user",
+        lambda current_user: None,
+    )
+    monkeypatch.setattr(
+        "security.rbac.write_security_audit",
+        lambda **kwargs: None,
+    )
 
 
 def _assistant_response() -> AssistantQueryResponse:
     return AssistantQueryResponse(
-        status="success",
-        answer="Grounded answer [S1].",
+        status="ok",
+        generation_kind="model",
+        answer="Incident 245 has recorded severity LOW.",
+        blocks=[
+            AssistantResponseBlock(
+                kind="direct_answer",
+                text="Incident 245 has recorded severity LOW.",
+                source_ids=["S1"],
+            )
+        ],
         scope="incident",
         incident_id=245,
         sources=[
@@ -36,37 +55,60 @@ def _assistant_response() -> AssistantQueryResponse:
                 url="/incidents/245",
             )
         ],
-        limitations=[],
         metadata=AssistantMetadata(
-            provider_key="local_llama_cpp",
-            provider_type="LOCAL_LLAMA_CPP",
-            profile="standard",
-            model="ai-soc-standard",
-            latency_ms=12,
+            generation_kind="model",
+            queue_wait_ms=10,
+            generation_ms=420,
+            total_latency_ms=500,
+            semantic_status="ok",
+            grounding_validation="passed",
+            focus_validation="passed",
+            source_count=1,
         ),
     )
 
 
-def test_capabilities_endpoint_is_authenticated_and_safe(monkeypatch) -> None:
+def test_capabilities_endpoint_is_authenticated_and_gateway_owned(
+    monkeypatch,
+) -> None:
     _auth(monkeypatch, role="ADMIN")
-    monkeypatch.setenv("AI_SOC_ASSISTANT_ENABLED", "false")
+    monkeypatch.setattr(
+        "services.assistant.orchestrator.assistant_runtime_snapshot",
+        lambda: {
+            "runtime_state": "ready",
+            "loaded_profile": "standard",
+            "runtime_message": "Standard inference model is ready.",
+        },
+    )
+    monkeypatch.setenv("AI_SOC_ASSISTANT_ENABLED", "true")
 
-    response = client.get("/assistant/capabilities", headers={"Authorization": "Bearer test"})
+    response = client.get(
+        "/assistant/capabilities",
+        headers={"Authorization": "Bearer test"},
+    )
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["enabled"] is False
-    assert payload["feature_key"] == "soc_assistant"
-    assert payload["supported_scopes"] == ["global", "incident", "case"]
+    assert payload["enabled"] is True
+    assert payload["supported_modes"] == ["auto", "standard"]
+    assert payload["runtime_state"] == "ready"
+    assert payload["loaded_profile"] == "standard"
     assert "router_base_url" not in payload
-    assert "prompt" not in payload
 
 
-def test_query_endpoint_returns_response_and_safe_audit(monkeypatch) -> None:
-    _auth(monkeypatch, role="ANALYST")
+def test_query_endpoint_returns_blocks_and_safe_slim_audit(
+    monkeypatch,
+) -> None:
+    _auth(monkeypatch)
     audits = []
-    monkeypatch.setattr("routers.assistant.run_assistant_query", lambda payload, current_user=None: _assistant_response())
-    monkeypatch.setattr("routers.assistant.write_security_audit", lambda **kwargs: audits.append(kwargs))
+    monkeypatch.setattr(
+        "routers.assistant.run_assistant_query",
+        lambda payload, current_user=None: _assistant_response(),
+    )
+    monkeypatch.setattr(
+        "routers.assistant.write_security_audit",
+        lambda **kwargs: audits.append(kwargs),
+    )
 
     response = client.post(
         "/assistant/query",
@@ -79,88 +121,77 @@ def test_query_endpoint_returns_response_and_safe_audit(monkeypatch) -> None:
     )
 
     assert response.status_code == 200
-    assert response.json()["answer"] == "Grounded answer [S1]."
-    assert audits[0]["event_type"] == "AI_ASSISTANT_QUERY_COMPLETED"
+    assert response.json()["blocks"][0]["source_ids"] == ["S1"]
     details = audits[0]["details"]
+    assert audits[0]["event_type"] == "AI_ASSISTANT_QUERY_COMPLETED"
     assert "message_sha256" in details
     assert "Raw question should not be stored" not in str(details)
     assert details["source_type_counts"] == {"incident": 1}
+    assert details["generation_kind"] == "model"
+    assert details["effective_profile"] == "standard"
+    assert details["effective_model"] == "ai-soc-standard"
+    assert details["grounding_validation"] == "passed"
+    assert details["focus_validation"] == "passed"
+    assert "citation" not in str(details).lower()
+    assert "prompt" not in str(details).lower()
+    assert "answer" not in str(details).lower()
 
 
-def test_query_endpoint_maps_missing_incident_to_safe_404(monkeypatch) -> None:
-    _auth(monkeypatch, role="ANALYST")
+def test_query_endpoint_maps_expected_and_unexpected_failures_safely(
+    monkeypatch,
+) -> None:
+    _auth(monkeypatch)
     audits = []
-
-    def fail(payload, current_user=None):
-        raise AssistantError(category="IncidentNotFound", status_code=404, message="Incident not found.")
-
-    monkeypatch.setattr("routers.assistant.run_assistant_query", fail)
-    monkeypatch.setattr("routers.assistant.write_security_audit", lambda **kwargs: audits.append(kwargs))
-
-    response = client.post(
+    monkeypatch.setattr(
+        "routers.assistant.write_security_audit",
+        lambda **kwargs: audits.append(kwargs),
+    )
+    monkeypatch.setattr(
+        "routers.assistant.run_assistant_query",
+        lambda payload, current_user=None: (_ for _ in ()).throw(
+            AssistantError(
+                category="IncidentNotFound",
+                status_code=404,
+                message="Incident not found.",
+            )
+        ),
+    )
+    missing = client.post(
         "/assistant/query",
         headers={"Authorization": "Bearer test"},
         json={"message": "Explain", "scope": "incident", "incident_id": 999},
     )
+    assert missing.status_code == 404
+    assert missing.json()["detail"]["error_category"] == "IncidentNotFound"
 
-    assert response.status_code == 404
-    assert response.json()["detail"]["error_category"] == "IncidentNotFound"
-    assert audits[0]["event_type"] == "AI_ASSISTANT_QUERY_FAILED"
-
-
-def test_query_endpoint_maps_disabled_feature_to_safe_503(monkeypatch) -> None:
-    _auth(monkeypatch, role="ADMIN")
     monkeypatch.setattr(
         "routers.assistant.run_assistant_query",
         lambda payload, current_user=None: (_ for _ in ()).throw(
-            AssistantError(category="AssistantDisabled", status_code=503, message="SOC assistant is disabled.")
+            RuntimeError("private provider path")
         ),
     )
-    monkeypatch.setattr("routers.assistant.write_security_audit", lambda **kwargs: None)
-
-    response = client.post(
+    failed = client.post(
         "/assistant/query",
         headers={"Authorization": "Bearer test"},
-        json={"message": "Explain", "scope": "global"},
+        json={"message": "Do not store me", "scope": "global"},
     )
-
-    assert response.status_code == 503
-    assert response.json()["detail"] == {
-        "message": "SOC assistant is disabled.",
-        "error_category": "AssistantDisabled",
-    }
-
-
-def test_query_endpoint_hides_unexpected_exception_detail(monkeypatch) -> None:
-    _auth(monkeypatch, role="ANALYST")
-    audits = []
-
-    def fail(payload, current_user=None):
-        raise RuntimeError("stack trace internal detail")
-
-    monkeypatch.setattr("routers.assistant.run_assistant_query", fail)
-    monkeypatch.setattr("routers.assistant.write_security_audit", lambda **kwargs: audits.append(kwargs))
-
-    response = client.post(
-        "/assistant/query",
-        headers={"Authorization": "Bearer test"},
-        json={"message": "Do not store this raw question", "scope": "global"},
-    )
-
-    assert response.status_code == 503
-    assert "internal detail" not in str(response.json())
-    assert "Do not store this raw question" not in str(audits[0]["details"])
-    assert audits[0]["details"]["error_category"] == "ProviderUnavailable"
+    assert failed.status_code == 503
+    assert "private provider path" not in str(failed.json())
+    assert "Do not store me" not in str(audits[-1]["details"])
 
 
 def test_viewer_and_unauthenticated_requests_are_denied(monkeypatch) -> None:
     _auth(monkeypatch, role="VIEWER")
-    viewer_response = client.get("/assistant/capabilities", headers={"Authorization": "Bearer test"})
-    assert viewer_response.status_code == 403
+    viewer = client.get(
+        "/assistant/capabilities",
+        headers={"Authorization": "Bearer test"},
+    )
+    assert viewer.status_code == 403
 
     monkeypatch.setattr(
         "security.rbac.get_current_user",
-        lambda authorization: (_ for _ in ()).throw(HTTPException(status_code=401, detail="Authentication required.")),
+        lambda authorization: (_ for _ in ()).throw(
+            HTTPException(status_code=401, detail="Authentication required.")
+        ),
     )
-    unauthenticated_response = client.get("/assistant/capabilities")
-    assert unauthenticated_response.status_code == 401
+    assert client.get("/assistant/capabilities").status_code == 401

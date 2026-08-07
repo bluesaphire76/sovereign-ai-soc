@@ -1,0 +1,18 @@
+[Unit]
+Description=Sovereign AI SOC Background Worker
+After=network.target docker.service ai-soc-inference-gateway.service ai-soc-api.service
+Requires=docker.service ai-soc-inference-gateway.service ai-soc-api.service
+
+[Service]
+Type=simple
+User=ai-soc
+Group=ai-soc
+WorkingDirectory=/opt/sovereign-ai-soc
+EnvironmentFile=-/opt/sovereign-ai-soc/.env
+Environment="PYTHONUNBUFFERED=1"
+ExecStart=/opt/sovereign-ai-soc/.venv/bin/python ai_soc_worker.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

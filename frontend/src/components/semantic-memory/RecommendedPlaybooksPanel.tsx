@@ -1,6 +1,13 @@
 "use client";
 
-import { BookOpen, CheckCircle2, Loader2, MapPin, RefreshCw } from "lucide-react";
+import { BookOpen, CheckCircle2, Loader2, MapPin, Sparkles } from "lucide-react";
+
+export type AiGenerationStatus =
+  | "idle"
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed";
 
 export type PlaybookRecommendationItem = {
   card_type?: string | null;
@@ -63,15 +70,19 @@ export default function RecommendedPlaybooksPanel({
   response,
   loading,
   error,
-  onRefresh,
+  generationStatus,
+  onGenerate,
 }: {
   response: RecommendedPlaybooksResponse | null;
   loading: boolean;
   error: string | null;
-  onRefresh: () => void;
+  generationStatus: AiGenerationStatus;
+  onGenerate: () => void;
 }) {
   const status = response?.status ?? (loading ? "LOADING" : "PENDING");
   const recommendations = response?.recommendations ?? [];
+  const generationActive =
+    generationStatus === "queued" || generationStatus === "running";
 
   return (
     <div className="space-y-3">
@@ -98,18 +109,27 @@ export default function RecommendedPlaybooksPanel({
 
           <button
             type="button"
-            onClick={onRefresh}
-            disabled={loading}
+            onClick={onGenerate}
+            disabled={loading || generationActive}
             className="inline-flex h-8 w-fit items-center gap-1.5 rounded-md border border-slate-700 bg-slate-900 px-2.5 text-xs text-slate-200 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {loading ? (
+            {generationActive ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : (
-              <RefreshCw className="h-3.5 w-3.5" />
+              <Sparkles className="h-3.5 w-3.5" />
             )}
-            Refresh
+            Generate playbook suggestions
           </button>
         </div>
+        {generationStatus !== "idle" ? (
+          <p
+            className="mt-2 text-[11px] font-medium text-cyan-300"
+            role="status"
+          >
+            {generationStatus.charAt(0).toUpperCase() +
+              generationStatus.slice(1)}
+          </p>
+        ) : null}
 
         {error && (
           <div className="mt-3 rounded-md border border-amber-800 bg-amber-950/50 p-2.5 text-xs text-amber-100">

@@ -26,10 +26,10 @@ Qdrant Semantic Memory, investigation intelligence, Detection Control,
 remediation governance, case workflow, reporting and observability.
 
 It is built for teams that want AI-assisted SOC workflows without making
-external AI providers mandatory. Ollama remains the default local path;
-llama.cpp is available as an optional governed local runtime foundation; and
-OpenRouter or other OpenAI-compatible endpoints are optional, disabled by
-default and controlled by explicit provider/data policies.
+external AI providers mandatory. Active generation uses the local llama.cpp
+runtime through a single-owner inference gateway. Ollama, OpenRouter, and other
+OpenAI-compatible endpoints remain configurable low-level integrations but are
+not active generation paths in gateway mode.
 
 The current release baseline is `v0.7.1`.
 
@@ -167,7 +167,8 @@ Additional screenshots are available in [`docs/assets/screenshots`](docs/assets/
 2. The ingestion pipeline normalizes, deduplicates and suppresses known operational noise.
 3. Relevant signals are correlated into explainable incidents.
 4. Qdrant retrieves advisory playbooks and historical/operational context.
-5. A policy-selected AI provider produces structured analysis with deterministic fallback.
+5. A single-owner inference gateway serializes local standard-profile
+   generation with deterministic fallback.
 6. Analysts investigate through timelines, graphs, cases and Recommended Playbooks.
 7. Detection and remediation changes pass through lifecycle, approval and audit controls.
 8. Health, Operation History, metrics, alerts and selected logs provide operational confidence.
@@ -179,8 +180,8 @@ SOC teams need faster interpretation, clearer evidence handling and better decis
 Sovereign AI SOC demonstrates a local-first approach:
 
 - Security telemetry and semantic memory can stay in the local environment.
-- AI analysis runs through local Ollama by default, with optional local
-  llama.cpp profiles when configured.
+- AI generation runs through the local llama.cpp standard profile owned by the
+  inference gateway.
 - External providers require explicit enablement, allowlisting, redaction and
   AI Data Control approval.
 - Deterministic ingestion, suppression and correlation decide what becomes an incident.
@@ -197,7 +198,7 @@ Sovereign AI SOC demonstrates a local-first approach:
 | Incident creation | Correlation-first logic before incident creation, with observed-only and suppressed paths |
 | Incident workflow | Incident Command Center, lifecycle, Advanced Timeline, Investigation Graph, Similar Incidents, Recommended Playbooks and evidence context |
 | Case workflow | Ownership, SLA posture, closure readiness, linked incidents, persisted AI jobs, semantic closure context, graph and Kanban |
-| AI providers | On-demand Ollama profiles, optional llama.cpp local profiles and optional governed OpenRouter/OpenAI-compatible routing with visible provider/model/profile/fallback metadata |
+| AI providers | Single-owner local llama.cpp standard-profile generation over a Unix socket; other provider configurations are inactive in gateway mode |
 | AI Data Control | Per-feature role/provider policy, deterministic redaction, previews and audit-safe decision history |
 | Semantic memory | Qdrant knowledge base, historical incidents, Detection Control and approved/final Case Closure memory |
 | Remediation workflow | LLM-backed intelligence, persistent proposals, approvals, dry-run, rollback readiness, replay and safe internal conversions |
@@ -210,6 +211,15 @@ Sovereign AI SOC demonstrates a local-first approach:
 ## AI Capabilities
 
 AI is used across the workflow, not only for triage.
+
+Active generative features use the local-only Unix socket
+`/run/ai-soc/inference-gateway.sock`. The gateway owns llama.cpp readiness,
+enforces `ai-soc-standard`, and serializes work by analyst-aware priority.
+The Contextual Assistant validates structured responses against authoritative
+facts and assigns source references in the backend; Qdrant advisory context
+fails open within a two-second budget. See
+[AI Execution Gateway](docs/architecture/v0.8-ai-execution-gateway.md) and
+[Grounded Assistant Response](docs/architecture/v0.8-ai-assistant-grounded-response.md).
 
 - Incident AI analysis for situation summaries, risk rationale and evidence interpretation.
 - Structured AI Command Brief with provider/model visibility.
@@ -267,7 +277,7 @@ The core runtime is local:
 - PostgreSQL operational datastore.
 - Qdrant local semantic memory.
 - Wazuh and Suricata signal sources.
-- Local AI runtime through Ollama by default and optional llama.cpp router/GGUF profiles.
+- Local AI runtime through the llama.cpp router and fixed standard GGUF alias.
 - Optional governed OpenAI-compatible providers such as OpenRouter.
 - Prometheus, Grafana, Alertmanager, Loki and Grafana Alloy.
 - Local report and evidence pack generation.
@@ -345,9 +355,9 @@ After the repository-local preparation succeeds, use one reviewed demo path:
 
 This prepares a local lab workflow, not a production deployment. Wazuh and
 Suricata are optional for synthetic demo data and required only when evaluating
-their real telemetry. Ollama is the default local AI path; llama.cpp is an
-optional local runtime path; both require operator-managed local models for
-the complete AI-assisted experience. A GPU is not required.
+their real telemetry. The llama.cpp gateway is the active local AI path and
+requires an operator-managed local model for the complete AI-assisted
+experience. A GPU is not required.
 
 See [INSTALL.md](INSTALL.md), [Evaluation Guide](docs/product/evaluation-guide.md)
 and [Demo Guide](docs/product/demo-guide.md) for the complete workflow.

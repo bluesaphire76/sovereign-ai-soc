@@ -1,4 +1,5 @@
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -19,11 +20,15 @@ from qdrant_knowledge import (
     SEMANTIC_MEMORY_DECISION_BOUNDARY,
     QdrantKnowledgeBase,
     QdrantKnowledgeConfig,
+    SemanticEmbeddingNotReady,
+    SemanticRetrievalTimeout,
     SemanticMemoryRecord,
+    _reset_embedding_runtime_for_tests,
     build_knowledge_base_index_plan,
     chunk_text,
     discover_knowledge_base_documents,
     format_semantic_memory_context_for_prompt,
+    start_embedding_prewarm,
 )
 
 
@@ -90,6 +95,9 @@ def retrieval_request():
 
 
 class QdrantKnowledgeBaseTests(unittest.TestCase):
+    def tearDown(self):
+        _reset_embedding_runtime_for_tests()
+
     def test_markdown_playbooks_are_chunked_by_section(self):
         chunks = chunk_text(
             """
@@ -379,6 +387,68 @@ tags:
         self.assertIsNotNone(client.queries[0]["query_filter"])
         self.assertIn("historical_incident", str(client.queries[0]["query_filter"]))
         self.assertIn("CLOSED", str(client.queries[0]["query_filter"]))
+
+    def test_assistant_retrieval_fails_open_when_embedding_is_not_ready(self):
+        client = FakeClient([])
+        kb = QdrantKnowledgeBase(config(), client=client)
+
+        with self.assertRaises(SemanticEmbeddingNotReady) as raised:
+            kb.retrieve_contexts_with_diagnostics(
+                "ssh brute force",
+                deadline_monotonic=3.0,
+                clock=lambda: 0.0,
+                require_ready_embedding=True,
+            )
+
+        self.assertEqual(raised.exception.cache_state, "cold")
+        self.assertEqual(client.queries, [])
+
+    def test_embedding_deadline_is_checked_before_qdrant(self):
+        now = [0.0]
+
+        class SlowEncoder(FakeEncoder):
+            def encode(self, text):
+                now[0] = 3.1
+                return super().encode(text)
+
+        client = FakeClient([])
+        kb = QdrantKnowledgeBase(
+            config(),
+            client=client,
+            encoder=SlowEncoder(),
+        )
+
+        with self.assertRaises(SemanticRetrievalTimeout) as raised:
+            kb.retrieve_contexts_with_diagnostics(
+                "ssh brute force",
+                deadline_monotonic=3.0,
+                clock=lambda: now[0],
+                require_ready_embedding=True,
+            )
+
+        self.assertEqual(raised.exception.phase, "embedding")
+        self.assertEqual(client.queries, [])
+
+    def test_embedding_prewarm_is_single_tracked_worker(self):
+        release = threading.Event()
+        loaded = threading.Event()
+
+        def loader(model_name):
+            release.wait(timeout=1)
+            loaded.set()
+            return FakeEncoder()
+
+        self.assertTrue(
+            start_embedding_prewarm(model_name="test-model", loader=loader)
+        )
+        self.assertFalse(
+            start_embedding_prewarm(model_name="test-model", loader=loader)
+        )
+        release.set()
+        self.assertTrue(loaded.wait(timeout=1))
+        self.assertFalse(
+            start_embedding_prewarm(model_name="test-model", loader=loader)
+        )
 
     def test_legacy_retrieve_security_context_uses_default_knowledge_base(self):
         old_default = qdrant_knowledge._DEFAULT_KNOWLEDGE_BASE

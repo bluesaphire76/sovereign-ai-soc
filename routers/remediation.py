@@ -343,7 +343,10 @@ def get_incident_remediation_plan(incident_id: int):
         raise HTTPException(status_code=404, detail="Incident not found.")
 
     try:
-        result = generate_remediation_intelligence(incident_id)
+        result = generate_remediation_intelligence(
+            incident_id,
+            generate_llm=False,
+        )
     except ValueError:
         raise HTTPException(status_code=404, detail="Incident not found.")
 
@@ -358,6 +361,33 @@ def get_incident_remediation_plan(incident_id: int):
         "validation": validation,
         "notes": [
             "LLM-backed remediation intelligence preview.",
+            "No remediation execution is available from this endpoint.",
+            "Human approval is required before any future execution layer can act.",
+        ],
+    }
+
+
+@router.post("/incidents/{incident_id}/remediation-plan")
+def generate_incident_remediation_plan(incident_id: int):
+    if incident_id <= 0:
+        raise HTTPException(status_code=404, detail="Incident not found.")
+    try:
+        result = generate_remediation_intelligence(
+            incident_id,
+            generate_llm=True,
+        )
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Incident not found.")
+    plan, validation = _public_plan_payload(result)
+    return {
+        **result,
+        "source": _public_plan_source(result.get("source")),
+        "remediation_source": result.get("source"),
+        "execution_supported": False,
+        "plan": plan,
+        "validation": validation,
+        "notes": [
+            "User-triggered remediation intelligence preview.",
             "No remediation execution is available from this endpoint.",
             "Human approval is required before any future execution layer can act.",
         ],

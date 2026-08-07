@@ -1,18 +1,18 @@
 [Unit]
 Description=Sovereign AI SOC FastAPI Backend
-After=network.target docker.service
-Requires=docker.service
+After=network.target docker.service ai-soc-inference-gateway.service
+Requires=docker.service ai-soc-inference-gateway.service
 
 [Service]
 Type=simple
-User=lele
-Group=docker
-WorkingDirectory=/home/lele/lab/ai-soc-assistant
+User=ai-soc
+Group=ai-soc
+WorkingDirectory=/opt/sovereign-ai-soc
+EnvironmentFile=-/opt/sovereign-ai-soc/.env
 Environment="PYTHONUNBUFFERED=1"
-ExecStart=/home/lele/lab/ai-soc-assistant/.venv/bin/uvicorn api:app --host 0.0.0.0 --port 8008
+ExecStart=/opt/sovereign-ai-soc/.venv/bin/uvicorn api:app --host 0.0.0.0 --port 8008
 Restart=always
 RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
-

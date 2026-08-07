@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from rich import print
 from ai_model_config import get_profile
 from ai_model_policy import AiTask
-from llm_client import generate_ai_response
+from services.ai_execution.client import generate_ai_response
 from llm_output import is_invalid_llm_output, sanitize_llm_output
 
 urllib3.disable_warnings()
@@ -107,7 +107,7 @@ Return only the final answer. Do not include chain-of-thought, hidden reasoning,
             }
         ],
         task=AiTask.INCIDENT_TRIAGE,
-        requested_mode="auto",
+        requested_mode="standard",
         user_triggered=False,
     )
 
@@ -140,7 +140,7 @@ Return only the final answer. Do not include chain-of-thought, hidden reasoning,
                 },
             ],
             task=AiTask.INCIDENT_TRIAGE,
-            requested_mode="auto",
+            requested_mode="standard",
             user_triggered=False,
         )
 

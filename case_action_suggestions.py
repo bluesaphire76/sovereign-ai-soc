@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from ai_model_config import get_profile
 from ai_model_policy import AiTask
 from database import SessionLocal
-from llm_client import generate_ai_response
+from services.ai_execution.client import generate_ai_response
 from llm_output import is_invalid_llm_output, sanitize_llm_output
 from models import CaseAIAnalysis, CaseAction, CaseIncident, Incident, IncidentCase
 
@@ -298,7 +298,7 @@ def generate_raw_suggestions(prompt: str) -> tuple[dict, dict]:
             },
         ],
         task=AiTask.CASE_ANALYSIS,
-        requested_mode="auto",
+        requested_mode="standard",
         user_triggered=True,
         timeout_seconds=CASE_AI_ACTION_PLAN_TIMEOUT_SECONDS,
     )
@@ -328,7 +328,7 @@ def generate_raw_suggestions(prompt: str) -> tuple[dict, dict]:
                 },
             ],
             task=AiTask.CASE_ANALYSIS,
-            requested_mode="auto",
+            requested_mode="standard",
             user_triggered=True,
             timeout_seconds=CASE_AI_ACTION_PLAN_TIMEOUT_SECONDS,
         )

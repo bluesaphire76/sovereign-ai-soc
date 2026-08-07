@@ -50,7 +50,14 @@ class FakeSystemctl:
 
 def active_states():
     return {
+        "ai-soc-inference-gateway": (
+            "loaded",
+            "active",
+            "running",
+            "enabled",
+        ),
         "ai-soc-api": ("loaded", "active", "running", "enabled"),
+        "ai-soc-worker": ("loaded", "active", "running", "enabled"),
         "ai-soc-frontend": ("loaded", "active", "running", "enabled"),
     }
 
@@ -58,7 +65,9 @@ def active_states():
 def make_lifecycle(tmp_path, runner, *, include_worker=False):
     repository = make_repository(
         tmp_path,
+        "ai-soc-inference-gateway",
         "ai-soc-api",
+        "ai-soc-worker",
         "ai-soc-frontend",
     )
     return demo_lifecycle.DemoLifecycle(
@@ -77,7 +86,9 @@ def test_status_reports_ready_when_required_services_are_active(tmp_path):
     assert exit_code == 0
     assert report["result"] == "DEMO_RUNTIME_READY"
     assert [service["name"] for service in report["services"]] == [
+        "ai-soc-inference-gateway",
         "ai-soc-api",
+        "ai-soc-worker",
         "ai-soc-frontend",
     ]
     assert report["planned_commands"] == []
@@ -113,7 +124,9 @@ def test_up_defaults_to_dry_run_without_executing_actions(tmp_path):
     assert exit_code == 0
     assert report["result"] == "DRY_RUN_ONLY"
     assert report["planned_commands"] == [
+        "systemctl start ai-soc-inference-gateway",
         "systemctl start ai-soc-api",
+        "systemctl start ai-soc-worker",
         "systemctl start ai-soc-frontend",
     ]
     assert report["executed_commands"] == []
@@ -128,15 +141,19 @@ def test_down_and_restart_use_safe_service_order(tmp_path):
 
     assert down["planned_commands"] == [
         "systemctl stop ai-soc-frontend",
+        "systemctl stop ai-soc-worker",
         "systemctl stop ai-soc-api",
+        "systemctl stop ai-soc-inference-gateway",
     ]
     assert restart["planned_commands"] == [
+        "systemctl restart ai-soc-inference-gateway",
         "systemctl restart ai-soc-api",
+        "systemctl restart ai-soc-worker",
         "systemctl restart ai-soc-frontend",
     ]
 
 
-def test_worker_is_only_included_when_requested(tmp_path):
+def test_legacy_include_worker_flag_preserves_standard_service_order(tmp_path):
     states = active_states()
     states["ai-soc-worker"] = ("loaded", "active", "running", "enabled")
     lifecycle = make_lifecycle(
@@ -149,6 +166,7 @@ def test_worker_is_only_included_when_requested(tmp_path):
 
     assert exit_code == 0
     assert report["planned_commands"] == [
+        "systemctl start ai-soc-inference-gateway",
         "systemctl start ai-soc-api",
         "systemctl start ai-soc-worker",
         "systemctl start ai-soc-frontend",
@@ -210,6 +228,8 @@ def test_permission_failure_returns_manual_sudo_guidance(tmp_path):
     assert report["result"] == "ACTION_FAILED"
     assert report["permission_denied"] is True
     assert report["manual_commands"] == [
+        "sudo systemctl start ai-soc-inference-gateway",
         "sudo systemctl start ai-soc-api",
+        "sudo systemctl start ai-soc-worker",
         "sudo systemctl start ai-soc-frontend",
     ]

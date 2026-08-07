@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from ai_model_config import get_profile
 from ai_model_policy import AiTask
 from database import SessionLocal
-from llm_client import generate_ai_response
+from services.ai_execution.client import generate_ai_response
 from models import CaseAIAnalysis, CaseIncident, Incident, IncidentCase
 from qdrant_knowledge import format_semantic_memory_context_for_prompt
 from rag_retriever import retrieve_security_context
@@ -259,7 +259,7 @@ def generate_case_ai_analysis(case_id: int) -> CaseAIAnalysis:
                 },
             ],
             task=AiTask.CASE_ANALYSIS,
-            requested_mode="auto",
+            requested_mode="standard",
             user_triggered=True,
             timeout_seconds=CASE_AI_ANALYSIS_TIMEOUT_SECONDS,
         )
@@ -293,7 +293,7 @@ def generate_case_ai_analysis(case_id: int) -> CaseAIAnalysis:
                     },
                 ],
                 task=AiTask.CASE_ANALYSIS,
-                requested_mode="auto",
+                requested_mode="standard",
                 user_triggered=True,
                 timeout_seconds=CASE_AI_ANALYSIS_TIMEOUT_SECONDS,
             )

@@ -184,15 +184,14 @@ Use `--profile local` instead when preparing a non-demo local configuration.
 
 ## Configure AI providers safely
 
-Local Ollama is enabled by default. llama.cpp is available as an optional local
-provider path and remains disabled until `LLAMA_CPP_ENABLED=true` and the local
-router/runtime are configured. External providers are disabled by default and
-are not required for installation or demo use.
+Gateway mode enables llama.cpp as the active local generation path and requires
+an operator-managed router with the `ai-soc-standard` alias. Ollama and
+external providers are not fallback generation paths in this mode.
 
 Key llama.cpp settings in `.env.example` include:
 
 ```bash
-LLAMA_CPP_ENABLED=false
+LLAMA_CPP_ENABLED=true
 LLAMA_CPP_BASE_URL=http://127.0.0.1:8081
 LLAMA_CPP_API_BASE_URL=http://127.0.0.1:8081/v1
 LLAMA_CPP_FAST_MODEL=ai-soc-fast
@@ -216,6 +215,26 @@ Do not place API keys in tracked JSON files. Start from:
 See [AI Providers](docs/architecture/v0.7-external-ai-provider-abstraction.md)
 and [AI Data Control](docs/architecture/v0.7-ai-data-control-policy.md). For
 llama.cpp, see [llama.cpp Runtime](docs/architecture/v0.7.1-llama-cpp-runtime.md).
+
+## Install the inference gateway units
+
+Gateway mode uses an operator-managed llama.cpp router followed by the
+inference gateway, API, worker, and frontend. Review the complete runbook in
+[AI Inference Gateway Operations](docs/operations/ai-inference-gateway.md).
+Render the parameterized units to a temporary directory first:
+
+```bash
+python3 scripts/manage_systemd_units.py render \
+  --project-root "$PWD" \
+  --output-dir /tmp/ai-soc-systemd \
+  --service-user ai-soc \
+  --service-group ai-soc
+```
+
+The command is a dry-run unless `--apply` is supplied. `upgrade` uses the same
+rendering path, while `uninstall` removes only the four managed unit files when
+explicitly applied. The installer never writes live `/etc`, reloads systemd,
+or starts services automatically.
 
 ## Initialize Qdrant semantic memory
 
@@ -347,12 +366,12 @@ PostgreSQL, Qdrant, demo data, and systemd, use the
   inside `frontend/` and inspect the first reported error.
 - **Backend is unreachable:** confirm PostgreSQL configuration and inspect
   `./ai-soc validate-runtime`.
-- **Ollama is unreachable:** local deterministic workflows remain available,
-  but AI-backed features may use fallback behavior.
+- **Ollama is unreachable:** gateway-mode generation is unaffected because
+  Ollama is not an active fallback provider.
 - **llama.cpp is unreachable:** confirm `LLAMA_CPP_ENABLED`,
   `LLAMA_CPP_BASE_URL`, `LLAMA_CPP_API_BASE_URL`, router health and configured
-  profile names. Ollama remains the default local path unless routing is
-  changed.
+  standard alias and inference gateway status. Automatic profile routing is
+  not used in gateway mode.
 - **External provider is denied:** check global enablement, provider allowlist,
   redaction mode and AI Data Control; a configured key alone is insufficient.
 - **Qdrant is unreachable:** semantic-memory features will be unavailable or

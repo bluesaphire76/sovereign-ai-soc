@@ -3,7 +3,7 @@
 import { downloadBackendFile } from "@/lib/download";
 import { authFetch, fetchCurrentUser, getStoredUser, type AuthUser } from "@/lib/auth";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import AppNavigation from "../../../components/AppNavigation";
@@ -14,6 +14,7 @@ import GovernedRemediationPanel, {
   type GovernedRemediationRecommendation,
 } from "../../../components/remediation/GovernedRemediationPanel";
 import RecommendedPlaybooksPanel, {
+  type AiGenerationStatus,
   type RecommendedPlaybooksResponse,
 } from "../../../components/semantic-memory/RecommendedPlaybooksPanel";
 import {
@@ -859,6 +860,19 @@ async function fetchIncidentRecommendedPlaybooks(
   return response.json();
 }
 
+async function generateIncidentRecommendedPlaybooks(
+  id: string,
+): Promise<RecommendedPlaybooksResponse> {
+  const response = await authFetch(`/incidents/${id}/recommended-playbooks`, {
+    method: "POST",
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to generate playbook suggestions: ${response.status}`);
+  }
+  return response.json();
+}
+
 async function generateIncidentAiBrief(id: string): Promise<IncidentAiBriefPreview | null> {
   const response = await authFetch(`/incidents/${id}/ai-brief`, {
     method: "POST",
@@ -881,6 +895,19 @@ async function fetchIncidentRemediationPlan(id: string): Promise<RemediationPlan
     throw new Error(`Failed to load remediation intelligence: ${response.status}`);
   }
 
+  return response.json();
+}
+
+async function generateIncidentRemediationPlan(
+  id: string,
+): Promise<RemediationPlanPreview | null> {
+  const response = await authFetch(`/incidents/${id}/remediation-plan`, {
+    method: "POST",
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to generate remediation analysis: ${response.status}`);
+  }
   return response.json();
 }
 
@@ -3226,9 +3253,11 @@ function IncidentCommandCenterRefoundation({
   playbookRecommendations,
   playbookRecommendationsLoading,
   playbookRecommendationsError,
+  playbookGenerationStatus,
   remediationPlan,
   remediationLoading,
   remediationError,
+  remediationGenerationStatus,
   remediationDryRun,
   remediationDryRunLoading,
   remediationDryRunError,
@@ -3256,7 +3285,8 @@ function IncidentCommandCenterRefoundation({
   onStatusDraftChange,
   onApplyStatus,
   onGenerateAiBrief,
-  onRefreshPlaybookRecommendations,
+  onGeneratePlaybookRecommendations,
+  onGenerateRemediationAnalysis,
   onNoteDraftChange,
   onAddNote,
   onExecuteApprovedAction,
@@ -3277,9 +3307,11 @@ function IncidentCommandCenterRefoundation({
   playbookRecommendations?: RecommendedPlaybooksResponse | null;
   playbookRecommendationsLoading?: boolean;
   playbookRecommendationsError?: string | null;
+  playbookGenerationStatus: AiGenerationStatus;
   remediationPlan?: RemediationPlanPreview | null;
   remediationLoading?: boolean;
   remediationError?: string | null;
+  remediationGenerationStatus: AiGenerationStatus;
   remediationDryRun?: RemediationDryRunPreview | null;
   remediationDryRunLoading?: boolean;
   remediationDryRunError?: string | null;
@@ -3307,7 +3339,8 @@ function IncidentCommandCenterRefoundation({
   onStatusDraftChange: (status: string) => void;
   onApplyStatus: () => void;
   onGenerateAiBrief: () => void;
-  onRefreshPlaybookRecommendations: () => void;
+  onGeneratePlaybookRecommendations: () => void;
+  onGenerateRemediationAnalysis: () => void;
   onNoteDraftChange: (value: string) => void;
   onAddNote: () => void;
   onExecuteApprovedAction: (actionId: string) => void;
@@ -3414,16 +3447,35 @@ function IncidentCommandCenterRefoundation({
               <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
                 <span>Brief: <AsyncLine loading={aiBriefLoading || aiBriefGenerating} error={aiBriefError} ready={Boolean(aiBrief)} /></span>
                 <span>Plan: <AsyncLine loading={remediationLoading} error={remediationError} ready={Boolean(remediationPlan)} /></span>
+                {remediationGenerationStatus !== "idle" ? (
+                  <span className="font-medium text-cyan-300">
+                    {remediationGenerationStatus.charAt(0).toUpperCase() +
+                      remediationGenerationStatus.slice(1)}
+                  </span>
+                ) : null}
               </div>
               <ExecutiveBrief
                 lines={briefSummary ? splitAiSentences(briefSummary) : sections[0]?.lines ?? []}
                 decision={decision}
                 action={
                   canOperate ? (
-                    <CommandButton disabled={aiBriefGenerating} onClick={onGenerateAiBrief}>
-                      <RefreshCw className={`h-3.5 w-3.5 ${aiBriefGenerating ? "animate-spin" : ""}`} />
-                      Refresh AI brief
-                    </CommandButton>
+                    <div className="flex flex-wrap gap-2">
+                      <CommandButton disabled={aiBriefGenerating} onClick={onGenerateAiBrief}>
+                        <RefreshCw className={`h-3.5 w-3.5 ${aiBriefGenerating ? "animate-spin" : ""}`} />
+                        Refresh AI brief
+                      </CommandButton>
+                      <CommandButton
+                        disabled={
+                          remediationLoading ||
+                          remediationGenerationStatus === "queued" ||
+                          remediationGenerationStatus === "running"
+                        }
+                        onClick={onGenerateRemediationAnalysis}
+                      >
+                        <Brain className="h-3.5 w-3.5" />
+                        Generate remediation analysis
+                      </CommandButton>
+                    </div>
                   ) : null
                 }
               />
@@ -3487,7 +3539,8 @@ function IncidentCommandCenterRefoundation({
                 response={playbookRecommendations ?? null}
                 loading={Boolean(playbookRecommendationsLoading)}
                 error={playbookRecommendationsError ?? null}
-                onRefresh={onRefreshPlaybookRecommendations}
+                generationStatus={playbookGenerationStatus}
+                onGenerate={onGeneratePlaybookRecommendations}
               />
             </CompactDisclosure>
           )}
@@ -3679,9 +3732,15 @@ function IncidentDetailPageContent({ incidentId }: { incidentId: string }) {
     useState(true);
   const [playbookRecommendationsError, setPlaybookRecommendationsError] =
     useState<string | null>(null);
+  const [playbookGenerationStatus, setPlaybookGenerationStatus] =
+    useState<AiGenerationStatus>("idle");
   const [remediationPlan, setRemediationPlan] = useState<RemediationPlanPreview | null>(null);
   const [remediationLoading, setRemediationLoading] = useState(false);
   const [remediationError, setRemediationError] = useState<string | null>(null);
+  const [remediationGenerationStatus, setRemediationGenerationStatus] =
+    useState<AiGenerationStatus>("idle");
+  const playbookGenerationActiveRef = useRef(false);
+  const remediationGenerationActiveRef = useRef(false);
   const [remediationDryRun, setRemediationDryRun] = useState<RemediationDryRunPreview | null>(null);
   const [remediationDryRunLoading, setRemediationDryRunLoading] = useState(false);
   const [remediationDryRunError, setRemediationDryRunError] = useState<string | null>(null);
@@ -3801,25 +3860,49 @@ function IncidentDetailPageContent({ incidentId }: { incidentId: string }) {
     }
   }, [incidentId]);
 
-  const loadIncidentPlaybookRecommendations = useCallback(async () => {
+  const generateIncidentPlaybookSuggestions = useCallback(async () => {
+    if (playbookGenerationActiveRef.current) return;
+    playbookGenerationActiveRef.current = true;
+    setPlaybookGenerationStatus("queued");
+    setPlaybookRecommendationsError(null);
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    setPlaybookGenerationStatus("running");
     try {
-      const data = await fetchIncidentRecommendedPlaybooks(incidentId);
+      const data = await generateIncidentRecommendedPlaybooks(incidentId);
       setPlaybookRecommendations(data);
+      setPlaybookGenerationStatus("completed");
     } catch (err) {
-      setPlaybookRecommendations(null);
       setPlaybookRecommendationsError(
-        err instanceof Error ? err.message : "Playbook recommendations unavailable",
+        err instanceof Error ? err.message : "Playbook generation failed",
       );
+      setPlaybookGenerationStatus("failed");
     } finally {
-      setPlaybookRecommendationsLoading(false);
+      playbookGenerationActiveRef.current = false;
     }
   }, [incidentId]);
 
-  const refreshIncidentPlaybookRecommendations = useCallback(async () => {
-    setPlaybookRecommendationsLoading(true);
-    setPlaybookRecommendationsError(null);
-    await loadIncidentPlaybookRecommendations();
-  }, [loadIncidentPlaybookRecommendations]);
+  const generateRemediationAnalysis = useCallback(async () => {
+    if (remediationGenerationActiveRef.current) return;
+    remediationGenerationActiveRef.current = true;
+    setRemediationGenerationStatus("queued");
+    setRemediationError(null);
+    setRemediationLoading(true);
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    setRemediationGenerationStatus("running");
+    try {
+      const plan = await generateIncidentRemediationPlan(incidentId);
+      setRemediationPlan(plan);
+      setRemediationGenerationStatus("completed");
+    } catch (err) {
+      setRemediationError(
+        err instanceof Error ? err.message : "Remediation analysis failed",
+      );
+      setRemediationGenerationStatus("failed");
+    } finally {
+      remediationGenerationActiveRef.current = false;
+      setRemediationLoading(false);
+    }
+  }, [incidentId]);
 
   async function addNote() {
     if (!canOperate) return;
@@ -4337,9 +4420,11 @@ function IncidentDetailPageContent({ incidentId }: { incidentId: string }) {
             playbookRecommendations={playbookRecommendations}
             playbookRecommendationsLoading={playbookRecommendationsLoading}
             playbookRecommendationsError={playbookRecommendationsError}
+            playbookGenerationStatus={playbookGenerationStatus}
             remediationPlan={remediationPlan}
             remediationLoading={remediationLoading}
             remediationError={remediationError}
+            remediationGenerationStatus={remediationGenerationStatus}
             remediationDryRun={remediationDryRun}
             remediationDryRunLoading={remediationDryRunLoading}
             remediationDryRunError={remediationDryRunError}
@@ -4367,7 +4452,8 @@ function IncidentDetailPageContent({ incidentId }: { incidentId: string }) {
             onStatusDraftChange={setStatusDraft}
             onApplyStatus={() => updateStatus(statusDraft)}
             onGenerateAiBrief={() => refreshAiBrief(true)}
-            onRefreshPlaybookRecommendations={refreshIncidentPlaybookRecommendations}
+            onGeneratePlaybookRecommendations={generateIncidentPlaybookSuggestions}
+            onGenerateRemediationAnalysis={generateRemediationAnalysis}
             onNoteDraftChange={setNoteDraft}
             onAddNote={addNote}
             onExecuteApprovedAction={executeControlledWorkflowAction}
