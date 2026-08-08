@@ -33,6 +33,10 @@ AssistantAnalysisScope = Literal[
 AssistantRuntimeState = Literal["warming", "ready", "failed", "stopped"]
 AssistantBlockKind = Literal[
     "direct_answer",
+    "key_findings",
+    "related_incidents",
+    "evidence",
+    "technical_context",
     "analysis",
     "next_check",
     "limitations",
@@ -49,6 +53,12 @@ AssistantFallbackReason = Literal[
     "invalid_structured_output",
     "grounding_validation_failed",
     "focus_validation_failed",
+    "v3_context_build_failed",
+    "v3_schema_build_failed",
+    "v3_invalid_structured_output",
+    "v3_plan_validation_failed",
+    "v3_renderer_failed",
+    "v3_semantic_index_degraded",
 ]
 
 
@@ -196,6 +206,27 @@ class AssistantMetadata(BaseModel):
     graph_edges: int = 0
     conversation_followup: bool = False
     context_build_ms: int = 0
+    response_architecture: Literal["v2", "v3"] = "v2"
+    plan_sections: int = 0
+    plan_units: int = 0
+    cross_incident_units: int = 0
+    reference_units: int = 0
+    advisory_units: int = 0
+    plan_validation_status: AssistantValidationStatus = "not_run"
+    schema_build_ms: int = 0
+    plan_validation_ms: int = 0
+    rendering_ms: int = 0
+    prompt_chars: int = 0
+    provider_generation_count: int = 0
+    automatic_retries: int = 0
+    model_switches: int = 0
+    finish_reason: str | None = None
+    semantic_index_status: Literal[
+        "not_requested",
+        "ready",
+        "degraded",
+        "unavailable",
+    ] = "not_requested"
 
 
 class AssistantQueryResponse(BaseModel):

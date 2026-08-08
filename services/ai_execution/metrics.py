@@ -64,3 +64,21 @@ ASSISTANT_V3_CONTEXT_PACKAGES = Counter(
     "Assistant V3 analytical context packages built by intent and scope.",
     labelnames=("intent", "scope"),
 )
+ASSISTANT_V3_PLAN_DURATION = Histogram(
+    "assistant_v3_plan_validation_seconds",
+    "Assistant V3 plan schema build and semantic validation duration.",
+    labelnames=("stage", "status"),
+)
+ASSISTANT_V3_PLAN_UNITS = Histogram(
+    "assistant_v3_plan_units",
+    "Validated analytical units in an Assistant V3 answer plan.",
+)
+ASSISTANT_V3_RENDER_DURATION = Histogram(
+    "assistant_v3_render_seconds",
+    "Deterministic Assistant V3 discourse rendering duration.",
+)
+ASSISTANT_V3_RESPONSES = Counter(
+    "assistant_v3_responses_total",
+    "Assistant V3 responses by generation kind and validation status.",
+    labelnames=("generation_kind", "validation_status"),
+)

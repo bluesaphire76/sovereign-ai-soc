@@ -103,6 +103,34 @@ def test_gateway_contract_accepts_assistant_grounded_v2() -> None:
     )
 
 
+def test_gateway_contract_accepts_closed_assistant_grounded_v3_schema() -> None:
+    schema_document = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {"answer_intent": {"const": "EXPLAIN"}},
+        "required": ["answer_intent"],
+    }
+    request = AiExecutionRequest(
+        task="soc_assistant",
+        priority="interactive",
+        request_id="assistant-v3",
+        deadline_ms=1000,
+        system_instructions="Return a typed answer plan.",
+        input="Explain.",
+        output_schema="assistant_grounded_v3",
+        structured_output_schema={
+            "name": "assistant_grounded_v3",
+            "schema_document": schema_document,
+        },
+        max_output_tokens=1536,
+        temperature=0,
+    )
+
+    assert request.output_schema == "assistant_grounded_v3"
+    assert request.structured_output_schema is not None
+    assert request.structured_output_schema.schema_document == schema_document
+
+
 def test_gateway_contract_requires_closed_schema_for_assistant_grounded_v2() -> None:
     with pytest.raises(ValidationError, match="requires a structured output schema"):
         AiExecutionRequest(

@@ -21,6 +21,7 @@ OutputSchema = Literal[
     "json_v1",
     "assistant_grounded_v1",
     "assistant_grounded_v2",
+    "assistant_grounded_v3",
 ]
 
 
@@ -60,9 +61,12 @@ class AiExecutionRequest(BaseModel):
         schema = self.structured_output_schema
         if self.output_schema == "text_v1" and schema is not None:
             raise ValueError("text_v1 does not accept a structured output schema")
-        if self.output_schema == "assistant_grounded_v2" and schema is None:
+        if self.output_schema in {
+            "assistant_grounded_v2",
+            "assistant_grounded_v3",
+        } and schema is None:
             raise ValueError(
-                "assistant_grounded_v2 requires a structured output schema"
+                f"{self.output_schema} requires a structured output schema"
             )
         if schema is not None and schema.name != self.output_schema:
             raise ValueError("structured output schema name must match output_schema")

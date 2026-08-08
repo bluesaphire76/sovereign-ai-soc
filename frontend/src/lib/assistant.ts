@@ -16,6 +16,10 @@ export type AssistantRuntimeState =
   | "stopped";
 export type AssistantBlockKind =
   | "direct_answer"
+  | "key_findings"
+  | "related_incidents"
+  | "evidence"
+  | "technical_context"
   | "analysis"
   | "next_check"
   | "limitations";
@@ -26,7 +30,13 @@ export type AssistantFallbackReason =
   | "generation_timeout"
   | "invalid_structured_output"
   | "grounding_validation_failed"
-  | "focus_validation_failed";
+  | "focus_validation_failed"
+  | "v3_context_build_failed"
+  | "v3_schema_build_failed"
+  | "v3_invalid_structured_output"
+  | "v3_plan_validation_failed"
+  | "v3_renderer_failed"
+  | "v3_semantic_index_degraded";
 
 export type AssistantCapabilities = {
   enabled: boolean;
@@ -126,6 +136,26 @@ export type AssistantMetadata = {
   graph_edges: number;
   conversation_followup: boolean;
   context_build_ms: number;
+  response_architecture: "v2" | "v3";
+  plan_sections: number;
+  plan_units: number;
+  cross_incident_units: number;
+  reference_units: number;
+  advisory_units: number;
+  plan_validation_status: AssistantValidationStatus;
+  schema_build_ms: number;
+  plan_validation_ms: number;
+  rendering_ms: number;
+  prompt_chars: number;
+  provider_generation_count: number;
+  automatic_retries: number;
+  model_switches: number;
+  finish_reason: string | null;
+  semantic_index_status:
+    | "not_requested"
+    | "ready"
+    | "degraded"
+    | "unavailable";
 };
 
 export type AssistantResponseBlock = {
