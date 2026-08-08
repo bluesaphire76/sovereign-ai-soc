@@ -15,10 +15,15 @@ from services.assistant.v3.plan_contracts import (
     GroundedAnswerPlanV3,
     NonImplicationCode,
     PlanLimitationCode,
+    SECTION_UNIT_TYPES,
 )
 from services.assistant.v3.plan_fallback import deterministic_answer_plan_v3
 from services.assistant.v3.plan_prompting import build_v3_plan_messages
-from services.assistant.v3.plan_schema import grounded_answer_plan_v3_schema
+from services.assistant.v3.plan_schema import (
+    SECTION_WIRE_CODES,
+    UNIT_WIRE_CODES,
+    grounded_answer_plan_v3_schema,
+)
 from services.assistant.v3.plan_validation import (
     GroundedAnswerPlanV3Validator,
     parse_grounded_answer_plan_v3,
@@ -61,24 +66,69 @@ def _non_implication() -> AnswerSection:
 def test_dynamic_schema_restricts_all_refs_to_current_package() -> None:
     package = analytical_package()
     schema = grounded_answer_plan_v3_schema(package)
-    unit = schema["properties"]["sections"]["items"]["properties"]["units"][
-        "items"
+    section_properties = schema["properties"]["sections"]["properties"]
+    unit_variants = [
+        unit
+        for section in section_properties.values()
+        for unit in section["oneOf"]
     ]
 
+    def variants(unit_type: AnalyticalUnitType):
+        return [
+            unit
+            for unit in unit_variants
+            if unit["properties"]["kind"]["const"] == UNIT_WIRE_CODES[unit_type]
+        ]
+
     assert schema["additionalProperties"] is False
-    assert schema["properties"]["answer_intent"]["const"] == (
-        "CROSS_INCIDENT_ANALYSIS"
-    )
-    assert set(unit["properties"]["fact_refs"]["items"]["enum"]) == {
+    assert schema["required"] == ["sections"]
+    assert {
+        ref for option in schema["$defs"]["fact_refs"]["enum"] for ref in option
+    } == {
         atom.atom_id for atom in package.operational_atoms
     }
-    assert set(unit["properties"]["relationship_refs"]["items"]["enum"]) == {
+    assert {
+        ref
+        for option in schema["$defs"]["relationship_refs"]["enum"]
+        for ref in option
+    } == {
         item.relationship_id for item in package.cross_incident_graph.relationships
     }
-    assert unit["properties"]["candidate_refs"]["items"]["enum"] == [
-        "candidate:incident:2"
+    assert schema["$defs"]["candidate_refs"]["enum"] == [
+        ["candidate:incident:2"]
     ]
+    assert set(
+        variants(AnalyticalUnitType.ANALYTICAL_RELATIONSHIP)[0]["properties"]
+    ) == {
+        "kind",
+        "refs",
+    }
     assert "relationship:missing" not in str(schema)
+
+
+def test_dynamic_schema_is_intent_restricted_and_bounded() -> None:
+    package = analytical_package(AnswerIntent.EXPLAIN)
+    schema = grounded_answer_plan_v3_schema(package)
+    sections = schema["properties"]["sections"]
+
+    assert sections["maxProperties"] == 3
+    assert set(sections["properties"]) == {
+        "answer",
+        "findings",
+        "technical",
+    }
+    assert sections["required"] == ["answer", "technical", "findings"]
+    section_types_by_wire = {
+        value: key for key, value in SECTION_WIRE_CODES.items()
+    }
+    unit_types_by_wire = {value: key for key, value in UNIT_WIRE_CODES.items()}
+    for section_name, section in sections["properties"].items():
+        section_type = section_types_by_wire[section_name]
+        assert all(
+            unit_types_by_wire[unit["properties"]["kind"]["const"]]
+            in SECTION_UNIT_TYPES[section_type]
+            for unit in section["oneOf"]
+        )
 
 
 def test_validator_accepts_grounded_cross_incident_plan() -> None:
@@ -283,6 +333,58 @@ def test_parser_rejects_wrapped_or_repaired_json() -> None:
     assert parse_grounded_answer_plan_v3('{"answer_intent":') is None
     assert parse_grounded_answer_plan_v3('```json\n{}\n```') is None
     assert parse_grounded_answer_plan_v3('prefix {"answer_intent": "EXPLAIN"}') is None
+
+
+def test_parser_normalizes_closed_section_map_without_repair() -> None:
+    plan = deterministic_answer_plan_v3(analytical_package())
+    payload = plan.model_dump(mode="json")
+    payload["sections"] = {
+        section["section_type"]: section["units"]
+        for section in payload["sections"]
+    }
+
+    assert parse_grounded_answer_plan_v3(payload) == plan
+
+
+def test_parser_canonicalizes_compact_wire_plan_from_current_package() -> None:
+    package = analytical_package()
+    payload = {
+        "sections": {
+            "answer": {"kind": "fact", "refs": ["incident:1:status"]},
+            "related": {
+                "kind": "relationship",
+                "refs": ["relationship:shared-host"],
+            },
+            "caveats": {
+                "kind": "non_implication",
+                "code": "SHARED_HOST_NOT_COMMON_ROOT_CAUSE",
+            },
+        }
+    }
+
+    plan = parse_grounded_answer_plan_v3(payload, package=package)
+
+    assert plan is not None
+    assert plan.answer_intent is AnswerIntent.CROSS_INCIDENT_ANALYSIS
+    assert plan.detail_level is AnswerDetailLevel.STANDARD
+    assert plan.audience is AnswerAudience.SOC_ANALYST
+    assert plan.ordering is DiscourseOrdering.COMPARISON_FIRST
+    assert GroundedAnswerPlanV3Validator().validate(plan, package=package).accepted
+
+
+def test_parser_rejects_compact_wire_without_package_or_with_ambiguous_refs() -> None:
+    package = analytical_package()
+    payload = {
+        "sections": {
+            "answer": {
+                "kind": "recorded",
+                "refs": ["incident:1:status", "relationship:shared-host"],
+            }
+        }
+    }
+
+    assert parse_grounded_answer_plan_v3(payload) is None
+    assert parse_grounded_answer_plan_v3(payload, package=package) is None
 
 
 def test_prompt_contains_typed_context_only_and_enforces_budget() -> None:

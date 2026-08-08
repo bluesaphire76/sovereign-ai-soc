@@ -85,6 +85,8 @@ class AiExecutionResponse(BaseModel):
     queue_wait_ms: int = 0
     generation_ms: int = 0
     total_ms: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
     degraded: bool = False
     safe_error: str | None = None
     profile_switch_count: int = 0

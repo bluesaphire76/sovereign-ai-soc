@@ -153,6 +153,9 @@ def test_v3_success_uses_one_generation_and_exact_plan_refs(monkeypatch) -> None
     assert response.metadata.plan_units == len(plan.analytical_units)
     assert response.metadata.automatic_retries == 0
     assert response.metadata.model_switches == 0
+    assert response.metadata.intent_routing_ms >= 0
+    assert response.metadata.focus_routing_ms >= 0
+    assert response.metadata.semantic_candidate_ms >= 0
     assert any(block.kind == "related_incidents" for block in response.blocks)
     assert all(
         source_id in {source.source_id for source in response.sources}

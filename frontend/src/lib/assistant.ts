@@ -137,6 +137,17 @@ export type AssistantMetadata = {
   graph_edges: number;
   conversation_followup: boolean;
   context_build_ms: number;
+  intent_routing_ms: number;
+  focus_routing_ms: number;
+  context_policy_ms: number;
+  atom_normalization_ms: number;
+  semantic_candidate_ms: number;
+  semantic_index_query_ms: number;
+  authoritative_rehydration_ms: number;
+  graph_ms: number;
+  reference_retrieval_ms: number;
+  advisory_retrieval_ms: number;
+  conversation_state_ms: number;
   response_architecture: "v2" | "v3";
   plan_sections: number;
   plan_units: number;
@@ -148,6 +159,8 @@ export type AssistantMetadata = {
   plan_validation_ms: number;
   rendering_ms: number;
   prompt_chars: number;
+  prompt_tokens: number;
+  structured_output_tokens: number;
   provider_generation_count: number;
   automatic_retries: number;
   model_switches: number;

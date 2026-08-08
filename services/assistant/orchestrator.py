@@ -149,7 +149,7 @@ class AssistantSettings:
     request_timeout_seconds: float = 45.0
     max_output_tokens: int = 768
     response_architecture: Literal["v2", "v3"] = "v2"
-    v3_max_output_tokens: int = 1536
+    v3_max_output_tokens: int = 384
 
 
 class AssistantError(Exception):
@@ -237,14 +237,14 @@ def get_assistant_settings() -> AssistantSettings:
         ),
         max_output_tokens=_env_int(
             "AI_INFERENCE_MAX_OUTPUT_TOKENS",
-            768,
+            384,
             minimum=64,
             maximum=2048,
         ),
         response_architecture=_response_architecture(),
         v3_max_output_tokens=_env_int(
             "AI_SOC_ASSISTANT_V3_MAX_OUTPUT_TOKENS",
-            1536,
+            384,
             minimum=256,
             maximum=2048,
         ),
@@ -699,7 +699,7 @@ def _run_v3_response(
         structured = result.get("structured_output")
         if structured is None:
             structured = result.get("text")
-        parsed = parse_grounded_answer_plan_v3(structured)
+        parsed = parse_grounded_answer_plan_v3(structured, package=package)
         finish_reason = str(result.get("finish_reason") or "").strip().lower()
         truncated = finish_reason in {
             "length",
@@ -872,6 +872,29 @@ def _run_v3_response(
         graph_edges=len(package.cross_incident_graph.relationships),
         conversation_followup=package.resolved_scope.conversation_followup,
         context_build_ms=max(0, int(package.metrics.total_context_build_ms)),
+        intent_routing_ms=max(0, int(package.metrics.intent_routing_ms)),
+        focus_routing_ms=max(0, int(package.metrics.focus_routing_ms)),
+        context_policy_ms=max(0, int(package.metrics.context_policy_ms)),
+        atom_normalization_ms=max(0, int(package.metrics.atom_normalization_ms)),
+        semantic_candidate_ms=max(0, int(package.metrics.candidate_retrieval_ms)),
+        semantic_index_query_ms=max(0, int(package.metrics.semantic_index_query_ms)),
+        authoritative_rehydration_ms=max(
+            0,
+            int(package.metrics.authoritative_rehydration_ms),
+        ),
+        graph_ms=max(0, int(package.metrics.graph_construction_ms)),
+        reference_retrieval_ms=max(
+            0,
+            int(package.metrics.reference_retrieval_ms),
+        ),
+        advisory_retrieval_ms=max(
+            0,
+            int(package.metrics.advisory_retrieval_ms),
+        ),
+        conversation_state_ms=max(
+            0,
+            int(package.metrics.conversation_state_ms),
+        ),
         response_architecture="v3",
         plan_sections=len(plan.sections),
         plan_units=len(plan.analytical_units),
@@ -883,6 +906,11 @@ def _run_v3_response(
         plan_validation_ms=plan_validation_ms,
         rendering_ms=max(0, int(rendered.render_ms)),
         prompt_chars=prompt_chars,
+        prompt_tokens=max(0, int(result.get("prompt_tokens") or 0)),
+        structured_output_tokens=max(
+            0,
+            int(result.get("completion_tokens") or 0),
+        ),
         provider_generation_count=max(
             0,
             int(result.get("_provider_generation_count") or 0),

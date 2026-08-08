@@ -218,6 +218,17 @@ class AssistantMetadata(BaseModel):
     graph_edges: int = 0
     conversation_followup: bool = False
     context_build_ms: int = 0
+    intent_routing_ms: int = 0
+    focus_routing_ms: int = 0
+    context_policy_ms: int = 0
+    atom_normalization_ms: int = 0
+    semantic_candidate_ms: int = 0
+    semantic_index_query_ms: int = 0
+    authoritative_rehydration_ms: int = 0
+    graph_ms: int = 0
+    reference_retrieval_ms: int = 0
+    advisory_retrieval_ms: int = 0
+    conversation_state_ms: int = 0
     response_architecture: Literal["v2", "v3"] = "v2"
     plan_sections: int = 0
     plan_units: int = 0
@@ -229,6 +240,8 @@ class AssistantMetadata(BaseModel):
     plan_validation_ms: int = 0
     rendering_ms: int = 0
     prompt_chars: int = 0
+    prompt_tokens: int = 0
+    structured_output_tokens: int = 0
     provider_generation_count: int = 0
     automatic_retries: int = 0
     model_switches: int = 0

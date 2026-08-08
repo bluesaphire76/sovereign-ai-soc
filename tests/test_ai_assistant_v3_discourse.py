@@ -105,9 +105,13 @@ def test_reference_and_advisory_content_are_separate_blocks() -> None:
         for block in investigate.blocks
         if block.section_type is AnswerSectionType.NEXT_STEPS
     )
-    assert technical.text == "T1112 = Modify Registry."
+    assert technical.text == (
+        "For incident 1, reference knowledge explains: T1112 = Modify Registry."
+    )
     assert technical.source_refs == ("reference:mitre:T1112",)
-    assert next_steps.text.startswith("As investigative guidance, ")
+    assert next_steps.text.startswith(
+        "For incident 1, investigative guidance suggests: "
+    )
     assert next_steps.source_refs == ("advisory:registry-review",)
 
 
@@ -162,6 +166,7 @@ def test_intent_controls_response_length_and_block_order() -> None:
         AnswerSectionType.DIRECT_ANSWER,
         AnswerSectionType.TECHNICAL_CONTEXT,
         AnswerSectionType.NEXT_STEPS,
+        AnswerSectionType.LIMITATIONS,
     ]
 
 

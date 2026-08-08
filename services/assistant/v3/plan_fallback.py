@@ -23,8 +23,8 @@ from services.assistant.v3.plan_contracts import (
     RhetoricalRole,
     SurfaceVariant,
 )
-from services.assistant.v3.plan_schema import available_absence_fields
-from services.assistant.v3.plan_validation import (
+from services.assistant.v3.plan_schema import (
+    available_absence_fields,
     non_implication_for_relationship_type,
 )
 
@@ -344,6 +344,31 @@ def deterministic_answer_plan_v3(
                 AnswerSection(
                     section_type=AnswerSectionType.LIMITATIONS,
                     units=[limitation],
+                )
+            )
+    if correlation_refs and not concise:
+        correlation_caveat = AnalyticalUnit(
+            unit_type=AnalyticalUnitType.NON_IMPLICATION,
+            non_implication=NonImplicationCode.CORRELATION_NOT_COMPROMISE,
+            rhetorical_role=RhetoricalRole.CAVEAT,
+        )
+        for index, section in enumerate(sections):
+            if section.section_type in {
+                AnswerSectionType.WHAT_WE_CANNOT_CONCLUDE,
+                AnswerSectionType.LIMITATIONS,
+            }:
+                if correlation_caveat.semantic_key() not in {
+                    unit.semantic_key() for unit in section.units
+                }:
+                    sections[index] = section.model_copy(
+                        update={"units": [*section.units, correlation_caveat][:8]}
+                    )
+                break
+        else:
+            sections.append(
+                AnswerSection(
+                    section_type=AnswerSectionType.LIMITATIONS,
+                    units=[correlation_caveat],
                 )
             )
     return GroundedAnswerPlanV3(

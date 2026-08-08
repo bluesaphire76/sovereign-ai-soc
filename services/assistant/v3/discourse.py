@@ -428,6 +428,39 @@ _LIMITATION_TEXT = {
 }
 
 
+def closed_safety_sentences() -> frozenset[str]:
+    translations = (
+        *_NON_IMPLICATION_TEXT.values(),
+        *_LIMITATION_TEXT.values(),
+    )
+    return frozenset(
+        text
+        for localized_values in translations
+        for text in localized_values
+    )
+
+
+def _scope_prefix(
+    package: V3AnalyticalContextPackage,
+    *,
+    purpose: str,
+) -> str:
+    language = package.response_language
+    incident_ids = package.resolved_scope.active_incident_ids
+    case_ids = package.resolved_scope.active_case_ids
+    if len(incident_ids) == 1:
+        if language == "it":
+            return f"Per l'incidente {incident_ids[0]}, {purpose}"
+        return f"For incident {incident_ids[0]}, {purpose}"
+    if case_ids:
+        if language == "it":
+            return f"Per il caso {case_ids[0]}, {purpose}"
+        return f"For case {case_ids[0]}, {purpose}"
+    if language == "it":
+        return f"Per i record selezionati, {purpose}"
+    return f"For the selected records, {purpose}"
+
+
 def _render_unit(
     unit: AnalyticalUnit,
     *,
@@ -458,19 +491,27 @@ def _render_unit(
         return _render_relationship(unit, package)
     if unit.unit_type is AnalyticalUnitType.REFERENCE_EXPLANATION:
         references = {item.knowledge_id: item for item in package.reference_atoms}
-        return " ".join(references[ref].bounded_content for ref in unit.reference_refs)
+        content = " ".join(
+            references[ref].bounded_content for ref in unit.reference_refs
+        )
+        purpose = (
+            "la conoscenza di riferimento indica: "
+            if language == "it"
+            else "reference knowledge explains: "
+        )
+        return f"{_scope_prefix(package, purpose=purpose)}{content}"
     if unit.unit_type in {
         AnalyticalUnitType.ADVISORY_GUIDANCE,
         AnalyticalUnitType.NEXT_CHECK,
     }:
         advisories = {item.knowledge_id: item for item in package.advisory_atoms}
         content = " ".join(advisories[ref].bounded_content for ref in unit.advisory_refs)
-        prefix = (
-            "Come guida investigativa, "
+        purpose = (
+            "la guida investigativa suggerisce: "
             if language == "it"
-            else "As investigative guidance, "
+            else "investigative guidance suggests: "
         )
-        return f"{prefix}{content}"
+        return f"{_scope_prefix(package, purpose=purpose)}{content}"
     if unit.unit_type is AnalyticalUnitType.NON_IMPLICATION:
         assert unit.non_implication is not None
         return _NON_IMPLICATION_TEXT[unit.non_implication][0 if language == "it" else 1]

@@ -31,6 +31,8 @@ def _success_payload(request: dict) -> dict:
         "queue_wait_ms": 3,
         "generation_ms": 10,
         "total_ms": 13,
+        "prompt_tokens": 120,
+        "completion_tokens": 24,
         "degraded": False,
         "safe_error": None,
         "profile_switch_count": 0,
@@ -68,6 +70,8 @@ def test_client_sends_closed_request_over_gateway_transport() -> None:
     assert timeout == pytest.approx(13)
     assert payload["priority"] == "interactive"
     assert payload["temperature"] == 0
+    assert result["prompt_tokens"] == 120
+    assert result["completion_tokens"] == 24
     assert payload["output_schema"] == "assistant_grounded_v1"
     assert payload["max_output_tokens"] == 384
     assert set(payload).isdisjoint(

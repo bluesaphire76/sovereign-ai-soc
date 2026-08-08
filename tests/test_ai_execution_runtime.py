@@ -323,7 +323,10 @@ def test_grounded_generation_passes_closed_json_schema_once(
         return {
             "text": json.dumps(model_output),
             "finish_reason": "stop",
-            "provider_diagnostics": {},
+            "provider_diagnostics": {
+                "prompt_tokens": 144,
+                "completion_tokens": 31,
+            },
         }
 
     monkeypatch.setattr(
@@ -342,6 +345,8 @@ def test_grounded_generation_passes_closed_json_schema_once(
 
     assert response.status == "success"
     assert response.output == model_output
+    assert response.prompt_tokens == 144
+    assert response.completion_tokens == 31
     assert len(calls) == 1
     response_format = calls[0]["response_format"]
     assert response_format["type"] == "json_schema"

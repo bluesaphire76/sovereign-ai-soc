@@ -7,6 +7,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from services.assistant.v3.contracts import (
+    AnswerIntent,
     AuthorityClass,
     RecordedCorrelationAtom,
     RelationshipClass,
@@ -16,15 +17,23 @@ from services.assistant.v3.contracts import (
 from services.assistant.v3.plan_contracts import (
     AnalyticalUnit,
     AnalyticalUnitType,
+    AnswerAudience,
+    AnswerDetailLevel,
+    DiscourseOrdering,
     GroundedAnswerPlanV3,
     INTENT_SECTION_TYPES,
     NonImplicationCode,
     SECTION_UNIT_TYPES,
 )
 from services.assistant.v3.plan_schema import (
+    SECTION_WIRE_CODES,
+    UNIT_WIRE_CODES,
     available_absence_fields,
+    available_limitation_codes,
+    available_non_implication_codes,
     available_section_types,
     available_unit_types,
+    non_implication_for_relationship_type,
 )
 
 
@@ -34,7 +43,116 @@ class PlanValidationResult:
     reason: str | None = None
 
 
-def parse_grounded_answer_plan_v3(value: Any) -> GroundedAnswerPlanV3 | None:
+_SECTION_TYPES_BY_WIRE = {value: key for key, value in SECTION_WIRE_CODES.items()}
+_UNIT_TYPES_BY_WIRE = {value: key for key, value in UNIT_WIRE_CODES.items()}
+_REF_FIELD_BY_UNIT = {
+    AnalyticalUnitType.RECORDED_FACT: "fact_refs",
+    AnalyticalUnitType.COMPARISON: "fact_refs",
+    AnalyticalUnitType.DIFFERENCE: "fact_refs",
+    AnalyticalUnitType.SHARED_PATTERN: "relationship_refs",
+    AnalyticalUnitType.ANALYTICAL_RELATIONSHIP: "relationship_refs",
+    AnalyticalUnitType.SEMANTIC_SIMILARITY: "relationship_refs",
+    AnalyticalUnitType.TEMPORAL_SEQUENCE: "relationship_refs",
+    AnalyticalUnitType.REFERENCE_EXPLANATION: "reference_refs",
+    AnalyticalUnitType.ADVISORY_GUIDANCE: "advisory_refs",
+    AnalyticalUnitType.NEXT_CHECK: "advisory_refs",
+    AnalyticalUnitType.CANDIDATE_RELEVANCE: "candidate_refs",
+}
+_CODE_FIELD_BY_UNIT = {
+    AnalyticalUnitType.ABSENCE: "absence_field",
+    AnalyticalUnitType.NON_IMPLICATION: "non_implication",
+    AnalyticalUnitType.LIMITATION: "limitation",
+}
+
+
+def _compact_plan_defaults(package: V3AnalyticalContextPackage) -> dict[str, Any]:
+    intent = package.intent_selection.primary_intent
+    return {
+        "answer_intent": intent,
+        "detail_level": (
+            AnswerDetailLevel.CONCISE
+            if intent in {AnswerIntent.FACT_LOOKUP, AnswerIntent.EXECUTIVE_SUMMARY}
+            else AnswerDetailLevel.STANDARD
+        ),
+        "audience": (
+            AnswerAudience.EXECUTIVE
+            if intent is AnswerIntent.EXECUTIVE_SUMMARY
+            else AnswerAudience.SOC_ANALYST
+        ),
+        "ordering": (
+            DiscourseOrdering.COMPARISON_FIRST
+            if intent
+            in {
+                AnswerIntent.COMPARE,
+                AnswerIntent.CROSS_INCIDENT_ANALYSIS,
+                AnswerIntent.PATTERN_ANALYSIS,
+            }
+            else DiscourseOrdering.CONCLUSION_FIRST
+        ),
+    }
+
+
+def _canonicalize_compact_plan(
+    payload: dict[str, Any],
+    *,
+    package: V3AnalyticalContextPackage,
+) -> dict[str, Any] | None:
+    if set(payload) != {"sections"} or not isinstance(payload["sections"], dict):
+        return None
+    atom_refs = {item.atom_id for item in package.operational_atoms}
+    relationship_refs = {
+        item.relationship_id for item in package.relationship_registry.relationships
+    }
+    sections: list[dict[str, Any]] = []
+    for section_code, units in payload["sections"].items():
+        section_type = _SECTION_TYPES_BY_WIRE.get(section_code)
+        if section_type is None or not isinstance(units, dict):
+            return None
+        canonical_units: list[dict[str, Any]] = []
+        for unit in (units,):
+            if not isinstance(unit, dict):
+                return None
+            unit_type = _UNIT_TYPES_BY_WIRE.get(unit.get("kind"))
+            if unit_type is None:
+                return None
+            canonical: dict[str, Any] = {"unit_type": unit_type}
+            if unit_type in _CODE_FIELD_BY_UNIT:
+                if set(unit) != {"kind", "code"}:
+                    return None
+                canonical[_CODE_FIELD_BY_UNIT[unit_type]] = unit["code"]
+            else:
+                if set(unit) != {"kind", "refs"}:
+                    return None
+                refs = unit["refs"]
+                if not isinstance(refs, list) or not all(
+                    isinstance(ref, str) for ref in refs
+                ):
+                    return None
+                if unit_type is AnalyticalUnitType.RECORDED_CORRELATION:
+                    ref_set = set(refs)
+                    if ref_set and ref_set.issubset(atom_refs):
+                        canonical["fact_refs"] = refs
+                    elif ref_set and ref_set.issubset(relationship_refs):
+                        canonical["relationship_refs"] = refs
+                    else:
+                        return None
+                else:
+                    ref_field = _REF_FIELD_BY_UNIT.get(unit_type)
+                    if ref_field is None:
+                        return None
+                    canonical[ref_field] = refs
+            canonical_units.append(canonical)
+        sections.append(
+            {"section_type": section_type, "units": canonical_units}
+        )
+    return {**_compact_plan_defaults(package), "sections": sections}
+
+
+def parse_grounded_answer_plan_v3(
+    value: Any,
+    *,
+    package: V3AnalyticalContextPackage | None = None,
+) -> GroundedAnswerPlanV3 | None:
     if isinstance(value, GroundedAnswerPlanV3):
         return value
     payload = value
@@ -45,6 +163,22 @@ def parse_grounded_answer_plan_v3(value: Any) -> GroundedAnswerPlanV3 | None:
             return None
     if not isinstance(payload, dict):
         return None
+    sections = payload.get("sections")
+    if isinstance(sections, dict):
+        if set(payload) == {"sections"}:
+            if package is None:
+                return None
+            payload = _canonicalize_compact_plan(payload, package=package)
+            if payload is None:
+                return None
+        else:
+            payload = {
+                **payload,
+                "sections": [
+                    {"section_type": section_type, "units": units}
+                    for section_type, units in sections.items()
+                ],
+            }
     try:
         return GroundedAnswerPlanV3.model_validate(payload)
     except ValidationError:
@@ -93,6 +227,27 @@ class GroundedAnswerPlanV3Validator:
             if unit.non_implication is not None
         }
         if not required_non_implications.issubset(provided_non_implications):
+            return PlanValidationResult(False, "required_non_implication_missing")
+        analytical_codes: set[NonImplicationCode] = set()
+        for unit in plan.analytical_units:
+            if unit.unit_type not in {
+                AnalyticalUnitType.ANALYTICAL_RELATIONSHIP,
+                AnalyticalUnitType.SHARED_PATTERN,
+            }:
+                continue
+            for ref in unit.relationship_refs:
+                relationship = package.relationship_registry.resolve(ref)
+                if relationship is not None:
+                    analytical_codes.add(
+                        non_implication_for_relationship_type(
+                            relationship.relationship_type
+                        )
+                    )
+        if analytical_codes and (
+            NonImplicationCode.ANALYTICAL_RELATIONSHIP_NOT_CAUSALITY
+            not in provided_non_implications
+            and not analytical_codes.issubset(provided_non_implications)
+        ):
             return PlanValidationResult(False, "required_non_implication_missing")
         return PlanValidationResult(True)
 
@@ -192,6 +347,14 @@ class GroundedAnswerPlanV3Validator:
             unit.absence_field not in available_absence_fields(package)
         ):
             return PlanValidationResult(False, "unsupported_absence")
+        if unit.unit_type is AnalyticalUnitType.NON_IMPLICATION and (
+            unit.non_implication not in available_non_implication_codes(package)
+        ):
+            return PlanValidationResult(False, "unsupported_non_implication")
+        if unit.unit_type is AnalyticalUnitType.LIMITATION and (
+            unit.limitation not in available_limitation_codes(package)
+        ):
+            return PlanValidationResult(False, "unsupported_limitation")
         if unit.unit_type is AnalyticalUnitType.REFERENCE_EXPLANATION and any(
             references[ref].authority_class is not AuthorityClass.REFERENCE_KNOWLEDGE
             for ref in unit.reference_refs
@@ -215,36 +378,10 @@ class GroundedAnswerPlanV3Validator:
     ) -> set[NonImplicationCode]:
         result: set[NonImplicationCode] = set()
         for unit in plan.analytical_units:
-            if unit.unit_type is AnalyticalUnitType.CANDIDATE_RELEVANCE:
-                result.add(NonImplicationCode.CANDIDATE_RANK_NOT_RISK)
+            if unit.unit_type is AnalyticalUnitType.RECORDED_CORRELATION:
+                result.add(NonImplicationCode.CORRELATION_NOT_COMPROMISE)
             if unit.unit_type is AnalyticalUnitType.SEMANTIC_SIMILARITY:
                 result.add(
                     NonImplicationCode.SEMANTIC_SIMILARITY_NOT_RECORDED_CORRELATION
                 )
-            if unit.unit_type in {
-                AnalyticalUnitType.ANALYTICAL_RELATIONSHIP,
-                AnalyticalUnitType.SHARED_PATTERN,
-            }:
-                for ref in unit.relationship_refs:
-                    relationship = package.relationship_registry.resolve(ref)
-                    if relationship is not None:
-                        result.add(
-                            non_implication_for_relationship_type(
-                                relationship.relationship_type
-                            )
-                        )
         return result
-
-
-def non_implication_for_relationship_type(
-    relationship_type: RelationshipType,
-) -> NonImplicationCode:
-    if relationship_type is RelationshipType.SHARED_MITRE:
-        return NonImplicationCode.SHARED_MITRE_NOT_SAME_ATTACKER
-    if relationship_type in {RelationshipType.SHARED_HOST, RelationshipType.SHARED_AGENT}:
-        return NonImplicationCode.SHARED_HOST_NOT_COMMON_ROOT_CAUSE
-    if relationship_type is RelationshipType.SAME_CASE:
-        return NonImplicationCode.SAME_CASE_NOT_CAUSALITY
-    if relationship_type is RelationshipType.SEMANTIC_SIMILARITY:
-        return NonImplicationCode.SEMANTIC_SIMILARITY_NOT_RECORDED_CORRELATION
-    return NonImplicationCode.ANALYTICAL_RELATIONSHIP_NOT_CAUSALITY

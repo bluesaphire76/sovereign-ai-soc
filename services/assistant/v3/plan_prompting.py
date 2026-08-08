@@ -5,7 +5,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from services.assistant.v3.contracts import V3AnalyticalContextPackage
-from services.assistant.v3.plan_schema import available_absence_fields
+from services.assistant.v3.plan_schema import (
+    available_absence_fields,
+    model_facing_evidence,
+)
 
 
 @dataclass(frozen=True)
@@ -58,6 +61,7 @@ def build_v3_plan_messages(
     *,
     max_context_chars: int,
 ) -> V3PromptBuildResult:
+    view = model_facing_evidence(package)
     payload = {
         "question": package.question,
         "response_language": package.response_language,
@@ -69,20 +73,20 @@ def build_v3_plan_messages(
         "scope": package.resolved_scope.model_dump(mode="json"),
         "absence_fields": [item.value for item in available_absence_fields(package)],
         "operational_atoms": [
-            _atom_projection(item) for item in package.operational_atoms
+            _atom_projection(item) for item in view.operational_atoms
         ],
         "relationships": [
             _relationship_projection(item)
-            for item in package.cross_incident_graph.relationships
+            for item in view.relationships
         ],
         "candidates": [
-            _candidate_projection(item) for item in package.cross_incident_candidates
+            _candidate_projection(item) for item in view.candidates
         ],
         "reference_knowledge": [
-            _knowledge_projection(item) for item in package.reference_atoms
+            _knowledge_projection(item) for item in view.reference_atoms
         ],
         "advisory_knowledge": [
-            _knowledge_projection(item) for item in package.advisory_atoms
+            _knowledge_projection(item) for item in view.advisory_atoms
         ],
     }
     encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
@@ -98,8 +102,12 @@ def build_v3_plan_messages(
         "candidates only. Never infer causality, attacker, campaign, compromise, "
         "lateral movement, persistence, maliciousness, severity, risk band, or "
         "escalation state. Select the smallest useful set of non-repetitive sections "
-        "and units that directly answers the requested intent. Include a closed "
-        "non-implication when analytical or semantic relationships could mislead."
+        "and units that directly answer the requested intent. Emit only the compact "
+        "schema fields: each section maps to one unit object containing kind and "
+        "either refs or code. Include a closed "
+        "non-implication when analytical or semantic relationships could mislead. "
+        "Use refs only for evidence-backed units and code only for absence, "
+        "non-implication, or limitation units."
     )
     return V3PromptBuildResult(
         messages=[
