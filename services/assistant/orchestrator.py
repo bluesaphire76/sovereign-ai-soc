@@ -6,7 +6,7 @@ import os
 import re
 import time
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 from uuid import uuid4
 
 from ai_model_policy import AiTask
@@ -18,6 +18,7 @@ from schemas.assistant import (
     AssistantMetadata,
     AssistantQueryRequest,
     AssistantQueryResponse,
+    AssistantResponseBlock,
     AssistantResponseLanguage,
 )
 from services.ai_execution.client import generate_ai_response
@@ -26,6 +27,11 @@ from services.ai_execution.metrics import (
     ASSISTANT_SEMANTIC_DURATION,
     ASSISTANT_V3_CONTEXT_DURATION,
     ASSISTANT_V3_CONTEXT_PACKAGES,
+    ASSISTANT_V3_PLAN_DURATION,
+    ASSISTANT_V3_PLAN_UNITS,
+    ASSISTANT_V3_RENDER_DURATION,
+    ASSISTANT_V3_RESPONSES,
+    ASSISTANT_V3_SEMANTIC_INDEX_DURATION,
     FALLBACK_TOTAL,
     GROUNDING_REJECTIONS,
 )
@@ -54,12 +60,29 @@ from services.assistant.runtime import assistant_runtime_snapshot
 from services.assistant.sources import SourceRecord, assign_source_ids
 from services.assistant.v3.builder import V3AnalyticalContextBuilder
 from services.assistant.v3.contracts import V3AnalyticalContextPackage
+from services.assistant.v3.attribution import build_v3_attribution
+from services.assistant.v3.discourse import (
+    RenderedV3Answer,
+    RichGroundedDiscourseRenderer,
+)
 from services.assistant.v3.intent import (
     SemanticIntentRouter,
     get_semantic_intent_router,
     neutral_intent_selection,
 )
 from services.assistant.v3.policy import advisory_retrieval_allowed
+from services.assistant.v3.plan_contracts import (
+    AnalyticalUnitType,
+    AnswerSectionType,
+    GroundedAnswerPlanV3,
+)
+from services.assistant.v3.plan_fallback import deterministic_answer_plan_v3
+from services.assistant.v3.plan_prompting import build_v3_plan_messages
+from services.assistant.v3.plan_schema import grounded_answer_plan_v3_schema
+from services.assistant.v3.plan_validation import (
+    GroundedAnswerPlanV3Validator,
+    parse_grounded_answer_plan_v3,
+)
 
 
 FEATURE_KEY = "soc_assistant"
@@ -125,6 +148,8 @@ class AssistantSettings:
     semantic_timeout_seconds: float = 2.0
     request_timeout_seconds: float = 45.0
     max_output_tokens: int = 768
+    response_architecture: Literal["v2", "v3"] = "v2"
+    v3_max_output_tokens: int = 384
 
 
 class AssistantError(Exception):
@@ -164,6 +189,11 @@ def _env_float(
     if not math.isfinite(value):
         value = default
     return min(max(value, minimum), maximum)
+
+
+def _response_architecture() -> Literal["v2", "v3"]:
+    value = os.getenv("AI_ASSISTANT_RESPONSE_ARCHITECTURE", "v2").strip().lower()
+    return "v3" if value == "v3" else "v2"
 
 
 def get_assistant_settings() -> AssistantSettings:
@@ -207,8 +237,15 @@ def get_assistant_settings() -> AssistantSettings:
         ),
         max_output_tokens=_env_int(
             "AI_INFERENCE_MAX_OUTPUT_TOKENS",
-            768,
+            384,
             minimum=64,
+            maximum=2048,
+        ),
+        response_architecture=_response_architecture(),
+        v3_max_output_tokens=_env_int(
+            "AI_SOC_ASSISTANT_V3_MAX_OUTPUT_TOKENS",
+            384,
+            minimum=256,
             maximum=2048,
         ),
     )
@@ -411,11 +448,490 @@ def _build_response(
             if v3_package
             else 0
         ),
+        response_architecture=settings.response_architecture,
+        provider_generation_count=max(
+            0,
+            int(result.get("_provider_generation_count") or 0),
+        ),
+        automatic_retries=0,
+        model_switches=max(
+            0,
+            int(
+                (result.get("provider_diagnostics") or {}).get(
+                    "profile_switch_count"
+                )
+                or 0
+            ),
+        ),
+        finish_reason=str(result.get("finish_reason") or "") or None,
+        semantic_index_status=(
+            v3_package.semantic_index_status if v3_package else "not_requested"
+        ),
     )
     return AssistantQueryResponse(
         status="ok" if generation_kind == "model" else "fallback",
         generation_kind=generation_kind,
         answer=answer,
+        blocks=blocks,
+        scope=payload.scope,
+        incident_id=payload.incident_id,
+        case_id=payload.case_id,
+        sources=[source.to_response_source() for source in sources],
+        limitations=_human_limitations(
+            retrieval.limitations,
+            language=response_language,
+            semantic_status=retrieval.semantic_status,
+        ),
+        metadata=metadata,
+    )
+
+
+_V3_BLOCK_KINDS = {
+    AnswerSectionType.DIRECT_ANSWER: "direct_answer",
+    AnswerSectionType.KEY_FINDINGS: "key_findings",
+    AnswerSectionType.INCIDENT_OVERVIEW: "analysis",
+    AnswerSectionType.EVIDENCE: "evidence",
+    AnswerSectionType.TIMELINE: "analysis",
+    AnswerSectionType.RELATED_INCIDENTS: "related_incidents",
+    AnswerSectionType.COMPARISON: "analysis",
+    AnswerSectionType.PATTERN: "analysis",
+    AnswerSectionType.TECHNICAL_CONTEXT: "technical_context",
+    AnswerSectionType.WHAT_WE_CAN_CONCLUDE: "analysis",
+    AnswerSectionType.WHAT_WE_CANNOT_CONCLUDE: "limitations",
+    AnswerSectionType.NEXT_STEPS: "next_check",
+    AnswerSectionType.LIMITATIONS: "limitations",
+}
+
+
+def _v3_response_blocks(
+    rendered: RenderedV3Answer,
+    *,
+    source_ids_by_ref: dict[str, tuple[str, ...]],
+) -> list[AssistantResponseBlock]:
+    blocks = []
+    for block in rendered.blocks:
+        source_ids = list(
+            dict.fromkeys(
+                source_id
+                for ref in block.source_refs
+                for source_id in source_ids_by_ref.get(ref, ())
+            )
+        )
+        blocks.append(
+            AssistantResponseBlock(
+                kind=_V3_BLOCK_KINDS[block.section_type],
+                text=block.text,
+                source_ids=source_ids,
+            )
+        )
+    return blocks
+
+
+def _v3_plan_counts(plan: GroundedAnswerPlanV3) -> tuple[int, int, int]:
+    cross_types = {
+        AnalyticalUnitType.COMPARISON,
+        AnalyticalUnitType.DIFFERENCE,
+        AnalyticalUnitType.SHARED_PATTERN,
+        AnalyticalUnitType.RECORDED_CORRELATION,
+        AnalyticalUnitType.ANALYTICAL_RELATIONSHIP,
+        AnalyticalUnitType.SEMANTIC_SIMILARITY,
+        AnalyticalUnitType.TEMPORAL_SEQUENCE,
+        AnalyticalUnitType.CANDIDATE_RELEVANCE,
+    }
+    cross_units = sum(
+        unit.unit_type in cross_types for unit in plan.analytical_units
+    )
+    reference_units = sum(
+        unit.unit_type is AnalyticalUnitType.REFERENCE_EXPLANATION
+        for unit in plan.analytical_units
+    )
+    advisory_units = sum(
+        unit.unit_type
+        in {AnalyticalUnitType.ADVISORY_GUIDANCE, AnalyticalUnitType.NEXT_CHECK}
+        for unit in plan.analytical_units
+    )
+    return cross_units, reference_units, advisory_units
+
+
+def _deterministic_v2_response_for_v3_failure(
+    *,
+    payload: AssistantQueryRequest,
+    focused_fact_inventory: dict[str, Any],
+    source_records: list[SourceRecord],
+    retrieval: Any,
+    response_language: AssistantResponseLanguage,
+    fallback_reason: AssistantFallbackReason,
+    result: dict[str, Any],
+    request_started: float,
+    clock: Callable[[], float],
+    settings: AssistantSettings,
+    v3_package: V3AnalyticalContextPackage | None,
+) -> AssistantQueryResponse:
+    output = deterministic_claim_output(
+        fact_inventory=focused_fact_inventory,
+        authoritative_source_ids=[
+            source.source_id
+            for source in source_records
+            if source.authority == "authoritative" and source.source_id
+        ],
+    )
+    rendered = render_claim_output(
+        output,
+        fact_inventory=focused_fact_inventory,
+        response_language=response_language,
+    )
+    FALLBACK_TOTAL.labels(fallback_reason).inc()
+    ASSISTANT_V3_RESPONSES.labels(
+        generation_kind="deterministic_fallback",
+        validation_status="failed",
+    ).inc()
+    return _build_response(
+        payload=payload,
+        output=rendered,
+        source_records=source_records,
+        retrieval=retrieval,
+        response_language=response_language,
+        generation_kind="deterministic_fallback",
+        fallback_reason=fallback_reason,
+        grounding_validation="failed",
+        focus_validation="not_run",
+        result=result,
+        request_started=request_started,
+        clock=clock,
+        settings=settings,
+        v3_package=v3_package,
+    )
+
+
+def _run_v3_response(
+    *,
+    payload: AssistantQueryRequest,
+    package: V3AnalyticalContextPackage | None,
+    focused_fact_inventory: dict[str, Any],
+    source_records: list[SourceRecord],
+    retrieval: Any,
+    response_language: AssistantResponseLanguage,
+    request_id: str,
+    request_started: float,
+    settings: AssistantSettings,
+    generator: Callable[..., dict[str, Any]],
+    clock: Callable[[], float],
+) -> AssistantQueryResponse:
+    result: dict[str, Any] = {"_provider_generation_count": 0}
+    if package is None:
+        return _deterministic_v2_response_for_v3_failure(
+            payload=payload,
+            focused_fact_inventory=focused_fact_inventory,
+            source_records=source_records,
+            retrieval=retrieval,
+            response_language=response_language,
+            fallback_reason="v3_context_build_failed",
+            result=result,
+            request_started=request_started,
+            clock=clock,
+            settings=settings,
+            v3_package=None,
+        )
+
+    schema_started = clock()
+    prompt_chars = 0
+    try:
+        prompt = build_v3_plan_messages(
+            package,
+            max_context_chars=settings.max_context_chars,
+        )
+        schema = grounded_answer_plan_v3_schema(package)
+        prompt_chars = prompt.context_chars
+        schema_build_ms = max(0, int((clock() - schema_started) * 1000))
+        ASSISTANT_V3_PLAN_DURATION.labels(stage="schema", status="passed").observe(
+            schema_build_ms / 1000
+        )
+    except Exception as exc:
+        schema_build_ms = max(0, int((clock() - schema_started) * 1000))
+        ASSISTANT_V3_PLAN_DURATION.labels(stage="schema", status="failed").observe(
+            schema_build_ms / 1000
+        )
+        logger.warning(
+            "assistant_v3_schema_build_failed request_id=%s reason=%s",
+            request_id,
+            exc.__class__.__name__,
+        )
+        fallback_reason: AssistantFallbackReason | None = "v3_schema_build_failed"
+        plan = deterministic_answer_plan_v3(package)
+        plan_validation_status = "not_run"
+        plan_validation_ms = 0
+    else:
+        try:
+            result = generator(
+                messages=prompt.messages,
+                task=AiTask.SOC_ASSISTANT,
+                requested_mode="standard",
+                user_triggered=True,
+                timeout_seconds=settings.request_timeout_seconds,
+                max_visible_tokens=settings.v3_max_output_tokens,
+                context={
+                    "caller_kind": "assistant_primary",
+                    "request_id_hash": request_id,
+                    "assistant_intent": (
+                        package.intent_selection.primary_intent.value
+                    ),
+                    "response_architecture": "v3",
+                    "v3_context_atoms": (
+                        len(package.operational_atoms)
+                        + len(package.reference_atoms)
+                        + len(package.advisory_atoms)
+                    ),
+                },
+                output_schema="assistant_grounded_v3",
+                structured_output_schema=schema,
+            )
+        except Exception as exc:
+            logger.warning(
+                "assistant_v3_generation_failed request_id=%s reason=%s",
+                request_id,
+                exc.__class__.__name__,
+            )
+            result = {
+                "safe_error": "invalid_structured_output",
+                "error_type": "invalid_structured_output",
+            }
+        result["_provider_generation_count"] = 1
+        structured = result.get("structured_output")
+        if structured is None:
+            structured = result.get("text")
+        parsed = parse_grounded_answer_plan_v3(structured, package=package)
+        finish_reason = str(result.get("finish_reason") or "").strip().lower()
+        truncated = finish_reason in {
+            "length",
+            "max_length",
+            "max_tokens",
+            "token_limit",
+        }
+        plan_validation_started = clock()
+        plan_validation_status = "not_run"
+        fallback_reason = None
+        if result.get("safe_error") or result.get("error_type"):
+            fallback_reason = _fallback_reason(result)
+            if fallback_reason in {
+                "invalid_structured_output",
+                "invalid_structured_claim_schema",
+                "invalid_json",
+                "invalid_json_type",
+            }:
+                fallback_reason = "v3_invalid_structured_output"
+        elif parsed is None or truncated:
+            fallback_reason = "v3_invalid_structured_output"
+        else:
+            validation = GroundedAnswerPlanV3Validator().validate(
+                parsed,
+                package=package,
+            )
+            plan_validation_status = "passed" if validation.accepted else "failed"
+            if not validation.accepted:
+                GROUNDING_REJECTIONS.labels(
+                    validation.reason or "v3_plan_validation_failed"
+                ).inc()
+                fallback_reason = "v3_plan_validation_failed"
+        plan_validation_ms = max(
+            0,
+            int((clock() - plan_validation_started) * 1000),
+        )
+        ASSISTANT_V3_PLAN_DURATION.labels(
+            stage="validation",
+            status=plan_validation_status,
+        ).observe(plan_validation_ms / 1000)
+        plan = (
+            parsed
+            if fallback_reason is None and parsed is not None
+            else deterministic_answer_plan_v3(package)
+        )
+
+    fallback_validation = GroundedAnswerPlanV3Validator().validate(
+        plan,
+        package=package,
+    )
+    if not fallback_validation.accepted:
+        logger.error(
+            "assistant_v3_fallback_plan_failed request_id=%s reason=%s",
+            request_id,
+            fallback_validation.reason,
+        )
+        return _deterministic_v2_response_for_v3_failure(
+            payload=payload,
+            focused_fact_inventory=focused_fact_inventory,
+            source_records=source_records,
+            retrieval=retrieval,
+            response_language=response_language,
+            fallback_reason="v3_plan_validation_failed",
+            result=result,
+            request_started=request_started,
+            clock=clock,
+            settings=settings,
+            v3_package=package,
+        )
+
+    try:
+        rendered = RichGroundedDiscourseRenderer().render(plan, package=package)
+        attribution = build_v3_attribution(
+            package=package,
+            rendered=rendered,
+            existing_sources=source_records,
+            max_sources=settings.max_sources,
+        )
+    except Exception as exc:
+        logger.warning(
+            "assistant_v3_renderer_failed request_id=%s reason=%s",
+            request_id,
+            exc.__class__.__name__,
+        )
+        if fallback_reason is None:
+            fallback_reason = "v3_renderer_failed"
+            plan = deterministic_answer_plan_v3(package)
+            try:
+                rendered = RichGroundedDiscourseRenderer().render(
+                    plan,
+                    package=package,
+                )
+                attribution = build_v3_attribution(
+                    package=package,
+                    rendered=rendered,
+                    existing_sources=source_records,
+                    max_sources=settings.max_sources,
+                )
+            except Exception:
+                return _deterministic_v2_response_for_v3_failure(
+                    payload=payload,
+                    focused_fact_inventory=focused_fact_inventory,
+                    source_records=source_records,
+                    retrieval=retrieval,
+                    response_language=response_language,
+                    fallback_reason="v3_renderer_failed",
+                    result=result,
+                    request_started=request_started,
+                    clock=clock,
+                    settings=settings,
+                    v3_package=package,
+                )
+        else:
+            return _deterministic_v2_response_for_v3_failure(
+                payload=payload,
+                focused_fact_inventory=focused_fact_inventory,
+                source_records=source_records,
+                retrieval=retrieval,
+                response_language=response_language,
+                fallback_reason="v3_renderer_failed",
+                result=result,
+                request_started=request_started,
+                clock=clock,
+                settings=settings,
+                v3_package=package,
+            )
+
+    generation_kind = "model" if fallback_reason is None else "deterministic_fallback"
+    if fallback_reason is not None:
+        FALLBACK_TOTAL.labels(fallback_reason).inc()
+    blocks = _v3_response_blocks(
+        rendered,
+        source_ids_by_ref=attribution.source_ids_by_ref,
+    )
+    sources = list(attribution.sources)
+    cross_units, reference_units, advisory_units = _v3_plan_counts(plan)
+    ASSISTANT_V3_PLAN_UNITS.observe(len(plan.analytical_units))
+    ASSISTANT_V3_RENDER_DURATION.observe(rendered.render_ms / 1000)
+    ASSISTANT_V3_RESPONSES.labels(
+        generation_kind=generation_kind,
+        validation_status=plan_validation_status,
+    ).inc()
+    metadata = AssistantMetadata(
+        generation_kind=generation_kind,
+        queue_wait_ms=max(0, int(result.get("queue_wait_ms") or 0)),
+        generation_ms=max(0, int(result.get("generation_ms") or 0)),
+        total_latency_ms=max(0, int((clock() - request_started) * 1000)),
+        semantic_status=retrieval.semantic_status,
+        semantic_elapsed_ms=max(0, retrieval.semantic_elapsed_ms),
+        semantic_degraded=retrieval.semantic_degraded,
+        grounding_validation=plan_validation_status,
+        focus_validation="passed" if fallback_validation.accepted else "failed",
+        fallback_reason=fallback_reason,
+        response_language=response_language,
+        source_count=len(sources),
+        assistant_intent=package.intent_selection.primary_intent.value,
+        secondary_intents=[
+            item.value for item in package.intent_selection.secondary_intents
+        ],
+        analysis_scope=package.resolved_scope.analysis_scope.value,
+        context_atoms=(
+            len(package.operational_atoms)
+            + len(package.reference_atoms)
+            + len(package.advisory_atoms)
+        ),
+        operational_atoms=len(package.operational_atoms),
+        reference_atoms=len(package.reference_atoms),
+        advisory_atoms=len(package.advisory_atoms),
+        cross_incident_candidates=len(package.cross_incident_candidates),
+        graph_edges=len(package.cross_incident_graph.relationships),
+        conversation_followup=package.resolved_scope.conversation_followup,
+        context_build_ms=max(0, int(package.metrics.total_context_build_ms)),
+        intent_routing_ms=max(0, int(package.metrics.intent_routing_ms)),
+        focus_routing_ms=max(0, int(package.metrics.focus_routing_ms)),
+        context_policy_ms=max(0, int(package.metrics.context_policy_ms)),
+        atom_normalization_ms=max(0, int(package.metrics.atom_normalization_ms)),
+        semantic_candidate_ms=max(0, int(package.metrics.candidate_retrieval_ms)),
+        semantic_index_query_ms=max(0, int(package.metrics.semantic_index_query_ms)),
+        authoritative_rehydration_ms=max(
+            0,
+            int(package.metrics.authoritative_rehydration_ms),
+        ),
+        graph_ms=max(0, int(package.metrics.graph_construction_ms)),
+        reference_retrieval_ms=max(
+            0,
+            int(package.metrics.reference_retrieval_ms),
+        ),
+        advisory_retrieval_ms=max(
+            0,
+            int(package.metrics.advisory_retrieval_ms),
+        ),
+        conversation_state_ms=max(
+            0,
+            int(package.metrics.conversation_state_ms),
+        ),
+        response_architecture="v3",
+        plan_sections=len(plan.sections),
+        plan_units=len(plan.analytical_units),
+        cross_incident_units=cross_units,
+        reference_units=reference_units,
+        advisory_units=advisory_units,
+        plan_validation_status=plan_validation_status,
+        schema_build_ms=schema_build_ms,
+        plan_validation_ms=plan_validation_ms,
+        rendering_ms=max(0, int(rendered.render_ms)),
+        prompt_chars=prompt_chars,
+        prompt_tokens=max(0, int(result.get("prompt_tokens") or 0)),
+        structured_output_tokens=max(
+            0,
+            int(result.get("completion_tokens") or 0),
+        ),
+        provider_generation_count=max(
+            0,
+            int(result.get("_provider_generation_count") or 0),
+        ),
+        automatic_retries=0,
+        model_switches=max(
+            0,
+            int(
+                (result.get("provider_diagnostics") or {}).get(
+                    "profile_switch_count"
+                )
+                or 0
+            ),
+        ),
+        finish_reason=str(result.get("finish_reason") or "") or None,
+        semantic_index_status=package.semantic_index_status,
+    )
+    return AssistantQueryResponse(
+        status="ok" if generation_kind == "model" else "fallback",
+        generation_kind=generation_kind,
+        answer="\n\n".join(block.text for block in blocks),
         blocks=blocks,
         scope=payload.scope,
         incident_id=payload.incident_id,
@@ -516,6 +1032,9 @@ def run_assistant_query(
                 v3_package.metrics.total_context_build_ms / 1000
             )
             ASSISTANT_V3_CONTEXT_PACKAGES.labels(**metric_labels).inc()
+            ASSISTANT_V3_SEMANTIC_INDEX_DURATION.labels(
+                status=v3_package.semantic_index_status
+            ).observe(v3_package.metrics.semantic_index_query_ms / 1000)
         except Exception as exc:
             logger.warning(
                 "assistant_v3_context_build_failed request_id=%s reason=%s",
@@ -554,6 +1073,39 @@ def run_assistant_query(
         retrieval.sources,
         max_sources=current_settings.max_sources,
     )
+
+    if current_settings.response_architecture == "v3":
+        response = _run_v3_response(
+            payload=payload,
+            package=v3_package,
+            focused_fact_inventory=focused_fact_inventory,
+            source_records=candidate_sources,
+            retrieval=retrieval,
+            response_language=response_language,
+            request_id=request_id,
+            request_started=request_started,
+            settings=current_settings,
+            generator=generator,
+            clock=clock,
+        )
+        logger.info(
+            "assistant_v3_execution request_id=%s scope=%s target_id=%s "
+            "generation_kind=%s generation_ms=%s total_latency_ms=%s "
+            "plan_validation=%s fallback_reason=%s plan_sections=%s "
+            "plan_units=%s provider_generations=%s",
+            request_id,
+            payload.scope,
+            payload.incident_id or payload.case_id,
+            response.generation_kind,
+            response.metadata.generation_ms,
+            response.metadata.total_latency_ms,
+            response.metadata.plan_validation_status,
+            response.metadata.fallback_reason,
+            response.metadata.plan_sections,
+            response.metadata.plan_units,
+            response.metadata.provider_generation_count,
+        )
+        return response
 
     try:
         context_result = build_assistant_context(
@@ -617,6 +1169,7 @@ def run_assistant_query(
                 ),
             ),
         )
+        result["_provider_generation_count"] = 1
 
     structured = result.get("structured_output")
     if structured is None:

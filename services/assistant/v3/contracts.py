@@ -373,6 +373,7 @@ KnowledgeAtom = ReferenceKnowledgeAtom | AdvisoryKnowledgeAtom
 
 
 class DiscoverySignal(str, Enum):
+    EXPLICIT_SELECTION = "EXPLICIT_SELECTION"
     SHARED_HOST = "SHARED_HOST"
     SHARED_AGENT = "SHARED_AGENT"
     SHARED_USER = "SHARED_USER"
@@ -395,8 +396,8 @@ class IncidentCandidate(ClosedModel):
     )
     discovery_signals: list[DiscoverySignal] = Field(min_length=1, max_length=12)
     semantic_score: float | None = Field(default=None, ge=-1.0, le=1.0)
-    deterministic_signal_count: int = Field(ge=0, le=11)
-    discovery_source: Literal["deterministic", "semantic", "hybrid"]
+    deterministic_signal_count: int = Field(ge=0, le=12)
+    discovery_source: Literal["deterministic", "semantic", "hybrid", "explicit"]
     authoritative_rehydrated: Literal[True] = True
     ranking_score: float = Field(ge=0.0)
 
@@ -549,6 +550,7 @@ class ContextBuildMetrics(ClosedModel):
     context_policy_ms: float = Field(default=0.0, ge=0.0)
     atom_normalization_ms: float = Field(default=0.0, ge=0.0)
     candidate_retrieval_ms: float = Field(default=0.0, ge=0.0)
+    semantic_index_query_ms: float = Field(default=0.0, ge=0.0)
     authoritative_rehydration_ms: float = Field(default=0.0, ge=0.0)
     graph_construction_ms: float = Field(default=0.0, ge=0.0)
     reference_retrieval_ms: float = Field(default=0.0, ge=0.0)
@@ -573,6 +575,12 @@ class V3AnalyticalContextPackage(ClosedModel):
     context_limits: ContextLimits
     source_registry: list[SourceRegistryEntry] = Field(default_factory=list, max_length=320)
     relationship_registry: RelationshipRegistry
+    semantic_index_status: Literal[
+        "not_requested",
+        "ready",
+        "degraded",
+        "unavailable",
+    ] = "not_requested"
     metrics: ContextBuildMetrics
 
     @model_validator(mode="after")

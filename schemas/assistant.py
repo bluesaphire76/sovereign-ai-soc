@@ -33,6 +33,10 @@ AssistantAnalysisScope = Literal[
 AssistantRuntimeState = Literal["warming", "ready", "failed", "stopped"]
 AssistantBlockKind = Literal[
     "direct_answer",
+    "key_findings",
+    "related_incidents",
+    "evidence",
+    "technical_context",
     "analysis",
     "next_check",
     "limitations",
@@ -49,6 +53,12 @@ AssistantFallbackReason = Literal[
     "invalid_structured_output",
     "grounding_validation_failed",
     "focus_validation_failed",
+    "v3_context_build_failed",
+    "v3_schema_build_failed",
+    "v3_invalid_structured_output",
+    "v3_plan_validation_failed",
+    "v3_renderer_failed",
+    "v3_semantic_index_degraded",
 ]
 
 
@@ -62,6 +72,7 @@ class AssistantQueryRequest(BaseModel):
     requested_mode: AssistantMode = "auto"
     include_semantic_memory: bool = True
     conversation_id: str | None = Field(default=None, min_length=1, max_length=128)
+    compare_incident_ids: list[int] = Field(default_factory=list, max_length=8)
 
     @field_validator("message", mode="before")
     @classmethod
@@ -80,6 +91,10 @@ class AssistantQueryRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_scope_ids(self):
+        if any(value <= 0 for value in self.compare_incident_ids):
+            raise ValueError("compare incident IDs must be positive")
+        if len(self.compare_incident_ids) != len(set(self.compare_incident_ids)):
+            raise ValueError("compare incident IDs must be unique")
         if self.scope == "incident":
             if self.incident_id is None:
                 raise ValueError("incident scope requires incident_id")
@@ -92,6 +107,13 @@ class AssistantQueryRequest(BaseModel):
                 raise ValueError("case scope rejects incident_id")
         elif self.incident_id is not None or self.case_id is not None:
             raise ValueError("global scope rejects incident_id and case_id")
+        if self.scope == "global" and self.compare_incident_ids:
+            raise ValueError("global scope rejects compare incident IDs")
+        if (
+            self.incident_id is not None
+            and self.incident_id in self.compare_incident_ids
+        ):
+            raise ValueError("compare incident IDs must exclude the anchor incident")
         return self
 
 
@@ -196,6 +218,40 @@ class AssistantMetadata(BaseModel):
     graph_edges: int = 0
     conversation_followup: bool = False
     context_build_ms: int = 0
+    intent_routing_ms: int = 0
+    focus_routing_ms: int = 0
+    context_policy_ms: int = 0
+    atom_normalization_ms: int = 0
+    semantic_candidate_ms: int = 0
+    semantic_index_query_ms: int = 0
+    authoritative_rehydration_ms: int = 0
+    graph_ms: int = 0
+    reference_retrieval_ms: int = 0
+    advisory_retrieval_ms: int = 0
+    conversation_state_ms: int = 0
+    response_architecture: Literal["v2", "v3"] = "v2"
+    plan_sections: int = 0
+    plan_units: int = 0
+    cross_incident_units: int = 0
+    reference_units: int = 0
+    advisory_units: int = 0
+    plan_validation_status: AssistantValidationStatus = "not_run"
+    schema_build_ms: int = 0
+    plan_validation_ms: int = 0
+    rendering_ms: int = 0
+    prompt_chars: int = 0
+    prompt_tokens: int = 0
+    structured_output_tokens: int = 0
+    provider_generation_count: int = 0
+    automatic_retries: int = 0
+    model_switches: int = 0
+    finish_reason: str | None = None
+    semantic_index_status: Literal[
+        "not_requested",
+        "ready",
+        "degraded",
+        "unavailable",
+    ] = "not_requested"
 
 
 class AssistantQueryResponse(BaseModel):

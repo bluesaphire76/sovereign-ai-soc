@@ -22,6 +22,10 @@ type AssistantAnswerProps = {
 
 const BLOCK_LABELS: Record<AssistantBlockKind, string> = {
   direct_answer: "Direct answer",
+  key_findings: "Key findings",
+  related_incidents: "Related incidents",
+  evidence: "Evidence",
+  technical_context: "Technical context",
   analysis: "Analysis",
   next_check: "Next check",
   limitations: "Limitations",

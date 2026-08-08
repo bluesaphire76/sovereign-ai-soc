@@ -282,6 +282,8 @@ def generate_ai_response(
         "queue_wait_ms": response.queue_wait_ms,
         "generation_ms": response.generation_ms,
         "total_ms": response.total_ms,
+        "prompt_tokens": response.prompt_tokens,
+        "completion_tokens": response.completion_tokens,
         "safe_error": response.safe_error,
         "error_type": response.safe_error,
         "fallback_used": False,
@@ -293,5 +295,7 @@ def generate_ai_response(
             "profile_unload_count": response.profile_unload_count,
             "queue_wait_ms": response.queue_wait_ms,
             "generation_ms": response.generation_ms,
+            "prompt_tokens": response.prompt_tokens,
+            "completion_tokens": response.completion_tokens,
         },
     }

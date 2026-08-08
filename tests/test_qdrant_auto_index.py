@@ -64,6 +64,21 @@ class FakeKnowledgeBase:
         }
 
 
+class FakeIncidentIndex:
+    def __init__(self):
+        self.upserted = []
+
+    def upsert_incident(self, db, incident_id, *, require_ready_embedding):
+        self.upserted.append((db, incident_id, require_ready_embedding))
+        return SimpleNamespace(
+            to_dict=lambda: {
+                "collection": "incident_semantic_index",
+                "indexed_count": 1,
+                "status": "ok",
+            }
+        )
+
+
 class FakeQuery:
     def __init__(self, rows):
         self.rows = rows if isinstance(rows, list) else [rows] if rows else []
@@ -206,17 +221,24 @@ class QdrantAutoIndexTests(unittest.TestCase):
 
     def test_incident_auto_index_uses_current_incident_context(self):
         kb = FakeKnowledgeBase()
+        incident_index = FakeIncidentIndex()
         note = IncidentNote(incident_id=42, note="Analyst confirmed scanner pattern.")
         result = index_incident_memory(
             42,
             db_factory=lambda: FakeDb(incident=incident(), notes=[note]),
             knowledge_base_factory=lambda: kb,
+            incident_index_factory=lambda: incident_index,
         )
 
         self.assertEqual(result["indexed_points"], 1)
         self.assertEqual(kb.records[0].source_type, HISTORICAL_INCIDENT_SOURCE_TYPE)
         self.assertEqual(kb.records[0].source, "incident:42")
         self.assertIn("Analyst confirmed scanner pattern", kb.records[0].text)
+        self.assertEqual(incident_index.upserted[0][1:], (42, True))
+        self.assertEqual(
+            result["incident_candidate_index"]["collection"],
+            "incident_semantic_index",
+        )
 
     def test_auto_index_status_is_read_only_and_reports_config(self):
         with tempfile.TemporaryDirectory() as tmpdir, patch.dict(

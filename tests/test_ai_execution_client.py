@@ -31,6 +31,8 @@ def _success_payload(request: dict) -> dict:
         "queue_wait_ms": 3,
         "generation_ms": 10,
         "total_ms": 13,
+        "prompt_tokens": 120,
+        "completion_tokens": 24,
         "degraded": False,
         "safe_error": None,
         "profile_switch_count": 0,
@@ -68,6 +70,8 @@ def test_client_sends_closed_request_over_gateway_transport() -> None:
     assert timeout == pytest.approx(13)
     assert payload["priority"] == "interactive"
     assert payload["temperature"] == 0
+    assert result["prompt_tokens"] == 120
+    assert result["completion_tokens"] == 24
     assert payload["output_schema"] == "assistant_grounded_v1"
     assert payload["max_output_tokens"] == 384
     assert set(payload).isdisjoint(
@@ -101,6 +105,34 @@ def test_gateway_contract_accepts_assistant_grounded_v2() -> None:
     assert request.structured_output_schema.schema_document == (
         GroundedClaimOutput.model_json_schema()
     )
+
+
+def test_gateway_contract_accepts_closed_assistant_grounded_v3_schema() -> None:
+    schema_document = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {"answer_intent": {"const": "EXPLAIN"}},
+        "required": ["answer_intent"],
+    }
+    request = AiExecutionRequest(
+        task="soc_assistant",
+        priority="interactive",
+        request_id="assistant-v3",
+        deadline_ms=1000,
+        system_instructions="Return a typed answer plan.",
+        input="Explain.",
+        output_schema="assistant_grounded_v3",
+        structured_output_schema={
+            "name": "assistant_grounded_v3",
+            "schema_document": schema_document,
+        },
+        max_output_tokens=1536,
+        temperature=0,
+    )
+
+    assert request.output_schema == "assistant_grounded_v3"
+    assert request.structured_output_schema is not None
+    assert request.structured_output_schema.schema_document == schema_document
 
 
 def test_gateway_contract_requires_closed_schema_for_assistant_grounded_v2() -> None:

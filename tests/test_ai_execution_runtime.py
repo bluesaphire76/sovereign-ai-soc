@@ -92,10 +92,11 @@ def _request(
         output_schema=output_schema,
         structured_output_schema=(
             {
-                "name": "assistant_grounded_v2",
+                "name": output_schema,
                 "schema_document": grounded_claim_output_schema(),
             }
-            if output_schema == "assistant_grounded_v2"
+            if output_schema
+            in {"assistant_grounded_v2", "assistant_grounded_v3"}
             else None
         ),
         max_output_tokens=384,
@@ -289,7 +290,14 @@ def test_generation_forces_local_llama_standard_zero_temperature(
     assert calls[0]["response_format"] == {"type": "json_object"}
 
 
-def test_v2_generation_passes_closed_json_schema_once(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    "output_schema",
+    ["assistant_grounded_v2", "assistant_grounded_v3"],
+)
+def test_grounded_generation_passes_closed_json_schema_once(
+    monkeypatch,
+    output_schema,
+) -> None:
     monkeypatch.setenv("AI_EXECUTION_MODE", "gateway")
     monkeypatch.setenv("AI_INFERENCE_PROFILE", "standard")
     calls = []
@@ -315,7 +323,10 @@ def test_v2_generation_passes_closed_json_schema_once(monkeypatch) -> None:
         return {
             "text": json.dumps(model_output),
             "finish_reason": "stop",
-            "provider_diagnostics": {},
+            "provider_diagnostics": {
+                "prompt_tokens": 144,
+                "completion_tokens": 31,
+            },
         }
 
     monkeypatch.setattr(
@@ -327,17 +338,19 @@ def test_v2_generation_passes_closed_json_schema_once(monkeypatch) -> None:
 
     response = asyncio.run(
         runtime.generate(
-            _request(output_schema="assistant_grounded_v2"),
+            _request(output_schema=output_schema),
             time.monotonic() + 5,
         )
     )
 
     assert response.status == "success"
     assert response.output == model_output
+    assert response.prompt_tokens == 144
+    assert response.completion_tokens == 31
     assert len(calls) == 1
     response_format = calls[0]["response_format"]
     assert response_format["type"] == "json_schema"
-    assert response_format["json_schema"]["name"] == "assistant_grounded_v2"
+    assert response_format["json_schema"]["name"] == output_schema
     assert response_format["json_schema"]["strict"] is True
     assert response_format["json_schema"]["schema"] == (
         grounded_claim_output_schema()
