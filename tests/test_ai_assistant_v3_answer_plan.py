@@ -14,6 +14,7 @@ from services.assistant.v3.plan_contracts import (
     DiscourseOrdering,
     GroundedAnswerPlanV3,
     NonImplicationCode,
+    PlanLimitationCode,
 )
 from services.assistant.v3.plan_fallback import deterministic_answer_plan_v3
 from services.assistant.v3.plan_prompting import build_v3_plan_messages
@@ -296,3 +297,15 @@ def test_prompt_contains_typed_context_only_and_enforces_budget() -> None:
     oversized = package.model_copy(update={"question": "x" * 4_000})
     with pytest.raises(ValueError, match="prompt budget"):
         build_v3_plan_messages(oversized, max_context_chars=4_000)
+
+
+def test_semantic_index_degradation_is_visible_but_not_authoritative() -> None:
+    package = analytical_package().model_copy(
+        update={"semantic_index_status": "degraded"}
+    )
+    fallback = deterministic_answer_plan_v3(package)
+
+    result = GroundedAnswerPlanV3Validator().validate(fallback, package=package)
+
+    assert result.accepted is True
+    assert PlanLimitationCode.SEMANTIC_INDEX_DEGRADED in fallback.limitations

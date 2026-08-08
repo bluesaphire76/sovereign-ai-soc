@@ -31,6 +31,7 @@ from services.ai_execution.metrics import (
     ASSISTANT_V3_PLAN_UNITS,
     ASSISTANT_V3_RENDER_DURATION,
     ASSISTANT_V3_RESPONSES,
+    ASSISTANT_V3_SEMANTIC_INDEX_DURATION,
     FALLBACK_TOTAL,
     GROUNDING_REJECTIONS,
 )
@@ -463,6 +464,9 @@ def _build_response(
             ),
         ),
         finish_reason=str(result.get("finish_reason") or "") or None,
+        semantic_index_status=(
+            v3_package.semantic_index_status if v3_package else "not_requested"
+        ),
     )
     return AssistantQueryResponse(
         status="ok" if generation_kind == "model" else "fallback",
@@ -894,6 +898,7 @@ def _run_v3_response(
             ),
         ),
         finish_reason=str(result.get("finish_reason") or "") or None,
+        semantic_index_status=package.semantic_index_status,
     )
     return AssistantQueryResponse(
         status="ok" if generation_kind == "model" else "fallback",
@@ -999,6 +1004,9 @@ def run_assistant_query(
                 v3_package.metrics.total_context_build_ms / 1000
             )
             ASSISTANT_V3_CONTEXT_PACKAGES.labels(**metric_labels).inc()
+            ASSISTANT_V3_SEMANTIC_INDEX_DURATION.labels(
+                status=v3_package.semantic_index_status
+            ).observe(v3_package.metrics.semantic_index_query_ms / 1000)
         except Exception as exc:
             logger.warning(
                 "assistant_v3_context_build_failed request_id=%s reason=%s",

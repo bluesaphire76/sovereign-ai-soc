@@ -327,6 +327,25 @@ def deterministic_answer_plan_v3(
                 ],
             )
         )
+    if package.semantic_index_status in {"degraded", "unavailable"}:
+        limitation = AnalyticalUnit(
+            unit_type=AnalyticalUnitType.LIMITATION,
+            limitation=PlanLimitationCode.SEMANTIC_INDEX_DEGRADED,
+            rhetorical_role=RhetoricalRole.CAVEAT,
+        )
+        for index, section in enumerate(sections):
+            if section.section_type is AnswerSectionType.LIMITATIONS:
+                sections[index] = section.model_copy(
+                    update={"units": [*section.units, limitation][:8]}
+                )
+                break
+        else:
+            sections.append(
+                AnswerSection(
+                    section_type=AnswerSectionType.LIMITATIONS,
+                    units=[limitation],
+                )
+            )
     return GroundedAnswerPlanV3(
         answer_intent=intent,
         detail_level=(

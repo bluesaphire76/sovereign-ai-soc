@@ -24,6 +24,7 @@ from services.assistant.v3.conversation import (
 )
 from services.assistant.v3.cross_incident import (
     CrossIncidentCandidateRetriever,
+    SemanticIncidentHit,
     semantic_incident_hits,
 )
 from services.assistant.v3.graph import CrossIncidentGraphBuilder
@@ -32,6 +33,11 @@ from services.assistant.v3.knowledge import (
     normalize_advisory_sources,
 )
 from services.assistant.v3.policy import ContextPolicyEngine, resolve_analysis_scope
+from services.assistant.v3.semantic_index import (
+    IncidentSemanticIndex,
+    get_incident_semantic_index,
+    semantic_query_text_from_facts,
+)
 
 
 class V3AnalyticalContextBuilder:
@@ -44,6 +50,7 @@ class V3AnalyticalContextBuilder:
         graph_builder: CrossIncidentGraphBuilder | None = None,
         reference_provider: ReferenceKnowledgeProvider | None = None,
         conversation_store: ConversationStateStore | None = None,
+        incident_semantic_index: IncidentSemanticIndex | None = None,
     ) -> None:
         self._policy = policy_engine or ContextPolicyEngine()
         self._atoms = atom_normalizer or OperationalAtomNormalizer()
@@ -51,6 +58,7 @@ class V3AnalyticalContextBuilder:
         self._graph = graph_builder or CrossIncidentGraphBuilder()
         self._reference = reference_provider or ReferenceKnowledgeProvider()
         self._conversations = conversation_store or get_conversation_state_store()
+        self._incident_index = incident_semantic_index or get_incident_semantic_index()
 
     def build(
         self,
@@ -145,16 +153,35 @@ class V3AnalyticalContextBuilder:
         anchor_incident_id = (
             anchor_facts.get("incident_id") if anchor_facts is not None else None
         )
+        semantic_index_status = "not_requested"
+        semantic_index_query_ms = 0.0
         if plan.include_cross_incident and isinstance(anchor_incident_id, int):
             selected_incident_ids = [
                 value
                 for value in resolved_scope.active_incident_ids
                 if value != anchor_incident_id
             ]
+            semantic_hits = semantic_incident_hits(assigned_sources)
+            semantic_result = self._incident_index.query(
+                semantic_query_text_from_facts(anchor_facts),
+                exclude_incident_id=anchor_incident_id,
+                limit=plan.limits.max_candidates_discovered,
+            )
+            semantic_index_status = semantic_result.status
+            semantic_index_query_ms = semantic_result.query_ms
+            if semantic_result.status == "ready":
+                semantic_hits = [
+                    SemanticIncidentHit(
+                        incident_id=item.incident_id,
+                        score=item.score,
+                        source_fingerprint=item.source_fingerprint,
+                    )
+                    for item in semantic_result.hits
+                ]
             candidate_result = self._candidates.retrieve(
                 db=db,
                 anchor_facts=anchor_facts,
-                semantic_hits=semantic_incident_hits(assigned_sources),
+                semantic_hits=semantic_hits,
                 explicit_incident_ids=selected_incident_ids,
                 limits=plan.limits,
                 clock=clock,
@@ -285,6 +312,7 @@ class V3AnalyticalContextBuilder:
             context_limits=plan.limits,
             source_registry=list(registry.values()),
             relationship_registry=RelationshipRegistry(relationships=graph.relationships),
+            semantic_index_status=semantic_index_status,
             metrics=ContextBuildMetrics(
                 intent_routing_ms=intent_selection.routing_ms,
                 focus_routing_ms=focus_selection.focus_routing_ms,
@@ -293,6 +321,7 @@ class V3AnalyticalContextBuilder:
                 candidate_retrieval_ms=(
                     candidate_result.candidate_retrieval_ms if candidate_result else 0.0
                 ),
+                semantic_index_query_ms=semantic_index_query_ms,
                 authoritative_rehydration_ms=(
                     candidate_result.authoritative_rehydration_ms if candidate_result else 0.0
                 ),

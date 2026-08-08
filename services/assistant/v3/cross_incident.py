@@ -14,6 +14,7 @@ from services.assistant.v3.contracts import (
     DiscoverySignal,
     IncidentCandidate,
 )
+from services.assistant.v3.semantic_index import incident_source_fingerprint
 
 
 _SIGNAL_WEIGHTS = {
@@ -37,6 +38,7 @@ _SIGNAL_WEIGHTS = {
 class SemanticIncidentHit:
     incident_id: int
     score: float | None = None
+    source_fingerprint: str | None = None
 
 
 @dataclass(frozen=True)
@@ -155,7 +157,7 @@ class CrossIncidentCandidateRetriever:
         if not isinstance(anchor_id, int):
             return CandidateRetrievalResult((), (), 0.0, 0.0, 0)
         semantic_by_id = {
-            hit.incident_id: hit.score
+            hit.incident_id: hit
             for hit in semantic_hits
             if hit.incident_id != anchor_id
         }
@@ -290,8 +292,17 @@ class CrossIncidentCandidateRetriever:
                 hours = abs((candidate_time - anchor_time).total_seconds()) / 3600
                 if hours <= 24:
                     signals.append(DiscoverySignal.TEMPORAL_PROXIMITY)
-            semantic_score = semantic_by_id.get(candidate_id)
-            if candidate_id in semantic_by_id:
+            semantic_hit = semantic_by_id.get(candidate_id)
+            semantic_valid = semantic_hit is not None
+            if semantic_hit is not None and semantic_hit.source_fingerprint:
+                semantic_valid = semantic_hit.source_fingerprint == (
+                    incident_source_fingerprint(
+                        row,
+                        linked_case_ids=case_ids_by_incident.get(candidate_id, []),
+                    )
+                )
+            semantic_score = semantic_hit.score if semantic_valid else None
+            if semantic_valid:
                 signals.append(DiscoverySignal.SEMANTIC_SIMILARITY)
             substantial = [
                 signal
@@ -301,7 +312,7 @@ class CrossIncidentCandidateRetriever:
                     DiscoverySignal.SEMANTIC_SIMILARITY,
                 }
             ]
-            if not substantial and candidate_id not in semantic_by_id:
+            if not substantial and not semantic_valid:
                 continue
             deterministic_count = len(
                 [signal for signal in signals if signal is not DiscoverySignal.SEMANTIC_SIMILARITY]
@@ -311,9 +322,9 @@ class CrossIncidentCandidateRetriever:
                 ranking_score += max(0.0, semantic_score) * 2.0
             source = (
                 "hybrid"
-                if substantial and candidate_id in semantic_by_id
+                if substantial and semantic_valid
                 else "semantic"
-                if candidate_id in semantic_by_id
+                if semantic_valid
                 else "explicit"
                 if candidate_id in explicit_ids
                 else "deterministic"

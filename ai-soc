@@ -40,6 +40,8 @@ Commands:
                                  Stop application services (dry-run by default)
   demo-restart [--dry-run|--apply] [--include-worker] [--json]
                                  Restart application services (dry-run by default)
+  incident-index <rebuild|status|upsert|refresh|delete> [--incident-id ID] [--json]
+                                 Manage the dedicated incident candidate index
   version                        Show local repository/version information
   help                           Show this help
 EOF
@@ -157,6 +159,11 @@ case "$command_name" in
   demo-restart)
     python_bin="$(resolve_python)"
     exec "$python_bin" "$REPOSITORY_ROOT/scripts/demo_lifecycle.py" restart "$@"
+    ;;
+  incident-index)
+    python_bin="$(resolve_python)"
+    export PYTHONPATH="$REPOSITORY_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+    exec "$python_bin" "$REPOSITORY_ROOT/scripts/manage_incident_semantic_index.py" "$@"
     ;;
   version)
     if (( $# > 0 )); then

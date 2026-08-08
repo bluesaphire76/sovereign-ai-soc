@@ -30,6 +30,11 @@ from services.assistant.v3.plan_contracts import (
 )
 from services.assistant.v3.plan_fallback import deterministic_answer_plan_v3
 from services.assistant.v3.plan_validation import GroundedAnswerPlanV3Validator
+from services.assistant.v3.semantic_index import (
+    IncidentSemanticHit,
+    IncidentSemanticQueryResult,
+    incident_source_fingerprint,
+)
 
 
 class StaticIntentRouter:
@@ -338,6 +343,73 @@ def test_case_scope_builds_multi_incident_graph_and_visible_pattern() -> None:
         assert "does not establish causality" in answer
         assert "share the same attacker" not in answer.casefold()
         assert "form the same campaign" not in answer.casefold()
+    finally:
+        db.close()
+
+
+def test_builder_prefers_dedicated_semantic_index_hits_and_reports_status() -> None:
+    db, anchor, candidate = _session_with_incidents()
+    try:
+        fingerprint = incident_source_fingerprint(candidate)
+
+        class Index:
+            def query(self, query_text, *, exclude_incident_id, limit):
+                assert "Registry changed" in query_text
+                assert exclude_incident_id == anchor.id
+                assert limit > 0
+                return IncidentSemanticQueryResult(
+                    hits=(
+                        IncidentSemanticHit(
+                            incident_id=candidate.id,
+                            score=0.88,
+                            source_fingerprint=fingerprint,
+                        ),
+                    ),
+                    status="ready",
+                    query_ms=3.5,
+                )
+
+        retrieval = SimpleNamespace(
+            fact_inventory=_facts(anchor.id),
+            sources=[
+                SourceRecord(
+                    source_type="incident",
+                    authority="authoritative",
+                    record_id=str(anchor.id),
+                    label=f"Incident {anchor.id}",
+                    excerpt="Authoritative incident facts.",
+                )
+            ],
+        )
+        payload = AssistantQueryRequest(
+            message="Find related incidents.",
+            scope="incident",
+            incident_id=anchor.id,
+        )
+        package = V3AnalyticalContextBuilder(
+            incident_semantic_index=Index(),
+            conversation_store=ConversationStateStore(clock=lambda: 100.0),
+        ).build(
+            payload=payload,
+            response_language="en",
+            intent_selection=StaticIntentRouter(
+                AnswerIntent.CROSS_INCIDENT_ANALYSIS
+            ).route(payload.message),
+            focus_selection=StaticFocusRouter(FocusDimension.EVIDENCE).route(
+                payload.message
+            ),
+            retrieval=retrieval,
+            db=db,
+            current_user={"username": "analyst-a", "role": "ANALYST"},
+        )
+
+        assert package.semantic_index_status == "ready"
+        assert package.metrics.semantic_index_query_ms == 3.5
+        assert DiscoverySignal.SEMANTIC_SIMILARITY in (
+            package.cross_incident_candidates[0].discovery_signals
+        )
+        assert package.cross_incident_candidates[0].semantic_score == 0.88
+        assert package.cross_incident_candidates[0].authoritative_rehydrated is True
     finally:
         db.close()
 

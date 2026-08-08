@@ -82,3 +82,8 @@ ASSISTANT_V3_RESPONSES = Counter(
     "Assistant V3 responses by generation kind and validation status.",
     labelnames=("generation_kind", "validation_status"),
 )
+ASSISTANT_V3_SEMANTIC_INDEX_DURATION = Histogram(
+    "assistant_v3_semantic_index_query_seconds",
+    "Dedicated incident semantic candidate query duration.",
+    labelnames=("status",),
+)

@@ -550,6 +550,7 @@ class ContextBuildMetrics(ClosedModel):
     context_policy_ms: float = Field(default=0.0, ge=0.0)
     atom_normalization_ms: float = Field(default=0.0, ge=0.0)
     candidate_retrieval_ms: float = Field(default=0.0, ge=0.0)
+    semantic_index_query_ms: float = Field(default=0.0, ge=0.0)
     authoritative_rehydration_ms: float = Field(default=0.0, ge=0.0)
     graph_construction_ms: float = Field(default=0.0, ge=0.0)
     reference_retrieval_ms: float = Field(default=0.0, ge=0.0)
@@ -574,6 +575,12 @@ class V3AnalyticalContextPackage(ClosedModel):
     context_limits: ContextLimits
     source_registry: list[SourceRegistryEntry] = Field(default_factory=list, max_length=320)
     relationship_registry: RelationshipRegistry
+    semantic_index_status: Literal[
+        "not_requested",
+        "ready",
+        "degraded",
+        "unavailable",
+    ] = "not_requested"
     metrics: ContextBuildMetrics
 
     @model_validator(mode="after")

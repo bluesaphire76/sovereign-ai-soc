@@ -30,6 +30,7 @@ from services.assistant.v3.graph import (
     CrossIncidentGraphBuilder,
     RecordedCorrelationLink,
 )
+from services.assistant.v3.semantic_index import incident_source_fingerprint
 from services.assistant.v3.policy import ContextPolicyEngine, resolve_analysis_scope
 
 
@@ -288,6 +289,55 @@ def test_candidate_retrieval_can_return_no_supported_candidate() -> None:
 
         assert result.candidates == ()
         assert result.incidents == ()
+    finally:
+        db.close()
+
+
+def test_stale_semantic_hit_is_not_promoted_after_database_rehydration() -> None:
+    db = _db()
+    try:
+        anchor, _, _, semantic_only, _, case = _fixture(db)
+        facts = _anchor_facts(anchor, case.id)
+        retriever = CrossIncidentCandidateRetriever()
+
+        stale = retriever.retrieve(
+            db=db,
+            anchor_facts=facts,
+            semantic_hits=[
+                SemanticIncidentHit(
+                    semantic_only.id,
+                    0.91,
+                    source_fingerprint="stale-fingerprint",
+                )
+            ],
+            limits=ContextLimits(max_candidates_rehydrated=8),
+        )
+        current_fingerprint = incident_source_fingerprint(
+            semantic_only,
+            linked_case_ids=[],
+        )
+        current = retriever.retrieve(
+            db=db,
+            anchor_facts=facts,
+            semantic_hits=[
+                SemanticIncidentHit(
+                    semantic_only.id,
+                    0.91,
+                    source_fingerprint=current_fingerprint,
+                )
+            ],
+            limits=ContextLimits(max_candidates_rehydrated=8),
+        )
+
+        stale_ids = {item.candidate_incident_id for item in stale.candidates}
+        current_by_id = {
+            item.candidate_incident_id: item for item in current.candidates
+        }
+        assert semantic_only.id not in stale_ids
+        assert DiscoverySignal.SEMANTIC_SIMILARITY in (
+            current_by_id[semantic_only.id].discovery_signals
+        )
+        assert current_by_id[semantic_only.id].authoritative_rehydrated is True
     finally:
         db.close()
 
