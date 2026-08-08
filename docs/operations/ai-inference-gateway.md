@@ -18,7 +18,11 @@ AI_INFERENCE_MAX_QUEUE=50
 AI_INFERENCE_STARTUP_TIMEOUT_SECONDS=180
 AI_INFERENCE_REQUEST_TIMEOUT_SECONDS=35
 AI_INFERENCE_MAX_OUTPUT_TOKENS=384
+AI_SOC_ASSISTANT_REQUEST_TIMEOUT_SECONDS=45
 ```
+
+The Assistant uses its dedicated request deadline for constrained structured
+generation. Other gateway tasks continue to use the global request timeout.
 
 ## Render And Review
 

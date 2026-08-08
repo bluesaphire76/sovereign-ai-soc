@@ -400,6 +400,46 @@ def test_focused_schema_constrains_fields_roles_and_claim_budget() -> None:
     assert schema["properties"]["claims"]["minItems"] == 3
     assert schema["properties"]["claims"]["maxItems"] == 3
     assert schema["properties"]["used_advisory_context"]["const"] is False
+    assert schema["properties"]["limitations"] == {
+        "type": "array",
+        "items": {
+            "type": "string",
+            "enum": ["canonical_severity_missing"],
+        },
+        "maxItems": 1,
+    }
+
+
+def test_advisory_schema_keeps_claims_authoritative_and_fixed() -> None:
+    schema = grounded_claim_output_schema(
+        fact_inventory={
+            "source_type": "incident",
+            "incident_id": 5337,
+            "latest_timeline_event": {"event_type": "ALERT_CREATED"},
+            "mitre": [{"id": "T1110.001"}],
+            "compromise_confirmed": None,
+        },
+        allow_advisory=True,
+    )
+    claims_schema = schema["properties"]["claims"]
+
+    assert [
+        (
+            claim["properties"]["claim_type"]["const"],
+            claim["properties"]["field"]["const"],
+        )
+        for claim in claims_schema["prefixItems"]
+    ] == [
+        ("STRUCTURED_REFERENCE", "latest_timeline_event"),
+        ("STRUCTURED_REFERENCE", "mitre"),
+        ("ABSENCE", "compromise_confirmed"),
+    ]
+    assert claims_schema["minItems"] == 3
+    assert claims_schema["maxItems"] == 3
+    assert "items" not in claims_schema
+    assert schema["properties"]["next_check"] != {"type": "null"}
+    assert "const" not in schema["properties"]["used_advisory_context"]
+    assert schema["properties"]["limitations"]["maxItems"] == 0
 
 
 def test_duplicate_claims_are_rejected_structurally() -> None:
@@ -704,6 +744,22 @@ def test_correlation_non_implication_requires_correlation_focus() -> None:
         fact_inventory=FACTS,
     )
     assert result.reason == "claim_outside_focus"
+
+
+def test_focus_validation_rejects_limitations_outside_the_fact_view() -> None:
+    output = _output(
+        _structured_reference(FactField.MITRE),
+        limitations=[LimitationCode.CANONICAL_SEVERITY_MISSING],
+    )
+
+    result = validate_focus(
+        output,
+        focus=_focus(FocusDimension.EVIDENCE),
+        fact_inventory={"mitre": FACTS["mitre"]},
+    )
+
+    assert result.accepted is False
+    assert result.reason == "limitation_outside_focus"
 
 
 def test_advisory_guidance_requires_advisory_source_and_declaration() -> None:

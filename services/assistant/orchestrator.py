@@ -113,7 +113,7 @@ class AssistantSettings:
     max_sources: int = 8
     semantic_limit: int = 4
     semantic_timeout_seconds: float = 2.0
-    request_timeout_seconds: float = 30.0
+    request_timeout_seconds: float = 45.0
     max_output_tokens: int = 768
 
 
@@ -190,8 +190,8 @@ def get_assistant_settings() -> AssistantSettings:
             maximum=2.0,
         ),
         request_timeout_seconds=_env_float(
-            "AI_INFERENCE_REQUEST_TIMEOUT_SECONDS",
-            30.0,
+            "AI_SOC_ASSISTANT_REQUEST_TIMEOUT_SECONDS",
+            45.0,
             minimum=1.0,
             maximum=300.0,
         ),
