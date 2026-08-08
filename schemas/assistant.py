@@ -11,6 +11,25 @@ AssistantStatus = Literal["ok", "fallback"]
 AssistantAuthority = Literal["authoritative", "advisory"]
 AssistantGenerationKind = Literal["model", "deterministic_fallback"]
 AssistantResponseLanguage = Literal["it", "en"]
+AssistantIntent = Literal[
+    "FACT_LOOKUP",
+    "EXPLAIN",
+    "SUMMARY",
+    "INVESTIGATE",
+    "COMPARE",
+    "CROSS_INCIDENT_ANALYSIS",
+    "PATTERN_ANALYSIS",
+    "NEXT_ACTION",
+    "HANDOVER",
+    "EXECUTIVE_SUMMARY",
+]
+AssistantAnalysisScope = Literal[
+    "CURRENT_RECORD",
+    "CURRENT_CASE",
+    "EXPLICIT_RECORD_SET",
+    "RELATED_INCIDENTS",
+    "GLOBAL",
+]
 AssistantRuntimeState = Literal["warming", "ready", "failed", "stopped"]
 AssistantBlockKind = Literal[
     "direct_answer",
@@ -42,11 +61,22 @@ class AssistantQueryRequest(BaseModel):
     case_id: int | None = Field(default=None, gt=0)
     requested_mode: AssistantMode = "auto"
     include_semantic_memory: bool = True
+    conversation_id: str | None = Field(default=None, min_length=1, max_length=128)
 
     @field_validator("message", mode="before")
     @classmethod
     def trim_message(cls, value: str) -> str:
         return str(value or "").strip()
+
+    @field_validator("conversation_id", mode="before")
+    @classmethod
+    def normalize_conversation_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        if any(character.isspace() for character in normalized):
+            raise ValueError("conversation_id cannot contain whitespace")
+        return normalized
 
     @model_validator(mode="after")
     def validate_scope_ids(self):
@@ -155,6 +185,17 @@ class AssistantMetadata(BaseModel):
     response_language: AssistantResponseLanguage = "en"
     thinking_disabled: bool = True
     source_count: int = 0
+    assistant_intent: AssistantIntent | None = None
+    secondary_intents: list[AssistantIntent] = Field(default_factory=list, max_length=2)
+    analysis_scope: AssistantAnalysisScope | None = None
+    context_atoms: int = 0
+    operational_atoms: int = 0
+    reference_atoms: int = 0
+    advisory_atoms: int = 0
+    cross_incident_candidates: int = 0
+    graph_edges: int = 0
+    conversation_followup: bool = False
+    context_build_ms: int = 0
 
 
 class AssistantQueryResponse(BaseModel):

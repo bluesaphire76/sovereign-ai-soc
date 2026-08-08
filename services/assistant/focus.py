@@ -253,11 +253,11 @@ class SharedSemanticEmbeddingProvider:
         return tuple(float(value) for value in vector)
 
 
-def _normalized_embedding_text(value: str) -> str:
+def normalize_embedding_text(value: str) -> str:
     return unicodedata.normalize("NFKC", " ".join(str(value or "").split()))
 
 
-def _cosine_similarity(left: Sequence[float], right: Sequence[float]) -> float:
+def cosine_similarity(left: Sequence[float], right: Sequence[float]) -> float:
     if not left or len(left) != len(right):
         return 0.0
     dot = sum(a * b for a, b in zip(left, right))
@@ -314,7 +314,7 @@ class SemanticFocusRouter:
                 descriptor.dimension: tuple(
                     float(value)
                     for value in self._embedding_provider.embed(
-                        _normalized_embedding_text(descriptor.embedding_text)
+                        normalize_embedding_text(descriptor.embedding_text)
                     )
                 )
                 for descriptor in self._registry
@@ -335,7 +335,7 @@ class SemanticFocusRouter:
         clock: Callable[[], float] = time.monotonic,
     ) -> FocusSelection:
         started = clock()
-        question = _normalized_embedding_text(analyst_question)
+        question = normalize_embedding_text(analyst_question)
         if not question:
             return general_focus_selection(
                 focus_routing_ms=(clock() - started) * 1000,
@@ -345,7 +345,7 @@ class SemanticFocusRouter:
             self._ensure_descriptor_vectors()
             question_vector = self._embedding_provider.embed(question)
             scores = {
-                descriptor.dimension: _cosine_similarity(
+                descriptor.dimension: cosine_similarity(
                     question_vector,
                     self._descriptor_vectors[descriptor.dimension],
                 )

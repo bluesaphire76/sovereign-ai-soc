@@ -52,6 +52,7 @@ export type AssistantQueryRequest = {
   case_id: number | null;
   requested_mode: AssistantMode;
   include_semantic_memory: boolean;
+  conversation_id?: string | null;
 };
 
 export type AssistantSource = {
@@ -86,6 +87,45 @@ export type AssistantMetadata = {
   response_language: AssistantResponseLanguage;
   thinking_disabled: boolean;
   source_count: number;
+  assistant_intent:
+    | "FACT_LOOKUP"
+    | "EXPLAIN"
+    | "SUMMARY"
+    | "INVESTIGATE"
+    | "COMPARE"
+    | "CROSS_INCIDENT_ANALYSIS"
+    | "PATTERN_ANALYSIS"
+    | "NEXT_ACTION"
+    | "HANDOVER"
+    | "EXECUTIVE_SUMMARY"
+    | null;
+  secondary_intents: Array<
+    | "FACT_LOOKUP"
+    | "EXPLAIN"
+    | "SUMMARY"
+    | "INVESTIGATE"
+    | "COMPARE"
+    | "CROSS_INCIDENT_ANALYSIS"
+    | "PATTERN_ANALYSIS"
+    | "NEXT_ACTION"
+    | "HANDOVER"
+    | "EXECUTIVE_SUMMARY"
+  >;
+  analysis_scope:
+    | "CURRENT_RECORD"
+    | "CURRENT_CASE"
+    | "EXPLICIT_RECORD_SET"
+    | "RELATED_INCIDENTS"
+    | "GLOBAL"
+    | null;
+  context_atoms: number;
+  operational_atoms: number;
+  reference_atoms: number;
+  advisory_atoms: number;
+  cross_incident_candidates: number;
+  graph_edges: number;
+  conversation_followup: boolean;
+  context_build_ms: number;
 };
 
 export type AssistantResponseBlock = {

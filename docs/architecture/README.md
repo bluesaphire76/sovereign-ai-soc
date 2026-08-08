@@ -15,6 +15,11 @@
 - [Contextual AI Assistant UI](v0.8-ai-assistant-contextual-ui.md)
 - [AI Assistant Foundation](v0.8-ai-assistant-foundation.md)
 
+## AI Assistant V3 Intelligence Foundation
+
+- [Milestone A: Grounded Analytical Assistant V3](v0.9-ai-assistant-v3-milestone-a.md)
+- [Milestone A validation](../validation/ai-assistant-v3-milestone-a.md)
+
 ## v0.7 Implemented Architecture
 
 - [Advanced Incident Timeline](v0.7-advanced-incident-timeline.md)
