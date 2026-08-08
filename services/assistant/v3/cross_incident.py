@@ -17,6 +17,7 @@ from services.assistant.v3.contracts import (
 
 
 _SIGNAL_WEIGHTS = {
+    DiscoverySignal.EXPLICIT_SELECTION: 6.0,
     DiscoverySignal.SAME_CASE: 5.0,
     DiscoverySignal.SHARED_HOST: 4.0,
     DiscoverySignal.SHARED_AGENT: 4.0,
@@ -145,6 +146,7 @@ class CrossIncidentCandidateRetriever:
         db: Any,
         anchor_facts: dict[str, Any],
         semantic_hits: Iterable[SemanticIncidentHit],
+        explicit_incident_ids: Iterable[int] = (),
         limits: ContextLimits,
         clock: Callable[[], float] = time.monotonic,
     ) -> CandidateRetrievalResult:
@@ -157,6 +159,14 @@ class CrossIncidentCandidateRetriever:
             for hit in semantic_hits
             if hit.incident_id != anchor_id
         }
+        explicit_ordered = list(
+            dict.fromkeys(
+                value
+                for value in explicit_incident_ids
+                if isinstance(value, int) and value > 0 and value != anchor_id
+            )
+        )
+        explicit_ids = set(explicit_ordered)
         pool_limit = min(500, limits.max_candidates_discovered * 5)
         anchor_case_ids = [
             value
@@ -213,13 +223,13 @@ class CrossIncidentCandidateRetriever:
             row.id: row for row in [*exact_rows, *same_case_rows, *recent_rows]
         }
         rehydration_started = clock()
-        missing_semantic_ids = [
+        missing_candidate_ids = [
             incident_id
-            for incident_id in semantic_by_id
+            for incident_id in [*explicit_ordered, *semantic_by_id]
             if incident_id not in pool_by_id
         ][: limits.max_candidates_discovered]
-        if missing_semantic_ids:
-            rows = db.query(Incident).filter(Incident.id.in_(missing_semantic_ids)).all()
+        if missing_candidate_ids:
+            rows = db.query(Incident).filter(Incident.id.in_(missing_candidate_ids)).all()
             pool_by_id.update({row.id: row for row in rows})
 
         all_ids = [anchor_id, *pool_by_id]
@@ -251,6 +261,8 @@ class CrossIncidentCandidateRetriever:
         for candidate_id, row in pool_by_id.items():
             candidate_facts = _row_facts(row, sorted(set(case_ids_by_incident.get(candidate_id, []))))
             signals: list[DiscoverySignal] = []
+            if candidate_id in explicit_ids:
+                signals.append(DiscoverySignal.EXPLICIT_SELECTION)
             if anchor_facts.get("agent") and row.agent == anchor_facts.get("agent"):
                 signals.append(DiscoverySignal.SHARED_AGENT)
             if anchor_facts.get("host") and candidate_facts.get("host") == anchor_facts.get("host"):
@@ -297,8 +309,14 @@ class CrossIncidentCandidateRetriever:
             ranking_score = sum(_SIGNAL_WEIGHTS[signal] for signal in signals)
             if semantic_score is not None:
                 ranking_score += max(0.0, semantic_score) * 2.0
-            source = "hybrid" if substantial and candidate_id in semantic_by_id else (
-                "semantic" if candidate_id in semantic_by_id else "deterministic"
+            source = (
+                "hybrid"
+                if substantial and candidate_id in semantic_by_id
+                else "semantic"
+                if candidate_id in semantic_by_id
+                else "explicit"
+                if candidate_id in explicit_ids
+                else "deterministic"
             )
             ranked.append(
                 (

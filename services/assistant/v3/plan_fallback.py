@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from typing import Any
 
 from services.assistant.v3.contracts import (
     AnswerIntent,
@@ -50,14 +51,14 @@ def _relationship_sections(
     grouped: dict[AuthorityClass, list] = defaultdict(list)
     for relationship in package.cross_incident_graph.relationships:
         grouped[relationship.authority_class].append(relationship)
-    units: list[AnalyticalUnit] = []
+    relationship_units: list[AnalyticalUnit] = []
     for authority, unit_type in (
         (AuthorityClass.OPERATIONAL_AUTHORITATIVE, AnalyticalUnitType.RECORDED_CORRELATION),
         (AuthorityClass.ANALYTICAL_DERIVATION, AnalyticalUnitType.ANALYTICAL_RELATIONSHIP),
         (AuthorityClass.SEMANTIC_CANDIDATE, AnalyticalUnitType.SEMANTIC_SIMILARITY),
     ):
         for relationship in grouped[authority][:6]:
-            units.append(
+            relationship_units.append(
                 AnalyticalUnit(
                     unit_type=unit_type,
                     relationship_refs=[relationship.relationship_id],
@@ -65,6 +66,7 @@ def _relationship_sections(
                     surface_variant=SurfaceVariant.COMPARISON_LED,
                 )
             )
+    candidate_units: list[AnalyticalUnit] = []
     for candidate in package.cross_incident_candidates[:4]:
         relationship_refs = [
             item.relationship_id
@@ -72,7 +74,7 @@ def _relationship_sections(
             if candidate.candidate_incident_id
             in {item.left_incident_id, item.right_incident_id}
         ][:4]
-        units.append(
+        candidate_units.append(
             AnalyticalUnit(
                 unit_type=AnalyticalUnitType.CANDIDATE_RELEVANCE,
                 candidate_refs=[candidate.candidate_id],
@@ -81,6 +83,7 @@ def _relationship_sections(
                 surface_variant=SurfaceVariant.COMPARISON_LED,
             )
         )
+    units = [*relationship_units[:4], *candidate_units[:4]]
     if not units:
         return [
             AnswerSection(
@@ -122,16 +125,115 @@ def _relationship_sections(
         if package.intent_selection.primary_intent is AnswerIntent.HANDOVER
         else AnswerSectionType.WHAT_WE_CANNOT_CONCLUDE
     )
-    return [
+    sections = [
         AnswerSection(
             section_type=AnswerSectionType.RELATED_INCIDENTS,
             units=units[:8],
         ),
+    ]
+    comparison = _comparison_section(package)
+    if comparison is not None and package.intent_selection.primary_intent in {
+        AnswerIntent.COMPARE,
+        AnswerIntent.CROSS_INCIDENT_ANALYSIS,
+    }:
+        sections.append(comparison)
+    pattern = _pattern_section(package)
+    if pattern is not None and package.intent_selection.primary_intent in {
+        AnswerIntent.CROSS_INCIDENT_ANALYSIS,
+        AnswerIntent.PATTERN_ANALYSIS,
+    }:
+        sections.append(pattern)
+    sections.append(
         AnswerSection(
             section_type=caveat_section,
             units=caveats[:8],
-        ),
-    ]
+        )
+    )
+    return sections
+
+
+def _comparison_payload(atom: Any) -> dict[str, Any]:
+    payload = atom.model_dump(
+        mode="json",
+        exclude={
+            "atom_id",
+            "authority_class",
+            "provenance",
+            "incident_id",
+            "case_id",
+        },
+    )
+    return payload
+
+
+def _comparison_section(
+    package: V3AnalyticalContextPackage,
+) -> AnswerSection | None:
+    by_type: dict[str, dict[int, Any]] = defaultdict(dict)
+    for atom in package.operational_atoms:
+        if atom.incident_id is None:
+            continue
+        by_type[atom.atom_type].setdefault(atom.incident_id, atom)
+    units: list[AnalyticalUnit] = []
+    preferred_types = (
+        "status",
+        "host",
+        "detection",
+        "risk",
+        "mitre_technique",
+        "recorded_correlation",
+        "incident_identity",
+    )
+    for atom_type in preferred_types:
+        selected = list(by_type.get(atom_type, {}).values())[:2]
+        if len(selected) < 2:
+            continue
+        unit_type = (
+            AnalyticalUnitType.COMPARISON
+            if _comparison_payload(selected[0]) == _comparison_payload(selected[1])
+            else AnalyticalUnitType.DIFFERENCE
+        )
+        units.append(
+            AnalyticalUnit(
+                unit_type=unit_type,
+                fact_refs=[item.atom_id for item in selected],
+                rhetorical_role=(
+                    RhetoricalRole.SUPPORT
+                    if unit_type is AnalyticalUnitType.COMPARISON
+                    else RhetoricalRole.CONTRAST
+                ),
+                surface_variant=SurfaceVariant.CONTRASTIVE,
+            )
+        )
+        if len(units) >= 3:
+            break
+    if not units:
+        return None
+    return AnswerSection(section_type=AnswerSectionType.COMPARISON, units=units)
+
+
+def _pattern_section(
+    package: V3AnalyticalContextPackage,
+) -> AnswerSection | None:
+    grouped: dict[Any, list[str]] = defaultdict(list)
+    for relationship in package.cross_incident_graph.relationships:
+        if relationship.authority_class is AuthorityClass.ANALYTICAL_DERIVATION:
+            grouped[relationship.relationship_type].append(
+                relationship.relationship_id
+            )
+    units = [
+        AnalyticalUnit(
+            unit_type=AnalyticalUnitType.SHARED_PATTERN,
+            relationship_refs=refs[:8],
+            rhetorical_role=RhetoricalRole.EXPLANATION,
+            surface_variant=SurfaceVariant.COMPARISON_LED,
+        )
+        for refs in grouped.values()
+        if len(refs) >= 2
+    ][:3]
+    if not units:
+        return None
+    return AnswerSection(section_type=AnswerSectionType.PATTERN, units=units)
 
 
 def deterministic_answer_plan_v3(

@@ -222,6 +222,76 @@ def test_candidate_retrieval_is_deterministic_and_bounded() -> None:
         db.close()
 
 
+def test_explicit_candidate_ids_are_rehydrated_and_missing_ids_are_discarded() -> None:
+    db = _db()
+    try:
+        anchor, _, _, _, unrelated, case = _fixture(db)
+        result = CrossIncidentCandidateRetriever().retrieve(
+            db=db,
+            anchor_facts=_anchor_facts(anchor, case.id),
+            semantic_hits=[],
+            explicit_incident_ids=[unrelated.id, 999999, unrelated.id],
+            limits=ContextLimits(max_candidates_rehydrated=8),
+        )
+
+        by_id = {item.candidate_incident_id: item for item in result.candidates}
+        selected = by_id[unrelated.id]
+        assert selected.discovery_signals == [DiscoverySignal.EXPLICIT_SELECTION]
+        assert selected.discovery_source == "explicit"
+        assert selected.authoritative_rehydrated is True
+        assert 999999 not in by_id
+
+        plan = _cross_plan(_anchor_facts(anchor, case.id))
+        normalizer = OperationalAtomNormalizer()
+        atoms = normalizer.normalize(
+            facts=_anchor_facts(anchor, case.id),
+            plan=plan,
+        )
+        atoms.extend(
+            normalizer.normalize(facts=result.incidents[0].facts, plan=plan)
+        )
+        graph = CrossIncidentGraphBuilder().build(
+            anchor_incident_id=anchor.id,
+            candidates=result.candidates,
+            operational_atoms=atoms,
+        )
+        assert unrelated.id in graph.incident_ids
+        assert all(
+            unrelated.id
+            not in {relationship.left_incident_id, relationship.right_incident_id}
+            for relationship in graph.relationships
+        )
+    finally:
+        db.close()
+
+
+def test_candidate_retrieval_can_return_no_supported_candidate() -> None:
+    db = _db()
+    try:
+        anchor = _incident(
+            "only-incident",
+            agent="isolated-endpoint",
+            rule="Unique detection",
+            mitre="T1001",
+            correlation_type="unique",
+            timestamp="2026-08-08T10:00:00Z",
+        )
+        db.add(anchor)
+        db.commit()
+
+        result = CrossIncidentCandidateRetriever().retrieve(
+            db=db,
+            anchor_facts=_anchor_facts(anchor, 999),
+            semantic_hits=[SemanticIncidentHit(999999, 0.99)],
+            limits=ContextLimits(),
+        )
+
+        assert result.candidates == ()
+        assert result.incidents == ()
+    finally:
+        db.close()
+
+
 def test_graph_preserves_relationship_classes_and_evidence_refs() -> None:
     db = _db()
     try:

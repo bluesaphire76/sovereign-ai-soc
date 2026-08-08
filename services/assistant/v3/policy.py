@@ -52,6 +52,7 @@ def resolve_analysis_scope(
     case_id: int | None,
     intent: IntentSelection,
     conversation_state: ValidatedConversationState | None,
+    explicit_incident_ids: Iterable[int] = (),
 ) -> ResolvedScope:
     cross_intents = {
         AnswerIntent.COMPARE,
@@ -59,6 +60,13 @@ def resolve_analysis_scope(
         AnswerIntent.PATTERN_ANALYSIS,
     }
     active_incidents = [incident_id] if incident_id is not None else []
+    explicit_ids = [
+        value
+        for value in explicit_incident_ids
+        if isinstance(value, int) and value > 0 and value != incident_id
+    ]
+    if intent.primary_intent in cross_intents:
+        active_incidents = _unique([*active_incidents, *explicit_ids])[:12]
     active_cases = [case_id] if case_id is not None else []
     followup = conversation_state is not None
     if conversation_state is not None:

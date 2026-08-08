@@ -63,6 +63,8 @@ def _refs_for_signal(
 ) -> list[str]:
     left = [atom for atom in atoms if atom.incident_id == left_id]
     right = [atom for atom in atoms if atom.incident_id == right_id]
+    if signal is DiscoverySignal.EXPLICIT_SELECTION:
+        return []
     if signal is DiscoverySignal.SEMANTIC_SIMILARITY:
         return [candidate_id]
     if signal is DiscoverySignal.TEMPORAL_PROXIMITY:

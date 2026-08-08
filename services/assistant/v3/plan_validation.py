@@ -182,9 +182,12 @@ class GroundedAnswerPlanV3Validator:
             AnalyticalUnitType.COMPARISON,
             AnalyticalUnitType.DIFFERENCE,
         }:
-            incident_ids = {atoms[ref].incident_id for ref in unit.fact_refs}
+            selected_atoms = [atoms[ref] for ref in unit.fact_refs]
+            incident_ids = {atom.incident_id for atom in selected_atoms}
             if None in incident_ids or len(incident_ids) < 2:
                 return PlanValidationResult(False, "comparison_scope_mismatch")
+            if len({atom.atom_type for atom in selected_atoms}) != 1:
+                return PlanValidationResult(False, "comparison_type_mismatch")
         if unit.unit_type is AnalyticalUnitType.ABSENCE and (
             unit.absence_field not in available_absence_fields(package)
         ):

@@ -72,6 +72,7 @@ class AssistantQueryRequest(BaseModel):
     requested_mode: AssistantMode = "auto"
     include_semantic_memory: bool = True
     conversation_id: str | None = Field(default=None, min_length=1, max_length=128)
+    compare_incident_ids: list[int] = Field(default_factory=list, max_length=8)
 
     @field_validator("message", mode="before")
     @classmethod
@@ -90,6 +91,10 @@ class AssistantQueryRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_scope_ids(self):
+        if any(value <= 0 for value in self.compare_incident_ids):
+            raise ValueError("compare incident IDs must be positive")
+        if len(self.compare_incident_ids) != len(set(self.compare_incident_ids)):
+            raise ValueError("compare incident IDs must be unique")
         if self.scope == "incident":
             if self.incident_id is None:
                 raise ValueError("incident scope requires incident_id")
@@ -102,6 +107,13 @@ class AssistantQueryRequest(BaseModel):
                 raise ValueError("case scope rejects incident_id")
         elif self.incident_id is not None or self.case_id is not None:
             raise ValueError("global scope rejects incident_id and case_id")
+        if self.scope == "global" and self.compare_incident_ids:
+            raise ValueError("global scope rejects compare incident IDs")
+        if (
+            self.incident_id is not None
+            and self.incident_id in self.compare_incident_ids
+        ):
+            raise ValueError("compare incident IDs must exclude the anchor incident")
         return self
 
 

@@ -7,6 +7,7 @@ from services.assistant.focus import FocusSelection
 from services.assistant.v3.atoms import OperationalAtomNormalizer, authoritative_source_ids
 from services.assistant.v3.contracts import (
     AnalyticalFocus,
+    AnswerIntent,
     AuthorityClass,
     ContextBuildMetrics,
     ConversationStateRefs,
@@ -73,12 +74,40 @@ class V3AnalyticalContextBuilder:
             db=db,
         )
         conversation_ms = max(0.0, (clock() - conversation_started) * 1000)
+        cross_intents = {
+            AnswerIntent.COMPARE,
+            AnswerIntent.CROSS_INCIDENT_ANALYSIS,
+            AnswerIntent.PATTERN_ANALYSIS,
+        }
+        linked_incident_facts: list[dict[str, Any]] = []
+        linked_incidents = retrieval.fact_inventory.get("linked_incidents")
+        if isinstance(linked_incidents, list):
+            for linked in linked_incidents:
+                if not isinstance(linked, dict) or not isinstance(
+                    linked.get("incident_id"), int
+                ):
+                    continue
+                facts = {"source_type": "incident", **linked}
+                if payload.case_id is not None:
+                    facts["linked_case_ids"] = [payload.case_id]
+                linked_incident_facts.append(facts)
+        explicit_incident_ids = list(
+            getattr(payload, "compare_incident_ids", []) or []
+        )
+        if (
+            intent_selection.primary_intent in cross_intents
+            and payload.case_id is not None
+        ):
+            explicit_incident_ids.extend(
+                facts["incident_id"] for facts in linked_incident_facts
+            )
         resolved_scope = resolve_analysis_scope(
             request_scope=payload.scope,
             incident_id=payload.incident_id,
             case_id=payload.case_id,
             intent=intent_selection,
             conversation_state=conversation,
+            explicit_incident_ids=explicit_incident_ids,
         )
         plan = self._policy.plan(
             intent=intent_selection,
@@ -96,16 +125,11 @@ class V3AnalyticalContextBuilder:
             plan=plan,
             source_ids=source_ids,
         )
-        linked_incidents = retrieval.fact_inventory.get("linked_incidents")
-        if isinstance(linked_incidents, list):
-            for linked in linked_incidents[: plan.limits.max_graph_incidents]:
-                if not isinstance(linked, dict) or not isinstance(
-                    linked.get("incident_id"), int
-                ):
-                    continue
+        if linked_incident_facts:
+            for linked in linked_incident_facts[: plan.limits.max_graph_incidents]:
                 operational_atoms.extend(
                     self._atoms.normalize(
-                        facts={"source_type": "incident", **linked},
+                        facts=linked,
                         plan=plan,
                         source_ids=source_ids,
                     )
@@ -113,11 +137,25 @@ class V3AnalyticalContextBuilder:
         atom_ms = max(0.0, (clock() - atom_started) * 1000)
 
         candidate_result = None
-        if plan.include_cross_incident and payload.incident_id is not None:
+        anchor_facts = None
+        if payload.incident_id is not None:
+            anchor_facts = retrieval.fact_inventory
+        elif linked_incident_facts:
+            anchor_facts = linked_incident_facts[0]
+        anchor_incident_id = (
+            anchor_facts.get("incident_id") if anchor_facts is not None else None
+        )
+        if plan.include_cross_incident and isinstance(anchor_incident_id, int):
+            selected_incident_ids = [
+                value
+                for value in resolved_scope.active_incident_ids
+                if value != anchor_incident_id
+            ]
             candidate_result = self._candidates.retrieve(
                 db=db,
-                anchor_facts=retrieval.fact_inventory,
+                anchor_facts=anchor_facts,
                 semantic_hits=semantic_incident_hits(assigned_sources),
+                explicit_incident_ids=selected_incident_ids,
                 limits=plan.limits,
                 clock=clock,
             )
@@ -130,11 +168,26 @@ class V3AnalyticalContextBuilder:
                     )
                 )
         candidates = list(candidate_result.candidates) if candidate_result else []
-        operational_atoms = operational_atoms[: plan.limits.max_operational_atoms]
+        requested_active = set(resolved_scope.active_incident_ids)
+        validated_active = [
+            incident_id
+            for incident_id in [
+                anchor_incident_id,
+                *(item.candidate_incident_id for item in candidates),
+            ]
+            if isinstance(incident_id, int) and incident_id in requested_active
+        ]
+        if requested_active:
+            resolved_scope = resolved_scope.model_copy(
+                update={"active_incident_ids": list(dict.fromkeys(validated_active))}
+            )
+        operational_atoms = list(
+            {atom.atom_id: atom for atom in operational_atoms}.values()
+        )[: plan.limits.max_operational_atoms]
 
         graph_started = clock()
         graph = self._graph.build(
-            anchor_incident_id=payload.incident_id,
+            anchor_incident_id=anchor_incident_id,
             candidates=candidates,
             operational_atoms=operational_atoms,
             max_incidents=plan.limits.max_graph_incidents,

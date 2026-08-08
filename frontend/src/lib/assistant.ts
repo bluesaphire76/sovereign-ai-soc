@@ -63,6 +63,7 @@ export type AssistantQueryRequest = {
   requested_mode: AssistantMode;
   include_semantic_memory: boolean;
   conversation_id?: string | null;
+  compare_incident_ids?: number[];
 };
 
 export type AssistantSource = {

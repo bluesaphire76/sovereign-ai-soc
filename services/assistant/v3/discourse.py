@@ -9,6 +9,7 @@ from services.assistant.v3.contracts import (
     CaseRelationshipAtom,
     CompromiseStateAtom,
     DetectionAtom,
+    DiscoverySignal,
     EscalationReasonAtom,
     EscalationStateAtom,
     EvidenceAtom,
@@ -295,11 +296,26 @@ def _render_relationship(unit: AnalyticalUnit, package: V3AnalyticalContextPacka
 
 def _render_candidate(unit: AnalyticalUnit, package: V3AnalyticalContextPackage) -> str:
     candidates = {item.candidate_id: item for item in package.cross_incident_candidates}
-    values = [candidates[ref].candidate_incident_id for ref in unit.candidate_refs]
+    selected = [candidates[ref] for ref in unit.candidate_refs]
+    values = [item.candidate_incident_id for item in selected]
     joined = ", ".join(str(value) for value in values)
+    explicit = any(
+        DiscoverySignal.EXPLICIT_SELECTION in item.discovery_signals
+        for item in selected
+    )
     if package.response_language == "it":
-        return f"La policy di retrieval identifica gli incidenti {joined} come confronti rilevanti; il ranking indica utilità comparativa, non rischio o compromissione."
-    return f"The retrieval policy identifies incidents {joined} as relevant comparisons; ranking indicates comparison utility, not risk or compromise."
+        subject = (
+            "La selezione esplicita include"
+            if explicit
+            else "La policy di retrieval identifica"
+        )
+        return f"{subject} gli incidenti {joined} come confronti rilevanti; il ranking indica utilità comparativa, non rischio o compromissione."
+    subject = (
+        "The explicit record set includes"
+        if explicit
+        else "The retrieval policy identifies"
+    )
+    return f"{subject} incidents {joined} as relevant comparisons; ranking indicates comparison utility, not risk or compromise."
 
 
 def _render_comparison(
