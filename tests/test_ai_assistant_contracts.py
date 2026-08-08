@@ -31,6 +31,14 @@ def test_scope_ids_are_closed_and_deterministic() -> None:
         with pytest.raises(ValidationError):
             AssistantQueryRequest.model_validate(payload)
 
+    with pytest.raises(ValidationError):
+        AssistantQueryRequest(
+            message="Continue",
+            scope="incident",
+            incident_id=245,
+            conversation_id="unsafe thread",
+        )
+
 
 def test_source_urls_must_be_internal_paths() -> None:
     valid = AssistantSource(

@@ -54,3 +54,13 @@ ASSISTANT_SEMANTIC_DEGRADED = Counter(
     "Assistant semantic retrieval degradation by safe reason.",
     labelnames=("reason",),
 )
+ASSISTANT_V3_CONTEXT_DURATION = Histogram(
+    "assistant_v3_context_build_seconds",
+    "Non-generative Assistant V3 analytical context build duration.",
+    labelnames=("intent", "scope"),
+)
+ASSISTANT_V3_CONTEXT_PACKAGES = Counter(
+    "assistant_v3_context_packages_total",
+    "Assistant V3 analytical context packages built by intent and scope.",
+    labelnames=("intent", "scope"),
+)

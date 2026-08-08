@@ -34,6 +34,7 @@ def _base_audit_details(payload: AssistantQueryRequest) -> dict[str, Any]:
         "case_id": payload.case_id,
         "requested_mode": payload.requested_mode,
         "include_semantic_memory": payload.include_semantic_memory,
+        "conversation_id_present": payload.conversation_id is not None,
         "message_length": len(payload.message),
         "message_sha256": _message_hash(payload.message),
     }
@@ -64,8 +65,17 @@ def _completed_audit_details(
         "thinking_disabled": response.metadata.thinking_disabled,
         "source_count": len(response.sources),
         "source_type_counts": dict(sorted(source_type_counts.items())),
-        "semantic_memory_attempted": bool(payload.include_semantic_memory),
+        "semantic_memory_attempted": response.metadata.semantic_status not in {
+            "not_requested",
+            "disabled",
+        },
         "semantic_memory_available": advisory_count > 0,
+        "assistant_intent": response.metadata.assistant_intent,
+        "analysis_scope": response.metadata.analysis_scope,
+        "context_atoms": response.metadata.context_atoms,
+        "cross_incident_candidates": response.metadata.cross_incident_candidates,
+        "graph_edges": response.metadata.graph_edges,
+        "conversation_followup": response.metadata.conversation_followup,
     }
 
 

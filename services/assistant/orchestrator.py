@@ -24,6 +24,8 @@ from services.ai_execution.client import generate_ai_response
 from services.ai_execution.metrics import (
     ASSISTANT_SEMANTIC_DEGRADED,
     ASSISTANT_SEMANTIC_DURATION,
+    ASSISTANT_V3_CONTEXT_DURATION,
+    ASSISTANT_V3_CONTEXT_PACKAGES,
     FALLBACK_TOTAL,
     GROUNDING_REJECTIONS,
 )
@@ -50,6 +52,14 @@ from services.assistant.retrieval import (
 )
 from services.assistant.runtime import assistant_runtime_snapshot
 from services.assistant.sources import SourceRecord, assign_source_ids
+from services.assistant.v3.builder import V3AnalyticalContextBuilder
+from services.assistant.v3.contracts import V3AnalyticalContextPackage
+from services.assistant.v3.intent import (
+    SemanticIntentRouter,
+    get_semantic_intent_router,
+    neutral_intent_selection,
+)
+from services.assistant.v3.policy import advisory_retrieval_allowed
 
 
 FEATURE_KEY = "soc_assistant"
@@ -340,6 +350,7 @@ def _build_response(
     request_started: float,
     clock: Callable[[], float],
     settings: AssistantSettings,
+    v3_package: V3AnalyticalContextPackage | None,
 ) -> AssistantQueryResponse:
     sources = _selected_sources(
         source_records,
@@ -361,6 +372,45 @@ def _build_response(
         fallback_reason=fallback_reason,
         response_language=response_language,
         source_count=len(sources),
+        assistant_intent=(
+            v3_package.intent_selection.primary_intent.value
+            if v3_package is not None
+            else None
+        ),
+        secondary_intents=(
+            [item.value for item in v3_package.intent_selection.secondary_intents]
+            if v3_package is not None
+            else []
+        ),
+        analysis_scope=(
+            v3_package.resolved_scope.analysis_scope.value
+            if v3_package is not None
+            else None
+        ),
+        context_atoms=(
+            len(v3_package.operational_atoms)
+            + len(v3_package.reference_atoms)
+            + len(v3_package.advisory_atoms)
+            if v3_package is not None
+            else 0
+        ),
+        operational_atoms=(len(v3_package.operational_atoms) if v3_package else 0),
+        reference_atoms=(len(v3_package.reference_atoms) if v3_package else 0),
+        advisory_atoms=(len(v3_package.advisory_atoms) if v3_package else 0),
+        cross_incident_candidates=(
+            len(v3_package.cross_incident_candidates) if v3_package else 0
+        ),
+        graph_edges=(
+            len(v3_package.cross_incident_graph.relationships) if v3_package else 0
+        ),
+        conversation_followup=(
+            v3_package.resolved_scope.conversation_followup if v3_package else False
+        ),
+        context_build_ms=(
+            max(0, int(v3_package.metrics.total_context_build_ms))
+            if v3_package
+            else 0
+        ),
     )
     return AssistantQueryResponse(
         status="ok" if generation_kind == "model" else "fallback",
@@ -389,9 +439,10 @@ def run_assistant_query(
     knowledge_base_factory=get_knowledge_base,
     generator: Callable[..., dict[str, Any]] = generate_ai_response,
     focus_router: SemanticFocusRouter | None = None,
+    intent_router: SemanticIntentRouter | None = None,
+    v3_context_builder: V3AnalyticalContextBuilder | None = None,
     clock: Callable[[], float] = time.monotonic,
 ) -> AssistantQueryResponse:
-    del current_user
     current_settings = settings or get_assistant_settings()
     request_started = clock()
     request_id = uuid4().hex
@@ -410,10 +461,33 @@ def run_assistant_query(
             message="Assistant message exceeds the configured limit.",
         )
 
+    selected_intent_router = intent_router or get_semantic_intent_router()
+    try:
+        intent_selection = selected_intent_router.route(payload.message)
+    except Exception:
+        intent_selection = neutral_intent_selection()
+    selected_focus_router = focus_router or get_semantic_focus_router()
+    try:
+        focus_selection = selected_focus_router.route(payload.message)
+    except Exception:
+        focus_selection = general_focus_selection(
+            focus_degraded=True,
+            routing_status="router_failure",
+        )
+
+    retrieval_payload = payload.model_copy(
+        update={
+            "include_semantic_memory": (
+                payload.include_semantic_memory
+                and advisory_retrieval_allowed(intent_selection)
+            )
+        }
+    )
     db = db_factory()
+    v3_package: V3AnalyticalContextPackage | None = None
     try:
         retrieval = retrieve_assistant_context(
-            payload,
+            retrieval_payload,
             db=db,
             settings=current_settings,
             knowledge_base_factory=knowledge_base_factory,
@@ -423,6 +497,31 @@ def run_assistant_query(
             ),
             clock=clock,
         )
+        try:
+            v3_package = (v3_context_builder or V3AnalyticalContextBuilder()).build(
+                payload=payload,
+                response_language=response_language,
+                intent_selection=intent_selection,
+                focus_selection=focus_selection,
+                retrieval=retrieval,
+                db=db,
+                current_user=current_user,
+                clock=clock,
+            )
+            metric_labels = {
+                "intent": v3_package.intent_selection.primary_intent.value,
+                "scope": v3_package.resolved_scope.analysis_scope.value,
+            }
+            ASSISTANT_V3_CONTEXT_DURATION.labels(**metric_labels).observe(
+                v3_package.metrics.total_context_build_ms / 1000
+            )
+            ASSISTANT_V3_CONTEXT_PACKAGES.labels(**metric_labels).inc()
+        except Exception as exc:
+            logger.warning(
+                "assistant_v3_context_build_failed request_id=%s reason=%s",
+                request_id,
+                exc.__class__.__name__,
+            )
     except IncidentNotFound as exc:
         raise AssistantError(
             category="IncidentNotFound",
@@ -447,14 +546,6 @@ def run_assistant_query(
             retrieval.semantic_status
         ).inc()
 
-    selected_focus_router = focus_router or get_semantic_focus_router()
-    try:
-        focus_selection = selected_focus_router.route(payload.message)
-    except Exception:
-        focus_selection = general_focus_selection(
-            focus_degraded=True,
-            routing_status="router_failure",
-        )
     focused_fact_inventory = build_focused_fact_view(
         fact_inventory=retrieval.fact_inventory,
         focus=focus_selection,
@@ -507,6 +598,15 @@ def run_assistant_query(
                     3,
                 ),
                 "focus_degraded": focus_selection.focus_degraded,
+                "assistant_intent": intent_selection.primary_intent.value,
+                "intent_degraded": intent_selection.degraded,
+                "v3_context_atoms": (
+                    len(v3_package.operational_atoms)
+                    + len(v3_package.reference_atoms)
+                    + len(v3_package.advisory_atoms)
+                    if v3_package
+                    else 0
+                ),
             },
             output_schema="assistant_grounded_v2",
             structured_output_schema=grounded_claim_output_schema(
@@ -597,13 +697,14 @@ def run_assistant_query(
         request_started=request_started,
         clock=clock,
         settings=current_settings,
+        v3_package=v3_package,
     )
     logger.info(
         "assistant_execution request_id=%s scope=%s target_id=%s "
         "generation_kind=%s queue_wait_ms=%s generation_ms=%s "
         "semantic_status=%s grounding_validation=%s focus_validation=%s "
         "fallback_reason=%s source_count=%s profile=standard "
-        "model=ai-soc-standard",
+        "model=ai-soc-standard intent=%s context_atoms=%s graph_edges=%s",
         request_id,
         payload.scope,
         payload.incident_id or payload.case_id,
@@ -615,5 +716,8 @@ def run_assistant_query(
         response.metadata.focus_validation,
         response.metadata.fallback_reason,
         response.metadata.source_count,
+        response.metadata.assistant_intent,
+        response.metadata.context_atoms,
+        response.metadata.graph_edges,
     )
     return response
