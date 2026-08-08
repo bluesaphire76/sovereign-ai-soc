@@ -301,6 +301,25 @@ def test_grounded_model_response_uses_one_fixed_gateway_generation(
     assert len(calls) == 1
     assert calls[0]["requested_mode"] == "standard"
     assert calls[0]["output_schema"] == "assistant_grounded_v2"
+    structured_schema = calls[0]["structured_output_schema"]
+    claim_variants = structured_schema["$defs"]["GroundedClaim"]["oneOf"]
+    schema_fields = {
+        variant["properties"].get("field", {}).get("const")
+        for variant in claim_variants
+    } - {None}
+    assert schema_fields <= set(FACTS)
+    assert all(
+        variant["properties"]["claim_type"]["const"]
+        != "ADVISORY_GUIDANCE"
+        for variant in claim_variants
+    )
+    required_claims = structured_schema["properties"]["claims"]["prefixItems"]
+    required_fields = {
+        item["properties"]["field"]["const"] for item in required_claims
+    }
+    assert required_fields <= set(FACTS)
+    assert "source_type" not in required_fields
+    assert "incident_id" not in required_fields
     assert calls[0]["user_triggered"] is True
     assert "[s#" not in str(calls[0]).lower()
     assert "allowed_citations" not in str(calls[0]).lower()
@@ -323,7 +342,11 @@ def test_grounded_model_response_uses_one_fixed_gateway_generation(
 @pytest.mark.parametrize(
     ("structured_output", "finish_reason", "reason"),
     [
-        ({"unexpected": "shape"}, "stop", "invalid_structured_output"),
+        (
+            {"unexpected": "shape"},
+            "stop",
+            "invalid_structured_claim_schema",
+        ),
         (
             {
                 "claims": [
@@ -389,6 +412,34 @@ def test_gateway_failure_is_safe_and_does_not_claim_model_attribution(
     assert response.metadata.effective_profile == "standard"
     assert response.metadata.effective_model == "ai-soc-standard"
     assert response.generation_kind == "deterministic_fallback"
+
+
+@pytest.mark.parametrize(
+    ("safe_error", "expected_reason"),
+    [
+        ("queue_deadline_exceeded", "queue_deadline_exceeded"),
+        ("generation_timeout", "generation_timeout"),
+        ("invalid_visible_output", "invalid_visible_output"),
+        ("invalid_json", "invalid_json"),
+        ("invalid_json_type", "invalid_json_type"),
+    ],
+)
+def test_gateway_failure_reasons_remain_distinct(
+    monkeypatch,
+    safe_error,
+    expected_reason,
+) -> None:
+    response = _run(
+        monkeypatch,
+        lambda **kwargs: {
+            "text": "",
+            "safe_error": safe_error,
+            "error_type": safe_error,
+        },
+    )
+
+    assert response.status == "fallback"
+    assert response.metadata.fallback_reason == expected_reason
 
 
 def test_context_budget_failure_skips_generation_and_falls_back(

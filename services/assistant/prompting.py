@@ -28,15 +28,11 @@ Return one JSON object with exactly these top-level fields:
 {
   "claims": [
     {
-      "claim_type": "RECORDED_FACT | ABSENCE | DISTINCT_VALUE | STRUCTURED_REFERENCE | NON_IMPLICATION | ADVISORY_GUIDANCE | DERIVATION",
-      "field": "an allowed fact field, or null",
-      "value": "the exact supplied value, or null",
-      "provenance": "the required provenance, or null",
-      "source_ids": ["S1"],
-      "subject": "correlation, or null",
-      "object": "compromise | causality, or null",
-      "derived_from": ["an explicitly supported fact field"],
-      "guidance_code": "review_related_telemetry | follow_recorded_playbook, or null"
+      "claim_type": "RECORDED_FACT",
+      "field": "risk_score",
+      "value": 35,
+      "provenance": "recorded_operational",
+      "source_ids": ["S1"]
     }
   ],
   "next_check": null,
@@ -45,6 +41,7 @@ Return one JSON object with exactly these top-level fields:
 }
 
 Claim shapes are exclusive:
+- Omit every property that is not part of the selected exclusive claim shape.
 - RECORDED_FACT and DISTINCT_VALUE require field, exact value, provenance, and authoritative source_ids.
 - ABSENCE requires a field present with null value, provenance, and authoritative source_ids.
 - STRUCTURED_REFERENCE requires a structured field, its expected provenance, and authoritative source_ids; it never contains value, selector, or path.

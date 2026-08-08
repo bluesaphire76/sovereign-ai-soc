@@ -306,6 +306,10 @@ class LlamaCppInvalidResponse(Exception):
     pass
 
 
+class LlamaCppStructuredOutputRejected(Exception):
+    pass
+
+
 class LlamaCppEmptyVisibleContent(Exception):
     pass
 
@@ -1385,7 +1389,19 @@ class LocalLlamaCppProvider:
                         headers=self._headers(),
                         timeout=self._remaining_timeout(deadline=deadline),
                     )
-                    response.raise_for_status()
+                    try:
+                        response.raise_for_status()
+                    except requests.HTTPError as exc:
+                        status_code = int(
+                            getattr(getattr(exc, "response", None), "status_code", 0)
+                            or 0
+                        )
+                        if (
+                            request_payload.get("response_format") is not None
+                            and 400 <= status_code < 500
+                        ):
+                            raise LlamaCppStructuredOutputRejected() from exc
+                        raise
                     try:
                         response_data = response.json()
                     except Exception as exc:

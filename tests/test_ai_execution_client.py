@@ -2,13 +2,19 @@ from __future__ import annotations
 
 import httpx
 import pytest
+from pydantic import ValidationError
 
+from services.assistant.claims import (
+    GroundedClaimOutput,
+    grounded_claim_output_schema,
+)
 from services.ai_execution.client import (
     AiExecutionClient,
     generate_ai_response,
 )
 from services.ai_execution.contracts import AiExecutionRequest
 from services.ai_execution.errors import (
+    GatewayInvalidRequest,
     GatewayMalformedResponse,
     GatewayQueueFull,
 )
@@ -49,6 +55,7 @@ def test_client_sends_closed_request_over_gateway_transport() -> None:
         requested_mode="standard",
         user_triggered=True,
         timeout_seconds=12,
+        max_visible_tokens=384,
         output_schema="assistant_grounded_v1",
         client=AiExecutionClient(
             socket_path="/tmp/test-inference.sock",
@@ -72,6 +79,7 @@ def test_client_sends_closed_request_over_gateway_transport() -> None:
 
 
 def test_gateway_contract_accepts_assistant_grounded_v2() -> None:
+    schema_document = grounded_claim_output_schema()
     request = AiExecutionRequest(
         task="soc_assistant",
         priority="interactive",
@@ -80,11 +88,72 @@ def test_gateway_contract_accepts_assistant_grounded_v2() -> None:
         system_instructions="Return typed claims.",
         input="Explain.",
         output_schema="assistant_grounded_v2",
+        structured_output_schema={
+            "name": "assistant_grounded_v2",
+            "schema_document": schema_document,
+        },
         max_output_tokens=384,
         temperature=0,
     )
 
     assert request.output_schema == "assistant_grounded_v2"
+    assert request.structured_output_schema is not None
+    assert request.structured_output_schema.schema_document == (
+        GroundedClaimOutput.model_json_schema()
+    )
+
+
+def test_gateway_contract_requires_closed_schema_for_assistant_grounded_v2() -> None:
+    with pytest.raises(ValidationError, match="requires a structured output schema"):
+        AiExecutionRequest(
+            task="soc_assistant",
+            priority="interactive",
+            request_id="assistant-v2",
+            deadline_ms=1000,
+            system_instructions="Return typed claims.",
+            input="Explain.",
+            output_schema="assistant_grounded_v2",
+            max_output_tokens=384,
+            temperature=0,
+        )
+
+    schema_document = grounded_claim_output_schema()
+
+    def assert_closed(node) -> None:
+        if isinstance(node, dict):
+            if node.get("type") == "object":
+                assert node.get("additionalProperties") is False
+            if node.get("type") == "array":
+                assert "items" in node or "prefixItems" in node
+            for value in node.values():
+                assert_closed(value)
+        elif isinstance(node, list):
+            for value in node:
+                assert_closed(value)
+
+    assert_closed(schema_document)
+
+
+def test_client_transports_authoritative_v2_schema() -> None:
+    calls = []
+    schema_document = grounded_claim_output_schema()
+
+    def sender(path, payload, timeout):
+        calls.append(payload)
+        return _success_payload(payload)
+
+    generate_ai_response(
+        prompt="Explain.",
+        task="soc_assistant",
+        requested_mode="standard",
+        output_schema="assistant_grounded_v2",
+        structured_output_schema=schema_document,
+        client=AiExecutionClient(sender=sender),
+    )
+
+    transported = calls[0]["structured_output_schema"]
+    assert transported["name"] == "assistant_grounded_v2"
+    assert transported["schema_document"] == schema_document
 
 
 def test_http_client_uses_configured_unix_socket(monkeypatch) -> None:
@@ -140,6 +209,53 @@ def test_http_client_uses_configured_unix_socket(monkeypatch) -> None:
     assert captured["uds"] == "/run/test/gateway.sock"
     assert captured["base_url"] == "http://ai-soc-inference-gateway"
     assert captured["path"] == "/v1/generate"
+
+
+def test_http_422_is_not_classified_as_gateway_unavailable(monkeypatch) -> None:
+    class Transport:
+        def __init__(self, *, uds):
+            pass
+
+    class Client:
+        def __init__(self, *, transport, base_url, timeout):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def request(self, method, path, json):
+            return httpx.Response(
+                422,
+                json={"detail": "invalid internal contract"},
+                request=httpx.Request(method, f"http://gateway{path}"),
+            )
+
+    monkeypatch.setattr(
+        "services.ai_execution.client.httpx.HTTPTransport",
+        Transport,
+    )
+    monkeypatch.setattr(
+        "services.ai_execution.client.httpx.Client",
+        Client,
+    )
+    client = AiExecutionClient(socket_path="/run/test/gateway.sock")
+
+    with pytest.raises(GatewayInvalidRequest):
+        client.generate(
+            AiExecutionRequest(
+                task="worker_triage",
+                priority="incident_triage",
+                request_id="worker-triage",
+                deadline_ms=1000,
+                system_instructions="Return the final answer.",
+                input="Analyze.",
+                max_output_tokens=64,
+                temperature=0,
+            )
+        )
 
 
 def test_task_priorities_are_mapped_for_api_and_worker_callers() -> None:

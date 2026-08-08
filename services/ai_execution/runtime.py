@@ -38,6 +38,43 @@ def _env_float(
     return min(max(value, minimum), maximum)
 
 
+def _provider_response_format(request: AiExecutionRequest) -> dict[str, Any] | None:
+    structured_schema = request.structured_output_schema
+    if structured_schema is not None:
+        return {
+            "type": "json_schema",
+            "json_schema": {
+                "name": structured_schema.name,
+                "strict": True,
+                "schema": structured_schema.schema_document,
+            },
+        }
+    if request.output_schema != "text_v1":
+        return {"type": "json_object"}
+    return None
+
+
+def _provider_failure_reason(result: dict[str, Any]) -> str:
+    if result.get("timeout_reason"):
+        return "generation_timeout"
+    raw_error = str(
+        result.get("safe_error") or result.get("error_type") or ""
+    ).lower()
+    provider_status = str(result.get("provider_status") or "").lower()
+    if provider_status in {"invalid_response", "empty_visible_content"} or any(
+        marker in raw_error
+        for marker in (
+            "emptyvisiblecontent",
+            "invalidresponse",
+            "structuredoutputrejected",
+        )
+    ):
+        return "invalid_visible_output"
+    if provider_status == "provider_unavailable" or "unavailable" in raw_error:
+        return "gateway_unavailable"
+    return "generation_failed"
+
+
 class GatewayModelRuntime:
     def __init__(
         self,
@@ -345,34 +382,44 @@ class GatewayModelRuntime:
                 allow_provider_fallback=False,
                 force_local_llama_cpp=True,
                 temperature=request.temperature,
+                response_format=_provider_response_format(request),
             )
 
         result = await asyncio.to_thread(invoke)
         text = str(result.get("text") or "")
-        output, validation_error = normalize_gateway_output(
-            text,
-            output_schema=request.output_schema,
-        )
         diagnostics = (
             result.get("provider_diagnostics")
             if isinstance(result.get("provider_diagnostics"), dict)
             else {}
         )
-        if validation_error:
-            status = "invalid_response"
-            safe_error = validation_error
-        elif result.get("safe_error") or result.get("error_type"):
+        provider_failed = bool(result.get("safe_error") or result.get("error_type"))
+        if provider_failed:
+            output = None
+            validation_error = None
+            safe_error = _provider_failure_reason(result)
             status = (
                 "deadline_exceeded"
-                if result.get("timeout_reason")
+                if safe_error == "generation_timeout"
                 else "failed"
             )
-            safe_error = (
-                "generation_timeout"
-                if status == "deadline_exceeded"
-                else "generation_failed"
-            )
         else:
+            output, validation_error = normalize_gateway_output(
+                text,
+                output_schema=request.output_schema,
+            )
+        if not provider_failed and validation_error:
+            logger.warning(
+                "gateway_output_validation_failed task=%s output_schema=%s "
+                "validation_error=%s finish_reason=%s raw_text_length=%s",
+                request.task,
+                request.output_schema,
+                validation_error,
+                result.get("finish_reason"),
+                len(text),
+            )
+            status = "invalid_response"
+            safe_error = validation_error
+        elif not provider_failed:
             status = "success"
             safe_error = None
         return AiExecutionResponse(

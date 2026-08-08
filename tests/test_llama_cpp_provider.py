@@ -29,10 +29,18 @@ def isolated_provider_config(monkeypatch, tmp_path):
 
 
 class _Response:
-    def __init__(self, payload, *, error: Exception | None = None, text: str = ""):
+    def __init__(
+        self,
+        payload,
+        *,
+        error: Exception | None = None,
+        text: str = "",
+        status_code: int = 200,
+    ):
         self._payload = payload
         self._error = error
         self.text = text
+        self.status_code = status_code
 
     def raise_for_status(self):
         if self._error:
@@ -213,6 +221,57 @@ def test_llama_cpp_provider_generates_openai_compatible_request(monkeypatch):
     assert response.diagnostics["prompt_eval_ms"] == 420.5
     assert response.diagnostics["generation_ms"] == 780.25
     assert response.diagnostics["completion_tokens"] == 20
+
+
+def test_llama_cpp_structured_output_rejection_is_distinct(monkeypatch):
+    monkeypatch.setenv("LLAMA_CPP_ENABLED", "true")
+    registry = load_provider_registry()
+    client = build_provider_client(registry.providers["local_llama_cpp"])
+    error = requests.HTTPError("400 Client Error")
+
+    with patch(
+        "ai_provider_abstraction.requests.get",
+        return_value=_Response(
+            {
+                "data": [
+                    {
+                        "id": "ai-soc-standard",
+                        "status": {"value": "loaded"},
+                    }
+                ]
+            }
+        ),
+    ), patch(
+        "ai_provider_abstraction.requests.post",
+        return_value=_Response(
+            {"error": {"message": "invalid schema"}},
+            error=error,
+            status_code=400,
+        ),
+    ) as post:
+        response = client.generate(
+            feature="soc_assistant",
+            prompt="test",
+            messages=None,
+            context=None,
+            options={
+                "llm_profile": "standard",
+                "timeout_seconds": 1,
+                "response_format": {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "test_schema",
+                        "strict": True,
+                        "schema": {"type": "object"},
+                    },
+                },
+            },
+            data_control={"redaction_mode": REDACTION_LOCAL_ONLY},
+        )
+
+    post.assert_called_once()
+    assert response.text == ""
+    assert response.safe_error == "LlamaCppStructuredOutputRejected"
 
 
 def test_llama_cpp_waits_for_existing_warmup_without_duplicate_load(

@@ -543,7 +543,7 @@ def test_soc_assistant_llama_cpp_reserves_visible_tokens_and_disables_thinking(
 
 @pytest.mark.parametrize(
     ("configured", "expected"),
-    [("1", 256), ("320", 320), ("999", 384), ("invalid", 384)],
+    [("1", 256), ("320", 320), ("999", 768), ("invalid", 384)],
 )
 def test_soc_assistant_visible_completion_budget_is_clamped(
     monkeypatch,
@@ -563,6 +563,59 @@ def test_soc_assistant_repair_can_override_visible_completion_budget() -> None:
         )
         == 256
     )
+
+
+def test_structured_output_disables_reasoning_retry_and_reaches_provider() -> None:
+    profile = LlmProfile(
+        name="standard",
+        model="ai-soc-standard",
+        num_ctx=4096,
+        temperature=0.2,
+        timeout_seconds=30,
+        keep_alive="2m",
+    )
+    response = AIProviderResponse(
+        provider_key="local_llama_cpp",
+        provider_type=PROVIDER_LOCAL_LLAMA_CPP,
+        model=profile.model,
+        text='{"claims":[]}',
+        finish_reason="stop",
+        latency_ms=10,
+        used_external_provider=False,
+        redaction_applied=False,
+        fallback_used=False,
+        safe_error=None,
+        usage=None,
+        profile="standard",
+        diagnostics={"reasoning_retry_performed": False},
+    )
+    captured = {}
+
+    with (
+        patch(
+            "llm_client.select_provider_config",
+            return_value=SimpleNamespace(
+                key="local_llama_cpp",
+                provider_type=PROVIDER_LOCAL_LLAMA_CPP,
+            ),
+        ),
+        patch("llm_client.get_llama_cpp_profile", return_value=profile),
+        patch(
+            "llm_client.generate_with_provider",
+            side_effect=lambda **kwargs: captured.update(kwargs) or response,
+        ) as provider_call,
+    ):
+        llm_client.generate_ai_response(
+            prompt="test",
+            task=AiTask.SOC_ASSISTANT,
+            requested_mode="standard",
+            user_triggered=True,
+            response_format={"type": "json_object"},
+        )
+
+    provider_call.assert_called_once()
+    assert captured["options"]["response_format"] == {"type": "json_object"}
+    assert "reasoning_retry_allowed" not in captured["options"]
 
 
 def test_reasoning_only_llama_result_skips_ollama_provider_chain():

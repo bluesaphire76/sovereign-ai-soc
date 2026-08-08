@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from services.ai_execution.priorities import AiExecutionPriority
 
@@ -24,6 +24,13 @@ OutputSchema = Literal[
 ]
 
 
+class StructuredOutputSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=80, pattern=r"^[a-z0-9_]+$")
+    schema_document: dict[str, Any]
+
+
 class AiExecutionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -38,6 +45,7 @@ class AiExecutionRequest(BaseModel):
     system_instructions: str = Field(min_length=1, max_length=16_000)
     input: str = Field(min_length=1, max_length=64_000)
     output_schema: OutputSchema = "text_v1"
+    structured_output_schema: StructuredOutputSchema | None = None
     max_output_tokens: int = Field(ge=16, le=2048)
     temperature: float = Field(default=0, ge=0, le=0)
 
@@ -46,6 +54,19 @@ class AiExecutionRequest(BaseModel):
     def normalize_task(cls, value: Any) -> str:
         raw = getattr(value, "value", value)
         return str(raw or "").strip().lower()
+
+    @model_validator(mode="after")
+    def validate_structured_output_schema(self) -> "AiExecutionRequest":
+        schema = self.structured_output_schema
+        if self.output_schema == "text_v1" and schema is not None:
+            raise ValueError("text_v1 does not accept a structured output schema")
+        if self.output_schema == "assistant_grounded_v2" and schema is None:
+            raise ValueError(
+                "assistant_grounded_v2 requires a structured output schema"
+            )
+        if schema is not None and schema.name != self.output_schema:
+            raise ValueError("structured output schema name must match output_schema")
+        return self
 
 
 class AiExecutionResponse(BaseModel):

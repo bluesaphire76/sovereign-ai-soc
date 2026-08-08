@@ -17,6 +17,7 @@ from services.assistant.claims import (
     NextCheckType,
     RelationNode,
     StructuredNextCheck,
+    grounded_claim_output_schema,
 )
 from services.assistant.focus import FocusDimension, FocusSelection
 from services.assistant.grounding import (
@@ -325,10 +326,18 @@ def test_structured_reference_renders_neutral_localized_text(
 
 def test_model_facing_schema_contains_no_arbitrary_json_values() -> None:
     schema = GroundedClaimOutput.model_json_schema()
-    value_schema = schema["$defs"]["GroundedClaim"]["properties"]["value"]
-    assert {
-        branch["type"] for branch in value_schema["anyOf"]
-    } == {"boolean", "integer", "number", "string", "null"}
+    variants = schema["$defs"]["GroundedClaim"]["oneOf"]
+    assert variants
+    for variant in variants:
+        assert variant["additionalProperties"] is False
+        value_schema = variant["properties"].get("value")
+        if value_schema is not None:
+            assert value_schema != {}
+            assert value_schema.get("type") != "null"
+            assert all(
+                branch.get("type") != "null"
+                for branch in value_schema.get("anyOf", [])
+            )
 
     def assert_closed(node) -> None:
         if isinstance(node, dict):
@@ -341,6 +350,64 @@ def test_model_facing_schema_contains_no_arbitrary_json_values() -> None:
                 assert_closed(value)
 
     assert_closed(schema)
+
+
+def test_focused_schema_constrains_fields_roles_and_claim_budget() -> None:
+    schema = grounded_claim_output_schema(
+        fact_inventory={
+            "source_type": "incident",
+            "incident_id": 5299,
+            "risk_score": 35,
+            "severity": None,
+            "risk_normalization_severity": "LOW",
+        },
+        allow_advisory=False,
+    )
+    variants = schema["$defs"]["GroundedClaim"]["oneOf"]
+    field_claim_types = {
+        (
+            variant["properties"].get("field", {}).get("const"),
+            variant["properties"]["claim_type"]["const"],
+        )
+        for variant in variants
+        if "field" in variant["properties"]
+    }
+
+    assert {field for field, _ in field_claim_types} == {
+        "source_type",
+        "incident_id",
+        "risk_score",
+        "severity",
+        "risk_normalization_severity",
+    }
+    assert (
+        "risk_normalization_severity",
+        "DISTINCT_VALUE",
+    ) in field_claim_types
+    assert (
+        "risk_normalization_severity",
+        "RECORDED_FACT",
+    ) not in field_claim_types
+    required_claims = schema["properties"]["claims"]["prefixItems"]
+    assert [
+        claim["properties"]["claim_type"]["const"]
+        for claim in required_claims
+    ] == ["RECORDED_FACT", "ABSENCE", "DISTINCT_VALUE"]
+    assert [
+        claim["properties"]["field"]["const"]
+        for claim in required_claims
+    ] == ["risk_score", "severity", "risk_normalization_severity"]
+    assert schema["properties"]["claims"]["minItems"] == 3
+    assert schema["properties"]["claims"]["maxItems"] == 3
+    assert schema["properties"]["used_advisory_context"]["const"] is False
+
+
+def test_duplicate_claims_are_rejected_structurally() -> None:
+    claim = _claim(FactField.RISK_SCORE, 35)
+    result = _validate(_output(claim, claim))
+
+    assert result.accepted is False
+    assert result.reason == "duplicate_claim"
 
 
 @pytest.mark.parametrize(

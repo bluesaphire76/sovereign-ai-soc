@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import math
+from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any, Collection, Mapping
 
 from pydantic import (
     BaseModel,
@@ -286,6 +288,129 @@ ClaimValue = (
 )
 
 
+def _claim_json_schema(schema: dict[str, Any]) -> None:
+    properties = schema["properties"]
+    source_ids = deepcopy(properties["source_ids"])
+    source_ids.pop("default", None)
+    source_ids["minItems"] = 1
+    derived_from = deepcopy(properties["derived_from"])
+    derived_from.pop("default", None)
+    derived_from["minItems"] = 1
+
+    def object_schema(
+        claim_type: ClaimType,
+        selected_properties: dict[str, Any],
+        required: list[str],
+    ) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "claim_type": {"const": claim_type.value},
+                **selected_properties,
+            },
+            "required": ["claim_type", *required],
+        }
+
+    def scalar_value_schema(value_type: FactValueType) -> dict[str, Any]:
+        if value_type is FactValueType.TEXT:
+            return {"type": "string"}
+        if value_type is FactValueType.NUMBER:
+            return {"type": "number"}
+        if value_type is FactValueType.BOOLEAN:
+            return {"type": "boolean"}
+        return {
+            "anyOf": [
+                {"type": "boolean"},
+                {"type": "integer"},
+                {"type": "number"},
+                {"type": "string"},
+            ]
+        }
+
+    variants: list[dict[str, Any]] = []
+    for field, policy in FACT_FIELD_REGISTRY.items():
+        common = {
+            "field": {"const": field.value},
+            "provenance": {"const": policy.provenance.value},
+            "source_ids": source_ids,
+        }
+        if policy.value_type is not FactValueType.STRUCTURED:
+            claim_type = (
+                ClaimType.DISTINCT_VALUE
+                if policy.semantic_role is SemanticRole.DISTINCT_VALUE
+                else ClaimType.RECORDED_FACT
+            )
+            variants.append(
+                object_schema(
+                    claim_type,
+                    {
+                        **common,
+                        "value": scalar_value_schema(policy.value_type),
+                    },
+                    ["field", "value", "provenance", "source_ids"],
+                )
+            )
+        variants.append(
+            object_schema(
+                ClaimType.ABSENCE,
+                common,
+                ["field", "provenance", "source_ids"],
+            )
+        )
+        if policy.value_type is FactValueType.STRUCTURED:
+            variants.append(
+                object_schema(
+                    ClaimType.STRUCTURED_REFERENCE,
+                    common,
+                    ["field", "provenance", "source_ids"],
+                )
+            )
+        if policy.derivation_support_fields:
+            variants.append(
+                object_schema(
+                    ClaimType.DERIVATION,
+                    {**common, "derived_from": derived_from},
+                    ["field", "provenance", "source_ids", "derived_from"],
+                )
+            )
+
+    for subject, object_ in sorted(
+        ALLOWED_NON_IMPLICATIONS,
+        key=lambda relation: (relation[0].value, relation[1].value),
+    ):
+        variants.append(
+            object_schema(
+                ClaimType.NON_IMPLICATION,
+                {
+                    "subject": {"const": subject.value},
+                    "object": {"const": object_.value},
+                    "source_ids": deepcopy(properties["source_ids"]),
+                },
+                ["subject", "object"],
+            )
+        )
+    for guidance_code in AdvisoryGuidanceCode:
+        variants.append(
+            object_schema(
+                ClaimType.ADVISORY_GUIDANCE,
+                {
+                    "guidance_code": {"const": guidance_code.value},
+                    "source_ids": source_ids,
+                },
+                ["guidance_code", "source_ids"],
+            )
+        )
+
+    schema.clear()
+    schema.update(
+        {
+            "title": "GroundedClaim",
+            "oneOf": variants,
+        }
+    )
+
+
 def _valid_source_id(value: str) -> bool:
     return (
         value.startswith("S")
@@ -295,7 +420,10 @@ def _valid_source_id(value: str) -> bool:
 
 
 class GroundedClaim(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra=_claim_json_schema,
+    )
 
     claim_type: ClaimType
     field: FactField | None = None
@@ -437,3 +565,104 @@ class GroundedClaimOutput(BaseModel):
         if len(values) != len(set(values)):
             raise ValueError("limitations must be unique")
         return values
+
+
+def grounded_claim_output_schema(
+    *,
+    allowed_fields: Collection[str] | None = None,
+    fact_inventory: Mapping[str, Any] | None = None,
+    allow_advisory: bool = True,
+) -> dict[str, Any]:
+    schema = GroundedClaimOutput.model_json_schema()
+    if allowed_fields is None and fact_inventory is None and allow_advisory:
+        return schema
+
+    registered_fields = {field.value for field in FACT_FIELD_REGISTRY}
+    selected_fields = (
+        fact_inventory.keys()
+        if fact_inventory is not None
+        else allowed_fields or ()
+    )
+    allowed = {
+        str(field)
+        for field in selected_fields
+        if str(field) in registered_fields
+    }
+    correlation_allowed = bool(
+        allowed
+        & {
+            FactField.CORRELATED.value,
+            FactField.CORRELATION_TYPE.value,
+            FactField.CORRELATION_SCORE.value,
+        }
+    )
+    claim_schema = schema["$defs"]["GroundedClaim"]
+    variants = []
+    for variant in claim_schema["oneOf"]:
+        properties = variant["properties"]
+        field_name = properties.get("field", {}).get("const")
+        claim_type = properties["claim_type"]["const"]
+        if field_name is not None and field_name not in allowed:
+            continue
+        if claim_type == ClaimType.ADVISORY_GUIDANCE.value and not allow_advisory:
+            continue
+        if (
+            claim_type == ClaimType.NON_IMPLICATION.value
+            and not correlation_allowed
+        ):
+            continue
+        variants.append(variant)
+    claim_schema["oneOf"] = variants
+
+    relation_capacity = 2 if correlation_allowed else 0
+    advisory_capacity = len(AdvisoryGuidanceCode) if allow_advisory else 0
+    schema["properties"]["claims"]["maxItems"] = max(
+        1,
+        min(12, len(allowed) + relation_capacity + advisory_capacity),
+    )
+    if not allow_advisory:
+        schema["properties"]["next_check"] = {
+            "type": "null",
+            "default": None,
+        }
+        schema["properties"]["used_advisory_context"] = {
+            "type": "boolean",
+            "const": False,
+            "default": False,
+        }
+    if fact_inventory is not None and not allow_advisory:
+        required_claims = []
+        for field, policy in FACT_FIELD_REGISTRY.items():
+            if (
+                field.value not in allowed
+                or policy.semantic_role is SemanticRole.IDENTITY
+            ):
+                continue
+            value = fact_inventory.get(field.value)
+            if value is None:
+                required_type = ClaimType.ABSENCE
+            elif policy.value_type is FactValueType.STRUCTURED:
+                required_type = ClaimType.STRUCTURED_REFERENCE
+            elif policy.semantic_role is SemanticRole.DISTINCT_VALUE:
+                required_type = ClaimType.DISTINCT_VALUE
+            else:
+                required_type = ClaimType.RECORDED_FACT
+            required_claims.append(
+                next(
+                    variant
+                    for variant in variants
+                    if variant["properties"].get("field", {}).get("const")
+                    == field.value
+                    and variant["properties"]["claim_type"]["const"]
+                    == required_type.value
+                )
+            )
+        if required_claims:
+            claims_schema = schema["properties"]["claims"]
+            claims_schema.pop("items", None)
+            claims_schema.pop("minItems", None)
+            claims_schema.pop("maxItems", None)
+            claims_schema["prefixItems"] = required_claims
+            claims_schema["minItems"] = len(required_claims)
+            claims_schema["maxItems"] = len(required_claims)
+    return schema

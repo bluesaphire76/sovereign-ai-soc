@@ -315,6 +315,18 @@ def validate_grounded_output(
     sources: list[SourceRecord],
 ) -> GroundingValidation:
     registry = _source_registry(sources)
+    claim_identities = [
+        (
+            claim.claim_type,
+            claim.field,
+            claim.subject,
+            claim.object,
+            claim.guidance_code,
+        )
+        for claim in output.claims
+    ]
+    if len(claim_identities) != len(set(claim_identities)):
+        return GroundingValidation(False, "duplicate_claim")
     advisory_claims = [
         claim
         for claim in output.claims
