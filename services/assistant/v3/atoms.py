@@ -10,6 +10,8 @@ from services.assistant.v3.contracts import (
     CompromiseStateAtom,
     ContextPlan,
     DetectionAtom,
+    EscalationReasonAtom,
+    EscalationStateAtom,
     EvidenceAtom,
     HostAtom,
     IncidentIdentityAtom,
@@ -234,6 +236,30 @@ class OperationalAtomNormalizer:
                         ),
                     )
                 )
+
+        escalation_reason = _bounded_text(facts.get("escalation_reason"), 500)
+        if "escalated" in selected and isinstance(facts.get("escalated"), bool):
+            atoms.append(
+                EscalationStateAtom(
+                    atom_id=f"{prefix}:escalation-state",
+                    authority_class=authority,
+                    provenance=provenance,
+                    incident_id=incident_id,
+                    case_id=case_id,
+                    escalated=facts["escalated"],
+                )
+            )
+        if escalation_reason and "escalation_reason" in selected:
+            atoms.append(
+                EscalationReasonAtom(
+                    atom_id=f"{prefix}:escalation-reason",
+                    authority_class=authority,
+                    provenance=provenance,
+                    incident_id=incident_id,
+                    case_id=case_id,
+                    reason=escalation_reason,
+                )
+            )
 
         timeline = facts.get("latest_timeline_event")
         if timeline is not None and "latest_timeline_event" in selected:

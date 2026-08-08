@@ -217,6 +217,8 @@ def test_incident_severity_provenance_reaches_context_without_ai_promotion() -> 
     assert facts["severity"] is None
     assert facts["risk_normalization_severity"] == "LOW"
     assert facts["recommended_priority"] == "LOW"
+    assert facts["escalation_reason"] == "Repeated failures"
+    assert "escalated" not in facts
     assert "ai_analysis" not in facts
 
     context = build_assistant_context(

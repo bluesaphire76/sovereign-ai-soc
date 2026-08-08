@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+from pydantic import ValidationError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -9,11 +11,15 @@ from models import Base, CaseIncident, Incident, IncidentCase
 from services.assistant.focus import FocusDimension, FocusSelection
 from services.assistant.v3.atoms import OperationalAtomNormalizer
 from services.assistant.v3.contracts import (
+    AnalyticalRelationship,
     AnswerIntent,
+    AuthorityClass,
     ContextLimits,
     DiscoverySignal,
     IntentSelection,
+    Provenance,
     RelationshipClass,
+    RelationshipRegistry,
     RelationshipType,
 )
 from services.assistant.v3.cross_incident import (
@@ -244,19 +250,42 @@ def test_graph_preserves_relationship_classes_and_evidence_refs() -> None:
             set(edge.evidence_atom_refs) <= set(graph.available_evidence_refs)
             for edge in graph.relationships
         )
+        analytical_edges = [
+            edge
+            for edge in graph.relationships
+            if edge.relationship_class is RelationshipClass.ANALYTICAL_RELATIONSHIP
+        ]
+        atoms_by_id = {atom.atom_id: atom for atom in atoms}
+        assert analytical_edges
+        assert all(
+            edge.authority_class is AuthorityClass.ANALYTICAL_DERIVATION
+            and edge.provenance.authority_class is AuthorityClass.ANALYTICAL_DERIVATION
+            for edge in analytical_edges
+        )
+        assert all(
+            atoms_by_id[ref].authority_class is AuthorityClass.OPERATIONAL_AUTHORITATIVE
+            for edge in analytical_edges
+            for ref in edge.evidence_atom_refs
+        )
         semantic_edges = [
             edge
             for edge in graph.relationships
             if edge.relationship_class is RelationshipClass.SEMANTIC_SIMILARITY
         ]
         assert semantic_edges
-        assert all(edge.relationship_type is RelationshipType.SEMANTIC_SIMILARITY for edge in semantic_edges)
+        assert all(
+            edge.relationship_type is RelationshipType.SEMANTIC_SIMILARITY
+            and edge.authority_class is AuthorityClass.SEMANTIC_CANDIDATE
+            for edge in semantic_edges
+        )
         assert all(
             edge.relationship_class is not RelationshipClass.RECORDED_CORRELATION
             for edge in semantic_edges
         )
         assert "CAUSALITY" not in {item.value for item in RelationshipType}
         assert "COMPROMISE" not in {item.value for item in RelationshipType}
+        assert "SAME_ATTACKER" not in {item.value for item in RelationshipType}
+        assert "SAME_CAMPAIGN" not in {item.value for item in RelationshipType}
     finally:
         db.close()
 
@@ -287,7 +316,89 @@ def test_recorded_correlation_requires_explicit_supported_link() -> None:
         )
 
         assert len(graph.relationships) == 1
-        assert graph.relationships[0].relationship_class is RelationshipClass.RECORDED_CORRELATION
-        assert graph.relationships[0].relationship_type is RelationshipType.PLATFORM_RECORDED_CORRELATION
+        relationship = graph.relationships[0]
+        assert relationship.relationship_class is RelationshipClass.RECORDED_CORRELATION
+        assert relationship.relationship_type is RelationshipType.PLATFORM_RECORDED_CORRELATION
+        assert relationship.authority_class is AuthorityClass.OPERATIONAL_AUTHORITATIVE
+        assert (
+            relationship.provenance.authority_class
+            is AuthorityClass.OPERATIONAL_AUTHORITATIVE
+        )
     finally:
         db.close()
+
+
+def test_analytical_relationship_cannot_claim_operational_or_recorded_authority() -> None:
+    operational_provenance = Provenance(
+        authority_class=AuthorityClass.OPERATIONAL_AUTHORITATIVE,
+        source_type="cross_incident_discovery",
+        source_record_id="candidate:2",
+        retrieval_method="operational_query",
+    )
+    with pytest.raises(ValidationError):
+        AnalyticalRelationship(
+            relationship_id="relationship:invalid-authority",
+            relationship_class=RelationshipClass.ANALYTICAL_RELATIONSHIP,
+            relationship_type=RelationshipType.SHARED_HOST,
+            authority_class=AuthorityClass.OPERATIONAL_AUTHORITATIVE,
+            left_incident_id=1,
+            right_incident_id=2,
+            evidence_atom_refs=["incident:1:host", "incident:2:host"],
+            provenance=operational_provenance,
+        )
+
+    analytical_provenance = operational_provenance.model_copy(
+        update={
+            "authority_class": AuthorityClass.ANALYTICAL_DERIVATION,
+            "retrieval_method": "deterministic_derivation",
+        }
+    )
+    with pytest.raises(ValidationError):
+        AnalyticalRelationship(
+            relationship_id="relationship:invalid-recorded-type",
+            relationship_class=RelationshipClass.ANALYTICAL_RELATIONSHIP,
+            relationship_type=RelationshipType.PLATFORM_RECORDED_CORRELATION,
+            authority_class=AuthorityClass.ANALYTICAL_DERIVATION,
+            left_incident_id=1,
+            right_incident_id=2,
+            evidence_atom_refs=["incident:1:host", "incident:2:host"],
+            provenance=analytical_provenance,
+        )
+
+
+def test_relationship_registry_resolves_exact_typed_refs_and_authority() -> None:
+    relationship = AnalyticalRelationship(
+        relationship_id="relationship:shared-host",
+        relationship_class=RelationshipClass.ANALYTICAL_RELATIONSHIP,
+        relationship_type=RelationshipType.SHARED_HOST,
+        authority_class=AuthorityClass.ANALYTICAL_DERIVATION,
+        left_incident_id=1,
+        right_incident_id=2,
+        evidence_atom_refs=["incident:1:host", "incident:2:host"],
+        provenance=Provenance(
+            authority_class=AuthorityClass.ANALYTICAL_DERIVATION,
+            source_type="cross_incident_discovery",
+            source_record_id="candidate:2",
+            retrieval_method="deterministic_derivation",
+        ),
+    )
+    registry = RelationshipRegistry(relationships=[relationship])
+
+    resolved = registry.resolve(
+        relationship.relationship_id,
+        expected_authority=AuthorityClass.ANALYTICAL_DERIVATION,
+    )
+    assert resolved == relationship
+    assert resolved.relationship_class is RelationshipClass.ANALYTICAL_RELATIONSHIP
+    assert resolved.relationship_type is RelationshipType.SHARED_HOST
+    assert (resolved.left_incident_id, resolved.right_incident_id) == (1, 2)
+    assert resolved.evidence_atom_refs == ["incident:1:host", "incident:2:host"]
+    assert resolved.provenance.source_record_id == "candidate:2"
+    assert registry.resolve("relationship:missing") is None
+    assert (
+        registry.resolve(
+            relationship.relationship_id,
+            expected_authority=AuthorityClass.OPERATIONAL_AUTHORITATIVE,
+        )
+        is None
+    )

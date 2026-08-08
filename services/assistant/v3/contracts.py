@@ -12,6 +12,7 @@ class ClosedModel(BaseModel):
 
 class AuthorityClass(str, Enum):
     OPERATIONAL_AUTHORITATIVE = "OPERATIONAL_AUTHORITATIVE"
+    ANALYTICAL_DERIVATION = "ANALYTICAL_DERIVATION"
     REFERENCE_KNOWLEDGE = "REFERENCE_KNOWLEDGE"
     ADVISORY_KNOWLEDGE = "ADVISORY_KNOWLEDGE"
     SEMANTIC_CANDIDATE = "SEMANTIC_CANDIDATE"
@@ -57,6 +58,7 @@ class ContextRequirement(str, Enum):
     DETECTION = "DETECTION"
     RISK = "RISK"
     PRIORITY = "PRIORITY"
+    ESCALATION = "ESCALATION"
     CORRELATION = "CORRELATION"
     MITRE = "MITRE"
     EVIDENCE = "EVIDENCE"
@@ -88,6 +90,7 @@ class FactField(str, Enum):
     CORRELATED = "correlated"
     CORRELATION_TYPE = "correlation_type"
     CORRELATION_SCORE = "correlation_score"
+    ESCALATED = "escalated"
     ESCALATION_REASON = "escalation_reason"
     RECOMMENDED_PRIORITY = "recommended_priority"
     LINKED_CASE_IDS = "linked_case_ids"
@@ -163,6 +166,7 @@ class Provenance(ClosedModel):
     source_id: str | None = Field(default=None, max_length=32)
     retrieval_method: Literal[
         "operational_query",
+        "deterministic_derivation",
         "project_catalog",
         "semantic_retrieval",
         "conversation_reference",
@@ -266,6 +270,34 @@ class RecordedCorrelationAtom(AtomBase):
     correlation_score: float | None = None
 
 
+class EscalationStateAtom(AtomBase):
+    atom_type: Literal["escalation_state"] = "escalation_state"
+    authority_class: Literal[AuthorityClass.OPERATIONAL_AUTHORITATIVE] = (
+        AuthorityClass.OPERATIONAL_AUTHORITATIVE
+    )
+    escalated: bool
+
+    @model_validator(mode="after")
+    def validate_operational_provenance(self):
+        if self.provenance.authority_class is not AuthorityClass.OPERATIONAL_AUTHORITATIVE:
+            raise ValueError("escalation state requires operational provenance")
+        return self
+
+
+class EscalationReasonAtom(AtomBase):
+    atom_type: Literal["escalation_reason"] = "escalation_reason"
+    authority_class: Literal[AuthorityClass.OPERATIONAL_AUTHORITATIVE] = (
+        AuthorityClass.OPERATIONAL_AUTHORITATIVE
+    )
+    reason: str = Field(min_length=1, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_operational_provenance(self):
+        if self.provenance.authority_class is not AuthorityClass.OPERATIONAL_AUTHORITATIVE:
+            raise ValueError("escalation reason requires operational provenance")
+        return self
+
+
 class CompromiseStateAtom(AtomBase):
     atom_type: Literal["compromise_state"] = "compromise_state"
     compromise_confirmed: bool | None
@@ -293,6 +325,8 @@ EvidenceAtom = Annotated[
     | ProcessAtom
     | EvidenceDetailAtom
     | RecordedCorrelationAtom
+    | EscalationStateAtom
+    | EscalationReasonAtom
     | CompromiseStateAtom
     | CaseRelationshipAtom,
     Field(discriminator="atom_type"),
@@ -393,6 +427,7 @@ class AnalyticalRelationship(ClosedModel):
     relationship_id: str = Field(min_length=1, max_length=220)
     relationship_class: RelationshipClass
     relationship_type: RelationshipType
+    authority_class: AuthorityClass
     left_incident_id: int = Field(gt=0)
     right_incident_id: int = Field(gt=0)
     evidence_atom_refs: list[str] = Field(min_length=1, max_length=16)
@@ -400,9 +435,37 @@ class AnalyticalRelationship(ClosedModel):
     strength: float | None = Field(default=None, ge=0.0, le=1.0)
 
     @model_validator(mode="after")
-    def validate_distinct_nodes(self):
+    def validate_relationship_contract(self):
         if self.left_incident_id == self.right_incident_id:
             raise ValueError("relationship endpoints must be distinct")
+        expected_authority = {
+            RelationshipClass.RECORDED_CORRELATION: AuthorityClass.OPERATIONAL_AUTHORITATIVE,
+            RelationshipClass.ANALYTICAL_RELATIONSHIP: AuthorityClass.ANALYTICAL_DERIVATION,
+            RelationshipClass.SEMANTIC_SIMILARITY: AuthorityClass.SEMANTIC_CANDIDATE,
+        }[self.relationship_class]
+        if self.authority_class is not expected_authority:
+            raise ValueError("relationship class and authority class do not match")
+        if self.provenance.authority_class is not self.authority_class:
+            raise ValueError("relationship authority and provenance authority do not match")
+        if (
+            self.relationship_class is RelationshipClass.RECORDED_CORRELATION
+            and self.relationship_type is not RelationshipType.PLATFORM_RECORDED_CORRELATION
+        ):
+            raise ValueError("recorded correlation requires a platform-recorded relationship")
+        if (
+            self.relationship_class is RelationshipClass.ANALYTICAL_RELATIONSHIP
+            and self.relationship_type
+            in {
+                RelationshipType.PLATFORM_RECORDED_CORRELATION,
+                RelationshipType.SEMANTIC_SIMILARITY,
+            }
+        ):
+            raise ValueError("analytical derivation cannot use a recorded or semantic type")
+        if (
+            self.relationship_class is RelationshipClass.SEMANTIC_SIMILARITY
+            and self.relationship_type is not RelationshipType.SEMANTIC_SIMILARITY
+        ):
+            raise ValueError("semantic relationship requires semantic similarity type")
         return self
 
 
@@ -452,6 +515,34 @@ class SourceRegistryEntry(ClosedModel):
     source_record_id: str = Field(min_length=1, max_length=128)
 
 
+class RelationshipRegistry(ClosedModel):
+    relationships: list[AnalyticalRelationship] = Field(default_factory=list, max_length=120)
+
+    @model_validator(mode="after")
+    def validate_unique_relationship_ids(self):
+        relationship_ids = [item.relationship_id for item in self.relationships]
+        if len(relationship_ids) != len(set(relationship_ids)):
+            raise ValueError("relationship registry IDs must be unique")
+        return self
+
+    def resolve(
+        self,
+        relationship_ref: str,
+        *,
+        expected_authority: AuthorityClass | None = None,
+    ) -> AnalyticalRelationship | None:
+        for relationship in self.relationships:
+            if relationship.relationship_id != relationship_ref:
+                continue
+            if (
+                expected_authority is not None
+                and relationship.authority_class is not expected_authority
+            ):
+                return None
+            return relationship
+        return None
+
+
 class ContextBuildMetrics(ClosedModel):
     intent_routing_ms: float = Field(default=0.0, ge=0.0)
     focus_routing_ms: float = Field(default=0.0, ge=0.0)
@@ -481,4 +572,17 @@ class V3AnalyticalContextPackage(ClosedModel):
     conversation_state_refs: ConversationStateRefs
     context_limits: ContextLimits
     source_registry: list[SourceRegistryEntry] = Field(default_factory=list, max_length=320)
+    relationship_registry: RelationshipRegistry
     metrics: ContextBuildMetrics
+
+    @model_validator(mode="after")
+    def validate_relationship_registry(self):
+        graph_relationships = {
+            item.relationship_id: item for item in self.cross_incident_graph.relationships
+        }
+        registry_relationships = {
+            item.relationship_id: item for item in self.relationship_registry.relationships
+        }
+        if graph_relationships != registry_relationships:
+            raise ValueError("relationship registry must exactly represent the evidence graph")
+        return self

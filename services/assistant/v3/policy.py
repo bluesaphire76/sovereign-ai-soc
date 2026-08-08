@@ -28,6 +28,7 @@ _CORRELATION = (
     FactField.CORRELATION_TYPE,
     FactField.CORRELATION_SCORE,
 )
+_ESCALATION = (FactField.ESCALATED, FactField.ESCALATION_REASON)
 _TIMELINE = (FactField.TIMESTAMP, FactField.LATEST_TIMELINE_EVENT)
 _CASE = (
     FactField.LINKED_CASE_IDS,
@@ -126,6 +127,7 @@ class ContextPolicyEngine:
                     ContextRequirement.DETECTION,
                     ContextRequirement.RISK,
                     ContextRequirement.PRIORITY,
+                    ContextRequirement.ESCALATION,
                     ContextRequirement.CORRELATION,
                     ContextRequirement.MITRE,
                     ContextRequirement.COMPROMISE_STATE,
@@ -139,6 +141,7 @@ class ContextPolicyEngine:
                     *_DETECTION,
                     *_RISK,
                     FactField.RECOMMENDED_PRIORITY,
+                    *_ESCALATION,
                     *_CORRELATION,
                     FactField.MITRE,
                     FactField.COMPROMISE_CONFIRMED,
@@ -209,7 +212,7 @@ class ContextPolicyEngine:
             FocusDimension.HOST: ContextRequirement.ENTITY,
             FocusDimension.CORRELATION: ContextRequirement.CORRELATION,
             FocusDimension.EVIDENCE: ContextRequirement.EVIDENCE,
-            FocusDimension.ESCALATION: ContextRequirement.STATUS,
+            FocusDimension.ESCALATION: ContextRequirement.ESCALATION,
             FocusDimension.GENERAL: ContextRequirement.STATUS,
         }
         return _unique(mapping[item] for item in focus.dimensions)
@@ -224,7 +227,7 @@ class ContextPolicyEngine:
             FocusDimension.HOST: (*_ENTITY,),
             FocusDimension.CORRELATION: (*_CORRELATION,),
             FocusDimension.EVIDENCE: (FactField.LATEST_TIMELINE_EVENT, FactField.MITRE),
-            FocusDimension.ESCALATION: (FactField.ESCALATION_REASON,),
+            FocusDimension.ESCALATION: (*_ESCALATION,),
             FocusDimension.GENERAL: (*_STATUS, FactField.RISK_SCORE, FactField.CORRELATED),
         }
         return _unique(field for item in focus.dimensions for field in mapping[item])

@@ -51,6 +51,19 @@ represented causality or compromise. The dataset naturally produced no zero-
 candidate cross-incident records in this bounded sample; zero candidates remain
 a tested valid result.
 
+The pre-merge hardening assigns deterministic cross-incident edges to
+`ANALYTICAL_DERIVATION`; only explicit platform-recorded correlation edges are
+`OPERATIONAL_AUTHORITATIVE`. Their referenced evidence atoms remain operational
+authority. A closed relationship registry now mirrors the graph exactly and
+supports exact typed validation of relationship reference and expected
+authority.
+
+The current authoritative retrieval exposes `escalation_reason` but no boolean
+escalation state (`NO_AUTHORITATIVE_ESCALATION_BOOLEAN`). Regression coverage
+confirms that a missing or present reason and non-boolean values never create an
+escalation-state atom. Only an explicit authoritative boolean can create one,
+including an explicit `false`.
+
 ## Dataset Diversity
 
 ```text
@@ -112,9 +125,9 @@ finish reason `stop`, and passed V2 grounding and focus validation.
 ## Regression Gates
 
 ```text
-Milestone A tests:             41 passed
-Assistant/cross targeted:     272 passed
-full backend suite:           903 passed, 26 subtests passed
+Milestone A tests:             46 passed
+Assistant/cross targeted:     282 passed
+full backend suite:           908 passed, 26 subtests passed
 Public CI baseline:           PASS
 Docker packaging validator:   PASS
 CLI smoke validator:          PASS
@@ -139,3 +152,6 @@ record-specific or test-question special cases; JSON repair; permissive output
 parsing; LLM retries; second-model calls; or Qdrant-to-authority promotion. All
 historical semantic candidates require successful SQL rehydration before they
 enter operational comparison.
+
+The pre-merge hardening changed no provider, orchestration-generation, prompt,
+or renderer path and introduced no second LLM generation.

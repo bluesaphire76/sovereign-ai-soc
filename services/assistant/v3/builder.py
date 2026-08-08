@@ -11,6 +11,7 @@ from services.assistant.v3.contracts import (
     ContextBuildMetrics,
     ConversationStateRefs,
     IntentSelection,
+    RelationshipRegistry,
     SourceRegistryEntry,
     V3AnalyticalContextPackage,
 )
@@ -230,6 +231,7 @@ class V3AnalyticalContextBuilder:
             conversation_state_refs=conversation_refs,
             context_limits=plan.limits,
             source_registry=list(registry.values()),
+            relationship_registry=RelationshipRegistry(relationships=graph.relationships),
             metrics=ContextBuildMetrics(
                 intent_routing_ms=intent_selection.routing_ms,
                 focus_routing_ms=focus_selection.focus_routing_ms,

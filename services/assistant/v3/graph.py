@@ -146,7 +146,7 @@ class CrossIncidentGraphBuilder:
                     authority = (
                         AuthorityClass.SEMANTIC_CANDIDATE
                         if relationship_class is RelationshipClass.SEMANTIC_SIMILARITY
-                        else AuthorityClass.OPERATIONAL_AUTHORITATIVE
+                        else AuthorityClass.ANALYTICAL_DERIVATION
                     )
                     relationships.append(
                         AnalyticalRelationship(
@@ -157,6 +157,7 @@ class CrossIncidentGraphBuilder:
                             ),
                             relationship_class=relationship_class,
                             relationship_type=_RELATIONSHIP_TYPES[signal],
+                            authority_class=authority,
                             left_incident_id=anchor_incident_id,
                             right_incident_id=candidate.candidate_incident_id,
                             evidence_atom_refs=refs,
@@ -167,7 +168,7 @@ class CrossIncidentGraphBuilder:
                                 retrieval_method=(
                                     "semantic_retrieval"
                                     if authority is AuthorityClass.SEMANTIC_CANDIDATE
-                                    else "operational_query"
+                                    else "deterministic_derivation"
                                 ),
                             ),
                             strength=(
@@ -192,6 +193,7 @@ class CrossIncidentGraphBuilder:
                     ),
                     relationship_class=RelationshipClass.RECORDED_CORRELATION,
                     relationship_type=RelationshipType.PLATFORM_RECORDED_CORRELATION,
+                    authority_class=AuthorityClass.OPERATIONAL_AUTHORITATIVE,
                     left_incident_id=link.left_incident_id,
                     right_incident_id=link.right_incident_id,
                     evidence_atom_refs=refs,

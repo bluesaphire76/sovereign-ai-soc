@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from services.assistant.focus import FocusDimension, FocusSelection
 from services.assistant.sources import SourceRecord
 from services.assistant.v3.atoms import OperationalAtomNormalizer
@@ -8,6 +10,9 @@ from services.assistant.v3.contracts import (
     AuthorityClass,
     CompromiseStateAtom,
     ContextRequirement,
+    EscalationReasonAtom,
+    EscalationStateAtom,
+    FactField,
     IncidentIdentityAtom,
     IntentSelection,
     MitreTechniqueAtom,
@@ -95,6 +100,77 @@ def test_missing_structured_fields_do_not_create_fabricated_atoms() -> None:
     assert not any(isinstance(atom, TimelineEventAtom) for atom in atoms)
     correlation = next(atom for atom in atoms if isinstance(atom, RecordedCorrelationAtom))
     assert correlation.correlated is None
+
+
+def _escalation_plan(facts: dict):
+    intent = IntentSelection(
+        primary_intent=AnswerIntent.FACT_LOOKUP,
+        confidence=1.0,
+        routing_status="ok",
+        routing_ms=0.0,
+    )
+    scope = resolve_analysis_scope(
+        request_scope="incident",
+        incident_id=facts["incident_id"],
+        case_id=None,
+        intent=intent,
+        conversation_state=None,
+    )
+    return ContextPolicyEngine().plan(
+        intent=intent,
+        focus=FocusSelection(dimensions=(FocusDimension.ESCALATION,), confidence=1.0),
+        resolved_scope=scope,
+        available_facts=facts,
+        conversation_state=None,
+    )
+
+
+def test_escalation_reason_or_non_boolean_value_never_infers_state() -> None:
+    missing_facts = {"source_type": "incident", "incident_id": 42}
+    missing_plan = _escalation_plan(missing_facts)
+    missing_atoms = OperationalAtomNormalizer().normalize(
+        facts=missing_facts,
+        plan=missing_plan,
+    )
+    assert not any(isinstance(atom, EscalationStateAtom) for atom in missing_atoms)
+
+    facts = {
+        "source_type": "incident",
+        "incident_id": 42,
+        "escalation_reason": "Repeated failures",
+    }
+    plan = _escalation_plan(facts)
+    atoms = OperationalAtomNormalizer().normalize(facts=facts, plan=plan)
+
+    assert ContextRequirement.ESCALATION in plan.requirements
+    assert FactField.ESCALATION_REASON in plan.fact_fields
+    assert FactField.ESCALATED not in plan.fact_fields
+    assert any(isinstance(atom, EscalationReasonAtom) for atom in atoms)
+    assert not any(isinstance(atom, EscalationStateAtom) for atom in atoms)
+
+    facts["escalated"] = "false"
+    plan = _escalation_plan(facts)
+    atoms = OperationalAtomNormalizer().normalize(facts=facts, plan=plan)
+    assert FactField.ESCALATED in plan.fact_fields
+    assert not any(isinstance(atom, EscalationStateAtom) for atom in atoms)
+
+
+@pytest.mark.parametrize("explicit_state", [False, True])
+def test_only_explicit_authoritative_boolean_creates_escalation_state(
+    explicit_state: bool,
+) -> None:
+    facts = {
+        "source_type": "incident",
+        "incident_id": 42,
+        "escalated": explicit_state,
+    }
+    plan = _escalation_plan(facts)
+    atoms = OperationalAtomNormalizer().normalize(facts=facts, plan=plan)
+
+    state = next(atom for atom in atoms if isinstance(atom, EscalationStateAtom))
+    assert state.escalated is explicit_state
+    assert state.authority_class is AuthorityClass.OPERATIONAL_AUTHORITATIVE
+    assert not any(isinstance(atom, EscalationReasonAtom) for atom in atoms)
 
 
 def test_reference_and_advisory_knowledge_remain_separate_authority_classes() -> None:

@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
+import pytest
+from pydantic import ValidationError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -201,6 +203,10 @@ def test_non_generative_pipeline_builds_closed_context_package_and_followup_stat
         assert followup.resolved_scope.conversation_followup is True
         assert followup.conversation_state_refs.related_incident_ids == [candidate.id]
         assert V3AnalyticalContextPackage.model_validate(package.model_dump()) == package
+        invalid_package = package.model_dump()
+        invalid_package["relationship_registry"] = {"relationships": []}
+        with pytest.raises(ValidationError):
+            V3AnalyticalContextPackage.model_validate(invalid_package)
     finally:
         db.close()
 
