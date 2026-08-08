@@ -408,6 +408,14 @@ def validate_focus(
 ) -> GroundingValidation:
     selected = set(focus.dimensions) or {FocusDimension.GENERAL}
     general = FocusDimension.GENERAL in selected
+    if (
+        LimitationCode.CANONICAL_SEVERITY_MISSING in output.limitations
+        and (
+            FactField.SEVERITY.value not in fact_inventory
+            or fact_inventory[FactField.SEVERITY.value] is not None
+        )
+    ):
+        return GroundingValidation(False, "limitation_outside_focus")
     for claim in output.claims:
         if claim.claim_type is ClaimType.ADVISORY_GUIDANCE:
             continue

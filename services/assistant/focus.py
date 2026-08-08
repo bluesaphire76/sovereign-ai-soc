@@ -209,7 +209,7 @@ FOCUS_REGISTRY: tuple[FocusDescriptor, ...] = (
 
 @dataclass(frozen=True)
 class FocusRoutingConfig:
-    minimum_similarity: float = 0.36
+    minimum_similarity: float = 0.42
     general_preference_margin: float = 0.04
     max_dimensions: int = 4
 

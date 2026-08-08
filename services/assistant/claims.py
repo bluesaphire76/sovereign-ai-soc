@@ -630,7 +630,24 @@ def grounded_claim_output_schema(
             "const": False,
             "default": False,
         }
-    if fact_inventory is not None and not allow_advisory:
+    if fact_inventory is not None:
+        allowed_limitations = []
+        if (
+            FactField.SEVERITY.value in allowed
+            and fact_inventory.get(FactField.SEVERITY.value) is None
+        ):
+            allowed_limitations.append(
+                LimitationCode.CANONICAL_SEVERITY_MISSING.value
+            )
+        schema["properties"]["limitations"] = {
+            "type": "array",
+            "items": (
+                {"type": "string", "enum": allowed_limitations}
+                if allowed_limitations
+                else {"type": "string"}
+            ),
+            "maxItems": len(allowed_limitations),
+        }
         required_claims = []
         for field, policy in FACT_FIELD_REGISTRY.items():
             if (

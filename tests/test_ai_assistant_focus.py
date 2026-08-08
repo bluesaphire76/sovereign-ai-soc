@@ -57,6 +57,37 @@ class _SemanticFixtureEmbedding:
         return self._vector(self.query_dimensions[text])
 
 
+class _CalibratedSemanticEmbedding:
+    def __init__(
+        self,
+        question_vectors: dict[str, dict[FocusDimension, float]],
+    ) -> None:
+        self.question_vectors = question_vectors
+        self._descriptor_dimensions = {
+            descriptor.embedding_text: descriptor.dimension
+            for descriptor in FOCUS_REGISTRY
+        }
+        self._positions = {
+            dimension: index for index, dimension in enumerate(FocusDimension)
+        }
+        self._width = len(self._positions) + 1
+
+    def embed(self, text: str) -> list[float]:
+        descriptor_dimension = self._descriptor_dimensions.get(text)
+        if descriptor_dimension is not None:
+            vector = [0.0] * self._width
+            vector[self._positions[descriptor_dimension]] = 1.0
+            return vector
+
+        vector = [0.0] * self._width
+        dimensions = self.question_vectors[text]
+        for dimension, score in dimensions.items():
+            vector[self._positions[dimension]] = score
+        squared = sum(value * value for value in vector)
+        vector[-1] = max(0.0, 1.0 - squared) ** 0.5
+        return vector
+
+
 @pytest.mark.parametrize(
     ("question", "expected"),
     [
@@ -136,6 +167,62 @@ def test_semantic_router_supports_single_dimensions(question, dimension) -> None
     selection = SemanticFocusRouter(embedding_provider=embedder).route(question)
 
     assert selection.dimensions == (dimension,)
+
+
+def test_semantic_router_excludes_contextual_near_matches() -> None:
+    question = "Report the one requested operational field."
+    embedder = _CalibratedSemanticEmbedding(
+        {
+            question: {
+                FocusDimension.STATUS: 0.45,
+                FocusDimension.HOST: 0.39,
+            }
+        }
+    )
+
+    selection = SemanticFocusRouter(embedding_provider=embedder).route(question)
+
+    assert selection.dimensions == (FocusDimension.STATUS,)
+
+
+def test_semantic_router_keeps_only_confident_compound_dimensions() -> None:
+    question = "Report the two separately requested operational fields."
+    embedder = _CalibratedSemanticEmbedding(
+        {
+            question: {
+                FocusDimension.STATUS: 0.54,
+                FocusDimension.SEVERITY: 0.43,
+                FocusDimension.RISK: 0.39,
+            }
+        }
+    )
+
+    selection = SemanticFocusRouter(embedding_provider=embedder).route(question)
+
+    assert selection.dimensions == (
+        FocusDimension.SEVERITY,
+        FocusDimension.STATUS,
+    )
+
+
+def test_semantic_router_uses_general_for_unconfident_broad_requests() -> None:
+    question = "Provide a broad operational overview."
+    embedder = _CalibratedSemanticEmbedding(
+        {
+            question: {
+                FocusDimension.STATUS: 0.41,
+                FocusDimension.HOST: 0.39,
+                FocusDimension.EVIDENCE: 0.38,
+                FocusDimension.GENERAL: 0.22,
+            }
+        }
+    )
+
+    selection = SemanticFocusRouter(embedding_provider=embedder).route(question)
+
+    assert selection.dimensions == (FocusDimension.GENERAL,)
+    assert selection.focus_degraded is False
+    assert selection.routing_status == "low_confidence"
 
 
 def test_semantic_router_is_not_activated_by_incidental_substrings() -> None:

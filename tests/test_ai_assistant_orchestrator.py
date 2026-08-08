@@ -10,6 +10,7 @@ from schemas.assistant import AssistantQueryRequest
 from services.assistant.orchestrator import (
     AssistantError,
     AssistantSettings,
+    get_assistant_settings,
     run_assistant_query,
 )
 from services.assistant.focus import FocusDimension, FocusSelection
@@ -81,6 +82,19 @@ def _settings(**overrides: Any) -> AssistantSettings:
     }
     values.update(overrides)
     return AssistantSettings(**values)
+
+
+def test_settings_use_dedicated_assistant_request_timeout(monkeypatch) -> None:
+    monkeypatch.setenv("AI_INFERENCE_REQUEST_TIMEOUT_SECONDS", "35")
+    monkeypatch.delenv(
+        "AI_SOC_ASSISTANT_REQUEST_TIMEOUT_SECONDS",
+        raising=False,
+    )
+
+    assert get_assistant_settings().request_timeout_seconds == 45
+
+    monkeypatch.setenv("AI_SOC_ASSISTANT_REQUEST_TIMEOUT_SECONDS", "52")
+    assert get_assistant_settings().request_timeout_seconds == 52
 
 
 def _retrieval(*, advisory: bool = False) -> RetrievalResult:
@@ -337,6 +351,78 @@ def test_grounded_model_response_uses_one_fixed_gateway_generation(
     ]
     assert response.sources[0].source_id == "S1"
     assert all(block.source_ids == ["S1"] for block in response.blocks)
+
+
+def test_advisory_generation_uses_fixed_facts_and_typed_next_check(
+    monkeypatch,
+) -> None:
+    calls = []
+
+    def generator(**kwargs):
+        calls.append(kwargs)
+        return {
+            "structured_output": {
+                "claims": [
+                    {
+                        "claim_type": "STRUCTURED_REFERENCE",
+                        "field": "latest_timeline_event",
+                        "provenance": "recorded_evidence",
+                        "source_ids": ["S1"],
+                    },
+                    {
+                        "claim_type": "STRUCTURED_REFERENCE",
+                        "field": "mitre",
+                        "provenance": "recorded_evidence",
+                        "source_ids": ["S1"],
+                    },
+                    {
+                        "claim_type": "RECORDED_FACT",
+                        "field": "compromise_confirmed",
+                        "value": False,
+                        "provenance": "explicit_assessment",
+                        "source_ids": ["S1"],
+                    },
+                ],
+                "next_check": {
+                    "check_type": "review_advisory_source",
+                    "guidance_code": "follow_recorded_playbook",
+                    "source_ids": ["S2"],
+                },
+                "limitations": [],
+                "used_advisory_context": True,
+            },
+            "finish_reason": "stop",
+        }
+
+    response = _run(
+        monkeypatch,
+        generator,
+        retrieval=replace(
+            _retrieval(advisory=True),
+            fact_inventory={
+                **FACTS,
+                "latest_timeline_event": {"event_type": "ALERT_CREATED"},
+            },
+        ),
+        focus=_focus(FocusDimension.EVIDENCE),
+    )
+
+    claims_schema = calls[0]["structured_output_schema"]["properties"]["claims"]
+    assert [
+        claim["properties"]["field"]["const"]
+        for claim in claims_schema["prefixItems"]
+    ] == ["latest_timeline_event", "mitre", "compromise_confirmed"]
+    assert claims_schema["minItems"] == claims_schema["maxItems"] == 3
+    assert "items" not in claims_schema
+    assert response.status == "ok"
+    assert response.metadata.grounding_validation == "passed"
+    assert response.metadata.focus_validation == "passed"
+    assert [source.authority for source in response.sources] == [
+        "authoritative",
+        "advisory",
+    ]
+    assert response.blocks[-1].kind == "next_check"
+    assert response.blocks[-1].source_ids == ["S2"]
 
 
 @pytest.mark.parametrize(

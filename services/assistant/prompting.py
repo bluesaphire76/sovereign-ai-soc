@@ -49,6 +49,7 @@ Claim shapes are exclusive:
 - ADVISORY_GUIDANCE requires only guidance_code and advisory source_ids.
 - DERIVATION requires a target field, derived_from fields, provenance, and authoritative source_ids; emit it only when explicit derivation provenance is supplied.
 - next_check, when non-null, has exactly check_type="review_advisory_source", guidance_code, and advisory source_ids.
+- When claims cardinality is fixed by the focused schema, use next_check for optional advisory guidance.
 
 Never substitute risk-normalization severity or recommended priority for canonical severity.
 Never derive a risk band from a numeric score.
