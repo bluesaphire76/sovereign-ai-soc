@@ -132,8 +132,24 @@ class IntentSelection(ClosedModel):
 class ResolvedScope(ClosedModel):
     analysis_scope: AnalysisScope
     active_incident_ids: list[int] = Field(default_factory=list, max_length=12)
+    explicit_compare_incident_ids: list[int] = Field(
+        default_factory=list,
+        max_length=8,
+    )
     active_case_ids: list[int] = Field(default_factory=list, max_length=4)
     conversation_followup: bool = False
+
+    @model_validator(mode="after")
+    def validate_explicit_compare_scope(self):
+        if len(self.explicit_compare_incident_ids) != len(
+            set(self.explicit_compare_incident_ids)
+        ):
+            raise ValueError("explicit comparison incident IDs must be unique")
+        if not set(self.explicit_compare_incident_ids).issubset(
+            self.active_incident_ids
+        ):
+            raise ValueError("explicit comparison IDs must be active")
+        return self
 
 
 class ContextLimits(ClosedModel):
@@ -350,6 +366,34 @@ class ReferenceKnowledgeAtom(ClosedModel):
     provenance: Provenance
 
 
+class AdvisoryActionCode(str, Enum):
+    COMPARE_RELATED_EVIDENCE = "COMPARE_RELATED_EVIDENCE"
+    VERIFY_DETECTION_CONTROL = "VERIFY_DETECTION_CONTROL"
+    VERIFY_CASE_HANDLING = "VERIFY_CASE_HANDLING"
+    FOLLOW_PLAYBOOK_CHECKS = "FOLLOW_PLAYBOOK_CHECKS"
+
+
+class AdvisoryReasonCode(str, Enum):
+    HISTORICAL_SIMILARITY_RETRIEVED = "HISTORICAL_SIMILARITY_RETRIEVED"
+    CONTROL_GUIDANCE_RETRIEVED = "CONTROL_GUIDANCE_RETRIEVED"
+    CASE_GUIDANCE_RETRIEVED = "CASE_GUIDANCE_RETRIEVED"
+    PLAYBOOK_GUIDANCE_RETRIEVED = "PLAYBOOK_GUIDANCE_RETRIEVED"
+
+
+class AdvisoryTargetType(str, Enum):
+    DETECTION_AND_TIMELINE = "DETECTION_AND_TIMELINE"
+    DETECTION_CONTROL = "DETECTION_CONTROL"
+    CASE_EVIDENCE = "CASE_EVIDENCE"
+    SOURCE_DEFINED_ARTIFACTS = "SOURCE_DEFINED_ARTIFACTS"
+
+
+class AdvisoryContextCode(str, Enum):
+    HISTORICAL_INCIDENT = "HISTORICAL_INCIDENT"
+    DETECTION_CONTROL = "DETECTION_CONTROL"
+    CASE_CLOSURE = "CASE_CLOSURE"
+    KNOWLEDGE_BASE = "KNOWLEDGE_BASE"
+
+
 class AdvisoryKnowledgeAtom(ClosedModel):
     knowledge_id: str = Field(min_length=1, max_length=180)
     knowledge_type: Literal[
@@ -364,6 +408,12 @@ class AdvisoryKnowledgeAtom(ClosedModel):
     subject: str = Field(min_length=1, max_length=240)
     guidance_code: str = Field(min_length=1, max_length=80)
     bounded_content: str = Field(min_length=1, max_length=900)
+    action_code: AdvisoryActionCode = AdvisoryActionCode.FOLLOW_PLAYBOOK_CHECKS
+    reason_code: AdvisoryReasonCode = (
+        AdvisoryReasonCode.PLAYBOOK_GUIDANCE_RETRIEVED
+    )
+    target_type: AdvisoryTargetType = AdvisoryTargetType.SOURCE_DEFINED_ARTIFACTS
+    context_code: AdvisoryContextCode = AdvisoryContextCode.KNOWLEDGE_BASE
     retrieved: Literal[True] = True
     used: Literal[False] = False
     provenance: Provenance
@@ -373,6 +423,7 @@ KnowledgeAtom = ReferenceKnowledgeAtom | AdvisoryKnowledgeAtom
 
 
 class DiscoverySignal(str, Enum):
+    EXPLICIT_SELECTION = "EXPLICIT_SELECTION"
     SHARED_HOST = "SHARED_HOST"
     SHARED_AGENT = "SHARED_AGENT"
     SHARED_USER = "SHARED_USER"
@@ -395,8 +446,8 @@ class IncidentCandidate(ClosedModel):
     )
     discovery_signals: list[DiscoverySignal] = Field(min_length=1, max_length=12)
     semantic_score: float | None = Field(default=None, ge=-1.0, le=1.0)
-    deterministic_signal_count: int = Field(ge=0, le=11)
-    discovery_source: Literal["deterministic", "semantic", "hybrid"]
+    deterministic_signal_count: int = Field(ge=0, le=12)
+    discovery_source: Literal["deterministic", "semantic", "hybrid", "explicit"]
     authoritative_rehydrated: Literal[True] = True
     ranking_score: float = Field(ge=0.0)
 
@@ -549,6 +600,7 @@ class ContextBuildMetrics(ClosedModel):
     context_policy_ms: float = Field(default=0.0, ge=0.0)
     atom_normalization_ms: float = Field(default=0.0, ge=0.0)
     candidate_retrieval_ms: float = Field(default=0.0, ge=0.0)
+    semantic_index_query_ms: float = Field(default=0.0, ge=0.0)
     authoritative_rehydration_ms: float = Field(default=0.0, ge=0.0)
     graph_construction_ms: float = Field(default=0.0, ge=0.0)
     reference_retrieval_ms: float = Field(default=0.0, ge=0.0)
@@ -573,6 +625,12 @@ class V3AnalyticalContextPackage(ClosedModel):
     context_limits: ContextLimits
     source_registry: list[SourceRegistryEntry] = Field(default_factory=list, max_length=320)
     relationship_registry: RelationshipRegistry
+    semantic_index_status: Literal[
+        "not_requested",
+        "ready",
+        "degraded",
+        "unavailable",
+    ] = "not_requested"
     metrics: ContextBuildMetrics
 
     @model_validator(mode="after")

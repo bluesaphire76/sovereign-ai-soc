@@ -7,6 +7,7 @@ or migration validation notes.
 
 ## Current Validation
 
+- [AI Assistant V3 Milestone B](ai-assistant-v3-milestone-b.md)
 - [AI Assistant V3 Milestone A](ai-assistant-v3-milestone-a.md)
 - [v0.7 expanded validation harness](v0.7-expanded-validation-harness.md)
 

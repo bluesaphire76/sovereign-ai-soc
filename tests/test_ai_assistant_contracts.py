@@ -40,6 +40,32 @@ def test_scope_ids_are_closed_and_deterministic() -> None:
         )
 
 
+def test_explicit_compare_ids_are_bounded_unique_and_exclude_anchor() -> None:
+    request = AssistantQueryRequest(
+        message="Compare the selected records.",
+        scope="incident",
+        incident_id=245,
+        compare_incident_ids=[246, 247],
+    )
+    assert request.compare_incident_ids == [246, 247]
+
+    for values in ([245], [246, 246], [0], list(range(1, 10))):
+        with pytest.raises(ValidationError):
+            AssistantQueryRequest(
+                message="Compare.",
+                scope="incident",
+                incident_id=245,
+                compare_incident_ids=values,
+            )
+
+    with pytest.raises(ValidationError):
+        AssistantQueryRequest(
+            message="Compare.",
+            scope="global",
+            compare_incident_ids=[246],
+        )
+
+
 def test_source_urls_must_be_internal_paths() -> None:
     valid = AssistantSource(
         source_id="S1",

@@ -543,7 +543,7 @@ def test_soc_assistant_llama_cpp_reserves_visible_tokens_and_disables_thinking(
 
 @pytest.mark.parametrize(
     ("configured", "expected"),
-    [("1", 256), ("320", 320), ("999", 768), ("invalid", 384)],
+    [("1", 256), ("320", 320), ("1536", 1536), ("4096", 2048), ("invalid", 384)],
 )
 def test_soc_assistant_visible_completion_budget_is_clamped(
     monkeypatch,
@@ -553,6 +553,15 @@ def test_soc_assistant_visible_completion_budget_is_clamped(
     monkeypatch.setenv("AI_SOC_ASSISTANT_MAX_VISIBLE_TOKENS", configured)
 
     assert llm_client._soc_assistant_visible_max_tokens() == expected
+
+
+def test_v3_structured_plan_budget_reaches_provider(monkeypatch) -> None:
+    monkeypatch.delenv("AI_SOC_ASSISTANT_MAX_VISIBLE_TOKENS", raising=False)
+
+    assert (
+        llm_client._soc_assistant_visible_max_tokens(override=1536)
+        == 1536
+    )
 
 
 def test_soc_assistant_repair_can_override_visible_completion_budget() -> None:

@@ -8,7 +8,7 @@ from pydantic import ValidationError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from models import Base, Incident
+from models import Base, CaseIncident, Incident, IncidentCase
 from schemas.assistant import AssistantQueryRequest
 from services.assistant.focus import FocusDimension, FocusSelection
 from services.assistant.orchestrator import AssistantSettings, run_assistant_query
@@ -17,11 +17,24 @@ from services.assistant.sources import SourceRecord
 from services.assistant.v3.builder import V3AnalyticalContextBuilder
 from services.assistant.v3.contracts import (
     AnswerIntent,
+    DiscoverySignal,
     IntentSelection,
     RelationshipClass,
     V3AnalyticalContextPackage,
 )
 from services.assistant.v3.conversation import ConversationStateStore
+from services.assistant.v3.discourse import RichGroundedDiscourseRenderer
+from services.assistant.v3.plan_contracts import (
+    AnalyticalUnitType,
+    AnswerSectionType,
+)
+from services.assistant.v3.plan_fallback import deterministic_answer_plan_v3
+from services.assistant.v3.plan_validation import GroundedAnswerPlanV3Validator
+from services.assistant.v3.semantic_index import (
+    IncidentSemanticHit,
+    IncidentSemanticQueryResult,
+    incident_source_fingerprint,
+)
 
 
 class StaticIntentRouter:
@@ -201,12 +214,204 @@ def test_non_generative_pipeline_builds_closed_context_package_and_followup_stat
             for edge in package.cross_incident_graph.relationships
         )
         assert followup.resolved_scope.conversation_followup is True
+        assert followup.resolved_scope.analysis_scope.value == "EXPLICIT_RECORD_SET"
         assert followup.conversation_state_refs.related_incident_ids == [candidate.id]
+        assert DiscoverySignal.EXPLICIT_SELECTION in (
+            followup.cross_incident_candidates[0].discovery_signals
+        )
         assert V3AnalyticalContextPackage.model_validate(package.model_dump()) == package
         invalid_package = package.model_dump()
         invalid_package["relationship_registry"] = {"relationships": []}
         with pytest.raises(ValidationError):
             V3AnalyticalContextPackage.model_validate(invalid_package)
+    finally:
+        db.close()
+
+
+def test_case_scope_builds_multi_incident_graph_and_visible_pattern() -> None:
+    db, first, second = _session_with_incidents()
+    try:
+        third = Incident(
+            wazuh_doc_id="v3-case-third",
+            status="OPEN",
+            timestamp="2026-08-08T13:00:00Z",
+            agent="endpoint-v3",
+            rule="Different registry rule",
+            level=9,
+            mitre=json.dumps(["T1112"]),
+            risk_score=60,
+            correlated=False,
+            correlation_type="other_pattern",
+            correlation_score=0,
+            recommended_priority="MEDIUM",
+        )
+        case = IncidentCase(
+            group_key="v3-pattern-case",
+            title="V3 pattern case",
+            status="OPEN",
+        )
+        db.add_all([third, case])
+        db.flush()
+        db.add_all(
+            [
+                CaseIncident(case_id=case.id, incident_id=first.id),
+                CaseIncident(case_id=case.id, incident_id=second.id),
+                CaseIncident(case_id=case.id, incident_id=third.id),
+            ]
+        )
+        db.commit()
+        linked = [_facts(first.id), _facts(second.id), _facts(third.id)]
+        linked[1]["status"] = "INVESTIGATING"
+        linked[2]["rule"] = "Different registry rule"
+        retrieval = SimpleNamespace(
+            fact_inventory={
+                "source_type": "case",
+                "case_id": case.id,
+                "title": case.title,
+                "status": case.status,
+                "severity": None,
+                "linked_incident_count": 3,
+                "linked_incidents": linked,
+            },
+            sources=[
+                SourceRecord(
+                    source_type="case",
+                    authority="authoritative",
+                    record_id=str(case.id),
+                    label=f"Case {case.id}",
+                    excerpt="Authoritative case and linked incident records.",
+                )
+            ],
+        )
+        payload = AssistantQueryRequest(
+            message="Find the recurring pattern in this case.",
+            scope="case",
+            case_id=case.id,
+            conversation_id="case-pattern-thread",
+        )
+        intent = StaticIntentRouter(AnswerIntent.PATTERN_ANALYSIS).route(
+            payload.message
+        )
+        focus = StaticFocusRouter(FocusDimension.EVIDENCE).route(payload.message)
+        package = V3AnalyticalContextBuilder(
+            conversation_store=ConversationStateStore(clock=lambda: 100.0)
+        ).build(
+            payload=payload,
+            response_language="en",
+            intent_selection=intent,
+            focus_selection=focus,
+            retrieval=retrieval,
+            db=db,
+            current_user={"username": "analyst-a", "role": "ANALYST"},
+            wall_clock=lambda: 100.0,
+        )
+        plan = deterministic_answer_plan_v3(package)
+        validation = GroundedAnswerPlanV3Validator().validate(
+            plan,
+            package=package,
+        )
+        rendered = RichGroundedDiscourseRenderer().render(
+            plan,
+            package=package,
+        )
+        answer = "\n\n".join(block.text for block in rendered.blocks)
+
+        assert set(package.resolved_scope.active_incident_ids) == {
+            first.id,
+            second.id,
+            third.id,
+        }
+        assert package.resolved_scope.active_case_ids == [case.id]
+        assert len(package.cross_incident_candidates) == 2
+        assert any(
+            relationship.relationship_type.value == "SAME_CASE"
+            for relationship in package.cross_incident_graph.relationships
+        )
+        assert validation.accepted is True
+        pattern_section = next(
+            section
+            for section in plan.sections
+            if section.section_type is AnswerSectionType.PATTERN
+        )
+        assert all(
+            unit.unit_type is AnalyticalUnitType.SHARED_PATTERN
+            for unit in pattern_section.units
+        )
+        assert "3 incidents" in answer
+        assert str(first.id) in answer
+        assert str(second.id) in answer
+        assert str(third.id) in answer
+        assert "does not establish causality" in answer
+        assert "does not establish causality" in answer
+        assert "share the same attacker" not in answer.casefold()
+        assert "form the same campaign" not in answer.casefold()
+    finally:
+        db.close()
+
+
+def test_builder_prefers_dedicated_semantic_index_hits_and_reports_status() -> None:
+    db, anchor, candidate = _session_with_incidents()
+    try:
+        fingerprint = incident_source_fingerprint(candidate)
+
+        class Index:
+            def query(self, query_text, *, exclude_incident_id, limit):
+                assert "Registry changed" in query_text
+                assert exclude_incident_id == anchor.id
+                assert limit > 0
+                return IncidentSemanticQueryResult(
+                    hits=(
+                        IncidentSemanticHit(
+                            incident_id=candidate.id,
+                            score=0.88,
+                            source_fingerprint=fingerprint,
+                        ),
+                    ),
+                    status="ready",
+                    query_ms=3.5,
+                )
+
+        retrieval = SimpleNamespace(
+            fact_inventory=_facts(anchor.id),
+            sources=[
+                SourceRecord(
+                    source_type="incident",
+                    authority="authoritative",
+                    record_id=str(anchor.id),
+                    label=f"Incident {anchor.id}",
+                    excerpt="Authoritative incident facts.",
+                )
+            ],
+        )
+        payload = AssistantQueryRequest(
+            message="Find related incidents.",
+            scope="incident",
+            incident_id=anchor.id,
+        )
+        package = V3AnalyticalContextBuilder(
+            incident_semantic_index=Index(),
+            conversation_store=ConversationStateStore(clock=lambda: 100.0),
+        ).build(
+            payload=payload,
+            response_language="en",
+            intent_selection=StaticIntentRouter(
+                AnswerIntent.CROSS_INCIDENT_ANALYSIS
+            ).route(payload.message),
+            focus_selection=StaticFocusRouter(FocusDimension.EVIDENCE).route(
+                payload.message
+            ),
+            retrieval=retrieval,
+            db=db,
+            current_user={"username": "analyst-a", "role": "ANALYST"},
+        )
+
+        assert package.semantic_index_status == "ready"
+        assert package.metrics.semantic_index_query_ms == 3.5
+        assert DiscoverySignal.SEMANTIC_SIMILARITY in (
+            package.cross_incident_candidates[0].discovery_signals
+        )
+        assert package.cross_incident_candidates[0].semantic_score == 0.88
+        assert package.cross_incident_candidates[0].authoritative_rehydrated is True
     finally:
         db.close()
 

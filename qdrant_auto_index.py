@@ -33,6 +33,7 @@ from scripts.index_historical_incidents_to_qdrant import (
     build_historical_incident_memory,
     should_include_incident,
 )
+from services.assistant.v3.semantic_index import get_incident_semantic_index
 
 
 logger = logging.getLogger(__name__)
@@ -411,20 +412,31 @@ def index_incident_memory(
     *,
     db_factory=SessionLocal,
     knowledge_base_factory=QdrantKnowledgeBase,
+    incident_index_factory=get_incident_semantic_index,
 ) -> dict[str, Any]:
     db = db_factory()
     try:
         incident = db.query(Incident).filter(Incident.id == incident_id).first()
         source = f"incident:{incident_id}"
         if not incident:
-            return _delete_source(
+            legacy_result = _delete_source(
                 HISTORICAL_INCIDENT_SOURCE_TYPE,
                 source,
                 knowledge_base_factory=knowledge_base_factory,
             )
+            dedicated_result = incident_index_factory().delete(incident_id)
+            return {
+                **legacy_result,
+                "incident_candidate_index": dedicated_result.to_dict(),
+            }
 
         include_open = auto_index_config()["include_open_incidents"]
         if not should_include_incident(incident, include_open=include_open, since_days=None):
+            dedicated_result = incident_index_factory().upsert_incident(
+                db,
+                incident_id,
+                require_ready_embedding=True,
+            )
             return {
                 **_delete_source(
                     HISTORICAL_INCIDENT_SOURCE_TYPE,
@@ -432,6 +444,7 @@ def index_incident_memory(
                     knowledge_base_factory=knowledge_base_factory,
                 ),
                 "skip_reason": "incident_status_not_indexable",
+                "incident_candidate_index": dedicated_result.to_dict(),
             }
 
         case, closure = _incident_context(db, incident)
@@ -442,10 +455,21 @@ def index_incident_memory(
             closure=closure,
             notes=notes,
         )
+        dedicated_result = incident_index_factory().upsert_incident(
+            db,
+            incident_id,
+            require_ready_embedding=True,
+        )
     finally:
         db.close()
 
-    return _replace_source_record(memory.record, knowledge_base_factory=knowledge_base_factory)
+    return {
+        **_replace_source_record(
+            memory.record,
+            knowledge_base_factory=knowledge_base_factory,
+        ),
+        "incident_candidate_index": dedicated_result.to_dict(),
+    }
 
 
 def index_detection_control_memory(

@@ -429,6 +429,11 @@ class GatewayModelRuntime:
             output=output,
             finish_reason=result.get("finish_reason"),
             generation_ms=int((time.monotonic() - started) * 1000),
+            prompt_tokens=max(0, int(diagnostics.get("prompt_tokens") or 0)),
+            completion_tokens=max(
+                0,
+                int(diagnostics.get("completion_tokens") or 0),
+            ),
             degraded=False,
             safe_error=safe_error,
             profile_switch_count=int(

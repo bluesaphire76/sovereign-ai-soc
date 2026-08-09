@@ -52,6 +52,8 @@ def resolve_analysis_scope(
     case_id: int | None,
     intent: IntentSelection,
     conversation_state: ValidatedConversationState | None,
+    explicit_incident_ids: Iterable[int] = (),
+    explicit_compare_incident_ids: Iterable[int] = (),
 ) -> ResolvedScope:
     cross_intents = {
         AnswerIntent.COMPARE,
@@ -59,6 +61,29 @@ def resolve_analysis_scope(
         AnswerIntent.PATTERN_ANALYSIS,
     }
     active_incidents = [incident_id] if incident_id is not None else []
+    explicit_ids = [
+        value
+        for value in explicit_incident_ids
+        if isinstance(value, int) and value > 0 and value != incident_id
+    ]
+    requested_compare_ids = [
+        value
+        for value in explicit_compare_incident_ids
+        if isinstance(value, int) and value > 0 and value != incident_id
+    ]
+    explicit_compare = (
+        _unique(
+            [
+                *([incident_id] if incident_id is not None else []),
+                *requested_compare_ids,
+            ]
+        )[:8]
+        if intent.primary_intent is AnswerIntent.COMPARE
+        and requested_compare_ids
+        else []
+    )
+    if intent.primary_intent in cross_intents:
+        active_incidents = _unique([*active_incidents, *explicit_ids])[:12]
     active_cases = [case_id] if case_id is not None else []
     followup = conversation_state is not None
     if conversation_state is not None:
@@ -66,10 +91,13 @@ def resolve_analysis_scope(
             active_incidents = list(conversation_state.active_incident_ids)
         if not active_cases and conversation_state.active_case_ids:
             active_cases = list(conversation_state.active_case_ids)
-        if intent.primary_intent in cross_intents:
+        if intent.primary_intent in cross_intents and not explicit_compare:
             active_incidents = _unique(
                 [*active_incidents, *conversation_state.related_incident_ids]
             )[:12]
+
+    if explicit_compare:
+        active_incidents = explicit_compare
 
     if intent.primary_intent in cross_intents:
         scope = (
@@ -86,6 +114,7 @@ def resolve_analysis_scope(
     return ResolvedScope(
         analysis_scope=scope,
         active_incident_ids=active_incidents,
+        explicit_compare_incident_ids=explicit_compare,
         active_case_ids=active_cases,
         conversation_followup=followup,
     )
@@ -116,9 +145,26 @@ class ContextPolicyEngine:
             fields.extend(self._focus_fields(focus))
         elif primary is AnswerIntent.EXECUTIVE_SUMMARY:
             requirements.extend(
-                [ContextRequirement.STATUS, ContextRequirement.RISK, ContextRequirement.PRIORITY]
+                [
+                    ContextRequirement.STATUS,
+                    ContextRequirement.DETECTION,
+                    ContextRequirement.RISK,
+                    ContextRequirement.PRIORITY,
+                    ContextRequirement.CORRELATION,
+                    ContextRequirement.CASE_RELATIONSHIP,
+                ]
             )
-            fields.extend((*_STATUS, *_RISK, FactField.RECOMMENDED_PRIORITY, *_ENTITY))
+            fields.extend(
+                (
+                    *_STATUS,
+                    *_DETECTION,
+                    *_RISK,
+                    FactField.RECOMMENDED_PRIORITY,
+                    *_CORRELATION,
+                    *_CASE,
+                    *_ENTITY,
+                )
+            )
         else:
             requirements.extend(
                 [

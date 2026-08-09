@@ -5,7 +5,11 @@ from dataclasses import dataclass
 from typing import Any, Iterable
 
 from services.assistant.v3.contracts import (
+    AdvisoryActionCode,
+    AdvisoryContextCode,
     AdvisoryKnowledgeAtom,
+    AdvisoryReasonCode,
+    AdvisoryTargetType,
     AuthorityClass,
     ContextPlan,
     ContextRequirement,
@@ -156,11 +160,35 @@ class ReferenceKnowledgeProvider:
         return result
 
 
-_ADVISORY_TYPES = {
-    "historical_incident": "historical_incident_advisory",
-    "detection_control": "investigation_guidance",
-    "case_closure": "investigation_guidance",
-    "knowledge_base": "playbook_guidance",
+_ADVISORY_CONTRACTS = {
+    "historical_incident": (
+        "historical_incident_advisory",
+        AdvisoryActionCode.COMPARE_RELATED_EVIDENCE,
+        AdvisoryReasonCode.HISTORICAL_SIMILARITY_RETRIEVED,
+        AdvisoryTargetType.DETECTION_AND_TIMELINE,
+        AdvisoryContextCode.HISTORICAL_INCIDENT,
+    ),
+    "detection_control": (
+        "investigation_guidance",
+        AdvisoryActionCode.VERIFY_DETECTION_CONTROL,
+        AdvisoryReasonCode.CONTROL_GUIDANCE_RETRIEVED,
+        AdvisoryTargetType.DETECTION_CONTROL,
+        AdvisoryContextCode.DETECTION_CONTROL,
+    ),
+    "case_closure": (
+        "investigation_guidance",
+        AdvisoryActionCode.VERIFY_CASE_HANDLING,
+        AdvisoryReasonCode.CASE_GUIDANCE_RETRIEVED,
+        AdvisoryTargetType.CASE_EVIDENCE,
+        AdvisoryContextCode.CASE_CLOSURE,
+    ),
+    "knowledge_base": (
+        "playbook_guidance",
+        AdvisoryActionCode.FOLLOW_PLAYBOOK_CHECKS,
+        AdvisoryReasonCode.PLAYBOOK_GUIDANCE_RETRIEVED,
+        AdvisoryTargetType.SOURCE_DEFINED_ARTIFACTS,
+        AdvisoryContextCode.KNOWLEDGE_BASE,
+    ),
 }
 
 
@@ -182,9 +210,12 @@ def normalize_advisory_sources(
         if getattr(source, "authority", None) != "advisory":
             continue
         source_type = str(getattr(source, "source_type", "") or "")
-        knowledge_type = _ADVISORY_TYPES.get(source_type)
-        if knowledge_type is None:
+        advisory_contract = _ADVISORY_CONTRACTS.get(source_type)
+        if advisory_contract is None:
             continue
+        knowledge_type, action_code, reason_code, target_type, context_code = (
+            advisory_contract
+        )
         record_id = str(getattr(source, "record_id", None) or "unidentified")[:128]
         section = str(getattr(source, "section", None) or "")[:128]
         knowledge_id = _knowledge_id(source_type, record_id, section)
@@ -202,6 +233,10 @@ def normalize_advisory_sources(
                 subject=subject,
                 guidance_code=f"review_{source_type}"[:80],
                 bounded_content=content,
+                action_code=action_code,
+                reason_code=reason_code,
+                target_type=target_type,
+                context_code=context_code,
                 provenance=Provenance(
                     authority_class=AuthorityClass.ADVISORY_KNOWLEDGE,
                     source_type=source_type,

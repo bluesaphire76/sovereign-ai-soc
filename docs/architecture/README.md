@@ -17,7 +17,9 @@
 
 ## AI Assistant V3 Intelligence Foundation
 
+- [Milestone B: Useful Grounded Analytical Assistant V3](v0.9-ai-assistant-v3-milestone-b.md)
 - [Milestone A: Grounded Analytical Assistant V3](v0.9-ai-assistant-v3-milestone-a.md)
+- [Milestone B validation](../validation/ai-assistant-v3-milestone-b.md)
 - [Milestone A validation](../validation/ai-assistant-v3-milestone-a.md)
 
 ## v0.7 Implemented Architecture
