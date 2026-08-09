@@ -15,10 +15,23 @@ from services.assistant.v3.contracts import (
 from services.assistant.v3.plan_contracts import (
     AnalyticalUnitType,
     AnswerSectionType,
+    DiscourseOrdering,
+    PropositionImportance,
+    PropositionType,
+    RhetoricalRole,
     INTENT_SECTION_TYPES,
     NonImplicationCode,
     PlanLimitationCode,
     SECTION_UNIT_TYPES,
+)
+from services.assistant.v3.quality_policy import (
+    PROPOSITION_ROLES,
+    absence_is_material,
+    evidence_priority_for_atom,
+    plan_contract,
+    proposition_types_for,
+    rank_operational_atoms,
+    reference_is_relevant,
 )
 
 
@@ -56,6 +69,57 @@ UNIT_WIRE_CODES = {
     AnalyticalUnitType.CANDIDATE_RELEVANCE: "candidate",
 }
 
+PROPOSITION_WIRE_CODES = {
+    PropositionType.PRIMARY_FINDING: "primary",
+    PropositionType.SUPPORTING_EVIDENCE: "support",
+    PropositionType.TECHNICAL_SIGNIFICANCE: "meaning",
+    PropositionType.COMPARATIVE_FINDING: "comparison",
+    PropositionType.SIMILARITY: "similarity",
+    PropositionType.DIFFERENCE: "difference",
+    PropositionType.RELATIONSHIP_SUMMARY: "relationship",
+    PropositionType.PATTERN_SUMMARY: "pattern",
+    PropositionType.EVIDENCE_STRENGTH: "strength",
+    PropositionType.UNCERTAINTY: "uncertainty",
+    PropositionType.CAVEAT: "caveat",
+    PropositionType.INVESTIGATIVE_STEP: "step",
+    PropositionType.EXPECTED_VERIFICATION_TARGET: "target",
+    PropositionType.HANDOVER_POINT: "handover",
+    PropositionType.EXECUTIVE_POINT: "executive",
+}
+
+IMPORTANCE_WIRE_CODES = {
+    PropositionImportance.PRIMARY: "primary",
+    PropositionImportance.SECONDARY: "secondary",
+    PropositionImportance.SUPPORTING: "supporting",
+}
+
+ROLE_WIRE_CODES = {
+    RhetoricalRole.LEAD: "lead",
+    RhetoricalRole.SUPPORT: "support",
+    RhetoricalRole.EXPLAIN: "explain",
+    RhetoricalRole.COMPARE: "compare",
+    RhetoricalRole.CONTRAST: "contrast",
+    RhetoricalRole.CAVEAT: "caveat",
+    RhetoricalRole.EXPLANATION: "explanation",
+    RhetoricalRole.TRANSITION: "transition",
+    RhetoricalRole.FOLLOW_UP: "follow_up",
+}
+
+DISCOURSE_WIRE_CODES = {
+    (proposition_type, role): (
+        f"{PROPOSITION_WIRE_CODES[proposition_type]}:{ROLE_WIRE_CODES[role]}"
+    )
+    for proposition_type, roles in PROPOSITION_ROLES.items()
+    for role in roles
+}
+
+ORDER_WIRE_CODES = {
+    DiscourseOrdering.CONCLUSION_FIRST: "conclusion",
+    DiscourseOrdering.EVIDENCE_FIRST: "evidence",
+    DiscourseOrdering.CHRONOLOGY_FIRST: "chronology",
+    DiscourseOrdering.COMPARISON_FIRST: "comparison",
+}
+
 
 @dataclass(frozen=True)
 class ModelFacingEvidence:
@@ -69,8 +133,22 @@ class ModelFacingEvidence:
 def model_facing_evidence(
     package: V3AnalyticalContextPackage,
 ) -> ModelFacingEvidence:
-    candidates = tuple(package.cross_incident_candidates[:4])
-    selected_incident_ids = set(package.resolved_scope.active_incident_ids)
+    explicit_compare = set(
+        package.resolved_scope.explicit_compare_incident_ids
+    )
+    candidate_pool = package.cross_incident_candidates
+    if explicit_compare:
+        candidate_pool = [
+            item
+            for item in candidate_pool
+            if item.candidate_incident_id in explicit_compare
+        ]
+    candidates = tuple(candidate_pool[:4])
+    selected_incident_ids = set(
+        package.resolved_scope.explicit_compare_incident_ids
+        or package.resolved_scope.active_incident_ids
+    )
+    selected_case_ids = set(package.resolved_scope.active_case_ids)
     selected_incident_ids.update(
         item.candidate_incident_id for item in candidates
     )
@@ -82,6 +160,8 @@ def model_facing_evidence(
             item.left_incident_id in selected_incident_ids
             and item.right_incident_id in selected_incident_ids
             and (
+                explicit_compare
+                or
                 not anchor_ids
                 or item.left_incident_id in anchor_ids
                 or item.right_incident_id in anchor_ids
@@ -92,8 +172,13 @@ def model_facing_evidence(
         ref for item in relationships for ref in item.evidence_atom_refs
     }
     selected_atoms: list[Any] = []
-    for atom in package.operational_atoms:
-        if atom.atom_id in evidence_refs or atom.incident_id in selected_incident_ids:
+    ranked_atoms = rank_operational_atoms(package, package.operational_atoms)
+    for atom in ranked_atoms:
+        if (
+            atom.atom_id in evidence_refs
+            or atom.incident_id in selected_incident_ids
+            or atom.case_id in selected_case_ids
+        ):
             selected_atoms.append(atom)
         if len(selected_atoms) >= 32:
             break
@@ -101,7 +186,11 @@ def model_facing_evidence(
         operational_atoms=tuple(selected_atoms),
         relationships=relationships,
         candidates=candidates,
-        reference_atoms=tuple(package.reference_atoms[:4]),
+        reference_atoms=tuple(
+            item
+            for item in package.reference_atoms
+            if reference_is_relevant(package, item)
+        )[:4],
         advisory_atoms=tuple(package.advisory_atoms[:2]),
     )
 
@@ -144,6 +233,19 @@ def available_section_types(
         allowed = [item for item in allowed if item is not AnswerSectionType.NEXT_STEPS]
     if not any(atom.atom_type == "timeline_event" for atom in package.operational_atoms):
         allowed = [item for item in allowed if item is not AnswerSectionType.TIMELINE]
+    if not (
+        available_limitation_codes(package)
+        or available_non_implication_codes(package)
+    ):
+        allowed = [
+            item for item in allowed if item is not AnswerSectionType.LIMITATIONS
+        ]
+    if not available_non_implication_codes(package):
+        allowed = [
+            item
+            for item in allowed
+            if item is not AnswerSectionType.WHAT_WE_CANNOT_CONCLUDE
+        ]
     return allowed or [AnswerSectionType.DIRECT_ANSWER]
 
 
@@ -195,9 +297,15 @@ def available_limitation_codes(
 ) -> list[PlanLimitationCode]:
     result: list[PlanLimitationCode] = []
     absence_fields = available_absence_fields(package)
-    if FactField.SEVERITY in absence_fields:
+    if FactField.SEVERITY in absence_fields and absence_is_material(
+        package,
+        FactField.SEVERITY,
+    ):
         result.append(PlanLimitationCode.CANONICAL_SEVERITY_NOT_RECORDED)
-    if FactField.ESCALATED in absence_fields:
+    if FactField.ESCALATED in absence_fields and absence_is_material(
+        package,
+        FactField.ESCALATED,
+    ):
         result.append(PlanLimitationCode.NO_AUTHORITATIVE_ESCALATION_BOOLEAN)
     if package.context_plan.include_cross_incident and not (
         package.cross_incident_candidates
@@ -205,9 +313,12 @@ def available_limitation_codes(
         result.append(PlanLimitationCode.NO_RELATED_INCIDENT_CANDIDATES)
     if package.semantic_index_status in {"degraded", "unavailable"}:
         result.append(PlanLimitationCode.SEMANTIC_INDEX_DEGRADED)
-    if package.context_plan.include_reference and not package.reference_atoms:
-        result.append(PlanLimitationCode.REFERENCE_KNOWLEDGE_UNAVAILABLE)
-    if package.context_plan.include_advisory and not package.advisory_atoms:
+    if (
+        package.intent_selection.primary_intent
+        in {AnswerIntent.NEXT_ACTION, AnswerIntent.HANDOVER}
+        and package.context_plan.include_advisory
+        and not package.advisory_atoms
+    ):
         result.append(PlanLimitationCode.ADVISORY_KNOWLEDGE_UNAVAILABLE)
     if any(
         item.authority_class is AuthorityClass.ANALYTICAL_DERIVATION
@@ -271,13 +382,23 @@ def available_unit_types(package: V3AnalyticalContextPackage) -> list[Analytical
     return sorted(result, key=lambda item: item.value)
 
 
-def _ref_array(values: list[str], maximum: int, *, minimum: int = 1) -> dict[str, Any]:
+def _ref_array(
+    values: list[str],
+    maximum: int,
+    *,
+    minimum: int = 1,
+    prefer_grouped: bool = False,
+) -> dict[str, Any]:
     limit = min(maximum, len(values))
     options: list[list[str]] = []
+    if prefer_grouped:
+        for size in range(limit, max(2, minimum) - 1, -1):
+            options.append(values[:size])
     if minimum <= 1:
         options.extend([[value] for value in values])
-    for size in range(max(2, minimum), limit + 1):
-        options.append(values[:size])
+    if not prefer_grouped:
+        for size in range(max(2, minimum), limit + 1):
+            options.append(values[:size])
     return {
         "type": "array",
         "enum": options,
@@ -290,19 +411,6 @@ def _fixed_ref_array(values: list[str]) -> dict[str, Any]:
         "const": values,
     }
 
-
-_INTENT_PLAN_BOUNDS: dict[AnswerIntent, tuple[int, int]] = {
-    AnswerIntent.FACT_LOOKUP: (1, 1),
-    AnswerIntent.EXPLAIN: (3, 1),
-    AnswerIntent.SUMMARY: (3, 1),
-    AnswerIntent.INVESTIGATE: (3, 1),
-    AnswerIntent.COMPARE: (4, 1),
-    AnswerIntent.CROSS_INCIDENT_ANALYSIS: (3, 1),
-    AnswerIntent.PATTERN_ANALYSIS: (3, 1),
-    AnswerIntent.NEXT_ACTION: (3, 1),
-    AnswerIntent.HANDOVER: (3, 1),
-    AnswerIntent.EXECUTIVE_SUMMARY: (3, 1),
-}
 
 _INTENT_SECTION_PRIORITY: dict[AnswerIntent, tuple[AnswerSectionType, ...]] = {
     AnswerIntent.FACT_LOOKUP: (),
@@ -334,7 +442,6 @@ _INTENT_SECTION_PRIORITY: dict[AnswerIntent, tuple[AnswerSectionType, ...]] = {
     AnswerIntent.PATTERN_ANALYSIS: (
         AnswerSectionType.PATTERN,
         AnswerSectionType.RELATED_INCIDENTS,
-        AnswerSectionType.EVIDENCE,
     ),
     AnswerIntent.NEXT_ACTION: (
         AnswerSectionType.NEXT_STEPS,
@@ -351,15 +458,6 @@ _INTENT_SECTION_PRIORITY: dict[AnswerIntent, tuple[AnswerSectionType, ...]] = {
     ),
 }
 
-_AMBIGUOUS_UNIT_TYPES = {
-    AnalyticalUnitType.RECORDED_CORRELATION,
-    AnalyticalUnitType.ANALYTICAL_RELATIONSHIP,
-    AnalyticalUnitType.SEMANTIC_SIMILARITY,
-    AnalyticalUnitType.SHARED_PATTERN,
-    AnalyticalUnitType.TEMPORAL_SEQUENCE,
-}
-
-
 def _schema_definitions(
     package: V3AnalyticalContextPackage,
     *,
@@ -370,17 +468,67 @@ def _schema_definitions(
     definitions: dict[str, Any] = {}
     if fact_refs:
         definitions["fact_refs"] = _ref_array(fact_refs, 4)
-        definitions["direct_fact_refs"] = _ref_array(fact_refs[:2], 2)
-    if len(fact_refs) > 2:
-        definitions["supporting_fact_refs"] = _ref_array(fact_refs[2:], 4)
-        definitions["overview_fact_refs"] = _ref_array(fact_refs[2:5], 3)
-    if len(fact_refs) > 5:
-        definitions["findings_fact_refs"] = _ref_array(fact_refs[5:8], 3)
+    priority_groups: dict[str, list[str]] = {
+        "PRIMARY": [],
+        "SUPPORTING": [],
+        "CONTEXTUAL": [],
+        "OPTIONAL": [],
+    }
+    for atom in view.operational_atoms:
+        priority_groups[evidence_priority_for_atom(package, atom).value].append(
+            atom.atom_id
+        )
+    primary_refs = priority_groups["PRIMARY"]
+    remaining_refs = [
+        *primary_refs[3:],
+        *priority_groups["SUPPORTING"],
+        *priority_groups["CONTEXTUAL"],
+        *priority_groups["OPTIONAL"],
+    ]
+    timeline_refs = [
+        atom.atom_id
+        for atom in view.operational_atoms
+        if atom.atom_type == "timeline_event"
+    ]
+    non_timeline_remaining_refs = [
+        ref for ref in remaining_refs if ref not in set(timeline_refs)
+    ]
+    direct_refs = primary_refs[:3] or fact_refs[:3]
+    overview_refs = primary_refs[:4] or fact_refs[:4]
+    findings_refs = non_timeline_remaining_refs[:6] or fact_refs[3:7]
+    supporting_refs = non_timeline_remaining_refs[:10] or fact_refs[3:]
+    for name, values, maximum, prefer_grouped in (
+        ("direct_fact_refs", direct_refs, 3, False),
+        ("overview_fact_refs", overview_refs, 4, True),
+        ("findings_fact_refs", findings_refs, 4, True),
+        ("supporting_fact_refs", supporting_refs, 4, True),
+        ("timeline_fact_refs", timeline_refs, 2, True),
+    ):
+        if values:
+            minimum = (
+                2
+                if name == "findings_fact_refs"
+                and package.intent_selection.primary_intent
+                is AnswerIntent.EXECUTIVE_SUMMARY
+                and len(values) >= 2
+                else 1
+            )
+            definitions[name] = _ref_array(
+                values,
+                maximum,
+                minimum=minimum,
+                prefer_grouped=prefer_grouped,
+            )
     comparison_groups: dict[str, list[Any]] = {}
     for atom in view.operational_atoms:
         if atom.incident_id is not None:
             comparison_groups.setdefault(atom.atom_type, []).append(atom)
-    comparison_atoms: list[Any] = []
+    comparison_ref_sets: dict[str, list[list[str]]] = {
+        "comparison_same_refs": [],
+        "comparison_difference_refs": [],
+    }
+    explicit_compare = package.resolved_scope.explicit_compare_incident_ids
+    comparison_scope = explicit_compare or package.resolved_scope.active_incident_ids
     for atom_type in (
         "status",
         "host",
@@ -391,17 +539,15 @@ def _schema_definitions(
         "incident_identity",
     ):
         grouped = comparison_groups.get(atom_type, [])
-        if len({item.incident_id for item in grouped}) >= 2:
-            comparison_atoms = grouped
-            break
-    if comparison_atoms:
+        if len({item.incident_id for item in grouped}) < 2:
+            continue
         comparison_by_incident: dict[int, str] = {}
-        for atom in comparison_atoms:
+        for atom in grouped:
             if atom.incident_id is not None:
                 comparison_by_incident.setdefault(atom.incident_id, atom.atom_id)
         incident_order = [
             incident_id
-            for incident_id in package.resolved_scope.active_incident_ids
+            for incident_id in comparison_scope
             if incident_id in comparison_by_incident
         ]
         incident_order.extend(
@@ -412,7 +558,39 @@ def _schema_definitions(
         comparison_refs = [
             comparison_by_incident[incident_id] for incident_id in incident_order[:2]
         ]
-        definitions["comparison_fact_refs"] = _fixed_ref_array(comparison_refs)
+        selected_atoms = {
+            atom.incident_id: atom
+            for atom in grouped
+            if atom.incident_id in incident_order[:2]
+        }
+        payloads = [
+            selected_atoms[incident_id].model_dump(
+                mode="json",
+                exclude={
+                    "atom_id",
+                    "authority_class",
+                    "provenance",
+                    "incident_id",
+                    "case_id",
+                },
+            )
+            for incident_id in incident_order[:2]
+        ]
+        definition_name = (
+            "comparison_same_refs"
+            if len(payloads) == 2 and payloads[0] == payloads[1]
+            else "comparison_difference_refs"
+        )
+        if (
+            len(comparison_refs) == 2
+            and comparison_refs not in comparison_ref_sets[definition_name]
+        ):
+            comparison_ref_sets[definition_name].append(comparison_refs)
+        if sum(len(values) for values in comparison_ref_sets.values()) >= 4:
+            break
+    for name, ref_sets in comparison_ref_sets.items():
+        if ref_sets:
+            definitions[name] = {"type": "array", "enum": ref_sets}
     recorded_fact_refs = [
         atom.atom_id
         for atom in view.operational_atoms
@@ -464,7 +642,7 @@ def _schema_definitions(
             definitions[name] = (
                 _fixed_ref_array(values[:2])
                 if name == "analytical_pattern_refs"
-                else _ref_array(values, 2)
+                else _ref_array(values, 2, prefer_grouped=True)
             )
     candidate_refs = [item.candidate_id for item in view.candidates]
     reference_refs = [item.knowledge_id for item in view.reference_atoms]
@@ -475,7 +653,11 @@ def _schema_definitions(
         ("advisory_refs", advisory_refs, 2),
     ):
         if values:
-            definitions[name] = _ref_array(values, maximum)
+            definitions[name] = _ref_array(
+                values,
+                maximum,
+                prefer_grouped=True,
+            )
     return definitions
 
 
@@ -484,13 +666,31 @@ def _unit_schema(
     *,
     package: V3AnalyticalContextPackage,
     definitions: dict[str, Any],
+    section_type: AnswerSectionType,
     fact_definition: str = "fact_refs",
     non_implication_codes: list[NonImplicationCode] | None = None,
 ) -> dict[str, Any]:
+    discourse_modes = [
+        DISCOURSE_WIRE_CODES[(proposition_type, role)]
+        for proposition_type in proposition_types_for(
+            section_type,
+            unit_type,
+            intent=package.intent_selection.primary_intent,
+        )
+        for role in sorted(
+            PROPOSITION_ROLES[proposition_type],
+            key=lambda item: item.value,
+        )
+    ]
     properties: dict[str, Any] = {
         "kind": {"type": "string", "const": UNIT_WIRE_CODES[unit_type]},
+        "mode": {"type": "string", "enum": discourse_modes},
+        "importance": {
+            "type": "string",
+            "enum": list(IMPORTANCE_WIRE_CODES.values()),
+        },
     }
-    required = ["kind"]
+    required = ["kind", "mode", "importance"]
 
     if unit_type is AnalyticalUnitType.RECORDED_FACT:
         properties["refs"] = {"$ref": f"#/$defs/{fact_definition}"}
@@ -499,7 +699,12 @@ def _unit_schema(
         AnalyticalUnitType.COMPARISON,
         AnalyticalUnitType.DIFFERENCE,
     }:
-        properties["refs"] = {"$ref": "#/$defs/comparison_fact_refs"}
+        definition_name = (
+            "comparison_same_refs"
+            if unit_type is AnalyticalUnitType.COMPARISON
+            else "comparison_difference_refs"
+        )
+        properties["refs"] = {"$ref": f"#/$defs/{definition_name}"}
         required.append("refs")
     elif unit_type is AnalyticalUnitType.ABSENCE:
         properties["code"] = {
@@ -575,6 +780,174 @@ def _unit_schema(
     }
 
 
+def _section_unit_bounds(
+    section_type: AnswerSectionType,
+    *,
+    intent: AnswerIntent,
+) -> tuple[int, int]:
+    if section_type is AnswerSectionType.DIRECT_ANSWER:
+        return (1, 1)
+    if section_type is AnswerSectionType.WHAT_WE_CANNOT_CONCLUDE:
+        return (1, 1)
+    if section_type is AnswerSectionType.LIMITATIONS:
+        return (1, 2)
+    if section_type is AnswerSectionType.COMPARISON:
+        return (1, 2)
+    if section_type is AnswerSectionType.EVIDENCE:
+        return (1, 1)
+    if section_type is AnswerSectionType.RELATED_INCIDENTS:
+        return (
+            (1, 1)
+            if intent in {AnswerIntent.HANDOVER, AnswerIntent.PATTERN_ANALYSIS}
+            else (1, 2)
+        )
+    if section_type is AnswerSectionType.NEXT_STEPS:
+        return (1, 2)
+    if section_type in {
+        AnswerSectionType.PATTERN,
+        AnswerSectionType.TECHNICAL_CONTEXT,
+        AnswerSectionType.TIMELINE,
+        AnswerSectionType.INCIDENT_OVERVIEW,
+    }:
+        return (1, 1)
+    return (1, 2)
+
+
+def _required_sections_for_intent(
+    intent: AnswerIntent,
+) -> tuple[AnswerSectionType, ...]:
+    return {
+        AnswerIntent.FACT_LOOKUP: (AnswerSectionType.DIRECT_ANSWER,),
+        AnswerIntent.EXPLAIN: (
+            AnswerSectionType.DIRECT_ANSWER,
+            AnswerSectionType.TECHNICAL_CONTEXT,
+        ),
+        AnswerIntent.INVESTIGATE: (
+            AnswerSectionType.DIRECT_ANSWER,
+            AnswerSectionType.EVIDENCE,
+            AnswerSectionType.TIMELINE,
+        ),
+        AnswerIntent.SUMMARY: (
+            AnswerSectionType.DIRECT_ANSWER,
+            AnswerSectionType.KEY_FINDINGS,
+        ),
+        AnswerIntent.COMPARE: (
+            AnswerSectionType.DIRECT_ANSWER,
+            AnswerSectionType.COMPARISON,
+            AnswerSectionType.WHAT_WE_CANNOT_CONCLUDE,
+        ),
+        AnswerIntent.CROSS_INCIDENT_ANALYSIS: (
+            AnswerSectionType.DIRECT_ANSWER,
+            AnswerSectionType.RELATED_INCIDENTS,
+            AnswerSectionType.WHAT_WE_CANNOT_CONCLUDE,
+        ),
+        AnswerIntent.PATTERN_ANALYSIS: (
+            AnswerSectionType.DIRECT_ANSWER,
+            AnswerSectionType.PATTERN,
+            AnswerSectionType.WHAT_WE_CANNOT_CONCLUDE,
+        ),
+        AnswerIntent.NEXT_ACTION: (
+            AnswerSectionType.DIRECT_ANSWER,
+            AnswerSectionType.NEXT_STEPS,
+        ),
+        AnswerIntent.HANDOVER: (
+            AnswerSectionType.DIRECT_ANSWER,
+            AnswerSectionType.INCIDENT_OVERVIEW,
+            AnswerSectionType.NEXT_STEPS,
+        ),
+        AnswerIntent.EXECUTIVE_SUMMARY: (
+            AnswerSectionType.DIRECT_ANSWER,
+            AnswerSectionType.KEY_FINDINGS,
+        ),
+    }[intent]
+
+
+def _section_variants(
+    *,
+    intent: AnswerIntent,
+    available: set[AnswerSectionType],
+) -> list[list[AnswerSectionType]]:
+    contract = plan_contract(intent)
+    required = [
+        item for item in _required_sections_for_intent(intent) if item in available
+    ]
+    if AnswerSectionType.DIRECT_ANSWER in available and (
+        AnswerSectionType.DIRECT_ANSWER not in required
+    ):
+        required.insert(0, AnswerSectionType.DIRECT_ANSWER)
+    if (
+        intent in {AnswerIntent.NEXT_ACTION, AnswerIntent.HANDOVER}
+        and AnswerSectionType.NEXT_STEPS not in available
+        and AnswerSectionType.LIMITATIONS in available
+    ):
+        required.append(AnswerSectionType.LIMITATIONS)
+    if (
+        intent is AnswerIntent.INVESTIGATE
+        and AnswerSectionType.TECHNICAL_CONTEXT in available
+        and AnswerSectionType.TECHNICAL_CONTEXT not in required
+    ):
+        required.append(AnswerSectionType.TECHNICAL_CONTEXT)
+    priority = [
+        item
+        for item in _INTENT_SECTION_PRIORITY[intent]
+        if item in available and item not in required
+    ]
+    caveat = AnswerSectionType.WHAT_WE_CANNOT_CONCLUDE
+    if intent in {
+        AnswerIntent.COMPARE,
+        AnswerIntent.CROSS_INCIDENT_ANALYSIS,
+        AnswerIntent.PATTERN_ANALYSIS,
+    } and caveat in available and caveat not in required:
+        required.append(caveat)
+    while len(required) < contract.min_sections and priority:
+        required.append(priority.pop(0))
+    required = list(dict.fromkeys(required))[: contract.max_sections]
+    if not required:
+        return []
+    variants = [required.copy()]
+    for section_type in priority:
+        if len(variants[-1]) >= contract.max_sections:
+            break
+        selected = variants[-1].copy()
+        insertion = len(selected)
+        for terminal in (
+            AnswerSectionType.WHAT_WE_CANNOT_CONCLUDE,
+            AnswerSectionType.LIMITATIONS,
+        ):
+            if terminal in selected:
+                insertion = min(insertion, selected.index(terminal))
+        selected.insert(insertion, section_type)
+        selected = list(dict.fromkeys(selected))
+        if selected not in variants:
+            variants.append(selected)
+    return variants[:4]
+
+
+def _ordering_values(intent: AnswerIntent) -> list[str]:
+    if intent in {
+        AnswerIntent.COMPARE,
+        AnswerIntent.CROSS_INCIDENT_ANALYSIS,
+        AnswerIntent.PATTERN_ANALYSIS,
+    }:
+        orderings = (
+            DiscourseOrdering.COMPARISON_FIRST,
+            DiscourseOrdering.CONCLUSION_FIRST,
+            DiscourseOrdering.EVIDENCE_FIRST,
+        )
+    elif intent is AnswerIntent.INVESTIGATE:
+        orderings = (
+            DiscourseOrdering.EVIDENCE_FIRST,
+            DiscourseOrdering.CHRONOLOGY_FIRST,
+            DiscourseOrdering.CONCLUSION_FIRST,
+        )
+    else:
+        orderings = (
+            DiscourseOrdering.CONCLUSION_FIRST,
+            DiscourseOrdering.EVIDENCE_FIRST,
+        )
+    return [ORDER_WIRE_CODES[item] for item in orderings]
+
+
 def grounded_answer_plan_v3_schema(
     package: V3AnalyticalContextPackage,
 ) -> dict[str, Any]:
@@ -584,8 +957,9 @@ def grounded_answer_plan_v3_schema(
     definitions = _schema_definitions(package, view=view)
     definition_requirements = {
         AnalyticalUnitType.RECORDED_FACT: "fact_refs",
-        AnalyticalUnitType.COMPARISON: "comparison_fact_refs",
-        AnalyticalUnitType.DIFFERENCE: "comparison_fact_refs",
+        AnalyticalUnitType.COMPARISON: "comparison_same_refs",
+        AnalyticalUnitType.DIFFERENCE: "comparison_difference_refs",
+        AnalyticalUnitType.SHARED_PATTERN: "analytical_pattern_refs",
         AnalyticalUnitType.RECORDED_CORRELATION: (
             "recorded_correlation_refs"
             if "recorded_correlation_refs" in definitions
@@ -612,158 +986,159 @@ def grounded_answer_plan_v3_schema(
     )
     if not any(count >= 2 for count in analytical_types.values()):
         available_units.discard(AnalyticalUnitType.SHARED_PATTERN)
-    max_sections, _ = _INTENT_PLAN_BOUNDS[
-        package.intent_selection.primary_intent
-    ]
-    section_properties: dict[AnswerSectionType, dict[str, Any]] = {}
-    section_unit_types: dict[AnswerSectionType, set[AnalyticalUnitType]] = {}
+    primary_non_implication = (
+        NonImplicationCode.ANALYTICAL_RELATIONSHIP_NOT_CAUSALITY
+        if "analytical_relationship_refs" in definitions
+        else NonImplicationCode.SEMANTIC_SIMILARITY_NOT_RECORDED_CORRELATION
+        if "semantic_relationship_refs" in definitions
+        else NonImplicationCode.CANDIDATE_RANK_NOT_RISK
+        if "candidate_refs" in definitions
+        else NonImplicationCode.CORRELATION_NOT_COMPROMISE
+    )
+
+    section_definitions: dict[AnswerSectionType, str] = {}
     for section_type in section_types:
         eligible_units = available_units.intersection(
             SECTION_UNIT_TYPES[section_type]
         )
+        fact_definition = "supporting_fact_refs"
         if section_type is AnswerSectionType.DIRECT_ANSWER:
             eligible_units.intersection_update(
                 {AnalyticalUnitType.RECORDED_FACT, AnalyticalUnitType.ABSENCE}
             )
+            if package.intent_selection.primary_intent is not AnswerIntent.FACT_LOOKUP:
+                eligible_units.discard(AnalyticalUnitType.ABSENCE)
             fact_definition = "direct_fact_refs"
         elif section_type in {
             AnswerSectionType.KEY_FINDINGS,
             AnswerSectionType.INCIDENT_OVERVIEW,
         }:
-            eligible_units.intersection_update(
-                {AnalyticalUnitType.RECORDED_FACT, AnalyticalUnitType.ABSENCE}
-            )
+            eligible_units.intersection_update({AnalyticalUnitType.RECORDED_FACT})
             fact_definition = (
                 "findings_fact_refs"
                 if section_type is AnswerSectionType.KEY_FINDINGS
                 else "overview_fact_refs"
             )
         elif section_type is AnswerSectionType.RELATED_INCIDENTS:
-            for preferred in (
-                AnalyticalUnitType.ANALYTICAL_RELATIONSHIP,
-                AnalyticalUnitType.SEMANTIC_SIMILARITY,
-                AnalyticalUnitType.CANDIDATE_RELEVANCE,
-            ):
-                if preferred in eligible_units:
-                    eligible_units.intersection_update({preferred})
-                    break
-            fact_definition = "supporting_fact_refs"
-        elif section_type is AnswerSectionType.COMPARISON:
-            comparison_units = eligible_units.intersection(
-                {AnalyticalUnitType.COMPARISON, AnalyticalUnitType.DIFFERENCE}
-            )
-            if comparison_units:
-                eligible_units = comparison_units
-            fact_definition = "supporting_fact_refs"
-        elif section_type is AnswerSectionType.EVIDENCE:
-            evidence_units = eligible_units.intersection(
+            eligible_units.intersection_update(
                 {
-                    AnalyticalUnitType.RECORDED_FACT,
-                    AnalyticalUnitType.RECORDED_CORRELATION,
+                    AnalyticalUnitType.ANALYTICAL_RELATIONSHIP,
+                    AnalyticalUnitType.SEMANTIC_SIMILARITY,
+                    AnalyticalUnitType.CANDIDATE_RELEVANCE,
                 }
             )
-            if evidence_units:
-                eligible_units = evidence_units
-            fact_definition = "supporting_fact_refs"
+            if package.intent_selection.primary_intent is AnswerIntent.PATTERN_ANALYSIS:
+                eligible_units.intersection_update(
+                    {AnalyticalUnitType.ANALYTICAL_RELATIONSHIP}
+                )
+            elif "analytical_relationship_refs" in definitions:
+                eligible_units.discard(AnalyticalUnitType.SEMANTIC_SIMILARITY)
+        elif section_type is AnswerSectionType.COMPARISON:
+            eligible_units.intersection_update(
+                {AnalyticalUnitType.COMPARISON, AnalyticalUnitType.DIFFERENCE}
+            )
+        elif section_type is AnswerSectionType.EVIDENCE:
+            eligible_units.intersection_update({AnalyticalUnitType.RECORDED_FACT})
+        elif section_type is AnswerSectionType.TIMELINE:
+            eligible_units.intersection_update({AnalyticalUnitType.RECORDED_FACT})
+            fact_definition = "timeline_fact_refs"
         elif section_type is AnswerSectionType.WHAT_WE_CANNOT_CONCLUDE:
             eligible_units.intersection_update({AnalyticalUnitType.NON_IMPLICATION})
-            fact_definition = "supporting_fact_refs"
         elif section_type is AnswerSectionType.LIMITATIONS:
             eligible_units.intersection_update({AnalyticalUnitType.LIMITATION})
-            fact_definition = "supporting_fact_refs"
-        else:
-            fact_definition = "supporting_fact_refs"
         if (
             AnalyticalUnitType.RECORDED_FACT in eligible_units
             and fact_definition not in definitions
         ):
             eligible_units.remove(AnalyticalUnitType.RECORDED_FACT)
-        unit_types = sorted(
-            eligible_units,
-            key=lambda item: item.value,
-        )
+        unit_types = [
+            item
+            for item in sorted(eligible_units, key=lambda item: item.value)
+            if proposition_types_for(
+                section_type,
+                item,
+                intent=package.intent_selection.primary_intent,
+            )
+        ]
         if not unit_types:
             continue
-        section_unit_types[section_type] = set(unit_types)
-        section_properties[section_type] = {
-            "oneOf": [
-                _unit_schema(
-                    item,
-                    package=package,
-                    definitions=definitions,
-                    fact_definition=fact_definition,
-                )
-                for item in unit_types
-            ]
-        }
-    intent = package.intent_selection.primary_intent
-    selected_sections = [AnswerSectionType.DIRECT_ANSWER]
-    selected_ambiguous_units: set[AnalyticalUnitType] = set()
-    for section_type in _INTENT_SECTION_PRIORITY[intent]:
-        if section_type not in section_properties:
-            continue
-        candidate_ambiguity = section_unit_types.get(
+        minimum, maximum = _section_unit_bounds(
             section_type,
-            set(),
-        ).intersection(_AMBIGUOUS_UNIT_TYPES)
-        requires_caveat = bool(selected_ambiguous_units or candidate_ambiguity)
-        reserved_slots = 1 if requires_caveat else 0
-        if len(selected_sections) + 1 + reserved_slots > max_sections:
-            continue
-        selected_sections.append(section_type)
-        selected_ambiguous_units.update(candidate_ambiguity)
-    caveat = AnswerSectionType.WHAT_WE_CANNOT_CONCLUDE
-    if selected_ambiguous_units and caveat in section_properties:
-        non_implication_codes: list[NonImplicationCode] = []
-        if AnalyticalUnitType.RECORDED_CORRELATION in selected_ambiguous_units:
-            non_implication_codes.append(
-                NonImplicationCode.CORRELATION_NOT_COMPROMISE
+            intent=package.intent_selection.primary_intent,
+        )
+        definition_name = f"section_{SECTION_WIRE_CODES[section_type]}"
+        unit_schemas = [
+            _unit_schema(
+                item,
+                package=package,
+                definitions=definitions,
+                section_type=section_type,
+                fact_definition=fact_definition,
+                non_implication_codes=(
+                    [primary_non_implication]
+                    if item is AnalyticalUnitType.NON_IMPLICATION
+                    and section_type
+                    is AnswerSectionType.WHAT_WE_CANNOT_CONCLUDE
+                    else None
+                ),
             )
-        if selected_ambiguous_units.intersection(
-            {
-                AnalyticalUnitType.ANALYTICAL_RELATIONSHIP,
-                AnalyticalUnitType.SHARED_PATTERN,
-                AnalyticalUnitType.TEMPORAL_SEQUENCE,
-            }
-        ):
-            non_implication_codes.append(
-                NonImplicationCode.ANALYTICAL_RELATIONSHIP_NOT_CAUSALITY
-            )
-        if AnalyticalUnitType.SEMANTIC_SIMILARITY in selected_ambiguous_units:
-            non_implication_codes.append(
-                NonImplicationCode.SEMANTIC_SIMILARITY_NOT_RECORDED_CORRELATION
-            )
-        section_properties[caveat] = {
-            "oneOf": [
-                _unit_schema(
-                    AnalyticalUnitType.NON_IMPLICATION,
-                    package=package,
-                    definitions=definitions,
-                    non_implication_codes=non_implication_codes,
-                )
-            ]
+            for item in unit_types
+        ]
+        definitions[definition_name] = {
+            "type": "array",
+            "minItems": minimum,
+            "maxItems": maximum,
         }
-        selected_sections.append(caveat)
-    selected_sections = list(dict.fromkeys(selected_sections))
-    selected_properties = {
-        SECTION_WIRE_CODES[section_type]: section_properties[section_type]
-        for section_type in selected_sections
-        if section_type in section_properties
-    }
-    required_sections = list(selected_properties)
+        if section_type in {
+            AnswerSectionType.COMPARISON,
+            AnswerSectionType.RELATED_INCIDENTS,
+        } and len(unit_schemas) > 1:
+            definitions[definition_name].update(
+                {
+                    "prefixItems": unit_schemas,
+                    "minItems": len(unit_schemas),
+                    "maxItems": len(unit_schemas),
+                }
+            )
+        else:
+            definitions[definition_name]["items"] = {"oneOf": unit_schemas}
+        section_definitions[section_type] = definition_name
+
+    intent = package.intent_selection.primary_intent
+    variants = _section_variants(
+        intent=intent,
+        available=set(section_definitions),
+    )
+    if not variants:
+        raise ValueError("no useful V3 plan shape is available")
+    section_schemas = []
+    for variant in variants:
+        properties = {
+            SECTION_WIRE_CODES[section_type]: {
+                "$ref": f"#/$defs/{section_definitions[section_type]}"
+            }
+            for section_type in variant
+        }
+        section_schemas.append(
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": properties,
+                "required": list(properties),
+                "minProperties": len(properties),
+                "maxProperties": len(properties),
+            }
+        )
     return {
         "$defs": definitions,
         "type": "object",
         "additionalProperties": False,
         "properties": {
-            "sections": {
-                "type": "object",
-                "additionalProperties": False,
-                "properties": selected_properties,
-                "required": required_sections,
-                "minProperties": 1,
-                "maxProperties": len(selected_properties),
+            "order": {
+                "type": "string",
+                "enum": _ordering_values(intent),
             },
+            "sections": {"oneOf": section_schemas},
         },
-        "required": ["sections"],
+        "required": ["order", "sections"],
     }

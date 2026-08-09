@@ -29,7 +29,14 @@ from services.assistant.v3.contracts import (
 def _bounded_text(value: Any, maximum: int) -> str | None:
     if value is None:
         return None
+    if isinstance(value, (dict, list, tuple, set)):
+        return None
     text = " ".join(str(value).split())
+    if (
+        (text.startswith("{") and text.endswith("}"))
+        or (text.startswith("[") and text.endswith("]"))
+    ):
+        return None
     if not text:
         return None
     return text[:maximum]

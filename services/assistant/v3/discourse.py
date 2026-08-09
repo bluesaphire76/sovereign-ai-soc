@@ -5,6 +5,11 @@ from dataclasses import dataclass
 from typing import Callable
 
 from services.assistant.v3.contracts import (
+    AdvisoryActionCode,
+    AdvisoryContextCode,
+    AdvisoryKnowledgeAtom,
+    AdvisoryReasonCode,
+    AdvisoryTargetType,
     CaseIdentityAtom,
     CaseRelationshipAtom,
     CompromiseStateAtom,
@@ -74,7 +79,13 @@ def _join_clauses(values: list[str], *, language: str) -> str:
         return ""
     if len(values) == 1:
         return values[0]
-    conjunction = " e " if language == "it" else " and "
+    conjunction = (
+        " ed "
+        if language == "it" and values[-1].casefold().startswith(("e", "è"))
+        else " e "
+        if language == "it"
+        else " and "
+    )
     if len(values) == 2:
         return conjunction.join(values)
     return f"{', '.join(values[:-1])}{conjunction}{values[-1]}"
@@ -122,13 +133,17 @@ def _atom_clauses(atom: EvidenceAtom, *, language: str) -> list[str]:
             else f"has recorded recommended priority {atom.recommended_priority}"
         ]
     if isinstance(atom, HostAtom):
-        noun = "host" if atom.representation == "host" else "agente"
-        if language == "en":
+        if language == "it":
+            association = (
+                f"è associato al host {atom.host}"
+                if atom.representation == "host"
+                else f"è associato all'agente {atom.host}"
+            )
+        else:
             noun = "host" if atom.representation == "host" else "agent"
+            association = f"is associated with {noun} {atom.host}"
         return [
-            f"è associato al {noun} {atom.host}"
-            if language == "it"
-            else f"is associated with {noun} {atom.host}"
+            association
         ]
     if isinstance(atom, UserAtom):
         return [
@@ -140,10 +155,11 @@ def _atom_clauses(atom: EvidenceAtom, *, language: str) -> list[str]:
         level = f" (livello {atom.level})" if language == "it" else f" (level {atom.level})"
         if atom.level is None:
             level = ""
+        rule = atom.rule.rstrip(".") if level else atom.rule
         return [
-            f"deriva dalla regola di detection {atom.rule}{level}"
+            f"deriva dalla regola di detection {rule}{level}"
             if language == "it"
-            else f"was raised by detection rule {atom.rule}{level}"
+            else f"was raised by detection rule {rule}{level}"
         ]
     if isinstance(atom, MitreTechniqueAtom):
         value = atom.technique_id or atom.technique_name or ""
@@ -233,17 +249,173 @@ def _render_recorded_facts(
     for ref in unit.fact_refs:
         atom = atoms[ref]
         grouped.setdefault((atom.incident_id, atom.case_id), []).append(atom)
-    sentences = []
+    sentences: list[str] = []
     for selected in grouped.values():
-        clauses = [
-            clause
+        primary_atoms = [
+            atom
             for atom in selected
+            if isinstance(atom, (StatusAtom, DetectionAtom, HostAtom, UserAtom))
+        ]
+        handling_atoms = [
+            atom
+            for atom in selected
+            if isinstance(
+                atom,
+                (
+                    RiskAtom,
+                    PriorityAtom,
+                    EscalationStateAtom,
+                    EscalationReasonAtom,
+                    CompromiseStateAtom,
+                    CaseRelationshipAtom,
+                ),
+            )
+        ]
+        technical_atoms = [
+            atom for atom in selected if isinstance(atom, MitreTechniqueAtom)
+        ]
+        correlation_atoms = [
+            atom for atom in selected if isinstance(atom, RecordedCorrelationAtom)
+        ]
+        timeline_atoms = [
+            atom for atom in selected if isinstance(atom, TimelineEventAtom)
+        ]
+        identity_atoms = [
+            atom
+            for atom in selected
+            if isinstance(atom, (IncidentIdentityAtom, CaseIdentityAtom))
+        ]
+        categorized = {
+            id(atom)
+            for atom in (
+                *primary_atoms,
+                *handling_atoms,
+                *technical_atoms,
+                *correlation_atoms,
+                *timeline_atoms,
+                *identity_atoms,
+            )
+        }
+        primary_clauses = [
+            clause
+            for atom in primary_atoms
             for clause in _atom_clauses(atom, language=language)
         ]
-        if clauses:
+        if primary_clauses:
             sentences.append(
                 f"{_record_subject(selected[0], language=language)} "
-                f"{_join_clauses(clauses, language=language)}."
+                f"{_join_clauses(primary_clauses, language=language)}."
+            )
+        handling_clauses = [
+            clause
+            for atom in handling_atoms
+            for clause in _atom_clauses(atom, language=language)
+        ]
+        if handling_clauses:
+            record_subject = _record_subject(selected[0], language=language)
+            if language == "it":
+                record_subject = record_subject.replace("L'", "l'", 1).replace(
+                    "Il ", "il ", 1
+                )
+            subject = (
+                f"Nel contesto operativo corrente, {record_subject}"
+                if language == "it"
+                else f"In the current handling context, {record_subject.lower()}"
+            )
+            sentences.append(
+                f"{subject} {_join_clauses(handling_clauses, language=language)}."
+            )
+        for atom in correlation_atoms:
+            values: list[str] = []
+            if isinstance(atom.correlated, bool):
+                if language == "it":
+                    values.append(
+                        "una correlazione registrata"
+                        if atom.correlated
+                        else "l'assenza di correlazione registrata"
+                    )
+                else:
+                    values.append(
+                        "a recorded correlation"
+                        if atom.correlated
+                        else "recorded absence of correlation"
+                    )
+            if atom.correlation_type:
+                values.append(
+                    f"il tipo {atom.correlation_type}"
+                    if language == "it"
+                    else f"type {atom.correlation_type}"
+                )
+            if atom.correlation_score is not None:
+                values.append(
+                    f"il punteggio {atom.correlation_score:g}"
+                    if language == "it"
+                    else f"score {atom.correlation_score:g}"
+                )
+            if values:
+                joined = _join_clauses(values, language=language)
+                record_subject = _record_subject(atom, language=language)
+                if language == "it":
+                    record_subject = record_subject.replace(
+                        "L'", "l'", 1
+                    ).replace("Il ", "il ", 1)
+                sentences.append(
+                    f"Separatamente, lo stato di piattaforma per {record_subject} registra {joined}."
+                    if language == "it"
+                    else f"Separately, platform state for {record_subject.lower()} records {joined}."
+                )
+        technical_clauses = [
+            clause
+            for atom in technical_atoms
+            for clause in _atom_clauses(atom, language=language)
+        ]
+        if technical_clauses:
+            record_subject = _record_subject(selected[0], language=language)
+            if language == "it":
+                record_subject = record_subject.replace("L'", "l'", 1).replace(
+                    "Il ", "il ", 1
+                )
+            subject = (
+                f"Come contesto tecnico di supporto, {record_subject}"
+                if language == "it"
+                else f"As supporting technical context, {record_subject.lower()}"
+            )
+            sentences.append(
+                f"{subject} {_join_clauses(technical_clauses, language=language)}."
+            )
+        for atom in timeline_atoms:
+            timestamp = f" alle {atom.timestamp}" if language == "it" else f" at {atom.timestamp}"
+            if not atom.timestamp:
+                timestamp = ""
+            sentences.append(
+                f"La timeline aggiunge l'evento {atom.event_type}{timestamp}."
+                if language == "it"
+                else f"The timeline adds event {atom.event_type}{timestamp}."
+            )
+        identity_clauses = [
+            clause
+            for atom in identity_atoms
+            for clause in _atom_clauses(atom, language=language)
+        ]
+        if identity_clauses:
+            subject = (
+                "Per collocarlo nel tempo, il record"
+                if language == "it"
+                else "To place it in time, the record"
+            )
+            sentences.append(
+                f"{subject} {_join_clauses(identity_clauses, language=language)}."
+            )
+        other_clauses = [
+            clause
+            for atom in selected
+            if id(atom) not in categorized
+            for clause in _atom_clauses(atom, language=language)
+        ]
+        if other_clauses:
+            sentences.append(
+                f"{_record_subject(selected[0], language=language)} "
+                f"{_join_clauses(other_clauses, language=language)}."
             )
     return " ".join(sentences)
 
@@ -264,39 +436,90 @@ _RELATION_LABELS = {
     RelationshipType.PLATFORM_RECORDED_CORRELATION: ("una correlazione registrata dalla piattaforma", "a platform-recorded correlation"),
 }
 
+_PATTERN_LABELS = {
+    RelationshipType.SHARED_HOST: ("host", "host"),
+    RelationshipType.SHARED_AGENT: ("agente", "agent"),
+    RelationshipType.SHARED_USER: ("utente", "user"),
+    RelationshipType.SHARED_RULE: ("regola di detection", "detection rule"),
+    RelationshipType.SHARED_DETECTION_FAMILY: ("famiglia di detection", "detection family"),
+    RelationshipType.SHARED_MITRE: ("tecnica MITRE", "MITRE technique"),
+    RelationshipType.SHARED_OBSERVABLE: ("osservabile", "observable"),
+    RelationshipType.SHARED_EVENT_FAMILY: ("famiglia di eventi", "event family"),
+    RelationshipType.SHARED_CORRELATION_TYPE: ("tipo di correlazione", "correlation type"),
+    RelationshipType.SAME_CASE: ("caso", "case membership"),
+    RelationshipType.TEMPORAL_PROXIMITY: ("finestra temporale", "24-hour time window"),
+    RelationshipType.SEMANTIC_SIMILARITY: ("segnale semantico", "semantic signal"),
+    RelationshipType.PLATFORM_RECORDED_CORRELATION: ("correlazione registrata", "platform-recorded correlation"),
+}
+
 
 def _render_relationship(unit: AnalyticalUnit, package: V3AnalyticalContextPackage) -> str:
     language = package.response_language
-    sentences = []
+    relationships = []
     for ref in unit.relationship_refs:
         relationship = package.relationship_registry.resolve(ref)
-        if relationship is None:
-            continue
-        label = _RELATION_LABELS[relationship.relationship_type][0 if language == "it" else 1]
-        if relationship.relationship_type is RelationshipType.PLATFORM_RECORDED_CORRELATION:
-            sentences.append(
-                f"La piattaforma registra {label} tra gli incidenti {relationship.left_incident_id} e {relationship.right_incident_id}."
-                if language == "it"
-                else f"The platform records {label} between incidents {relationship.left_incident_id} and {relationship.right_incident_id}."
+        if relationship is not None:
+            relationships.append(relationship)
+    if not relationships:
+        return ""
+    relationships.sort(
+        key=lambda item: (
+            -(item.strength if item.strength is not None else 0.0),
+            item.right_incident_id,
+            item.relationship_type.value,
+        )
+    )
+
+    def comparison_clause(relationship) -> str:
+        label = _RELATION_LABELS[relationship.relationship_type][
+            0 if language == "it" else 1
+        ]
+        if language == "it":
+            return (
+                f"gli incidenti {relationship.left_incident_id} e "
+                f"{relationship.right_incident_id} condividono {label}"
             )
-        elif relationship.relationship_type is RelationshipType.SEMANTIC_SIMILARITY:
-            sentences.append(
-                f"L'incidente {relationship.right_incident_id} è un candidato di confronto per {label} con il {relationship.left_incident_id}."
-                if language == "it"
-                else f"Incident {relationship.right_incident_id} is a comparison candidate based on {label} with incident {relationship.left_incident_id}."
-            )
-        else:
-            sentences.append(
-                f"Gli incidenti {relationship.left_incident_id} e {relationship.right_incident_id} condividono {label}; questa è una relazione analitica derivata dai record."
-                if language == "it"
-                else f"Incidents {relationship.left_incident_id} and {relationship.right_incident_id} share {label}; this is an analytical relationship derived from records."
-            )
-    return " ".join(sentences)
+        return (
+            f"incidents {relationship.left_incident_id} and "
+            f"{relationship.right_incident_id} share {label}"
+        )
+
+    clauses = [comparison_clause(item) for item in relationships]
+    if unit.unit_type is AnalyticalUnitType.RECORDED_CORRELATION:
+        joined = _join_clauses(clauses, language=language)
+        return (
+            f"La piattaforma registra i seguenti collegamenti: {joined}."
+            if language == "it"
+            else f"The platform records the following links: {joined}."
+        )
+    if unit.unit_type is AnalyticalUnitType.SEMANTIC_SIMILARITY:
+        joined = _join_clauses(clauses, language=language)
+        return (
+            f"Come segnale di retrieval, {joined}; sono candidati di confronto basati sulla similarità semantica."
+            if language == "it"
+            else f"As a retrieval signal, {joined}; these are comparison candidates based on semantic similarity."
+        )
+    if len(clauses) == 1:
+        return (
+            f"{clauses[0].capitalize()}; è una relazione analitica derivata dai record."
+            if language == "it"
+            else f"{clauses[0].capitalize()}; this is an analytical relationship derived from records."
+        )
+    leading, *supporting = clauses
+    support_text = _join_clauses(supporting, language=language)
+    return (
+        f"Il confronto principale è che {leading}; il contesto aggiuntivo indica che {support_text}. Sono relazioni analitiche derivate dai record."
+        if language == "it"
+        else f"The leading comparison is that {leading}; additional context indicates that {support_text}. They are analytical relationships derived from records."
+    )
 
 
 def _render_candidate(unit: AnalyticalUnit, package: V3AnalyticalContextPackage) -> str:
     candidates = {item.candidate_id: item for item in package.cross_incident_candidates}
-    selected = [candidates[ref] for ref in unit.candidate_refs]
+    selected = sorted(
+        (candidates[ref] for ref in unit.candidate_refs),
+        key=lambda item: (-item.ranking_score, item.candidate_incident_id),
+    )
     values = [item.candidate_incident_id for item in selected]
     joined = ", ".join(str(value) for value in values)
     explicit = any(
@@ -309,13 +532,21 @@ def _render_candidate(unit: AnalyticalUnit, package: V3AnalyticalContextPackage)
             if explicit
             else "La policy di retrieval identifica"
         )
-        return f"{subject} gli incidenti {joined} come confronti rilevanti; il ranking indica utilità comparativa, non rischio o compromissione."
+        if len(selected) > 1 and not explicit:
+            return (
+                f"La policy di retrieval classifica l'incidente {values[0]} come confronto principale e include {', '.join(str(value) for value in values[1:])} come contesto secondario. Il ranking indica utilità comparativa, non rischio, severità o compromissione."
+            )
+        return f"{subject} gli incidenti {joined} come confronti rilevanti; il ranking indica utilità comparativa, non rischio, severità o compromissione."
     subject = (
         "The explicit record set includes"
         if explicit
         else "The retrieval policy identifies"
     )
-    return f"{subject} incidents {joined} as relevant comparisons; ranking indicates comparison utility, not risk or compromise."
+    if len(selected) > 1 and not explicit:
+        return (
+            f"The retrieval policy ranks incident {values[0]} as the leading comparison and includes {', '.join(str(value) for value in values[1:])} as secondary context. Ranking indicates comparison utility, not risk, severity, or compromise."
+        )
+    return f"{subject} incidents {joined} as relevant comparisons; ranking indicates comparison utility, not risk, severity, or compromise."
 
 
 def _render_comparison(
@@ -329,13 +560,49 @@ def _render_comparison(
     for atom in selected:
         clauses = _atom_clauses(atom, language=language)
         if clauses:
+            subject = _record_subject(atom, language=language)
+            if language == "it":
+                subject = subject.replace("L'", "l'", 1).replace("Il ", "il ", 1)
             descriptions.append(
-                f"{_record_subject(atom, language=language)} {_join_clauses(clauses, language=language)}"
+                f"{subject} {_join_clauses(clauses, language=language)}"
             )
     if not descriptions:
         return ""
-    prefix = "Nel confronto, " if language == "it" else "In comparison, "
-    separator = "; " if unit.unit_type is AnalyticalUnitType.DIFFERENCE else ", "
+    incident_ids = [atom.incident_id for atom in selected if atom.incident_id is not None]
+    if unit.unit_type is AnalyticalUnitType.COMPARISON:
+        clauses = _atom_clauses(selected[0], language=language)
+        if not clauses:
+            return ""
+        pluralized: list[str] = []
+        replacements = (
+            (
+                ("è associato ", "sono associati "),
+                ("risulta ", "risultano "),
+                ("è ", "sono "),
+                ("ha ", "hanno "),
+                ("deriva ", "derivano "),
+                ("mantiene ", "mantengono "),
+            )
+            if language == "it"
+            else (("is ", "are "), ("was ", "were "), ("has ", "have "))
+        )
+        for clause in clauses:
+            for singular, plural in replacements:
+                if clause.startswith(singular):
+                    clause = f"{plural}{clause[len(singular):]}"
+                    break
+            pluralized.append(clause)
+        joined_ids = _join_clauses(
+            [str(incident_id) for incident_id in incident_ids],
+            language=language,
+        )
+        return (
+            f"Gli incidenti {joined_ids} {_join_clauses(pluralized, language=language)}."
+            if language == "it"
+            else f"Incidents {joined_ids} {_join_clauses(pluralized, language=language)}."
+        )
+    separator = "; mentre " if language == "it" else "; whereas "
+    prefix = "Nel confronto diretto, " if language == "it" else "In the direct comparison, "
     return f"{prefix}{separator.join(descriptions)}."
 
 
@@ -351,13 +618,13 @@ def _render_pattern(unit: AnalyticalUnit, package: V3AnalyticalContextPackage) -
             for value in (item.left_incident_id, item.right_incident_id)
         }
     )
-    label = _RELATION_LABELS[relationships[0].relationship_type][
+    label = _PATTERN_LABELS[relationships[0].relationship_type][
         0 if package.response_language == "it" else 1
     ]
     joined = ", ".join(str(value) for value in incident_ids)
     if package.response_language == "it":
-        return f"Il pattern supportato riguarda {len(incident_ids)} incidenti ({joined}) che condividono {label}."
-    return f"The supported pattern covers {len(incident_ids)} incidents ({joined}) sharing {label}."
+        return f"Il pattern supportato riguarda {len(incident_ids)} incidenti ({joined}) ed è definito dalla condivisione dello stesso {label} nei record autorevoli."
+    return f"The supported pattern covers {len(incident_ids)} incidents ({joined}) and is defined by a shared {label} in authoritative records."
 
 
 _NON_IMPLICATION_TEXT = {
@@ -461,6 +728,141 @@ def _scope_prefix(
     return f"For the selected records, {purpose}"
 
 
+_ADVISORY_ACTION_TEXT = {
+    AdvisoryActionCode.COMPARE_RELATED_EVIDENCE: (
+        "confronta le evidenze autorevoli di detection e timeline con il precedente storico recuperato",
+        "compare authoritative detection and timeline evidence with the retrieved historical precedent",
+    ),
+    AdvisoryActionCode.VERIFY_DETECTION_CONTROL: (
+        "verifica il controllo di detection pertinente rispetto alle evidenze correnti",
+        "verify the relevant detection control against current evidence",
+    ),
+    AdvisoryActionCode.VERIFY_CASE_HANDLING: (
+        "riesamina la gestione del caso rispetto alle evidenze registrate",
+        "review case handling against the recorded evidence",
+    ),
+    AdvisoryActionCode.FOLLOW_PLAYBOOK_CHECKS: (
+        "applica alle evidenze correnti i controlli del playbook recuperato",
+        "apply the retrieved playbook checks to current evidence",
+    ),
+}
+
+_ADVISORY_REASON_TEXT = {
+    AdvisoryReasonCode.HISTORICAL_SIMILARITY_RETRIEVED: (
+        "È stato recuperato un incidente storico come lead di similarità, non come prova che gli eventi coincidano",
+        "A historical incident was retrieved as a similarity lead, not as evidence that the events are the same",
+    ),
+    AdvisoryReasonCode.CONTROL_GUIDANCE_RETRIEVED: (
+        "La guida del controllo recuperata motiva questa verifica",
+        "Retrieved control guidance motivates this verification",
+    ),
+    AdvisoryReasonCode.CASE_GUIDANCE_RETRIEVED: (
+        "La guida di gestione del caso recuperata motiva questa verifica",
+        "Retrieved case-handling guidance motivates this verification",
+    ),
+    AdvisoryReasonCode.PLAYBOOK_GUIDANCE_RETRIEVED: (
+        "Il playbook recuperato fornisce il percorso di verifica",
+        "The retrieved playbook provides the verification path",
+    ),
+}
+
+_ADVISORY_TARGET_TEXT = {
+    AdvisoryTargetType.DETECTION_AND_TIMELINE: (
+        "Cerca corrispondenze o divergenze nei campi di detection e negli eventi adiacenti della timeline",
+        "Look for matching or diverging detection fields and adjacent timeline events",
+    ),
+    AdvisoryTargetType.DETECTION_CONTROL: (
+        "Controlla configurazione, copertura e detection prodotte dal controllo",
+        "Inspect the control configuration, coverage, and resulting detections",
+    ),
+    AdvisoryTargetType.CASE_EVIDENCE: (
+        "Controlla le evidenze del caso e lo stato di gestione registrato",
+        "Inspect case evidence and the recorded handling state",
+    ),
+    AdvisoryTargetType.SOURCE_DEFINED_ARTIFACTS: (
+        "Cerca gli artefatti e i risultati definiti dalla fonte consultiva nelle evidenze disponibili",
+        "Look for the advisory source-defined artifacts and outcomes in the available evidence",
+    ),
+}
+
+_ADVISORY_CONTEXT_TEXT = {
+    AdvisoryContextCode.HISTORICAL_INCIDENT: (
+        "precedente storico recuperato",
+        "retrieved historical precedent",
+    ),
+    AdvisoryContextCode.DETECTION_CONTROL: (
+        "guida del controllo di detection",
+        "detection-control guidance",
+    ),
+    AdvisoryContextCode.CASE_CLOSURE: (
+        "guida di gestione del caso",
+        "case-handling guidance",
+    ),
+    AdvisoryContextCode.KNOWLEDGE_BASE: (
+        "playbook della knowledge base",
+        "knowledge-base playbook",
+    ),
+}
+
+_REFERENCE_TEXT = {
+    "reference:correlation:recorded": (
+        "Una correlazione registrata è uno stato esplicito della piattaforma. Resta distinta da una relazione analitica derivata dall'Assistant e non dimostra da sola causalità o compromissione.",
+        "A recorded correlation is explicit platform state. It remains distinct from an Assistant-derived analytical relationship and does not by itself establish causality or compromise.",
+    ),
+    "reference:correlation:analytical": (
+        "Una relazione analitica registra evidenze condivise e tracciabili tra incidenti. Non è una correlazione registrata dalla piattaforma né una prova di causa, attaccante, campagna o asset compromesso condivisi.",
+        "An analytical relationship records shared, traceable evidence between incidents. It is neither platform-recorded correlation nor proof of a shared cause, attacker, campaign, or compromised asset.",
+    ),
+    "reference:correlation:semantic": (
+        "La similarità semantica è soltanto un segnale di retrieval. Un incidente storico usato nel confronto operativo deve essere reidratato dallo storage autorevole e la similarità non può essere presentata come correlazione.",
+        "Semantic similarity is a retrieval signal only. Any historical incident used for operational comparison must be rehydrated from authoritative storage, and similarity must not be represented as correlation.",
+    ),
+    "reference:risk:separation": (
+        "Severità canonica, severità di normalizzazione, rischio numerico e priorità raccomandata sono concetti registrati distinti e non si sostituiscono a vicenda.",
+        "Canonical severity, risk-normalization severity, numeric risk, and recommended priority are separate recorded concepts and cannot replace one another.",
+    ),
+}
+
+
+def _render_advisory(
+    unit: AnalyticalUnit,
+    *,
+    package: V3AnalyticalContextPackage,
+) -> str:
+    advisories = {item.knowledge_id: item for item in package.advisory_atoms}
+    selected: list[AdvisoryKnowledgeAtom] = [
+        advisories[ref] for ref in unit.advisory_refs
+    ]
+    language_index = 0 if package.response_language == "it" else 1
+    sentences: list[str] = []
+    seen: set[tuple[object, ...]] = set()
+    for advisory in selected:
+        semantic_key = (
+            advisory.action_code,
+            advisory.reason_code,
+            advisory.target_type,
+            advisory.context_code,
+        )
+        if semantic_key in seen:
+            continue
+        seen.add(semantic_key)
+        action = _ADVISORY_ACTION_TEXT[advisory.action_code][language_index]
+        reason = _ADVISORY_REASON_TEXT[advisory.reason_code][language_index]
+        target = _ADVISORY_TARGET_TEXT[advisory.target_type][language_index]
+        context = _ADVISORY_CONTEXT_TEXT[advisory.context_code][language_index]
+        reason = reason[:1].casefold() + reason[1:]
+        target = target[:1].casefold() + target[1:]
+        if package.response_language == "it":
+            sentences.append(
+                f"{_scope_prefix(package, purpose='come prossimo controllo, ')}{action}, usando il {context} solo come guida; {reason}; {target}."
+            )
+        else:
+            sentences.append(
+                f"{_scope_prefix(package, purpose='as the next check, ')}{action}, using the {context} only as guidance; {reason}; {target}."
+            )
+    return " ".join(sentences)
+
+
 def _render_unit(
     unit: AnalyticalUnit,
     *,
@@ -491,8 +893,16 @@ def _render_unit(
         return _render_relationship(unit, package)
     if unit.unit_type is AnalyticalUnitType.REFERENCE_EXPLANATION:
         references = {item.knowledge_id: item for item in package.reference_atoms}
+        language_index = 0 if language == "it" else 1
         content = " ".join(
-            references[ref].bounded_content for ref in unit.reference_refs
+            _REFERENCE_TEXT.get(
+                ref,
+                (
+                    references[ref].bounded_content,
+                    references[ref].bounded_content,
+                ),
+            )[language_index]
+            for ref in unit.reference_refs
         )
         purpose = (
             "la conoscenza di riferimento indica: "
@@ -504,14 +914,7 @@ def _render_unit(
         AnalyticalUnitType.ADVISORY_GUIDANCE,
         AnalyticalUnitType.NEXT_CHECK,
     }:
-        advisories = {item.knowledge_id: item for item in package.advisory_atoms}
-        content = " ".join(advisories[ref].bounded_content for ref in unit.advisory_refs)
-        purpose = (
-            "la guida investigativa suggerisce: "
-            if language == "it"
-            else "investigative guidance suggests: "
-        )
-        return f"{_scope_prefix(package, purpose=purpose)}{content}"
+        return _render_advisory(unit, package=package)
     if unit.unit_type is AnalyticalUnitType.NON_IMPLICATION:
         assert unit.non_implication is not None
         return _NON_IMPLICATION_TEXT[unit.non_implication][0 if language == "it" else 1]
@@ -541,8 +944,92 @@ class RichGroundedDiscourseRenderer:
         for section in plan.sections:
             paragraphs: list[str] = []
             source_refs: list[str] = []
+            fact_units = [
+                unit
+                for unit in section.units
+                if unit.fact_refs
+                and unit.unit_type
+                in {
+                    AnalyticalUnitType.RECORDED_FACT,
+                    AnalyticalUnitType.RECORDED_CORRELATION,
+                }
+            ]
+            aggregate_fact_refs = list(
+                dict.fromkeys(
+                    ref for unit in fact_units for ref in unit.fact_refs
+                )
+            )
+            facts_rendered = False
+            aggregate_types = {
+                AnalyticalUnitType.ANALYTICAL_RELATIONSHIP,
+                AnalyticalUnitType.SEMANTIC_SIMILARITY,
+                AnalyticalUnitType.CANDIDATE_RELEVANCE,
+                AnalyticalUnitType.ADVISORY_GUIDANCE,
+                AnalyticalUnitType.NEXT_CHECK,
+            }
+            aggregated_types: set[AnalyticalUnitType] = set()
             for unit in section.units:
-                text = " ".join(_render_unit(unit, package=package, atoms=atoms).split())
+                render_unit = unit
+                if unit in fact_units:
+                    if facts_rendered:
+                        continue
+                    facts_rendered = True
+                    render_unit = unit.model_copy(
+                        update={"fact_refs": aggregate_fact_refs}
+                    )
+                elif unit.unit_type in aggregate_types:
+                    if unit.unit_type in aggregated_types:
+                        continue
+                    aggregated_types.add(unit.unit_type)
+                    peers = [
+                        item
+                        for item in section.units
+                        if item.unit_type is unit.unit_type
+                    ]
+                    render_unit = unit.model_copy(
+                        update={
+                            "relationship_refs": list(
+                                dict.fromkeys(
+                                    ref
+                                    for item in peers
+                                    for ref in item.relationship_refs
+                                )
+                            ),
+                            "candidate_refs": list(
+                                dict.fromkeys(
+                                    ref
+                                    for item in peers
+                                    for ref in item.candidate_refs
+                                )
+                            ),
+                            "advisory_refs": list(
+                                dict.fromkeys(
+                                    ref
+                                    for item in peers
+                                    for ref in item.advisory_refs
+                                )
+                            ),
+                        }
+                    )
+                text = " ".join(
+                    _render_unit(
+                        render_unit,
+                        package=package,
+                        atoms=atoms,
+                    ).split()
+                )
+                if section.section_type is AnswerSectionType.EVIDENCE:
+                    text = (
+                        f"Evidenze operative di supporto: {text}"
+                        if package.response_language == "it"
+                        else f"Supporting operational evidence: {text}"
+                    )
+                elif section.section_type is AnswerSectionType.KEY_FINDINGS:
+                    text = (
+                        f"Il contesto operativo rilevante aggiunge: {text}"
+                        if package.response_language == "it"
+                        else f"The relevant handling context adds: {text}"
+                    )
                 normalized = text.casefold()
                 if not text or normalized in rendered_texts:
                     continue
@@ -550,18 +1037,18 @@ class RichGroundedDiscourseRenderer:
                 paragraphs.append(text)
                 source_refs.extend(
                     [
-                        *unit.fact_refs,
-                        *unit.relationship_refs,
-                        *unit.candidate_refs,
-                        *unit.reference_refs,
-                        *unit.advisory_refs,
+                        *render_unit.fact_refs,
+                        *render_unit.relationship_refs,
+                        *render_unit.candidate_refs,
+                        *render_unit.reference_refs,
+                        *render_unit.advisory_refs,
                     ]
                 )
             if paragraphs:
                 blocks.append(
                     RenderedV3Block(
                         section_type=section.section_type,
-                        text="\n\n".join(paragraphs),
+                        text=" ".join(paragraphs),
                         source_refs=tuple(dict.fromkeys(source_refs)),
                     )
                 )

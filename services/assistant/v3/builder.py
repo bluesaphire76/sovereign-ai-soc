@@ -99,9 +99,10 @@ class V3AnalyticalContextBuilder:
                 if payload.case_id is not None:
                     facts["linked_case_ids"] = [payload.case_id]
                 linked_incident_facts.append(facts)
-        explicit_incident_ids = list(
+        requested_compare_incident_ids = list(
             getattr(payload, "compare_incident_ids", []) or []
         )
+        explicit_incident_ids = list(requested_compare_incident_ids)
         if (
             intent_selection.primary_intent in cross_intents
             and payload.case_id is not None
@@ -116,6 +117,7 @@ class V3AnalyticalContextBuilder:
             intent=intent_selection,
             conversation_state=conversation,
             explicit_incident_ids=explicit_incident_ids,
+            explicit_compare_incident_ids=requested_compare_incident_ids,
         )
         plan = self._policy.plan(
             intent=intent_selection,

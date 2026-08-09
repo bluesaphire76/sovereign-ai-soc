@@ -19,6 +19,7 @@ from services.assistant.v3.plan_contracts import (
     AnalyticalUnitType,
     AnswerAudience,
     AnswerDetailLevel,
+    AnswerSectionType,
     DiscourseOrdering,
     GroundedAnswerPlanV3,
     INTENT_SECTION_TYPES,
@@ -26,6 +27,9 @@ from services.assistant.v3.plan_contracts import (
     SECTION_UNIT_TYPES,
 )
 from services.assistant.v3.plan_schema import (
+    DISCOURSE_WIRE_CODES,
+    IMPORTANCE_WIRE_CODES,
+    ORDER_WIRE_CODES,
     SECTION_WIRE_CODES,
     UNIT_WIRE_CODES,
     available_absence_fields,
@@ -34,6 +38,15 @@ from services.assistant.v3.plan_schema import (
     available_section_types,
     available_unit_types,
     non_implication_for_relationship_type,
+)
+from services.assistant.v3.quality_policy import (
+    PROPOSITION_ROLES,
+    evidence_priority_for_unit,
+    enrich_unit,
+    limitation_may_lead,
+    plan_contract,
+    proposition_types_for,
+    subject_record_ids_for_unit,
 )
 
 
@@ -45,6 +58,9 @@ class PlanValidationResult:
 
 _SECTION_TYPES_BY_WIRE = {value: key for key, value in SECTION_WIRE_CODES.items()}
 _UNIT_TYPES_BY_WIRE = {value: key for key, value in UNIT_WIRE_CODES.items()}
+_IMPORTANCE_BY_WIRE = {value: key for key, value in IMPORTANCE_WIRE_CODES.items()}
+_DISCOURSE_BY_WIRE = {value: key for key, value in DISCOURSE_WIRE_CODES.items()}
+_ORDER_BY_WIRE = {value: key for key, value in ORDER_WIRE_CODES.items()}
 _REF_FIELD_BY_UNIT = {
     AnalyticalUnitType.RECORDED_FACT: "fact_refs",
     AnalyticalUnitType.COMPARISON: "fact_refs",
@@ -65,7 +81,11 @@ _CODE_FIELD_BY_UNIT = {
 }
 
 
-def _compact_plan_defaults(package: V3AnalyticalContextPackage) -> dict[str, Any]:
+def _compact_plan_defaults(
+    package: V3AnalyticalContextPackage,
+    *,
+    ordering: DiscourseOrdering,
+) -> dict[str, Any]:
     intent = package.intent_selection.primary_intent
     return {
         "answer_intent": intent,
@@ -79,16 +99,7 @@ def _compact_plan_defaults(package: V3AnalyticalContextPackage) -> dict[str, Any
             if intent is AnswerIntent.EXECUTIVE_SUMMARY
             else AnswerAudience.SOC_ANALYST
         ),
-        "ordering": (
-            DiscourseOrdering.COMPARISON_FIRST
-            if intent
-            in {
-                AnswerIntent.COMPARE,
-                AnswerIntent.CROSS_INCIDENT_ANALYSIS,
-                AnswerIntent.PATTERN_ANALYSIS,
-            }
-            else DiscourseOrdering.CONCLUSION_FIRST
-        ),
+        "ordering": ordering,
     }
 
 
@@ -97,7 +108,13 @@ def _canonicalize_compact_plan(
     *,
     package: V3AnalyticalContextPackage,
 ) -> dict[str, Any] | None:
-    if set(payload) != {"sections"} or not isinstance(payload["sections"], dict):
+    if set(payload) != {"order", "sections"} or not isinstance(
+        payload["sections"],
+        dict,
+    ):
+        return None
+    ordering = _ORDER_BY_WIRE.get(payload["order"])
+    if ordering is None:
         return None
     atom_refs = {item.atom_id for item in package.operational_atoms}
     relationship_refs = {
@@ -106,22 +123,44 @@ def _canonicalize_compact_plan(
     sections: list[dict[str, Any]] = []
     for section_code, units in payload["sections"].items():
         section_type = _SECTION_TYPES_BY_WIRE.get(section_code)
-        if section_type is None or not isinstance(units, dict):
+        if section_type is None or not isinstance(units, list) or not units:
             return None
         canonical_units: list[dict[str, Any]] = []
-        for unit in (units,):
+        for unit in units:
             if not isinstance(unit, dict):
                 return None
             unit_type = _UNIT_TYPES_BY_WIRE.get(unit.get("kind"))
-            if unit_type is None:
+            discourse = _DISCOURSE_BY_WIRE.get(unit.get("mode"))
+            importance = _IMPORTANCE_BY_WIRE.get(unit.get("importance"))
+            if (
+                unit_type is None
+                or discourse is None
+                or importance is None
+            ):
                 return None
-            canonical: dict[str, Any] = {"unit_type": unit_type}
+            proposition_type, rhetorical_role = discourse
+            canonical: dict[str, Any] = {
+                "unit_type": unit_type,
+                "proposition_type": proposition_type,
+                "importance": importance,
+                "rhetorical_role": rhetorical_role,
+            }
             if unit_type in _CODE_FIELD_BY_UNIT:
-                if set(unit) != {"kind", "code"}:
+                if set(unit) != {
+                    "kind",
+                    "mode",
+                    "importance",
+                    "code",
+                }:
                     return None
                 canonical[_CODE_FIELD_BY_UNIT[unit_type]] = unit["code"]
             else:
-                if set(unit) != {"kind", "refs"}:
+                if set(unit) != {
+                    "kind",
+                    "mode",
+                    "importance",
+                    "refs",
+                }:
                     return None
                 refs = unit["refs"]
                 if not isinstance(refs, list) or not all(
@@ -141,11 +180,27 @@ def _canonicalize_compact_plan(
                     if ref_field is None:
                         return None
                     canonical[ref_field] = refs
-            canonical_units.append(canonical)
+            try:
+                prepared = AnalyticalUnit.model_validate(canonical)
+            except ValidationError:
+                return None
+            canonical_units.append(
+                enrich_unit(
+                    prepared,
+                    package=package,
+                    section_type=section_type,
+                    proposition_type=proposition_type,
+                    importance=importance,
+                    rhetorical_role=rhetorical_role,
+                ).model_dump(mode="json")
+            )
         sections.append(
             {"section_type": section_type, "units": canonical_units}
         )
-    return {**_compact_plan_defaults(package), "sections": sections}
+    return {
+        **_compact_plan_defaults(package, ordering=ordering),
+        "sections": sections,
+    }
 
 
 def parse_grounded_answer_plan_v3(
@@ -165,7 +220,7 @@ def parse_grounded_answer_plan_v3(
         return None
     sections = payload.get("sections")
     if isinstance(sections, dict):
-        if set(payload) == {"sections"}:
+        if set(payload) == {"order", "sections"}:
             if package is None:
                 return None
             payload = _canonicalize_compact_plan(payload, package=package)
@@ -214,9 +269,31 @@ class GroundedAnswerPlanV3Validator:
                 if key in seen:
                     return PlanValidationResult(False, "duplicate_semantic_unit")
                 seen.add(key)
-                result = self._validate_unit(unit, package=package)
+                result = self._validate_unit(
+                    unit,
+                    package=package,
+                    section_type=section.section_type,
+                )
                 if not result.accepted:
                     return result
+                if unit.proposition_type not in proposition_types_for(
+                    section.section_type,
+                    unit.unit_type,
+                    intent=plan.answer_intent,
+                ):
+                    return PlanValidationResult(False, "proposition_section_mismatch")
+                if unit.rhetorical_role not in PROPOSITION_ROLES[unit.proposition_type]:
+                    return PlanValidationResult(False, "proposition_role_mismatch")
+                if unit.subject_record_ids != subject_record_ids_for_unit(
+                    unit,
+                    package=package,
+                ):
+                    return PlanValidationResult(False, "proposition_subject_mismatch")
+                if unit.evidence_priority is not evidence_priority_for_unit(
+                    unit,
+                    package=package,
+                ):
+                    return PlanValidationResult(False, "evidence_priority_mismatch")
         required_non_implications = self._required_non_implications(
             plan,
             package=package,
@@ -249,6 +326,9 @@ class GroundedAnswerPlanV3Validator:
             and not analytical_codes.issubset(provided_non_implications)
         ):
             return PlanValidationResult(False, "required_non_implication_missing")
+        usefulness = self._validate_usefulness(plan, package=package)
+        if not usefulness.accepted:
+            return usefulness
         return PlanValidationResult(True)
 
     @staticmethod
@@ -256,6 +336,7 @@ class GroundedAnswerPlanV3Validator:
         unit: AnalyticalUnit,
         *,
         package: V3AnalyticalContextPackage,
+        section_type: AnswerSectionType,
     ) -> PlanValidationResult:
         atoms = {item.atom_id: item for item in package.operational_atoms}
         candidates = {
@@ -333,6 +414,25 @@ class GroundedAnswerPlanV3Validator:
                 for item in relationships
             ):
                 return PlanValidationResult(False, "candidate_relationship_mismatch")
+        explicit_compare = set(
+            package.resolved_scope.explicit_compare_incident_ids
+        )
+        if (
+            package.intent_selection.primary_intent is AnswerIntent.COMPARE
+            and explicit_compare
+        ):
+            if any(
+                not {item.left_incident_id, item.right_incident_id}.issubset(
+                    explicit_compare
+                )
+                for item in relationships
+            ):
+                return PlanValidationResult(False, "explicit_compare_scope_drift")
+            if any(
+                candidates[ref].candidate_incident_id not in explicit_compare
+                for ref in unit.candidate_refs
+            ):
+                return PlanValidationResult(False, "explicit_compare_scope_drift")
         if unit.unit_type in {
             AnalyticalUnitType.COMPARISON,
             AnalyticalUnitType.DIFFERENCE,
@@ -341,8 +441,28 @@ class GroundedAnswerPlanV3Validator:
             incident_ids = {atom.incident_id for atom in selected_atoms}
             if None in incident_ids or len(incident_ids) < 2:
                 return PlanValidationResult(False, "comparison_scope_mismatch")
+            if explicit_compare and incident_ids != explicit_compare:
+                return PlanValidationResult(False, "explicit_compare_scope_drift")
             if len({atom.atom_type for atom in selected_atoms}) != 1:
                 return PlanValidationResult(False, "comparison_type_mismatch")
+            payloads = [
+                atom.model_dump(
+                    mode="json",
+                    exclude={
+                        "atom_id",
+                        "authority_class",
+                        "provenance",
+                        "incident_id",
+                        "case_id",
+                    },
+                )
+                for atom in selected_atoms
+            ]
+            same = all(payload == payloads[0] for payload in payloads[1:])
+            if unit.unit_type is AnalyticalUnitType.COMPARISON and not same:
+                return PlanValidationResult(False, "comparison_semantics_mismatch")
+            if unit.unit_type is AnalyticalUnitType.DIFFERENCE and same:
+                return PlanValidationResult(False, "difference_semantics_mismatch")
         if unit.unit_type is AnalyticalUnitType.ABSENCE and (
             unit.absence_field not in available_absence_fields(package)
         ):
@@ -368,6 +488,116 @@ class GroundedAnswerPlanV3Validator:
             for ref in unit.advisory_refs
         ):
             return PlanValidationResult(False, "advisory_authority_mismatch")
+        return PlanValidationResult(True)
+
+    @staticmethod
+    def _validate_usefulness(
+        plan: GroundedAnswerPlanV3,
+        *,
+        package: V3AnalyticalContextPackage,
+    ) -> PlanValidationResult:
+        contract = plan_contract(plan.answer_intent)
+        section_count = len(plan.sections)
+        unit_count = len(plan.analytical_units)
+        if not contract.min_sections <= section_count <= contract.max_sections:
+            return PlanValidationResult(False, "intent_section_bounds")
+        if not contract.min_units <= unit_count <= contract.max_units:
+            return PlanValidationResult(False, "intent_unit_bounds")
+        terminal = {
+            AnswerSectionType.WHAT_WE_CANNOT_CONCLUDE,
+            AnswerSectionType.LIMITATIONS,
+        }
+        seen_terminal = False
+        for section in plan.sections:
+            if section.section_type in terminal:
+                seen_terminal = True
+            elif seen_terminal:
+                return PlanValidationResult(False, "limitation_placement")
+        first = plan.sections[0]
+        first_is_limitation = first.section_type in terminal or all(
+            unit.unit_type
+            in {
+                AnalyticalUnitType.ABSENCE,
+                AnalyticalUnitType.LIMITATION,
+                AnalyticalUnitType.NON_IMPLICATION,
+            }
+            for unit in first.units
+        )
+        if first_is_limitation and not limitation_may_lead(package):
+            return PlanValidationResult(False, "limitation_first")
+
+        unit_types = {unit.unit_type for unit in plan.analytical_units}
+        relationship_evidence = {
+            AnalyticalUnitType.RECORDED_CORRELATION,
+            AnalyticalUnitType.ANALYTICAL_RELATIONSHIP,
+            AnalyticalUnitType.SEMANTIC_SIMILARITY,
+            AnalyticalUnitType.CANDIDATE_RELEVANCE,
+        }
+        available_units = set(available_unit_types(package))
+        comparison_evidence = {
+            AnalyticalUnitType.COMPARISON,
+            AnalyticalUnitType.DIFFERENCE,
+        }
+        if not comparison_evidence.intersection(available_units):
+            comparison_evidence = relationship_evidence
+        pattern_evidence = {AnalyticalUnitType.SHARED_PATTERN}
+        if AnalyticalUnitType.SHARED_PATTERN not in available_units:
+            pattern_evidence = relationship_evidence
+        operational_or_absence = {
+            AnalyticalUnitType.RECORDED_FACT,
+            AnalyticalUnitType.ABSENCE,
+            AnalyticalUnitType.LIMITATION,
+        }
+        if not comparison_evidence.intersection(available_units):
+            comparison_evidence = operational_or_absence
+        if not pattern_evidence.intersection(available_units):
+            pattern_evidence = operational_or_absence
+        cross_evidence = {
+            AnalyticalUnitType.ANALYTICAL_RELATIONSHIP,
+            AnalyticalUnitType.SEMANTIC_SIMILARITY,
+            AnalyticalUnitType.CANDIDATE_RELEVANCE,
+        }
+        if not cross_evidence.intersection(available_units):
+            cross_evidence = operational_or_absence
+        next_action_evidence = {
+            AnalyticalUnitType.NEXT_CHECK,
+            AnalyticalUnitType.ADVISORY_GUIDANCE,
+        }
+        if not next_action_evidence.intersection(available_units):
+            next_action_evidence = operational_or_absence
+        requirements: dict[AnswerIntent, tuple[set[AnalyticalUnitType], ...]] = {
+            AnswerIntent.FACT_LOOKUP: (
+                operational_or_absence,
+            ),
+            AnswerIntent.EXPLAIN: (
+                operational_or_absence,
+                {
+                    AnalyticalUnitType.REFERENCE_EXPLANATION,
+                    AnalyticalUnitType.RECORDED_CORRELATION,
+                    AnalyticalUnitType.RECORDED_FACT,
+                },
+            ),
+            AnswerIntent.INVESTIGATE: (
+                operational_or_absence,
+                {
+                    AnalyticalUnitType.RECORDED_CORRELATION,
+                    AnalyticalUnitType.REFERENCE_EXPLANATION,
+                    AnalyticalUnitType.NEXT_CHECK,
+                    AnalyticalUnitType.RECORDED_FACT,
+                },
+            ),
+            AnswerIntent.SUMMARY: (operational_or_absence,),
+            AnswerIntent.COMPARE: (comparison_evidence,),
+            AnswerIntent.CROSS_INCIDENT_ANALYSIS: (cross_evidence,),
+            AnswerIntent.PATTERN_ANALYSIS: (pattern_evidence,),
+            AnswerIntent.NEXT_ACTION: (next_action_evidence,),
+            AnswerIntent.HANDOVER: (operational_or_absence,),
+            AnswerIntent.EXECUTIVE_SUMMARY: (
+                operational_or_absence,
+            ),
+        }
+        if any(not unit_types.intersection(group) for group in requirements[plan.answer_intent]):
+            return PlanValidationResult(False, "intent_usefulness_contract")
         return PlanValidationResult(True)
 
     @staticmethod

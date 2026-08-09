@@ -9,6 +9,10 @@ from services.assistant.v3.plan_schema import (
     available_absence_fields,
     model_facing_evidence,
 )
+from services.assistant.v3.quality_policy import (
+    evidence_priority_for_atom,
+    plan_contract,
+)
 
 
 @dataclass(frozen=True)
@@ -17,9 +21,17 @@ class V3PromptBuildResult:
     context_chars: int
 
 
-def _atom_projection(atom: Any) -> dict[str, Any]:
+def _atom_projection(
+    atom: Any,
+    *,
+    package: V3AnalyticalContextPackage,
+) -> dict[str, Any]:
     value = atom.model_dump(mode="json", exclude={"provenance", "authority_class"})
-    return {"ref": value.pop("atom_id"), **value}
+    return {
+        "ref": value.pop("atom_id"),
+        "evidence_priority": evidence_priority_for_atom(package, atom).value,
+        **value,
+    }
 
 
 def _relationship_projection(relationship: Any) -> dict[str, Any]:
@@ -47,13 +59,21 @@ def _candidate_projection(candidate: Any) -> dict[str, Any]:
 
 
 def _knowledge_projection(atom: Any) -> dict[str, Any]:
-    return {
+    result = {
         "ref": atom.knowledge_id,
         "type": atom.knowledge_type,
         "subject": atom.subject,
-        "content": atom.bounded_content,
         "authority": atom.authority_class.value,
     }
+    if hasattr(atom, "action_code"):
+        return {
+            **result,
+            "action": atom.action_code.value,
+            "reason": atom.reason_code.value,
+            "target": atom.target_type.value,
+            "context": atom.context_code.value,
+        }
+    return {**result, "content": atom.bounded_content}
 
 
 def build_v3_plan_messages(
@@ -62,6 +82,7 @@ def build_v3_plan_messages(
     max_context_chars: int,
 ) -> V3PromptBuildResult:
     view = model_facing_evidence(package)
+    usefulness = plan_contract(package.intent_selection.primary_intent)
     payload = {
         "question": package.question,
         "response_language": package.response_language,
@@ -71,9 +92,13 @@ def build_v3_plan_messages(
         ],
         "focus": [item.value for item in package.focus_selection],
         "scope": package.resolved_scope.model_dump(mode="json"),
+        "usefulness_bounds": {
+            "sections": [usefulness.min_sections, usefulness.max_sections],
+            "propositions": [usefulness.min_units, usefulness.max_units],
+        },
         "absence_fields": [item.value for item in available_absence_fields(package)],
         "operational_atoms": [
-            _atom_projection(item) for item in view.operational_atoms
+            _atom_projection(item, package=package) for item in view.operational_atoms
         ],
         "relationships": [
             _relationship_projection(item)
@@ -102,9 +127,12 @@ def build_v3_plan_messages(
         "candidates only. Never infer causality, attacker, campaign, compromise, "
         "lateral movement, persistence, maliciousness, severity, risk band, or "
         "escalation state. Select the smallest useful set of non-repetitive sections "
-        "and units that directly answer the requested intent. Emit only the compact "
-        "schema fields: each section maps to one unit object containing kind and "
-        "either refs or code. Include a closed "
+        "and propositions that directly answer the requested intent. Choose ordering, "
+        "proposition/role mode and importance from the closed schema. "
+        "Sections map to bounded arrays of proposition units. Each unit contains kind, "
+        "mode, importance, and either refs or code. Lead with substantive "
+        "evidence; place limitations after the answer unless the requested fact is "
+        "unavailable. Include a closed "
         "non-implication when analytical or semantic relationships could mislead. "
         "Use refs only for evidence-backed units and code only for absence, "
         "non-implication, or limitation units."

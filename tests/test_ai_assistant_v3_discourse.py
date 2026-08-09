@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from services.assistant.v3.attribution import build_v3_attribution
-from services.assistant.v3.contracts import AnswerIntent
+from services.assistant.v3.contracts import AnswerIntent, RelationshipType
 from services.assistant.v3.discourse import RichGroundedDiscourseRenderer
 from services.assistant.v3.plan_contracts import (
     AnalyticalUnit,
@@ -85,10 +85,10 @@ def test_cross_incident_rendering_keeps_authority_classes_distinct() -> None:
 
     assert "recorded correlation" in answer
     assert "analytical relationship derived from records" in answer
-    assert "comparison candidate based on semantic similarity" in answer
+    assert "comparison candidates based on semantic similarity" in answer
     assert "Semantic similarity is not a recorded correlation" in answer
-    assert "ranking indicates comparison utility, not risk or compromise" in answer
-    assert "common root cause" in answer
+    assert "not risk, severity, or compromise" in answer
+    assert "common cause" in answer
 
 
 def test_reference_and_advisory_content_are_separate_blocks() -> None:
@@ -109,10 +109,73 @@ def test_reference_and_advisory_content_are_separate_blocks() -> None:
         "For incident 1, reference knowledge explains: T1112 = Modify Registry."
     )
     assert technical.source_refs == ("reference:mitre:T1112",)
-    assert next_steps.text.startswith(
-        "For incident 1, investigative guidance suggests: "
-    )
+    assert next_steps.text.startswith("For incident 1, as the next check, ")
+    assert "Review registry and adjacent process telemetry" not in next_steps.text
+    assert "artifacts and outcomes" in next_steps.text
     assert next_steps.source_refs == ("advisory:registry-review",)
+
+
+def test_renderer_synthesizes_separate_relationship_units() -> None:
+    package = analytical_package(AnswerIntent.CROSS_INCIDENT_ANALYSIS)
+    second_relationship = package.relationship_registry.resolve(
+        "relationship:shared-host"
+    ).model_copy(
+        update={
+            "relationship_id": "relationship:temporal",
+            "relationship_type": RelationshipType.TEMPORAL_PROXIMITY,
+            "strength": 0.4,
+        }
+    )
+    package = package.model_copy(
+        update={
+            "cross_incident_graph": package.cross_incident_graph.model_copy(
+                update={
+                    "relationships": [
+                        *package.cross_incident_graph.relationships,
+                        second_relationship,
+                    ]
+                }
+            ),
+            "relationship_registry": package.relationship_registry.model_copy(
+                update={
+                    "relationships": [
+                        *package.relationship_registry.relationships,
+                        second_relationship,
+                    ]
+                }
+            ),
+        }
+    )
+    plan = GroundedAnswerPlanV3(
+        answer_intent=AnswerIntent.CROSS_INCIDENT_ANALYSIS,
+        detail_level=AnswerDetailLevel.STANDARD,
+        audience=AnswerAudience.SOC_ANALYST,
+        ordering=DiscourseOrdering.COMPARISON_FIRST,
+        sections=[
+            AnswerSection(
+                section_type=AnswerSectionType.RELATED_INCIDENTS,
+                units=[
+                    AnalyticalUnit(
+                        unit_type=AnalyticalUnitType.ANALYTICAL_RELATIONSHIP,
+                        relationship_refs=["relationship:shared-host"],
+                    ),
+                    AnalyticalUnit(
+                        unit_type=AnalyticalUnitType.ANALYTICAL_RELATIONSHIP,
+                        relationship_refs=["relationship:temporal"],
+                    ),
+                ],
+            )
+        ],
+    )
+
+    rendered = RichGroundedDiscourseRenderer().render(plan, package=package)
+
+    assert "leading comparison" in rendered.blocks[0].text
+    assert "additional context indicates" in rendered.blocks[0].text
+    assert rendered.blocks[0].source_refs == (
+        "relationship:shared-host",
+        "relationship:temporal",
+    )
 
 
 def test_duplicate_limitation_text_is_suppressed_across_sections() -> None:
@@ -160,13 +223,16 @@ def test_intent_controls_response_length_and_block_order() -> None:
     assert fact_plan.detail_level is AnswerDetailLevel.CONCISE
     assert len(fact.blocks) == 1
     assert executive_plan.audience is AnswerAudience.EXECUTIVE
-    assert len(executive.blocks) == 1
+    assert 1 <= len(executive.blocks) <= 3
+    executive_words = " ".join(block.text for block in executive.blocks).split()
+    assert 40 <= len(executive_words) <= 120
     assert investigation_plan.detail_level is AnswerDetailLevel.STANDARD
     assert [block.section_type for block in investigation.blocks] == [
         AnswerSectionType.DIRECT_ANSWER,
+        AnswerSectionType.EVIDENCE,
         AnswerSectionType.TECHNICAL_CONTEXT,
         AnswerSectionType.NEXT_STEPS,
-        AnswerSectionType.LIMITATIONS,
+        AnswerSectionType.WHAT_WE_CANNOT_CONCLUDE,
     ]
 
 

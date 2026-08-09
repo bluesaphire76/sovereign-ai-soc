@@ -102,6 +102,26 @@ def test_missing_structured_fields_do_not_create_fabricated_atoms() -> None:
     assert correlation.correlated is None
 
 
+def test_structured_values_are_not_coerced_into_visible_atom_text() -> None:
+    facts, plan = _plan(AnswerIntent.EXPLAIN)
+    facts["mitre"] = [
+        {
+            "id": "T1112",
+            "name": (
+                "{'technique': ['Modify Registry'], "
+                "'tactic': ['Defense Evasion']}"
+            ),
+        }
+    ]
+
+    atoms = OperationalAtomNormalizer().normalize(facts=facts, plan=plan)
+    mitre = next(atom for atom in atoms if isinstance(atom, MitreTechniqueAtom))
+
+    assert mitre.technique_id == "T1112"
+    assert mitre.technique_name is None
+    assert "Modify Registry" not in str(mitre.technique_name)
+
+
 def _escalation_plan(facts: dict):
     intent = IntentSelection(
         primary_intent=AnswerIntent.FACT_LOOKUP,

@@ -338,8 +338,10 @@ def test_case_scope_builds_multi_incident_graph_and_visible_pattern() -> None:
             for unit in pattern_section.units
         )
         assert "3 incidents" in answer
-        assert "explicit record set includes" in answer.casefold()
-        assert "ranking indicates comparison utility, not risk or compromise" in answer
+        assert str(first.id) in answer
+        assert str(second.id) in answer
+        assert str(third.id) in answer
+        assert "does not establish causality" in answer
         assert "does not establish causality" in answer
         assert "share the same attacker" not in answer.casefold()
         assert "form the same campaign" not in answer.casefold()

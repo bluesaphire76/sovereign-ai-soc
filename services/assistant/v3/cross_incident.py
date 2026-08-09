@@ -344,7 +344,11 @@ class CrossIncidentCandidateRetriever:
                 )
             )
         ranked.sort(
-            key=lambda item: (-item[0].ranking_score, item[0].candidate_incident_id)
+            key=lambda item: (
+                item[0].candidate_incident_id not in explicit_ids,
+                -item[0].ranking_score,
+                item[0].candidate_incident_id,
+            )
         )
         discovered_count = min(len(ranked), limits.max_candidates_discovered)
         selected = ranked[: limits.max_candidates_rehydrated]

@@ -17,7 +17,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("action", choices=("rebuild", "status", "upsert", "refresh", "delete"))
     parser.add_argument("--incident-id", type=int)
-    parser.add_argument("--limit", type=int, default=10_000)
+    parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--json", action="store_true", dest="as_json")
     args = parser.parse_args()
     if args.action in {"upsert", "refresh", "delete"} and not args.incident_id:
@@ -31,7 +31,7 @@ def run(
     *,
     action: str,
     incident_id: int | None = None,
-    limit: int = 10_000,
+    limit: int | None = None,
     db_factory=SessionLocal,
     index_factory=IncidentSemanticIndex,
 ) -> dict[str, Any]:
@@ -67,7 +67,7 @@ def main() -> None:
     result = run(
         action=args.action,
         incident_id=args.incident_id,
-        limit=max(1, min(args.limit, 100_000)),
+        limit=(max(1, min(args.limit, 100_000)) if args.limit is not None else None),
     )
     if args.as_json:
         print(json.dumps(result, indent=2, sort_keys=True))

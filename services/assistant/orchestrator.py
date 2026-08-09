@@ -149,7 +149,7 @@ class AssistantSettings:
     request_timeout_seconds: float = 45.0
     max_output_tokens: int = 768
     response_architecture: Literal["v2", "v3"] = "v2"
-    v3_max_output_tokens: int = 384
+    v3_max_output_tokens: int = 768
 
 
 class AssistantError(Exception):
@@ -244,7 +244,7 @@ def get_assistant_settings() -> AssistantSettings:
         response_architecture=_response_architecture(),
         v3_max_output_tokens=_env_int(
             "AI_SOC_ASSISTANT_V3_MAX_OUTPUT_TOKENS",
-            384,
+            768,
             minimum=256,
             maximum=2048,
         ),
@@ -270,14 +270,21 @@ def assistant_capabilities(
 def _response_language(message: str) -> AssistantResponseLanguage:
     words = set(re.findall(r"[a-zàèéìòù]+", message.lower()))
     strong_italian = {
+        "analizza",
+        "cerca",
+        "collegamenti",
+        "confronta",
         "cosa",
         "evidenze",
         "incidente",
+        "incidenti",
         "perché",
+        "prepara",
         "quali",
         "riassumi",
         "rischio",
         "severità",
+        "sintesi",
         "spiega",
         "verifica",
     }

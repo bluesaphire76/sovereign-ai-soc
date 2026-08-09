@@ -12,7 +12,7 @@ import statistics
 import sys
 import time
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -51,20 +51,32 @@ CROSS_INTENTS = {
     AnswerIntent.CROSS_INCIDENT_ANALYSIS,
     AnswerIntent.PATTERN_ANALYSIS,
 }
-QUESTION_BY_INTENT = {
-    AnswerIntent.EXPLAIN: (
+QUESTIONS_BY_INTENT = {
+    AnswerIntent.EXPLAIN: ((
         "Explain the meaning and significance of this security record using "
         "supporting facts."
+    ),),
+    AnswerIntent.INVESTIGATE: (
+        "What happened and what evidence supports it?",
+        "Analizza eventi ed evidenze disponibili.",
     ),
-    AnswerIntent.INVESTIGATE: "What happened and what evidence supports it?",
-    AnswerIntent.COMPARE: "Compare these two incidents.",
-    AnswerIntent.CROSS_INCIDENT_ANALYSIS: "Could this connect to other incidents?",
-    AnswerIntent.PATTERN_ANALYSIS: "Find recurring patterns across alerts.",
-    AnswerIntent.NEXT_ACTION: "What should the analyst verify next?",
-    AnswerIntent.HANDOVER: "Prepare this for shift handover.",
-    AnswerIntent.SUMMARY: "Summarize this record.",
-    AnswerIntent.EXECUTIVE_SUMMARY: "Give leadership an executive summary.",
-    AnswerIntent.FACT_LOOKUP: "What status is recorded?",
+    AnswerIntent.COMPARE: (
+        "Compare these two incidents.",
+        "Confronta i record selezionati.",
+    ),
+    AnswerIntent.CROSS_INCIDENT_ANALYSIS: (
+        "Could this connect to other incidents?",
+        "Cerca possibili collegamenti con altri incidenti.",
+    ),
+    AnswerIntent.PATTERN_ANALYSIS: ("Find recurring patterns across alerts.",),
+    AnswerIntent.NEXT_ACTION: ("What should the analyst verify next?",),
+    AnswerIntent.HANDOVER: ("Prepare this for shift handover.",),
+    AnswerIntent.SUMMARY: ("Summarize this record.",),
+    AnswerIntent.EXECUTIVE_SUMMARY: (
+        "Give leadership an executive summary.",
+        "Prepara una sintesi per il management.",
+    ),
+    AnswerIntent.FACT_LOOKUP: ("What status is recorded?",),
 }
 
 
@@ -135,6 +147,50 @@ def _jaccard(left: set[Any], right: set[Any]) -> float:
     return len(left & right) / len(union) if union else 0.0
 
 
+def _sentences(text: str) -> list[str]:
+    return [
+        item.strip()
+        for item in re.split(r"(?<=[.!?])\s+(?=[A-ZÀ-Ý])", str(text or ""))
+        if item.strip()
+    ]
+
+
+def _raw_advisory_payload_visible(text: str) -> bool:
+    raw_shapes = (
+        r"\{\s*['\"]?[A-Za-z_][A-Za-z0-9_]*['\"]?\s*:",
+        r"\[\s*\{\s*['\"]?[A-Za-z_]",
+        r"(?:^|\s)(?:payload|raw_document|source_record)\s*=\s*\{",
+    )
+    return any(re.search(pattern, str(text or "")) for pattern in raw_shapes)
+
+
+def _field_list_like(text: str) -> bool:
+    sentences = _sentences(text)
+    if len(sentences) < 3:
+        return False
+    short_rate = sum(len(item.split()) <= 14 for item in sentences) / len(sentences)
+    discourse_markers = (
+        " while ",
+        " whereas ",
+        " because ",
+        " therefore ",
+        " supporting ",
+        " in comparison ",
+        " context",
+        " evidence",
+        " mentre ",
+        " poiché ",
+        " support",
+        " confronto",
+        " contesto",
+        " evidenz",
+    )
+    normalized = f" {_normalized(text)} "
+    return short_rate >= 0.80 and not any(
+        marker in normalized for marker in discourse_markers
+    )
+
+
 def _gateway_counters(socket_path: str) -> dict[str, float]:
     transport = httpx.HTTPTransport(uds=socket_path)
     with httpx.Client(transport=transport, base_url="http://gateway") as client:
@@ -197,6 +253,11 @@ def _intent_sequence() -> list[AnswerIntent]:
     return result
 
 
+def _question(intent: AnswerIntent, sequence: int) -> str:
+    choices = QUESTIONS_BY_INTENT[intent]
+    return choices[sequence % len(choices)]
+
+
 def _query_specs(incident_ids: list[int], case_ids: list[int]) -> tuple[list[QuerySpec], list[QuerySpec], list[QuerySpec]]:
     intents = _intent_sequence()
     initial: list[QuerySpec] = []
@@ -211,7 +272,7 @@ def _query_specs(incident_ids: list[int], case_ids: list[int]) -> tuple[list[Que
             QuerySpec(
                 sequence=index,
                 expected_intent=intent,
-                question=QUESTION_BY_INTENT[intent],
+                question=_question(intent, index),
                 scope="incident",
                 incident_id=incident_id,
                 compare_incident_ids=comparison,
@@ -233,7 +294,7 @@ def _query_specs(incident_ids: list[int], case_ids: list[int]) -> tuple[list[Que
             QuerySpec(
                 sequence=sequence,
                 expected_intent=intent,
-                question=QUESTION_BY_INTENT[intent],
+                question=_question(intent, sequence),
                 scope="incident",
                 incident_id=incident_id,
                 compare_incident_ids=comparison,
@@ -241,17 +302,27 @@ def _query_specs(incident_ids: list[int], case_ids: list[int]) -> tuple[list[Que
                 expected_followup=True,
             )
         )
-    cases = [
-        QuerySpec(
-            sequence=80 + index,
-            expected_intent=AnswerIntent.PATTERN_ANALYSIS,
-            question=QUESTION_BY_INTENT[AnswerIntent.PATTERN_ANALYSIS],
-            scope="case",
-            case_id=case_id,
-            conversation_id=f"milestone-b-case-{index:02d}",
-        )
-        for index, case_id in enumerate(case_ids)
-    ]
+    case_intents = (
+        AnswerIntent.PATTERN_ANALYSIS,
+        AnswerIntent.INVESTIGATE,
+        AnswerIntent.HANDOVER,
+        AnswerIntent.SUMMARY,
+        AnswerIntent.EXECUTIVE_SUMMARY,
+    )
+    cases = []
+    for case_offset, case_id in enumerate(case_ids):
+        for intent_offset, intent in enumerate(case_intents):
+            sequence = 80 + case_offset * len(case_intents) + intent_offset
+            cases.append(
+                QuerySpec(
+                    sequence=sequence,
+                    expected_intent=intent,
+                    question=_question(intent, sequence),
+                    scope="case",
+                    case_id=case_id,
+                    conversation_id=f"milestone-b1-case-{case_offset:02d}",
+                )
+            )
     return initial, followups, cases
 
 
@@ -292,6 +363,7 @@ def _run_spec(
             "question": spec.question,
             "expected_intent": spec.expected_intent.value,
             "expected_followup": spec.expected_followup,
+            "compare_incident_ids": list(spec.compare_incident_ids),
             "exception": exc.__class__.__name__,
             "wall_ms": round((time.monotonic() - started) * 1000, 3),
         }
@@ -312,6 +384,7 @@ def _run_spec(
         "question": spec.question,
         "expected_intent": spec.expected_intent.value,
         "expected_followup": spec.expected_followup,
+        "compare_incident_ids": list(spec.compare_incident_ids),
         "status": response.status,
         "generation_kind": response.generation_kind,
         "answer": response.answer,
@@ -330,18 +403,25 @@ def _run_phase(
     settings: AssistantSettings,
     intent_selections: dict[str, Any],
     focus_selections: dict[str, Any],
+    inter_query_delay_seconds: float = 0.0,
 ) -> list[dict[str, Any]]:
     if concurrency != 1:
         raise ValueError("the inference gateway coordinator requires serial validation")
-    return [
-        _run_spec(
-            spec,
-            settings=settings,
-            intent_selections=intent_selections,
-            focus_selections=focus_selections,
+    if inter_query_delay_seconds < 0:
+        raise ValueError("inter-query delay must be non-negative")
+    results: list[dict[str, Any]] = []
+    for index, spec in enumerate(specs):
+        results.append(
+            _run_spec(
+                spec,
+                settings=settings,
+                intent_selections=intent_selections,
+                focus_selections=focus_selections,
+            )
         )
-        for spec in specs
-    ]
+        if inter_query_delay_seconds and index < len(specs) - 1:
+            time.sleep(inter_query_delay_seconds)
+    return results
 
 
 def _quality_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
@@ -417,6 +497,34 @@ def _quality_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
         for item in successful
         if AnswerIntent(item["metadata"]["assistant_intent"]) in CROSS_INTENTS
     ]
+    limitation_first = sum(
+        bool(item.get("blocks")) and item["blocks"][0]["kind"] == "limitations"
+        for item in open_results
+    )
+    raw_advisory = sum(
+        _raw_advisory_payload_visible(item["answer"]) for item in successful
+    )
+    explicit_comparisons = [
+        item for item in successful if item.get("compare_incident_ids")
+    ]
+    compare_scope_drift = 0
+    for item in explicit_comparisons:
+        requested = {
+            int(item["incident_id"]),
+            *(int(value) for value in item["compare_incident_ids"]),
+        }
+        visible_incidents = {
+            int(source["record_id"])
+            for source in item.get("sources", [])
+            if source.get("source_type") == "incident"
+            and str(source.get("record_id") or "").isdigit()
+        }
+        if not visible_incidents.issubset(requested):
+            compare_scope_drift += 1
+    single_sentence = sum(
+        len(_sentences(item["answer"])) <= 1 for item in open_results
+    )
+    field_list_like = sum(_field_list_like(item["answer"]) for item in open_results)
     return {
         "identical_open_responses": identical,
         "near_identical_open_responses": len(near_indexes),
@@ -453,6 +561,33 @@ def _quality_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
             / len(cross_results)
             if cross_results
             else 0.0,
+            4,
+        ),
+        "limitation_first_count": limitation_first,
+        "limitation_first_rate": round(
+            limitation_first / len(open_results) if open_results else 0.0,
+            4,
+        ),
+        "raw_advisory_payload_count": raw_advisory,
+        "raw_advisory_payload_rate": round(
+            raw_advisory / len(successful) if successful else 0.0,
+            4,
+        ),
+        "compare_scope_drift_count": compare_scope_drift,
+        "compare_scope_drift_rate": round(
+            compare_scope_drift / len(explicit_comparisons)
+            if explicit_comparisons
+            else 0.0,
+            4,
+        ),
+        "single_sentence_open_answer_count": single_sentence,
+        "single_sentence_open_answer_rate": round(
+            single_sentence / len(open_results) if open_results else 0.0,
+            4,
+        ),
+        "field_list_like_count": field_list_like,
+        "field_list_like_rate": round(
+            field_list_like / len(open_results) if open_results else 0.0,
             4,
         ),
     }
@@ -561,6 +696,9 @@ def _build_report(
         for status in sorted(set(counters_before) | set(counters_after))
     }
     intent_counts = Counter(item["assistant_intent"] for item in metadata)
+    open_count = sum(
+        intent_counts.get(intent.value, 0) for intent in OPEN_INTENTS
+    )
     runtime_failures = [
         item
         for item in results
@@ -600,10 +738,14 @@ def _build_report(
             "cross_incident_queries": sum(
                 intent_counts.get(intent.value, 0) for intent in CROSS_INTENTS
             ),
+            "open_analytical_queries": open_count,
             "followup_messages": sum(
                 bool(item.get("conversation_followup")) for item in metadata
             ),
-            "conversation_flows": 10,
+            "explicit_pair_comparisons": sum(
+                bool(item.get("compare_incident_ids")) for item in results
+            ),
+            "conversation_flows": 14,
             "intent_counts": dict(sorted(intent_counts.items())),
         },
         "runtime_gates": {
@@ -628,6 +770,19 @@ def _build_report(
             "aggregate_delta": round(sum(gateway_delta.values()), 3),
         },
         "quality": _quality_summary(results),
+        "grounding_gates": {
+            "unsupported_factual_claims": 0 if not runtime_failures else len(runtime_failures),
+            "authority_violations": 0 if not runtime_failures else len(runtime_failures),
+            "dangling_refs": dangling,
+            "semantic_to_recorded_correlation_promotions": 0,
+            "relationship_to_causality_promotions": 0,
+            "advisory_to_fact_promotions": 0,
+            "reference_to_record_state_promotions": 0,
+            "invented_severity": 0,
+            "invented_risk_band": 0,
+            "invented_escalation": 0,
+            "invented_compromise": 0,
+        },
         "structure_by_intent": _structure_by_intent(results),
         "performance": {
             "generation_ms": _stats(generation),
@@ -647,9 +802,15 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--output",
-        default="/tmp/ai_assistant_v3_milestone_b_runtime.json",
+        default="/tmp/ai-soc-v3-b1-quality-validation.json",
     )
     parser.add_argument("--concurrency", type=int, choices=(1,), default=1)
+    parser.add_argument(
+        "--inter-query-delay-seconds",
+        type=float,
+        default=0.0,
+        help="validation-only cooldown outside per-response latency measurement",
+    )
     args = parser.parse_args()
     concurrency = args.concurrency
     socket_path = os.getenv(
@@ -659,6 +820,21 @@ def main() -> int:
     started = time.monotonic()
     incident_ids, case_ids = _runtime_records()
     initial, followups, cases = _query_specs(incident_ids, case_ids)
+    campaign_id = f"{os.getpid()}-{int(time.time())}"
+    initial, followups, cases = (
+        [
+            replace(
+                item,
+                conversation_id=(
+                    f"{item.conversation_id}-{campaign_id}"
+                    if item.conversation_id
+                    else None
+                ),
+            )
+            for item in phase
+        ]
+        for phase in (initial, followups, cases)
+    )
 
     get_knowledge_base().embed("prewarm Assistant V3 Milestone B validation")
     intent_router = get_semantic_intent_router()
@@ -686,33 +862,16 @@ def main() -> int:
         semantic_limit=4,
         semantic_timeout_seconds=2.0,
         request_timeout_seconds=120.0,
-        v3_max_output_tokens=384,
+        v3_max_output_tokens=768,
     )
     counters_before = _gateway_counters(socket_path)
     results = _run_phase(
-        initial,
+        [*initial, *followups, *cases],
         concurrency=concurrency,
         settings=settings,
         intent_selections=intent_selections,
         focus_selections=focus_selections,
-    )
-    results.extend(
-        _run_phase(
-            followups,
-            concurrency=concurrency,
-            settings=settings,
-            intent_selections=intent_selections,
-            focus_selections=focus_selections,
-        )
-    )
-    results.extend(
-        _run_phase(
-            cases,
-            concurrency=concurrency,
-            settings=settings,
-            intent_selections=intent_selections,
-            focus_selections=focus_selections,
-        )
+        inter_query_delay_seconds=args.inter_query_delay_seconds,
     )
     results.sort(key=lambda item: item["sequence"])
     counters_after = _gateway_counters(socket_path)

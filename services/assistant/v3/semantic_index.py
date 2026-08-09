@@ -129,6 +129,8 @@ class IncidentSemanticQueryResult:
 @dataclass(frozen=True)
 class IncidentIndexOperationResult:
     collection: str
+    eligible_count: int = 0
+    ineligible_count: int = 0
     indexed_count: int = 0
     deleted_count: int = 0
     embedding_failures: int = 0
@@ -150,6 +152,8 @@ class IncidentIndexStatus:
     missing_ids: int = 0
     stale_fingerprints: int = 0
     database_incidents: int = 0
+    eligible_incidents: int = 0
+    ineligible_incidents: int = 0
     error_category: str | None = None
     decision_boundary: str = INCIDENT_INDEX_DECISION_BOUNDARY
 
@@ -316,6 +320,24 @@ class IncidentSemanticIndex:
             raise RuntimeError("incident_embedding_not_ready")
         return [float(value) for value in get_knowledge_base().embed(text)]
 
+    def _embed_many(self, texts: list[str]) -> list[list[float]]:
+        if self._embedder is not None:
+            return [self._embed(text, require_ready=False) for text in texts]
+        encoded = get_knowledge_base().encoder.encode(
+            texts,
+            batch_size=self.config.upsert_batch_size,
+            show_progress_bar=False,
+            convert_to_numpy=True,
+        )
+        values = encoded.tolist() if hasattr(encoded, "tolist") else list(encoded)
+        vectors = [
+            [float(value) for value in vector]
+            for vector in values
+        ]
+        if len(vectors) != len(texts):
+            raise RuntimeError("incident_embedding_batch_size_mismatch")
+        return vectors
+
     def collection_exists(self) -> bool:
         collections = self.client.get_collections().collections
         return self.config.collection_name in {item.name for item in collections}
@@ -431,35 +453,57 @@ class IncidentSemanticIndex:
             duration_ms=(time.monotonic() - started) * 1000,
         )
 
-    def rebuild(self, db: Any, *, limit: int = 10_000) -> IncidentIndexOperationResult:
+    def rebuild(
+        self,
+        db: Any,
+        *,
+        limit: int | None = None,
+    ) -> IncidentIndexOperationResult:
         started = time.monotonic()
         if not self.config.enabled:
             return IncidentIndexOperationResult(
                 collection=self.config.collection_name,
                 status="disabled",
             )
-        incidents = (
-            db.query(Incident)
-            .order_by(Incident.id.asc())
-            .limit(max(1, min(limit, 100_000)))
-            .all()
-        )
+        query = db.query(Incident).order_by(Incident.id.asc())
+        if limit is not None:
+            query = query.limit(max(1, min(limit, 100_000)))
+        incidents = query.all()
         case_ids = self._case_ids(db, [item.id for item in incidents])
-        points = []
+        documents: list[IncidentSemanticDocument] = []
         failures = 0
-        vector_size = None
         for incident in incidents:
             try:
-                document = build_incident_semantic_document(
-                    incident,
-                    linked_case_ids=case_ids.get(incident.id, []),
-                    embedding_version=self.config.embedding_model,
+                documents.append(
+                    build_incident_semantic_document(
+                        incident,
+                        linked_case_ids=case_ids.get(incident.id, []),
+                        embedding_version=self.config.embedding_model,
+                    )
                 )
-                vector = self._embed(document.text, require_ready=False)
-                vector_size = vector_size or len(vector)
-                points.append(self._point(document, vector))
             except Exception:
                 failures += 1
+        points = []
+        vector_size = None
+        for index in range(0, len(documents), self.config.upsert_batch_size):
+            batch = documents[index : index + self.config.upsert_batch_size]
+            try:
+                vectors = self._embed_many([document.text for document in batch])
+            except Exception:
+                vectors = []
+                for document in batch:
+                    try:
+                        vectors.append(
+                            self._embed(document.text, require_ready=False)
+                        )
+                    except Exception:
+                        vectors.append([])
+                        failures += 1
+            for document, vector in zip(batch, vectors, strict=True):
+                if not vector:
+                    continue
+                vector_size = vector_size or len(vector)
+                points.append(self._point(document, vector))
         try:
             if vector_size is not None:
                 self.recreate_collection(vector_size)
@@ -472,6 +516,7 @@ class IncidentSemanticIndex:
         except Exception as exc:
             return IncidentIndexOperationResult(
                 collection=self.config.collection_name,
+                eligible_count=len(incidents),
                 indexed_count=0,
                 embedding_failures=failures,
                 duration_ms=(time.monotonic() - started) * 1000,
@@ -480,6 +525,7 @@ class IncidentSemanticIndex:
             )
         return IncidentIndexOperationResult(
             collection=self.config.collection_name,
+            eligible_count=len(incidents),
             indexed_count=len(points),
             embedding_failures=failures,
             duration_ms=(time.monotonic() - started) * 1000,
@@ -550,13 +596,14 @@ class IncidentSemanticIndex:
             query_ms=(time.monotonic() - started) * 1000,
         )
 
-    def _scroll_payloads(self, *, limit: int) -> list[dict[str, Any]]:
+    def _scroll_payloads(self, *, limit: int | None) -> list[dict[str, Any]]:
         payloads = []
         offset = None
-        while len(payloads) < limit:
+        while limit is None or len(payloads) < limit:
+            batch_limit = 250 if limit is None else min(250, limit - len(payloads))
             points, offset = self.client.scroll(
                 collection_name=self.config.collection_name,
-                limit=min(250, limit - len(payloads)),
+                limit=batch_limit,
                 offset=offset,
                 with_payload=True,
                 with_vectors=False,
@@ -568,7 +615,12 @@ class IncidentSemanticIndex:
                 break
         return payloads
 
-    def status(self, db: Any, *, limit: int = 100_000) -> IncidentIndexStatus:
+    def status(
+        self,
+        db: Any,
+        *,
+        limit: int | None = None,
+    ) -> IncidentIndexStatus:
         if not self.config.enabled:
             return IncidentIndexStatus(
                 collection=self.config.collection_name,
@@ -580,13 +632,14 @@ class IncidentSemanticIndex:
                     collection=self.config.collection_name,
                     status="missing",
                 )
-            payloads = self._scroll_payloads(limit=max(1, limit))
-            incidents = (
-                db.query(Incident)
-                .order_by(Incident.id.asc())
-                .limit(max(1, limit))
-                .all()
+            resolved_limit = (
+                max(1, min(limit, 100_000)) if limit is not None else None
             )
+            payloads = self._scroll_payloads(limit=resolved_limit)
+            query = db.query(Incident).order_by(Incident.id.asc())
+            if resolved_limit is not None:
+                query = query.limit(resolved_limit)
+            incidents = query.all()
             case_ids = self._case_ids(db, [item.id for item in incidents])
         except Exception as exc:
             return IncidentIndexStatus(
@@ -623,6 +676,7 @@ class IncidentSemanticIndex:
             missing_ids=len(set(database_by_id) - unique_ids),
             stale_fingerprints=stale,
             database_incidents=len(database_by_id),
+            eligible_incidents=len(database_by_id),
         )
 
 

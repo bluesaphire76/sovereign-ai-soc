@@ -210,6 +210,36 @@ def test_context_policy_makes_open_explanation_rich_but_excludes_raw_fields() ->
     assert plan.include_advisory is False
 
 
+def test_executive_context_includes_material_handling_and_detection_facts() -> None:
+    intent = _selection(AnswerIntent.EXECUTIVE_SUMMARY)
+    scope = resolve_analysis_scope(
+        request_scope="incident",
+        incident_id=10,
+        case_id=None,
+        intent=intent,
+        conversation_state=None,
+    )
+    plan = ContextPolicyEngine().plan(
+        intent=intent,
+        focus=_focus(FocusDimension.GENERAL),
+        resolved_scope=scope,
+        available_facts=FACTS,
+        conversation_state=None,
+    )
+    fields = {field.value for field in plan.fact_fields}
+
+    assert {
+        "status",
+        "rule",
+        "risk_score",
+        "recommended_priority",
+        "correlated",
+        "linked_case_ids",
+    } <= fields
+    assert "mitre" not in fields
+    assert "latest_timeline_event" not in fields
+
+
 def test_cross_incident_intent_expands_scope_and_context_policy() -> None:
     intent = _selection(AnswerIntent.CROSS_INCIDENT_ANALYSIS)
     scope = resolve_analysis_scope(

@@ -232,7 +232,7 @@ def test_explicit_candidate_ids_are_rehydrated_and_missing_ids_are_discarded() -
             anchor_facts=_anchor_facts(anchor, case.id),
             semantic_hits=[],
             explicit_incident_ids=[unrelated.id, 999999, unrelated.id],
-            limits=ContextLimits(max_candidates_rehydrated=8),
+            limits=ContextLimits(max_candidates_rehydrated=2),
         )
 
         by_id = {item.candidate_incident_id: item for item in result.candidates}

@@ -24,6 +24,7 @@ from services.assistant.v3.plan_schema import (
     UNIT_WIRE_CODES,
     grounded_answer_plan_v3_schema,
 )
+from services.assistant.v3.quality_policy import enrich_unit
 from services.assistant.v3.plan_validation import (
     GroundedAnswerPlanV3Validator,
     parse_grounded_answer_plan_v3,
@@ -31,7 +32,30 @@ from services.assistant.v3.plan_validation import (
 from tests.assistant_v3_test_support import analytical_package
 
 
-def _plan(*sections: AnswerSection) -> GroundedAnswerPlanV3:
+def _schema_units(section: dict) -> list[dict]:
+    return section.get("prefixItems") or section["items"]["oneOf"]
+
+
+def _plan(
+    *sections: AnswerSection,
+    package=None,
+) -> GroundedAnswerPlanV3:
+    if package is not None:
+        sections = tuple(
+            section.model_copy(
+                update={
+                    "units": [
+                        enrich_unit(
+                            unit,
+                            package=package,
+                            section_type=section.section_type,
+                        )
+                        for unit in section.units
+                    ]
+                }
+            )
+            for section in sections
+        )
     return GroundedAnswerPlanV3(
         answer_intent=AnswerIntent.CROSS_INCIDENT_ANALYSIS,
         detail_level=AnswerDetailLevel.STANDARD,
@@ -66,11 +90,15 @@ def _non_implication() -> AnswerSection:
 def test_dynamic_schema_restricts_all_refs_to_current_package() -> None:
     package = analytical_package()
     schema = grounded_answer_plan_v3_schema(package)
-    section_properties = schema["properties"]["sections"]["properties"]
+    section_properties = {
+        name: schema["$defs"][value["$ref"].rsplit("/", 1)[-1]]
+        for variant in schema["properties"]["sections"]["oneOf"]
+        for name, value in variant["properties"].items()
+    }
     unit_variants = [
         unit
         for section in section_properties.values()
-        for unit in section["oneOf"]
+        for unit in _schema_units(section)
     ]
 
     def variants(unit_type: AnalyticalUnitType):
@@ -81,7 +109,7 @@ def test_dynamic_schema_restricts_all_refs_to_current_package() -> None:
         ]
 
     assert schema["additionalProperties"] is False
-    assert schema["required"] == ["sections"]
+    assert schema["required"] == ["order", "sections"]
     assert {
         ref for option in schema["$defs"]["fact_refs"]["enum"] for ref in option
     } == {
@@ -101,6 +129,8 @@ def test_dynamic_schema_restricts_all_refs_to_current_package() -> None:
         variants(AnalyticalUnitType.ANALYTICAL_RELATIONSHIP)[0]["properties"]
     ) == {
         "kind",
+        "mode",
+        "importance",
         "refs",
     }
     assert "relationship:missing" not in str(schema)
@@ -109,25 +139,31 @@ def test_dynamic_schema_restricts_all_refs_to_current_package() -> None:
 def test_dynamic_schema_is_intent_restricted_and_bounded() -> None:
     package = analytical_package(AnswerIntent.EXPLAIN)
     schema = grounded_answer_plan_v3_schema(package)
-    sections = schema["properties"]["sections"]
+    section_variants = schema["properties"]["sections"]["oneOf"]
 
-    assert sections["maxProperties"] == 3
-    assert set(sections["properties"]) == {
+    assert [item["maxProperties"] for item in section_variants] == [2, 3, 4]
+    assert set(section_variants[0]["properties"]) == {"answer", "technical"}
+    assert set(section_variants[-1]["properties"]) == {
         "answer",
         "findings",
         "technical",
+        "evidence",
     }
-    assert sections["required"] == ["answer", "technical", "findings"]
     section_types_by_wire = {
         value: key for key, value in SECTION_WIRE_CODES.items()
     }
     unit_types_by_wire = {value: key for key, value in UNIT_WIRE_CODES.items()}
-    for section_name, section in sections["properties"].items():
+    section_properties = {
+        name: schema["$defs"][value["$ref"].rsplit("/", 1)[-1]]
+        for variant in section_variants
+        for name, value in variant["properties"].items()
+    }
+    for section_name, section in section_properties.items():
         section_type = section_types_by_wire[section_name]
         assert all(
             unit_types_by_wire[unit["properties"]["kind"]["const"]]
             in SECTION_UNIT_TYPES[section_type]
-            for unit in section["oneOf"]
+            for unit in _schema_units(section)
         )
 
 
@@ -157,6 +193,7 @@ def test_validator_accepts_grounded_cross_incident_plan() -> None:
             ],
         ),
         _non_implication(),
+        package=package,
     )
 
     assert GroundedAnswerPlanV3Validator().validate(plan, package=package).accepted
@@ -204,7 +241,8 @@ def test_validator_rejects_invalid_refs_authority_and_absence(
         AnswerSection(
             section_type=AnswerSectionType.DIRECT_ANSWER,
             units=[unit],
-        )
+        ),
+        package=package,
     )
 
     result = GroundedAnswerPlanV3Validator().validate(plan, package=package)
@@ -223,7 +261,8 @@ def test_relationship_plan_requires_explicit_non_implication() -> None:
                     relationship_refs=["relationship:shared-host"],
                 )
             ],
-        )
+        ),
+        package=package,
     )
 
     result = GroundedAnswerPlanV3Validator().validate(plan, package=package)
@@ -286,8 +325,8 @@ def test_deterministic_fallback_is_rich_valid_and_intent_aware() -> None:
     assert result.accepted is True
     assert len(fallback.sections) >= 3
     assert fallback.used_relationship_refs
-    assert fallback.used_advisory_refs
-    assert fallback.next_checks
+    assert fallback.used_advisory_refs == []
+    assert fallback.next_checks == []
 
 
 @pytest.mark.parametrize("intent", list(AnswerIntent))
@@ -349,16 +388,26 @@ def test_parser_normalizes_closed_section_map_without_repair() -> None:
 def test_parser_canonicalizes_compact_wire_plan_from_current_package() -> None:
     package = analytical_package()
     payload = {
+        "order": "comparison",
         "sections": {
-            "answer": {"kind": "fact", "refs": ["incident:1:status"]},
-            "related": {
+            "answer": [{
+                "kind": "fact",
+                "mode": "primary:lead",
+                "importance": "primary",
+                "refs": ["incident:1:status"],
+            }],
+            "related": [{
                 "kind": "relationship",
+                "mode": "relationship:compare",
+                "importance": "primary",
                 "refs": ["relationship:shared-host"],
-            },
-            "caveats": {
+            }],
+            "caveats": [{
                 "kind": "non_implication",
+                "mode": "caveat:caveat",
+                "importance": "secondary",
                 "code": "SHARED_HOST_NOT_COMMON_ROOT_CAUSE",
-            },
+            }],
         }
     }
 
@@ -375,11 +424,14 @@ def test_parser_canonicalizes_compact_wire_plan_from_current_package() -> None:
 def test_parser_rejects_compact_wire_without_package_or_with_ambiguous_refs() -> None:
     package = analytical_package()
     payload = {
+        "order": "comparison",
         "sections": {
-            "answer": {
+            "answer": [{
                 "kind": "recorded",
+                "mode": "primary:lead",
+                "importance": "primary",
                 "refs": ["incident:1:status", "relationship:shared-host"],
-            }
+            }]
         }
     }
 

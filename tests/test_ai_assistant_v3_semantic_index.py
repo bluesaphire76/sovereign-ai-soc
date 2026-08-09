@@ -200,6 +200,8 @@ def test_rebuild_batches_without_duplicates_and_status_detects_stale_missing() -
         status = index.status(db)
 
         assert rebuilt.indexed_count == 3
+        assert rebuilt.eligible_count == 3
+        assert rebuilt.ineligible_count == 0
         assert rebuilt.embedding_failures == 0
         assert len(client.upserts) == 2
         assert status.status == "ready"
@@ -208,6 +210,8 @@ def test_rebuild_batches_without_duplicates_and_status_detects_stale_missing() -
         assert status.duplicate_ids == 0
         assert status.missing_ids == 0
         assert status.stale_fingerprints == 0
+        assert status.eligible_incidents == 3
+        assert status.ineligible_incidents == 0
 
         client.points["duplicate-alias"] = next(iter(client.points.values()))
         duplicate = index.status(db)
@@ -328,6 +332,74 @@ def test_cli_lifecycle_dispatch_is_typed_and_closes_db() -> None:
     assert db.closed is True
 
 
+def test_rebuild_uses_batch_embedding_and_default_cli_has_no_corpus_cap(
+    monkeypatch,
+) -> None:
+    class Encoded(list):
+        def tolist(self):
+            return list(self)
+
+    class Encoder:
+        calls = []
+
+        def encode(self, texts, **kwargs):
+            self.calls.append((list(texts), kwargs))
+            return Encoded([[float(len(text)), 1.0, 0.5] for text in texts])
+
+    encoder = Encoder()
+    monkeypatch.setattr(
+        "services.assistant.v3.semantic_index.get_knowledge_base",
+        lambda: SimpleNamespace(encoder=encoder),
+    )
+    db = _db()
+    client = _Client()
+    index = IncidentSemanticIndex(
+        IncidentSemanticIndexConfig(
+            collection_name="incident_semantic_index",
+            embedding_model="test-embedding-v1",
+            upsert_batch_size=8,
+        ),
+        client=client,
+    )
+    try:
+        db.add_all([_incident(f"batch-{value}") for value in range(3)])
+        db.commit()
+
+        result = index.rebuild(db)
+
+        assert result.status == "ok"
+        assert result.indexed_count == result.eligible_count == 3
+        assert len(encoder.calls) == 1
+        assert len(encoder.calls[0][0]) == 3
+        assert encoder.calls[0][1]["batch_size"] == 8
+    finally:
+        db.close()
+
+    class Db:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    uncapped_db = Db()
+
+    class Index:
+        def status(self, selected_db, *, limit):
+            assert selected_db is uncapped_db
+            assert limit is None
+            return IncidentIndexStatus(
+                collection="incident_semantic_index",
+                status="ready",
+            )
+
+    run_index_command(
+        action="status",
+        db_factory=lambda: uncapped_db,
+        index_factory=Index,
+    )
+    assert uncapped_db.closed is True
+
+
 def test_operation_result_is_closed_for_best_effort_incremental_reporting() -> None:
     result = IncidentIndexOperationResult(
         collection="incident_semantic_index",
@@ -335,6 +407,8 @@ def test_operation_result_is_closed_for_best_effort_incremental_reporting() -> N
     )
     assert result.to_dict() == {
         "collection": "incident_semantic_index",
+        "eligible_count": 0,
+        "ineligible_count": 0,
         "indexed_count": 1,
         "deleted_count": 0,
         "embedding_failures": 0,
