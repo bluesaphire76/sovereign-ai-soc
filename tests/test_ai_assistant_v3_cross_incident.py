@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from models import Base, CaseIncident, Incident, IncidentCase
 from services.assistant.focus import FocusDimension, FocusSelection
 from services.assistant.v3.atoms import OperationalAtomNormalizer
+from services.assistant.v3.authorization import PlatformIncidentAccessPolicy
 from services.assistant.v3.contracts import (
     AnalyticalRelationship,
     AnswerIntent,
@@ -334,10 +335,40 @@ def test_stale_semantic_hit_is_not_promoted_after_database_rehydration() -> None
             item.candidate_incident_id: item for item in current.candidates
         }
         assert semantic_only.id not in stale_ids
+        assert stale.stale_reject_count == 1
         assert DiscoverySignal.SEMANTIC_SIMILARITY in (
             current_by_id[semantic_only.id].discovery_signals
         )
         assert current_by_id[semantic_only.id].authoritative_rehydrated is True
+        assert current.rehydrated_count > 0
+    finally:
+        db.close()
+
+
+def test_unauthorized_candidate_is_removed_before_rehydrated_facts_are_exposed() -> None:
+    db = _db()
+    try:
+        anchor, shared_agent, _, semantic_only, _, case = _fixture(db)
+
+        class DenySelectedPolicy(PlatformIncidentAccessPolicy):
+            def can_read_incident(self, incident, *, current_user):
+                return incident.id not in {shared_agent.id, semantic_only.id}
+
+        result = CrossIncidentCandidateRetriever(
+            access_policy=DenySelectedPolicy()
+        ).retrieve(
+            db=db,
+            anchor_facts=_anchor_facts(anchor, case.id),
+            semantic_hits=[SemanticIncidentHit(semantic_only.id, 0.95)],
+            explicit_incident_ids=[shared_agent.id],
+            limits=ContextLimits(max_candidates_rehydrated=8),
+            current_user={"username": "restricted", "role": "ANALYST"},
+        )
+
+        exposed_ids = {item.candidate_incident_id for item in result.candidates}
+        rehydrated_ids = {item.incident_id for item in result.incidents}
+        assert shared_agent.id not in exposed_ids | rehydrated_ids
+        assert semantic_only.id not in exposed_ids | rehydrated_ids
     finally:
         db.close()
 

@@ -44,6 +44,16 @@ class _Router:
         return self.value
 
 
+class _RequestEmbeddingRouter(_Router):
+    def __init__(self, value: Any) -> None:
+        super().__init__(value)
+        self.request_embeddings: list[Any] = []
+
+    def route(self, _message: str, *, request_embedding=None) -> Any:
+        self.request_embeddings.append(request_embedding)
+        return self.value
+
+
 class _Builder:
     def __init__(self, package) -> None:
         self.package = package
@@ -155,13 +165,79 @@ def test_v3_success_uses_one_generation_and_exact_plan_refs(monkeypatch) -> None
     assert response.metadata.model_switches == 0
     assert response.metadata.intent_routing_ms >= 0
     assert response.metadata.focus_routing_ms >= 0
+    assert response.metadata.scope_resolution_ms >= 0
+    assert response.metadata.operational_retrieval_ms >= 0
     assert response.metadata.semantic_candidate_ms >= 0
+    assert response.metadata.schema_chars > 0
     assert any(block.kind == "related_incidents" for block in response.blocks)
+    assert any(
+        "analytical_relationship" in block.provenance_classes
+        for block in response.blocks
+    )
+    assert all(source.provenance_class for source in response.sources)
     assert all(
         source_id in {source.source_id for source in response.sources}
         for block in response.blocks
         for source_id in block.source_ids
     )
+
+
+def test_default_routers_reuse_one_request_embedding(monkeypatch) -> None:
+    package = analytical_package()
+    retrieval = _retrieval()
+    vector = (0.25, 0.75)
+
+    class _EmbeddingProvider:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def embed(self, text: str):
+            self.calls.append(text)
+            return vector
+
+    provider = _EmbeddingProvider()
+    intent_router = _RequestEmbeddingRouter(package.intent_selection)
+    focus_router = _RequestEmbeddingRouter(
+        FocusSelection(dimensions=(FocusDimension.GENERAL,), confidence=1)
+    )
+    monkeypatch.setattr(
+        "services.assistant.orchestrator.retrieve_assistant_context",
+        lambda *args, **kwargs: retrieval,
+    )
+    monkeypatch.setattr(
+        "services.assistant.orchestrator.get_shared_semantic_embedding_provider",
+        lambda: provider,
+    )
+    monkeypatch.setattr(
+        "services.assistant.orchestrator.get_semantic_intent_router",
+        lambda: intent_router,
+    )
+    monkeypatch.setattr(
+        "services.assistant.orchestrator.get_semantic_focus_router",
+        lambda: focus_router,
+    )
+
+    response = run_assistant_query(
+        AssistantQueryRequest(
+            message="Find related incidents and explain why.",
+            scope="incident",
+            incident_id=1,
+            include_semantic_memory=False,
+        ),
+        settings=_settings(),
+        db_factory=_Db,
+        generator=lambda **_kwargs: {
+            "structured_output": deterministic_answer_plan_v3(package).model_dump(
+                mode="json"
+            )
+        },
+        v3_context_builder=_Builder(package),
+    )
+
+    assert response.generation_kind == "model"
+    assert len(provider.calls) == 1
+    assert intent_router.request_embeddings == [vector]
+    assert focus_router.request_embeddings == [vector]
 
 
 @pytest.mark.parametrize(
@@ -225,6 +301,16 @@ def test_v3_context_failure_skips_provider_and_uses_safe_fallback(monkeypatch) -
         return {}
 
     retrieval = _retrieval()
+    retrieval.sources.append(
+        SourceRecord(
+            source_type="historical_incident",
+            authority="advisory",
+            record_id="2",
+            label="Historical incident 2",
+            excerpt="Semantic candidate that did not pass V3 authorization.",
+            url="/incidents/2",
+        )
+    )
     monkeypatch.setattr(
         "services.assistant.orchestrator.retrieve_assistant_context",
         lambda *args, **kwargs: retrieval,
@@ -251,6 +337,73 @@ def test_v3_context_failure_skips_provider_and_uses_safe_fallback(monkeypatch) -
     assert calls == 0
     assert response.metadata.fallback_reason == "v3_context_build_failed"
     assert response.metadata.provider_generation_count == 0
+    assert [(source.source_type, source.record_id) for source in response.sources] == [
+        ("incident", "1")
+    ]
+
+
+def test_v3_case_context_failure_does_not_expose_linked_incident_data(monkeypatch) -> None:
+    class _FailingBuilder:
+        def build(self, **_kwargs):
+            raise ValueError("context unavailable")
+
+    retrieval = RetrievalResult(
+        scope="case",
+        case_id=7,
+        fact_inventory={
+            "source_type": "case",
+            "case_id": 7,
+            "status": "OPEN",
+            "linked_incident_count": 1,
+            "linked_incidents": [
+                {"incident_id": 99, "rule": "UNAUTHORIZED_MARKER"}
+            ],
+        },
+        sources=[
+            SourceRecord(
+                source_type="case",
+                authority="authoritative",
+                record_id="7",
+                label="Case 7",
+                excerpt="Authoritative case record.",
+                url="/cases/7",
+            ),
+            SourceRecord(
+                source_type="case_linked_incidents",
+                authority="authoritative",
+                record_id="7",
+                label="UNAUTHORIZED_MARKER",
+                excerpt="UNAUTHORIZED_MARKER",
+                url="/cases/7/incidents",
+            ),
+        ],
+    )
+    monkeypatch.setattr(
+        "services.assistant.orchestrator.retrieve_assistant_context",
+        lambda *args, **kwargs: retrieval,
+    )
+    response = run_assistant_query(
+        AssistantQueryRequest(
+            message="Explain this case.",
+            scope="case",
+            case_id=7,
+            include_semantic_memory=False,
+        ),
+        settings=_settings(),
+        db_factory=_Db,
+        generator=lambda **_kwargs: pytest.fail("provider must not be called"),
+        focus_router=_Router(FocusSelection(dimensions=(FocusDimension.GENERAL,))),
+        intent_router=_Router(
+            analytical_package(AnswerIntent.EXPLAIN).intent_selection
+        ),
+        v3_context_builder=_FailingBuilder(),
+    )
+
+    assert response.metadata.fallback_reason == "v3_context_build_failed"
+    assert [(source.source_type, source.record_id) for source in response.sources] == [
+        ("case", "7")
+    ]
+    assert "UNAUTHORIZED_MARKER" not in response.answer
 
 
 def test_v3_schema_failure_skips_provider(monkeypatch) -> None:

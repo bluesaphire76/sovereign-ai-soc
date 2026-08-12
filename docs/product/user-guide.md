@@ -153,15 +153,25 @@ Operational database sources are marked `AUTHORITATIVE`. Qdrant semantic-memory
 sources are marked `ADVISORY`; semantic retrieval is bounded to two seconds and
 may fail open.
 Similarity does not prove identity, cause, severity, or closure readiness. The
-backend validates structured Direct answer, Analysis, Next check, and
-Limitations blocks and attaches source chips to validated internal application
-paths. The response is read-only and cannot update incidents, cases, workflows,
-detection controls, or remediation decisions.
+backend validates closed V3 answer-plan sections such as Direct answer, Key
+findings, Evidence, Related incidents, Comparison, Recommended checks, and
+Limitations. Source and block labels distinguish operational sources,
+reference knowledge, advisory/playbook guidance, analytical relationships, and
+semantic candidates. Incident and case sources use validated internal detail
+links.
 
-The panel keeps only the latest question and response in memory while the
-current detail page is open. It has no conversation history, browser
-persistence, streaming, or autonomous actions. VIEWER users do not receive the
-interactive panel.
+The panel keeps a bounded conversation while the current Incident or Case
+detail view remains mounted. Changing record context creates a new opaque
+conversation ID; the backend isolates state by authenticated owner, expires it,
+and persists only validated IDs and refs. Previous Assistant prose and user
+assertions never become operational evidence. There is no browser persistence,
+streaming, or autonomous action. VIEWER users do not receive the interactive
+panel.
+
+The response remains read-only and cannot update incidents, cases, workflows,
+detection controls, or remediation decisions. Recommended checks are guidance,
+and analytical relationships or semantic candidates never represent a
+platform-recorded correlation.
 
 Incident and Case page loads retrieve stored or deterministic content only.
 New playbook suggestions, remediation analysis, and AI analysis require their

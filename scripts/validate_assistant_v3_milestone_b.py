@@ -14,7 +14,7 @@ import time
 from collections import Counter
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 if str(REPOSITORY_ROOT) not in sys.path:
@@ -344,7 +344,11 @@ def _run_spec(
                 compare_incident_ids=list(spec.compare_incident_ids),
                 conversation_id=spec.conversation_id,
                 include_semantic_memory=spec.expected_intent
-                in {AnswerIntent.NEXT_ACTION, AnswerIntent.HANDOVER},
+                in {
+                    AnswerIntent.INVESTIGATE,
+                    AnswerIntent.NEXT_ACTION,
+                    AnswerIntent.HANDOVER,
+                },
             ),
             current_user={
                 "username": "milestone-b-validator",
@@ -404,6 +408,7 @@ def _run_phase(
     intent_selections: dict[str, Any],
     focus_selections: dict[str, Any],
     inter_query_delay_seconds: float = 0.0,
+    before_query: Callable[[], None] | None = None,
 ) -> list[dict[str, Any]]:
     if concurrency != 1:
         raise ValueError("the inference gateway coordinator requires serial validation")
@@ -411,6 +416,8 @@ def _run_phase(
         raise ValueError("inter-query delay must be non-negative")
     results: list[dict[str, Any]] = []
     for index, spec in enumerate(specs):
+        if before_query is not None:
+            before_query()
         results.append(
             _run_spec(
                 spec,
@@ -509,10 +516,9 @@ def _quality_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
     ]
     compare_scope_drift = 0
     for item in explicit_comparisons:
-        requested = {
-            int(item["incident_id"]),
-            *(int(value) for value in item["compare_incident_ids"]),
-        }
+        requested = {int(value) for value in item["compare_incident_ids"]}
+        if item.get("incident_id") is not None:
+            requested.add(int(item["incident_id"]))
         visible_incidents = {
             int(source["record_id"])
             for source in item.get("sources", [])
@@ -553,7 +559,13 @@ def _quality_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
         "cross_relationship_explanation_coverage": round(
             sum(
                 any(
-                    block["kind"] in {"related_incidents", "analysis"}
+                    block["kind"]
+                    in {
+                        "related_incidents",
+                        "analysis",
+                        "comparison",
+                        "pattern",
+                    }
                     for block in item["blocks"]
                 )
                 for item in cross_results

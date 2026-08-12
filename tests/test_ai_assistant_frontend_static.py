@@ -16,7 +16,16 @@ def test_grounded_blocks_have_adjacent_source_chips() -> None:
 
     for label in ("Direct answer", "Analysis", "Next check", "Limitations"):
         assert label in source
+    for label in (
+        "Comparison",
+        "Pattern",
+        "What we can conclude",
+        "Recommended checks",
+    ):
+        assert label in source
     assert "block.source_ids.map" in source
+    assert "block.provenance_classes.map" in source
+    assert "ASSISTANT_PROVENANCE" in source
     assert "revealSource(sourceId)" in source
     assert "source.authority" in source
     assert "Sources (" in source
@@ -41,6 +50,12 @@ def test_technical_details_only_expose_the_grounded_runtime_contract() -> None:
         "Fallback reason",
         "Source count",
         "Thinking disabled",
+        "Effective intent",
+        "Analysis scope",
+        "Cross-incident context",
+        "Semantic index",
+        "Plan validation",
+        "Context build",
     ):
         assert label in source
     for retired in (
@@ -64,6 +79,25 @@ def test_readiness_is_manual_and_reports_gateway_states() -> None:
     assert "Refresh Assistant readiness" in source
     assert "setInterval" not in source
     assert "setTimeout" not in source
+    assert "conversation_id: currentConversationId()" in source
+    assert "key={`${props.scope}:${props.targetId}`}" in source
+
+
+def test_v3_provenance_classes_are_readable_and_semantically_distinct() -> None:
+    source = (COMPONENTS / "AssistantSources.tsx").read_text(encoding="utf-8")
+    answer = ANSWER.read_text(encoding="utf-8")
+
+    for label in (
+        "Operational source",
+        "Reference knowledge",
+        "Advisory / playbook",
+        "Analytical relationship",
+        "Semantic candidate",
+    ):
+        assert label in PRESENTATION.read_text(encoding="utf-8")
+    assert "PROVENANCE_ORDER" in source
+    assert "Semantic similarity is advisory" in source
+    assert "Evidence provenance" in answer
 
 
 def test_client_contract_is_structured_and_internal_links_are_safe() -> None:

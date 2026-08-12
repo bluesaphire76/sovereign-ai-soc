@@ -92,8 +92,7 @@ def test_dynamic_schema_restricts_all_refs_to_current_package() -> None:
     schema = grounded_answer_plan_v3_schema(package)
     section_properties = {
         name: schema["$defs"][value["$ref"].rsplit("/", 1)[-1]]
-        for variant in schema["properties"]["sections"]["oneOf"]
-        for name, value in variant["properties"].items()
+        for name, value in schema["properties"]["sections"]["properties"].items()
     }
     unit_variants = [
         unit
@@ -139,11 +138,12 @@ def test_dynamic_schema_restricts_all_refs_to_current_package() -> None:
 def test_dynamic_schema_is_intent_restricted_and_bounded() -> None:
     package = analytical_package(AnswerIntent.EXPLAIN)
     schema = grounded_answer_plan_v3_schema(package)
-    section_variants = schema["properties"]["sections"]["oneOf"]
+    sections = schema["properties"]["sections"]
 
-    assert [item["maxProperties"] for item in section_variants] == [2, 3, 4]
-    assert set(section_variants[0]["properties"]) == {"answer", "technical"}
-    assert set(section_variants[-1]["properties"]) == {
+    assert sections["minProperties"] == 2
+    assert sections["maxProperties"] == 4
+    assert set(sections["required"]) == {"answer", "technical"}
+    assert set(sections["properties"]) == {
         "answer",
         "findings",
         "technical",
@@ -155,8 +155,7 @@ def test_dynamic_schema_is_intent_restricted_and_bounded() -> None:
     unit_types_by_wire = {value: key for key, value in UNIT_WIRE_CODES.items()}
     section_properties = {
         name: schema["$defs"][value["$ref"].rsplit("/", 1)[-1]]
-        for variant in section_variants
-        for name, value in variant["properties"].items()
+        for name, value in sections["properties"].items()
     }
     for section_name, section in section_properties.items():
         section_type = section_types_by_wire[section_name]
