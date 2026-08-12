@@ -220,6 +220,10 @@ facts and assigns source references in the backend; Qdrant advisory context
 fails open within a two-second budget. See
 [AI Execution Gateway](docs/architecture/v0.8-ai-execution-gateway.md) and
 [Grounded Assistant Response](docs/architecture/v0.8-ai-assistant-grounded-response.md).
+The production V3 architecture adds embedding-driven intent/focus routing,
+authorized cross-incident evidence, typed provenance, bounded conversation
+state, and one schema-constrained generation; see
+[AI Assistant V3 Production Quality](docs/architecture/v0.9-ai-assistant-v3-milestone-c.md).
 
 - Incident AI analysis for situation summaries, risk rationale and evidence interpretation.
 - Structured AI Command Brief with provider/model visibility.

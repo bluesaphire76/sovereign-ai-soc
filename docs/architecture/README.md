@@ -17,9 +17,11 @@
 
 ## AI Assistant V3 Intelligence Foundation
 
+- [Milestone C: Production Quality and Hardening](v0.9-ai-assistant-v3-milestone-c.md)
 - [Milestone B: Useful Grounded Analytical Assistant V3](v0.9-ai-assistant-v3-milestone-b.md)
 - [Milestone A: Grounded Analytical Assistant V3](v0.9-ai-assistant-v3-milestone-a.md)
 - [Milestone B validation](../validation/ai-assistant-v3-milestone-b.md)
+- [Milestone C evaluation pack](../validation/assistant-v3-eval-pack.md)
 - [Milestone A validation](../validation/ai-assistant-v3-milestone-a.md)
 
 ## v0.7 Implemented Architecture

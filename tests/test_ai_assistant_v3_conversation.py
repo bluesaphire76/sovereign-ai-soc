@@ -11,6 +11,7 @@ from services.assistant.v3.contracts import (
 )
 from services.assistant.v3.conversation import (
     ConversationStateStore,
+    conversation_store_from_env,
     conversation_owner_key,
     updated_conversation_state,
 )
@@ -100,3 +101,36 @@ def test_conversation_cleanup_is_explicit_and_scoped() -> None:
 
     assert store.clear(owner_key=owner, conversation_id="clear-me") is True
     assert store.clear(owner_key=owner, conversation_id="clear-me") is False
+
+
+def test_conversation_load_drops_refs_no_longer_authorized_for_owner() -> None:
+    db = _db()
+    try:
+        owner = conversation_owner_key({"username": "analyst"})
+        store = ConversationStateStore(clock=lambda: 100.0)
+        store.save(_state(owner=owner, conversation="authorization-change"))
+
+        loaded = store.load(
+            owner_key=owner,
+            conversation_id="authorization-change",
+            db=db,
+            authorized_incident_ids=lambda _values: {1},
+        )
+
+        assert loaded is not None
+        assert loaded.active_incident_ids == [1]
+        assert loaded.related_incident_ids == []
+    finally:
+        db.close()
+
+
+def test_conversation_store_configuration_is_bounded(monkeypatch) -> None:
+    monkeypatch.setenv("AI_SOC_ASSISTANT_CONVERSATION_TTL_SECONDS", "1")
+    monkeypatch.setenv("AI_SOC_ASSISTANT_MAX_CONVERSATIONS", "99999")
+    monkeypatch.setenv("AI_SOC_ASSISTANT_MAX_CONVERSATIONS_PER_USER", "0")
+
+    store = conversation_store_from_env()
+
+    assert store._ttl_seconds == 60
+    assert store._max_states == 4096
+    assert store._max_states_per_owner == 1

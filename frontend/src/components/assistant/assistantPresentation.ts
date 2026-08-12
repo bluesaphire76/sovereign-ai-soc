@@ -1,7 +1,49 @@
 import type {
   AssistantMode,
+  AssistantProvenanceClass,
   ContextualAssistantScope,
 } from "@/lib/assistant";
+
+export const ASSISTANT_PROVENANCE: Record<
+  AssistantProvenanceClass,
+  {
+    label: string;
+    description: string;
+    className: string;
+    textClassName: string;
+  }
+> = {
+  operational_source: {
+    label: "Operational source",
+    description: "Recorded platform data",
+    className: "border-emerald-900 text-emerald-300",
+    textClassName: "text-emerald-300",
+  },
+  reference_knowledge: {
+    label: "Reference knowledge",
+    description: "Bounded technical definition",
+    className: "border-cyan-900 text-cyan-300",
+    textClassName: "text-cyan-300",
+  },
+  advisory_playbook: {
+    label: "Advisory / playbook",
+    description: "Guidance for analyst review",
+    className: "border-amber-900 text-amber-300",
+    textClassName: "text-amber-300",
+  },
+  analytical_relationship: {
+    label: "Analytical relationship",
+    description: "Derived from recorded evidence",
+    className: "border-sky-900 text-sky-300",
+    textClassName: "text-sky-300",
+  },
+  semantic_candidate: {
+    label: "Semantic candidate",
+    description: "Similarity for comparison only",
+    className: "border-slate-700 text-slate-300",
+    textClassName: "text-slate-300",
+  },
+};
 
 export const ASSISTANT_SUGGESTIONS: Record<ContextualAssistantScope, string[]> = {
   incident: [

@@ -15,6 +15,7 @@ from services.assistant.orchestrator import AssistantSettings, run_assistant_que
 from services.assistant.retrieval import RetrievalResult
 from services.assistant.sources import SourceRecord
 from services.assistant.v3.builder import V3AnalyticalContextBuilder
+from services.assistant.v3.authorization import PlatformIncidentAccessPolicy
 from services.assistant.v3.contracts import (
     AnswerIntent,
     DiscoverySignal,
@@ -29,6 +30,7 @@ from services.assistant.v3.plan_contracts import (
     AnswerSectionType,
 )
 from services.assistant.v3.plan_fallback import deterministic_answer_plan_v3
+from services.assistant.v3.plan_schema import grounded_answer_plan_v3_schema
 from services.assistant.v3.plan_validation import GroundedAnswerPlanV3Validator
 from services.assistant.v3.semantic_index import (
     IncidentSemanticHit,
@@ -224,6 +226,174 @@ def test_non_generative_pipeline_builds_closed_context_package_and_followup_stat
         invalid_package["relationship_registry"] = {"relationships": []}
         with pytest.raises(ValidationError):
             V3AnalyticalContextPackage.model_validate(invalid_package)
+    finally:
+        db.close()
+
+
+def test_unauthorized_cross_incident_never_enters_package_registry_or_state() -> None:
+    db, anchor, candidate = _session_with_incidents()
+    try:
+        class AnchorOnlyPolicy(PlatformIncidentAccessPolicy):
+            def can_read_incident(self, incident, *, current_user):
+                return incident.id == anchor.id
+
+        retrieval = SimpleNamespace(
+            fact_inventory=_facts(anchor.id),
+            sources=[
+                SourceRecord(
+                    source_type="incident",
+                    authority="authoritative",
+                    record_id=str(anchor.id),
+                    label=f"Incident {anchor.id}",
+                    excerpt="Authoritative incident facts.",
+                ),
+                SourceRecord(
+                    source_type="historical_incident",
+                    authority="advisory",
+                    record_id=str(candidate.id),
+                    label=f"Historical incident {candidate.id}",
+                    excerpt="Candidate that the current user cannot read.",
+                    score=0.99,
+                ),
+            ],
+        )
+        payload = AssistantQueryRequest(
+            message="Compare the explicitly selected incidents.",
+            scope="incident",
+            incident_id=anchor.id,
+            compare_incident_ids=[candidate.id],
+            conversation_id="restricted-thread",
+        )
+        package = V3AnalyticalContextBuilder(
+            conversation_store=ConversationStateStore(clock=lambda: 100.0),
+            access_policy=AnchorOnlyPolicy(),
+        ).build(
+            payload=payload,
+            response_language="en",
+            intent_selection=StaticIntentRouter(AnswerIntent.COMPARE).route(
+                payload.message
+            ),
+            focus_selection=StaticFocusRouter(FocusDimension.EVIDENCE).route(
+                payload.message
+            ),
+            retrieval=retrieval,
+            db=db,
+            current_user={"username": "restricted", "role": "ANALYST"},
+            wall_clock=lambda: 100.0,
+        )
+
+        assert package.resolved_scope.active_incident_ids == [anchor.id]
+        assert package.resolved_scope.explicit_compare_incident_ids == []
+        assert package.cross_incident_candidates == []
+        assert package.cross_incident_graph.incident_ids == [anchor.id]
+        assert package.relationship_registry.relationships == []
+        assert package.conversation_state_refs.related_incident_ids == []
+        assert all(
+            entry.source_record_id != str(candidate.id)
+            for entry in package.source_registry
+        )
+    finally:
+        db.close()
+
+
+def test_unauthorized_case_link_and_semantic_source_never_enter_model_surface() -> None:
+    db, authorized, unauthorized = _session_with_incidents()
+    try:
+        class AuthorizedOnlyPolicy(PlatformIncidentAccessPolicy):
+            def can_read_incident(self, incident, *, current_user):
+                return incident.id == authorized.id
+
+        case = IncidentCase(
+            group_key="v3-restricted-case",
+            title="Restricted case",
+            status="OPEN",
+        )
+        db.add(case)
+        db.flush()
+        db.add_all(
+            [
+                CaseIncident(case_id=case.id, incident_id=authorized.id),
+                CaseIncident(case_id=case.id, incident_id=unauthorized.id),
+            ]
+        )
+        db.commit()
+        linked = [_facts(authorized.id), _facts(unauthorized.id)]
+        linked[1]["rule"] = "UNAUTHORIZED_MARKER"
+        retrieval = SimpleNamespace(
+            fact_inventory={
+                "source_type": "case",
+                "case_id": case.id,
+                "title": case.title,
+                "status": case.status,
+                "linked_incident_count": 2,
+                "linked_incidents": linked,
+            },
+            sources=[
+                SourceRecord(
+                    source_type="case",
+                    authority="authoritative",
+                    record_id=str(case.id),
+                    label=f"Case {case.id}",
+                    excerpt="Authoritative case record.",
+                ),
+                SourceRecord(
+                    source_type="historical_incident",
+                    authority="advisory",
+                    record_id=str(unauthorized.id),
+                    label=f"Historical incident {unauthorized.id}",
+                    excerpt="UNAUTHORIZED_MARKER",
+                    score=0.99,
+                ),
+            ],
+        )
+        payload = AssistantQueryRequest(
+            message="Find the recurring pattern in this case.",
+            scope="case",
+            case_id=case.id,
+            conversation_id="restricted-case-thread",
+        )
+        package = V3AnalyticalContextBuilder(
+            conversation_store=ConversationStateStore(clock=lambda: 100.0),
+            access_policy=AuthorizedOnlyPolicy(),
+        ).build(
+            payload=payload,
+            response_language="en",
+            intent_selection=StaticIntentRouter(AnswerIntent.PATTERN_ANALYSIS).route(
+                payload.message
+            ),
+            focus_selection=StaticFocusRouter(FocusDimension.EVIDENCE).route(
+                payload.message
+            ),
+            retrieval=retrieval,
+            db=db,
+            current_user={"username": "restricted", "role": "ANALYST"},
+            wall_clock=lambda: 100.0,
+        )
+        plan = deterministic_answer_plan_v3(package)
+        rendered = RichGroundedDiscourseRenderer().render(plan, package=package)
+        serialized_package = json.dumps(package.model_dump(mode="json"))
+        serialized_schema = json.dumps(grounded_answer_plan_v3_schema(package))
+        visible_answer = "\n".join(block.text for block in rendered.blocks)
+
+        assert {
+            atom.incident_id
+            for atom in package.operational_atoms
+            if atom.incident_id is not None
+        } == {authorized.id}
+        assert unauthorized.id not in package.resolved_scope.active_incident_ids
+        assert package.cross_incident_candidates == []
+        assert package.relationship_registry.relationships == []
+        assert package.conversation_state_refs.related_incident_ids == []
+        assert all(
+            not (
+                entry.source_type == "incident"
+                and entry.source_record_id == str(unauthorized.id)
+            )
+            for entry in package.source_registry
+        )
+        assert "UNAUTHORIZED_MARKER" not in serialized_package
+        assert "UNAUTHORIZED_MARKER" not in serialized_schema
+        assert "UNAUTHORIZED_MARKER" not in visible_answer
     finally:
         db.close()
 

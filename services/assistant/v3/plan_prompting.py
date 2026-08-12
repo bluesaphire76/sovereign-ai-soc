@@ -80,6 +80,7 @@ def build_v3_plan_messages(
     package: V3AnalyticalContextPackage,
     *,
     max_context_chars: int,
+    required_section_codes: tuple[str, ...] = (),
 ) -> V3PromptBuildResult:
     view = model_facing_evidence(package)
     usefulness = plan_contract(package.intent_selection.primary_intent)
@@ -96,6 +97,7 @@ def build_v3_plan_messages(
             "sections": [usefulness.min_sections, usefulness.max_sections],
             "propositions": [usefulness.min_units, usefulness.max_units],
         },
+        "required_sections": list(required_section_codes),
         "absence_fields": [item.value for item in available_absence_fields(package)],
         "operational_atoms": [
             _atom_projection(item, package=package) for item in view.operational_atoms
@@ -129,6 +131,7 @@ def build_v3_plan_messages(
         "escalation state. Select the smallest useful set of non-repetitive sections "
         "and propositions that directly answer the requested intent. Choose ordering, "
         "proposition/role mode and importance from the closed schema. "
+        "Include every section listed in required_sections. "
         "Sections map to bounded arrays of proposition units. Each unit contains kind, "
         "mode, importance, and either refs or code. Lead with substantive "
         "evidence; place limitations after the answer unless the requested fact is "

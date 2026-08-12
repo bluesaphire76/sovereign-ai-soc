@@ -9,6 +9,13 @@ AssistantScope = Literal["global", "incident", "case"]
 AssistantMode = Literal["auto", "standard"]
 AssistantStatus = Literal["ok", "fallback"]
 AssistantAuthority = Literal["authoritative", "advisory"]
+AssistantProvenanceClass = Literal[
+    "operational_source",
+    "reference_knowledge",
+    "advisory_playbook",
+    "analytical_relationship",
+    "semantic_candidate",
+]
 AssistantGenerationKind = Literal["model", "deterministic_fallback"]
 AssistantResponseLanguage = Literal["it", "en"]
 AssistantIntent = Literal[
@@ -38,7 +45,11 @@ AssistantBlockKind = Literal[
     "evidence",
     "technical_context",
     "analysis",
+    "comparison",
+    "pattern",
+    "conclusion",
     "next_check",
+    "recommended_checks",
     "limitations",
 ]
 AssistantValidationStatus = Literal["passed", "failed", "not_run"]
@@ -142,6 +153,7 @@ class AssistantSource(BaseModel):
     source_id: str = Field(pattern=r"^S[1-9]\d*$")
     source_type: str
     authority: AssistantAuthority
+    provenance_class: AssistantProvenanceClass = "operational_source"
     record_id: str | None = None
     label: str
     url: str | None = None
@@ -169,6 +181,10 @@ class AssistantResponseBlock(BaseModel):
     kind: AssistantBlockKind
     text: str = Field(min_length=1, max_length=4000)
     source_ids: list[str] = Field(default_factory=list)
+    provenance_classes: list[AssistantProvenanceClass] = Field(
+        default_factory=list,
+        max_length=5,
+    )
 
     @field_validator("text", mode="before")
     @classmethod
@@ -180,6 +196,14 @@ class AssistantResponseBlock(BaseModel):
     def unique_source_ids(cls, value: list[str]) -> list[str]:
         if any(not source_id.startswith("S") for source_id in value):
             raise ValueError("invalid source id")
+        return list(dict.fromkeys(value))
+
+    @field_validator("provenance_classes")
+    @classmethod
+    def unique_provenance_classes(
+        cls,
+        value: list[AssistantProvenanceClass],
+    ) -> list[AssistantProvenanceClass]:
         return list(dict.fromkeys(value))
 
 
@@ -220,11 +244,21 @@ class AssistantMetadata(BaseModel):
     context_build_ms: int = 0
     intent_routing_ms: int = 0
     focus_routing_ms: int = 0
+    scope_resolution_ms: int = 0
     context_policy_ms: int = 0
+    operational_retrieval_ms: int = 0
     atom_normalization_ms: int = 0
     semantic_candidate_ms: int = 0
     semantic_index_query_ms: int = 0
     authoritative_rehydration_ms: int = 0
+    semantic_raw_candidates: int = 0
+    semantic_threshold_rejects: int = 0
+    semantic_invalid_rejects: int = 0
+    semantic_duplicate_rejects: int = 0
+    semantic_excluded_rejects: int = 0
+    cross_incident_candidates_discovered: int = 0
+    authoritative_rehydration_count: int = 0
+    stale_candidate_rejects: int = 0
     graph_ms: int = 0
     reference_retrieval_ms: int = 0
     advisory_retrieval_ms: int = 0
@@ -237,6 +271,7 @@ class AssistantMetadata(BaseModel):
     advisory_units: int = 0
     plan_validation_status: AssistantValidationStatus = "not_run"
     schema_build_ms: int = 0
+    schema_chars: int = 0
     plan_validation_ms: int = 0
     rendering_ms: int = 0
     prompt_chars: int = 0

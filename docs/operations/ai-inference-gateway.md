@@ -116,6 +116,29 @@ request durations. Do not enable a second provider path or a second prewarm
 owner as a workaround. Qdrant failure is independent: Assistant SQL-grounded
 answers continue with semantic status `failed` or `timed_out`.
 
+## Assistant V3 Rollout And Rollback
+
+The response architecture has one rollout control:
+
+```text
+AI_ASSISTANT_RESPONSE_ARCHITECTURE=v2|v3
+```
+
+The repository default is `v3`. Set it explicitly in a deployment environment
+when reconciling an existing rollout, then restart the API through the normal
+service workflow. A successful verification request reports response
+architecture `v3`, passed grounding and plan validation, standard profile/model,
+exactly one provider generation, no automatic retry, and no fallback. Confirm
+the gateway returns to `ready` with `queue_depth=0` and `active_requests=0`.
+
+Rollback requires no schema or data migration. Restore the setting to `v2` and
+restart the API. V3 conversation state contains only bounded validated refs and
+is not consumed as authoritative prose by V2. The incident semantic index may
+remain populated because Qdrant is retrieval support only.
+
+Do not copy `.env.example` over a deployment `.env`. Reconcile key names only,
+preserve all local values, and never print secrets during an audit.
+
 ## Supervised Acceptance A-G
 
 Set deployment-specific values without printing the token:

@@ -16,7 +16,10 @@ from services.assistant.v3.contracts import (
     AnswerIntent,
     AuthorityClass,
     DiscoverySignal,
+    EscalationReasonAtom,
+    FactField,
     IncidentCandidate,
+    PriorityAtom,
     Provenance,
     RelationshipClass,
     RelationshipType,
@@ -26,14 +29,18 @@ from services.assistant.v3.knowledge import normalize_advisory_sources
 from services.assistant.v3.plan_contracts import (
     AnalyticalUnit,
     AnalyticalUnitType,
+    AnswerSection,
     AnswerSectionType,
     EvidencePriority,
+    NonImplicationCode,
     PropositionType,
 )
 from services.assistant.v3.plan_fallback import deterministic_answer_plan_v3
 from services.assistant.v3.plan_prompting import build_v3_plan_messages
 from services.assistant.v3.plan_schema import (
+    available_unit_types,
     grounded_answer_plan_v3_schema,
+    model_facing_available_unit_types,
     model_facing_evidence,
 )
 from services.assistant.v3.plan_validation import GroundedAnswerPlanV3Validator
@@ -45,6 +52,7 @@ from services.assistant.v3.quality_policy import (
     subject_record_ids_for_unit,
 )
 from tests.assistant_v3_test_support import analytical_package
+from tests.evals.assistant_v3.catalog import adversarial_items, quality_items
 
 
 def _analytical_relationship(
@@ -131,6 +139,34 @@ def _explicit_compare_package():
     )
 
 
+def _all_identical_compare_package():
+    package = analytical_package(AnswerIntent.COMPARE, include_semantic=False)
+    first_identity = next(
+        atom
+        for atom in package.operational_atoms
+        if atom.atom_id == "incident:1:identity"
+    )
+    atoms = [
+        atom.model_copy(update={"status": "OPEN"})
+        if atom.atom_id == "incident:2:status"
+        else atom.model_copy(update={"timestamp": first_identity.timestamp})
+        if atom.atom_id == "incident:2:identity"
+        else atom
+        for atom in package.operational_atoms
+    ]
+    return package.model_copy(
+        update={
+            "operational_atoms": atoms,
+            "resolved_scope": package.resolved_scope.model_copy(
+                update={
+                    "active_incident_ids": [1, 2],
+                    "explicit_compare_incident_ids": [1, 2],
+                }
+            ),
+        }
+    )
+
+
 def test_typed_propositions_are_structurally_grounded_and_reproducible() -> None:
     package = analytical_package()
     plan = deterministic_answer_plan_v3(package)
@@ -192,16 +228,22 @@ def test_short_italian_analytical_requests_preserve_language() -> None:
     assert all(_response_language(question) == "it" for question in questions)
 
 
+def test_milestone_c_catalog_language_is_preserved_without_phrase_routing() -> None:
+    assert all(
+        _response_language(item.question) == item.language
+        for item in (*quality_items(), *adversarial_items())
+    )
+
+
 def test_dynamic_schema_uses_bounded_adaptive_section_variants() -> None:
     package = analytical_package(AnswerIntent.EXPLAIN)
     schema = grounded_answer_plan_v3_schema(package)
-    variants = schema["properties"]["sections"]["oneOf"]
+    sections = schema["properties"]["sections"]
     contract = INTENT_USEFULNESS_CONTRACTS[AnswerIntent.EXPLAIN]
 
-    counts = {item["minProperties"] for item in variants}
-    assert len(counts) > 1
-    assert min(counts) >= contract.min_sections
-    assert max(counts) <= contract.max_sections
+    assert len(sections["properties"]) > len(sections["required"])
+    assert sections["minProperties"] >= contract.min_sections
+    assert sections["maxProperties"] <= contract.max_sections
     assert all(
         definition["type"] == "array"
         and 1 <= definition["minItems"] <= definition["maxItems"] <= 3
@@ -220,10 +262,7 @@ def test_rich_sections_prefer_grouped_grounded_evidence() -> None:
 
     assert len(explain["$defs"]["findings_fact_refs"]["enum"][0]) > 1
     assert len(investigate["$defs"]["supporting_fact_refs"]["enum"][0]) > 1
-    assert all(
-        "technical" in variant["required"]
-        for variant in investigate["properties"]["sections"]["oneOf"]
-    )
+    assert "technical" in investigate["properties"]["sections"]["required"]
 
 
 def test_executive_findings_require_multiple_facts_when_available() -> None:
@@ -235,6 +274,312 @@ def test_executive_findings_require_multiple_facts_when_available() -> None:
 
     assert options
     assert all(len(option) >= 2 for option in options)
+
+
+def test_missing_requested_priority_can_only_produce_typed_absence() -> None:
+    base_package = analytical_package(AnswerIntent.FACT_LOOKUP)
+    linked_priority = PriorityAtom(
+        atom_id="incident:2:priority",
+        authority_class=AuthorityClass.OPERATIONAL_AUTHORITATIVE,
+        provenance=next(
+            atom.provenance
+            for atom in base_package.operational_atoms
+            if atom.atom_id == "incident:2:status"
+        ),
+        incident_id=2,
+        recommended_priority="LOW",
+    )
+    package = base_package.model_copy(
+        update={
+            "focus_selection": [AnalyticalFocus.PRIORITY],
+            "resolved_scope": base_package.resolved_scope.model_copy(
+                update={
+                    "active_incident_ids": [],
+                    "active_case_ids": [1],
+                }
+            ),
+            "context_plan": base_package.context_plan.model_copy(
+                update={
+                    "fact_fields": [
+                        FactField.SOURCE_TYPE,
+                        FactField.CASE_ID,
+                        FactField.TITLE,
+                        FactField.RECOMMENDED_PRIORITY,
+                    ]
+                }
+            ),
+            "operational_atoms": [
+                *base_package.operational_atoms,
+                linked_priority,
+            ],
+        }
+    )
+    schema = grounded_answer_plan_v3_schema(package)
+    direct_definition = schema["$defs"]["section_answer"]
+    direct_variants = direct_definition["items"]["oneOf"]
+
+    assert {
+        variant["properties"]["kind"]["const"] for variant in direct_variants
+    } == {"absence"}
+    assert direct_variants[0]["properties"]["code"]["enum"] == [
+        "recommended_priority"
+    ]
+
+    plan = deterministic_answer_plan_v3(package)
+    assert plan.sections[0].units[0].absence_field is FactField.RECOMMENDED_PRIORITY
+    rendered = RichGroundedDiscourseRenderer().render(plan, package=package)
+    assert "Recommended priority is not recorded" in rendered.blocks[0].text
+
+    wrong_plan = plan.model_copy(
+        update={
+            "sections": [
+                AnswerSection(
+                    section_type=AnswerSectionType.DIRECT_ANSWER,
+                    units=[
+                        enrich_unit(
+                            AnalyticalUnit(
+                                unit_type=AnalyticalUnitType.RECORDED_FACT,
+                                fact_refs=["incident:1:identity"],
+                            ),
+                            package=package,
+                            section_type=AnswerSectionType.DIRECT_ANSWER,
+                        )
+                    ],
+                )
+            ]
+        }
+    )
+    validation = GroundedAnswerPlanV3Validator().validate(
+        wrong_plan,
+        package=package,
+    )
+    assert validation.accepted is False
+    assert validation.reason == "required_absence_missing"
+
+
+def test_escalation_reason_cannot_replace_missing_authoritative_state() -> None:
+    base_package = analytical_package(AnswerIntent.FACT_LOOKUP)
+    reason = EscalationReasonAtom(
+        atom_id="incident:1:escalation-reason",
+        authority_class=AuthorityClass.OPERATIONAL_AUTHORITATIVE,
+        provenance=next(
+            atom.provenance
+            for atom in base_package.operational_atoms
+            if atom.atom_id == "incident:1:identity"
+        ),
+        incident_id=1,
+        reason="Repeated failures",
+    )
+    package = base_package.model_copy(
+        update={
+            "question": "Is an escalation state explicitly recorded?",
+            "focus_selection": [AnalyticalFocus.ESCALATION],
+            "context_plan": base_package.context_plan.model_copy(
+                update={
+                    "fact_fields": [
+                        FactField.SOURCE_TYPE,
+                        FactField.INCIDENT_ID,
+                        FactField.ESCALATED,
+                        FactField.ESCALATION_REASON,
+                    ]
+                }
+            ),
+            "operational_atoms": [*base_package.operational_atoms, reason],
+        }
+    )
+
+    schema = grounded_answer_plan_v3_schema(package)
+    direct_variants = schema["$defs"]["section_answer"]["items"]["oneOf"]
+    assert {
+        variant["properties"]["kind"]["const"] for variant in direct_variants
+    } == {"absence"}
+    assert direct_variants[0]["properties"]["code"]["enum"] == ["escalated"]
+
+    plan = deterministic_answer_plan_v3(package)
+    assert plan.sections[0].units[0].absence_field is FactField.ESCALATED
+    assert GroundedAnswerPlanV3Validator().validate(plan, package=package).accepted
+    rendered = RichGroundedDiscourseRenderer().render(plan, package=package)
+    assert rendered.blocks[0].text == (
+        "No authoritative escalation boolean is available; a reason does not prove state."
+    )
+
+
+def test_explain_direct_answer_requires_detection_host_and_risk_when_available() -> None:
+    package = analytical_package(AnswerIntent.EXPLAIN)
+    schema = grounded_answer_plan_v3_schema(package)
+
+    assert schema["$defs"]["direct_fact_refs"]["enum"] == [
+        ["incident:1:detection", "incident:1:host", "incident:1:risk"]
+    ]
+    plan = deterministic_answer_plan_v3(package)
+    assert plan.sections[0].units[0].fact_refs == [
+        "incident:1:detection",
+        "incident:1:host",
+        "incident:1:risk",
+    ]
+
+
+def test_identical_compare_fields_require_an_explicit_no_difference_result() -> None:
+    package = _all_identical_compare_package()
+    schema = grounded_answer_plan_v3_schema(package)
+
+    assert "comparison_difference_refs" not in schema["$defs"]
+    same_ref_sets = schema["$defs"]["comparison_same_refs"]["enum"]
+    assert len(same_ref_sets) == 2
+    assert all(
+        len(refs) == 2 and all(isinstance(ref, str) for ref in refs)
+        for refs in same_ref_sets
+    )
+    caveat_variants = schema["$defs"]["section_caveats"]["items"]["oneOf"]
+    assert {
+        code
+        for variant in caveat_variants
+        for code in variant["properties"]["code"]["enum"]
+    } == {"NO_RECORDED_DIFFERENCE_IN_COMPARED_FIELDS"}
+    assert schema["$defs"]["section_compare"]["minItems"] == 2
+    assert schema["$defs"]["section_compare"]["maxItems"] == 2
+
+    plan = deterministic_answer_plan_v3(package)
+    assert GroundedAnswerPlanV3Validator().validate(plan, package=package).accepted
+    assert NonImplicationCode.NO_RECORDED_DIFFERENCE_IN_COMPARED_FIELDS in {
+        unit.non_implication for unit in plan.analytical_units
+    }
+    rendered = RichGroundedDiscourseRenderer().render(plan, package=package)
+    assert "No differing values are recorded" in " ".join(
+        block.text for block in rendered.blocks
+    )
+
+    sections_without_result = []
+    for section in plan.sections:
+        units = [
+            unit
+            for unit in section.units
+            if unit.non_implication
+            is not NonImplicationCode.NO_RECORDED_DIFFERENCE_IN_COMPARED_FIELDS
+        ]
+        if units:
+            sections_without_result.append(section.model_copy(update={"units": units}))
+    invalid = plan.model_copy(update={"sections": sections_without_result})
+    validation = GroundedAnswerPlanV3Validator().validate(invalid, package=package)
+    assert validation.accepted is False
+    assert validation.reason == "required_non_implication_missing"
+
+
+def test_mixed_compare_schema_requires_three_distinct_available_dimensions() -> None:
+    package = _explicit_compare_package()
+    first_detection = next(
+        atom
+        for atom in package.operational_atoms
+        if atom.atom_id == "incident:1:detection"
+    )
+    second_detection = first_detection.model_copy(
+        update={
+            "atom_id": "incident:2:detection",
+            "incident_id": 2,
+            "provenance": next(
+                atom.provenance
+                for atom in package.operational_atoms
+                if atom.atom_id == "incident:2:identity"
+            ),
+            "rule": "Different detection",
+        }
+    )
+    package = package.model_copy(
+        update={
+            "operational_atoms": [
+                *package.operational_atoms,
+                second_detection,
+            ]
+        }
+    )
+
+    schema = grounded_answer_plan_v3_schema(package)
+    comparison = schema["$defs"]["section_compare"]
+
+    assert comparison["minItems"] == 3
+    assert comparison["maxItems"] == 3
+    assert [
+        item["properties"]["refs"]["const"]
+        for item in comparison["prefixItems"]
+    ] == [
+        ["incident:1:status", "incident:2:status"],
+        ["incident:1:host", "incident:2:host"],
+        ["incident:1:detection", "incident:2:detection"],
+    ]
+    plan = deterministic_answer_plan_v3(package)
+    assert GroundedAnswerPlanV3Validator().validate(plan, package=package).accepted
+    comparison_section = next(
+        section
+        for section in plan.sections
+        if section.section_type is AnswerSectionType.COMPARISON
+    )
+    assert len(comparison_section.units) == 3
+
+
+def test_cross_relationship_evidence_does_not_add_an_unrelated_candidate_unit() -> None:
+    package = analytical_package(AnswerIntent.CROSS_INCIDENT_ANALYSIS)
+    schema = grounded_answer_plan_v3_schema(package)
+    related = schema["$defs"]["section_related"]
+
+    assert [
+        item["properties"]["kind"]["const"]
+        for item in related["prefixItems"]
+    ] == ["relationship", "candidate"]
+    assert schema["$defs"]["analytical_relationship_refs"]["const"] == [
+        "relationship:shared-host"
+    ]
+    assert schema["$defs"]["candidate_refs"]["enum"] == [
+        ["candidate:incident:2"]
+    ]
+
+    plan = deterministic_answer_plan_v3(package)
+    assert GroundedAnswerPlanV3Validator().validate(plan, package=package).accepted
+    related_units = next(
+        section.units
+        for section in plan.sections
+        if section.section_type is AnswerSectionType.RELATED_INCIDENTS
+    )
+    candidate_unit = next(
+        unit
+        for unit in related_units
+        if unit.unit_type is AnalyticalUnitType.CANDIDATE_RELEVANCE
+    )
+    assert candidate_unit.candidate_refs == ["candidate:incident:2"]
+    assert "relationship:shared-host" in candidate_unit.relationship_refs
+    assert all(
+        2
+        in {
+            package.relationship_registry.resolve(ref).left_incident_id,
+            package.relationship_registry.resolve(ref).right_incident_id,
+        }
+        for ref in candidate_unit.relationship_refs
+    )
+
+
+def test_homogeneous_section_slots_cannot_duplicate_semantic_units() -> None:
+    schema = grounded_answer_plan_v3_schema(
+        analytical_package(AnswerIntent.EXECUTIVE_SUMMARY)
+    )
+    findings = schema["$defs"]["section_findings"]
+
+    assert findings["minItems"] == findings["maxItems"] == 1
+    assert findings["uniqueItems"] is True
+
+
+def test_handover_direct_and_overview_fact_pools_are_disjoint() -> None:
+    schema = grounded_answer_plan_v3_schema(
+        analytical_package(AnswerIntent.HANDOVER)
+    )
+    direct_refs = {
+        ref for option in schema["$defs"]["direct_fact_refs"]["enum"] for ref in option
+    }
+    overview_refs = {
+        ref
+        for option in schema["$defs"]["overview_fact_refs"]["enum"]
+        for ref in option
+    }
+
+    assert direct_refs.isdisjoint(overview_refs)
 
 
 def test_pattern_schema_requires_the_matching_analytical_caveat() -> None:
@@ -257,6 +602,103 @@ def test_pattern_schema_requires_the_matching_analytical_caveat() -> None:
     assert related_kinds == {"relationship"}
     assert caveat_definition["minItems"] == 1
     assert caveat_definition["maxItems"] == 1
+
+
+def test_pattern_schema_variants_meet_the_validator_minimum_unit_contract() -> None:
+    package = analytical_package(AnswerIntent.PATTERN_ANALYSIS)
+    repeated_relationship = _analytical_relationship(
+        "relationship:shared-host-repeat",
+        RelationshipType.SHARED_AGENT,
+        strength=0.7,
+    )
+    relationships = [
+        *package.relationship_registry.relationships,
+        repeated_relationship,
+    ]
+    package = package.model_copy(
+        update={
+            "cross_incident_graph": package.cross_incident_graph.model_copy(
+                update={"relationships": relationships}
+            ),
+            "relationship_registry": package.relationship_registry.model_copy(
+                update={"relationships": relationships}
+            ),
+        }
+    )
+    schema = grounded_answer_plan_v3_schema(package)
+    minimum = INTENT_USEFULNESS_CONTRACTS[AnswerIntent.PATTERN_ANALYSIS].min_units
+    sections = schema["properties"]["sections"]
+
+    assert set(sections["required"]) == {"answer", "pattern", "caveats"}
+
+    prompt = build_v3_plan_messages(
+        package,
+        max_context_chars=16_000,
+        required_section_codes=tuple(sections["required"]),
+    )
+    prompt_payload = prompt.messages[-1]["content"]
+    assert '"required_sections":["answer","caveats","pattern"]' in prompt_payload
+
+    minimum_units = sum(
+        schema["$defs"][
+            sections["properties"][section_code]["$ref"].rsplit("/", 1)[-1]
+        ]["minItems"]
+        for section_code in sections["required"]
+    )
+    assert minimum_units >= minimum
+    assert list(sections["properties"])[-1] in {"caveats", "limitations"}
+
+
+def test_pattern_usefulness_is_bounded_by_model_facing_relationships() -> None:
+    package = analytical_package(AnswerIntent.PATTERN_ANALYSIS)
+    hidden_relationship = _analytical_relationship(
+        "relationship:hidden-shared-host",
+        RelationshipType.SHARED_AGENT,
+        strength=0.6,
+    ).model_copy(update={"left_incident_id": 3, "right_incident_id": 4})
+    relationships = [
+        *package.relationship_registry.relationships,
+        hidden_relationship,
+    ]
+    package = package.model_copy(
+        update={
+            "resolved_scope": package.resolved_scope.model_copy(
+                update={
+                    "active_incident_ids": [1, 2],
+                    "explicit_compare_incident_ids": [1, 2],
+                }
+            ),
+            "cross_incident_graph": package.cross_incident_graph.model_copy(
+                update={"incident_ids": [1, 2, 3, 4], "relationships": relationships}
+            ),
+            "relationship_registry": package.relationship_registry.model_copy(
+                update={"relationships": relationships}
+            ),
+        }
+    )
+
+    assert AnalyticalUnitType.SHARED_PATTERN in available_unit_types(package)
+    assert (
+        AnalyticalUnitType.SHARED_PATTERN
+        not in model_facing_available_unit_types(package)
+    )
+
+    fallback = deterministic_answer_plan_v3(package)
+    model_facing_plan = fallback.model_copy(
+        update={
+            "sections": [
+                section
+                for section in fallback.sections
+                if section.section_type is not AnswerSectionType.PATTERN
+            ]
+        }
+    )
+    result = GroundedAnswerPlanV3Validator().validate(
+        model_facing_plan,
+        package=package,
+    )
+
+    assert result.accepted, result.reason
 
 
 def test_investigation_schema_keeps_timeline_refs_out_of_evidence() -> None:
@@ -320,7 +762,7 @@ def test_model_facing_evidence_includes_authorized_case_scope_atoms() -> None:
     assert {atom.atom_id for atom in view.operational_atoms}.issubset(
         {atom.atom_id for atom in case_atoms}
     )
-    assert schema["properties"]["sections"]["oneOf"]
+    assert schema["properties"]["sections"]["properties"]
 
 
 def test_limitations_cannot_precede_a_supported_answer() -> None:
@@ -478,6 +920,16 @@ def test_v3_structured_output_budget_is_bounded_but_not_truncation_prone(
     assert settings.v3_max_output_tokens < 2048
 
 
+def test_v3_is_default_response_architecture_with_explicit_v2_rollback(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("AI_ASSISTANT_RESPONSE_ARCHITECTURE", raising=False)
+    assert get_assistant_settings().response_architecture == "v3"
+
+    monkeypatch.setenv("AI_ASSISTANT_RESPONSE_ARCHITECTURE", "v2")
+    assert get_assistant_settings().response_architecture == "v2"
+
+
 def test_investigate_fallback_meets_richness_bounds_without_timeline() -> None:
     package = analytical_package(AnswerIntent.INVESTIGATE).model_copy(
         update={
@@ -528,8 +980,7 @@ def test_next_action_without_advisory_uses_typed_limitation_not_fake_guidance() 
         for unit in plan.analytical_units
         if unit.limitation is not None
     )
-    first_variant = schema["properties"]["sections"]["oneOf"][0]
-    assert "limits" in first_variant["required"]
+    assert "limits" in schema["properties"]["sections"]["required"]
 
 
 def test_cross_fallback_without_candidates_still_meets_usefulness_contract() -> None:

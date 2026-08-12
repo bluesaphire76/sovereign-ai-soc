@@ -4,7 +4,7 @@ import json
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Mapping
 
 from sqlalchemy import or_
 
@@ -13,6 +13,10 @@ from services.assistant.v3.contracts import (
     ContextLimits,
     DiscoverySignal,
     IncidentCandidate,
+)
+from services.assistant.v3.authorization import (
+    IncidentAccessPolicy,
+    get_incident_access_policy,
 )
 from services.assistant.v3.semantic_index import incident_source_fingerprint
 
@@ -54,6 +58,8 @@ class CandidateRetrievalResult:
     candidate_retrieval_ms: float
     authoritative_rehydration_ms: float
     discovered_count: int
+    rehydrated_count: int = 0
+    stale_reject_count: int = 0
 
 
 def _strict_mitre(value: Any) -> list[dict[str, str | None]]:
@@ -142,6 +148,13 @@ def semantic_incident_hits(sources: Iterable[Any]) -> list[SemanticIncidentHit]:
 
 
 class CrossIncidentCandidateRetriever:
+    def __init__(
+        self,
+        *,
+        access_policy: IncidentAccessPolicy | None = None,
+    ) -> None:
+        self._access_policy = access_policy or get_incident_access_policy()
+
     def retrieve(
         self,
         *,
@@ -150,6 +163,7 @@ class CrossIncidentCandidateRetriever:
         semantic_hits: Iterable[SemanticIncidentHit],
         explicit_incident_ids: Iterable[int] = (),
         limits: ContextLimits,
+        current_user: Mapping[str, Any] | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> CandidateRetrievalResult:
         started = clock()
@@ -222,7 +236,12 @@ class CrossIncidentCandidateRetriever:
                 (), (), max(0.0, (clock() - started) * 1000), 0.0, 0
             )
         pool_by_id = {
-            row.id: row for row in [*exact_rows, *same_case_rows, *recent_rows]
+            row.id: row
+            for row in [*exact_rows, *same_case_rows, *recent_rows]
+            if self._access_policy.can_read_incident(
+                row,
+                current_user=current_user,
+            )
         }
         rehydration_started = clock()
         missing_candidate_ids = [
@@ -232,7 +251,16 @@ class CrossIncidentCandidateRetriever:
         ][: limits.max_candidates_discovered]
         if missing_candidate_ids:
             rows = db.query(Incident).filter(Incident.id.in_(missing_candidate_ids)).all()
-            pool_by_id.update({row.id: row for row in rows})
+            pool_by_id.update(
+                {
+                    row.id: row
+                    for row in rows
+                    if self._access_policy.can_read_incident(
+                        row,
+                        current_user=current_user,
+                    )
+                }
+            )
 
         all_ids = [anchor_id, *pool_by_id]
         case_ids_by_incident: dict[int, list[int]] = {incident_id: [] for incident_id in all_ids}
@@ -260,6 +288,7 @@ class CrossIncidentCandidateRetriever:
         }
         anchor_time = _timestamp(anchor_facts.get("timestamp"))
         ranked: list[tuple[IncidentCandidate, RehydratedIncident]] = []
+        stale_reject_count = 0
         for candidate_id, row in pool_by_id.items():
             candidate_facts = _row_facts(row, sorted(set(case_ids_by_incident.get(candidate_id, []))))
             signals: list[DiscoverySignal] = []
@@ -301,6 +330,8 @@ class CrossIncidentCandidateRetriever:
                         linked_case_ids=case_ids_by_incident.get(candidate_id, []),
                     )
                 )
+                if not semantic_valid:
+                    stale_reject_count += 1
             semantic_score = semantic_hit.score if semantic_valid else None
             if semantic_valid:
                 signals.append(DiscoverySignal.SEMANTIC_SIMILARITY)
@@ -358,4 +389,6 @@ class CrossIncidentCandidateRetriever:
             candidate_retrieval_ms=max(0.0, (clock() - started) * 1000),
             authoritative_rehydration_ms=rehydration_ms,
             discovered_count=discovered_count,
+            rehydrated_count=len(pool_by_id),
+            stale_reject_count=stale_reject_count,
         )

@@ -278,6 +278,11 @@ def test_semantic_query_filters_self_threshold_duplicates_and_invalid_payloads()
     assert result.status == "ready"
     assert [(item.incident_id, item.score) for item in result.hits] == [(2, 0.82)]
     assert result.hits[0].source_fingerprint == fingerprint
+    assert result.raw_candidate_count == 5
+    assert result.threshold_reject_count == 1
+    assert result.invalid_candidate_reject_count == 1
+    assert result.duplicate_candidate_reject_count == 1
+    assert result.excluded_candidate_reject_count == 1
 
 
 def test_qdrant_and_embedding_unavailability_degrade_without_hits(monkeypatch) -> None:

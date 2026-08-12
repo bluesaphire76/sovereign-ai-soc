@@ -79,6 +79,7 @@ def _settings(**overrides: Any) -> AssistantSettings:
         "semantic_timeout_seconds": 2,
         "request_timeout_seconds": 30,
         "max_output_tokens": 384,
+        "response_architecture": "v2",
     }
     values.update(overrides)
     return AssistantSettings(**values)

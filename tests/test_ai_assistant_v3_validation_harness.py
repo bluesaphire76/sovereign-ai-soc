@@ -165,3 +165,58 @@ def test_quality_metrics_detect_raw_payload_and_explicit_compare_drift() -> None
 
     assert quality["raw_advisory_payload_count"] == 1
     assert quality["compare_scope_drift_count"] == 1
+
+
+def test_quality_metrics_support_explicit_case_comparison_without_anchor() -> None:
+    result = _quality_item(
+        incident_id=0,
+        answer="Case comparison uses the selected records. Evidence differs.",
+        text="Case comparison uses the selected records. Evidence differs.",
+        sources=[
+            {"source_type": "incident", "record_id": "1"},
+            {"source_type": "incident", "record_id": "2"},
+        ],
+    )
+    result.update(
+        {
+            "scope": "case",
+            "incident_id": None,
+            "case_id": 7,
+            "compare_incident_ids": [1, 2],
+        }
+    )
+
+    quality = _quality_summary([result])
+
+    assert quality["compare_scope_drift_count"] == 0
+
+
+def test_cross_relationship_coverage_includes_v3_comparison_and_pattern_blocks() -> None:
+    comparison = _quality_item(
+        incident_id=1,
+        answer="The selected records differ in their recorded status.",
+        text="The selected records differ in their recorded status.",
+        sources=[
+            {"source_type": "incident", "record_id": "1"},
+            {"source_type": "incident", "record_id": "2"},
+        ],
+    )
+    comparison["metadata"]["assistant_intent"] = "COMPARE"
+    comparison["blocks"][0]["kind"] = "comparison"
+    comparison["compare_incident_ids"] = [2]
+
+    pattern = _quality_item(
+        incident_id=3,
+        answer="A shared rule is recorded across the related incidents.",
+        text="A shared rule is recorded across the related incidents.",
+        sources=[
+            {"source_type": "incident", "record_id": "3"},
+            {"source_type": "incident", "record_id": "4"},
+        ],
+    )
+    pattern["metadata"]["assistant_intent"] = "PATTERN_ANALYSIS"
+    pattern["blocks"][0]["kind"] = "pattern"
+
+    quality = _quality_summary([comparison, pattern])
+
+    assert quality["cross_relationship_explanation_coverage"] == 1.0

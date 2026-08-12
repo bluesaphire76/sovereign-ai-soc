@@ -62,11 +62,11 @@ _ATOM_ORDER: dict[AnswerIntent, tuple[str, ...]] = {
     ),
     AnswerIntent.EXPLAIN: (
         "detection",
-        "status",
         "host",
+        "risk",
+        "status",
         "mitre_technique",
         "recorded_correlation",
-        "risk",
         "priority",
         "timeline_event",
         "incident_identity",
@@ -660,7 +660,11 @@ def limitation_may_lead(package: V3AnalyticalContextPackage) -> bool:
         return False
     return bool(
         set(package.focus_selection).intersection(
-            {AnalyticalFocus.SEVERITY, AnalyticalFocus.ESCALATION}
+            {
+                AnalyticalFocus.SEVERITY,
+                AnalyticalFocus.ESCALATION,
+                AnalyticalFocus.PRIORITY,
+            }
         )
     )
 

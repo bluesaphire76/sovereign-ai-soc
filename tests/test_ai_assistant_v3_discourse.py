@@ -111,7 +111,8 @@ def test_reference_and_advisory_content_are_separate_blocks() -> None:
     assert technical.source_refs == ("reference:mitre:T1112",)
     assert next_steps.text.startswith("For incident 1, as the next check, ")
     assert "Review registry and adjacent process telemetry" not in next_steps.text
-    assert "artifacts and outcomes" in next_steps.text
+    assert "Look for the advisory source-defined artifacts and outcomes" in next_steps.text
+    assert "only as guidance, not as an operational fact" in next_steps.text
     assert next_steps.source_refs == ("advisory:registry-review",)
 
 
@@ -213,6 +214,43 @@ def test_duplicate_limitation_text_is_suppressed_across_sections() -> None:
 
     assert len(rendered.blocks) == 1
     assert rendered.blocks[0].section_type is AnswerSectionType.DIRECT_ANSWER
+
+
+def test_unrenderable_evidence_unit_does_not_emit_an_empty_lead_in() -> None:
+    package = analytical_package(AnswerIntent.FACT_LOOKUP)
+    plan = GroundedAnswerPlanV3(
+        answer_intent=AnswerIntent.FACT_LOOKUP,
+        detail_level=AnswerDetailLevel.CONCISE,
+        audience=AnswerAudience.SOC_ANALYST,
+        ordering=DiscourseOrdering.CONCLUSION_FIRST,
+        sections=[
+            AnswerSection(
+                section_type=AnswerSectionType.DIRECT_ANSWER,
+                units=[
+                    AnalyticalUnit(
+                        unit_type=AnalyticalUnitType.RECORDED_FACT,
+                        fact_refs=["incident:1:status"],
+                    )
+                ],
+            ),
+            AnswerSection(
+                section_type=AnswerSectionType.EVIDENCE,
+                units=[
+                    AnalyticalUnit(
+                        unit_type=AnalyticalUnitType.ABSENCE,
+                        absence_field="risk_score",
+                    )
+                ],
+            ),
+        ],
+    )
+
+    rendered = RichGroundedDiscourseRenderer().render(plan, package=package)
+
+    assert [block.section_type for block in rendered.blocks] == [
+        AnswerSectionType.DIRECT_ANSWER
+    ]
+    assert "Supporting operational evidence:" not in rendered.blocks[0].text
 
 
 def test_intent_controls_response_length_and_block_order() -> None:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable, Iterable
 
 from services.assistant.focus import FocusDimension, FocusSelection
@@ -78,8 +78,7 @@ def resolve_analysis_scope(
                 *requested_compare_ids,
             ]
         )[:8]
-        if intent.primary_intent is AnswerIntent.COMPARE
-        and requested_compare_ids
+        if requested_compare_ids
         else []
     )
     if intent.primary_intent in cross_intents:
@@ -99,7 +98,9 @@ def resolve_analysis_scope(
     if explicit_compare:
         active_incidents = explicit_compare
 
-    if intent.primary_intent in cross_intents:
+    if explicit_compare:
+        scope = AnalysisScope.EXPLICIT_RECORD_SET
+    elif intent.primary_intent in cross_intents:
         scope = (
             AnalysisScope.EXPLICIT_RECORD_SET
             if len(active_incidents) > 1
@@ -139,10 +140,13 @@ class ContextPolicyEngine:
         primary = intent.primary_intent
         requirements: list[ContextRequirement] = [ContextRequirement.IDENTITY]
         fields: list[FactField] = list(_IDENTITY)
+        requested_lookup_fields: list[FactField] = []
 
         if primary is AnswerIntent.FACT_LOOKUP:
-            requirements.extend(self._focus_requirements(focus))
-            fields.extend(self._focus_fields(focus))
+            precise_focus = self._precise_lookup_focus(focus)
+            requirements.extend(self._focus_requirements(precise_focus))
+            requested_lookup_fields = self._focus_fields(precise_focus)
+            fields.extend(requested_lookup_fields)
         elif primary is AnswerIntent.EXECUTIVE_SUMMARY:
             requirements.extend(
                 [
@@ -231,6 +235,17 @@ class ContextPolicyEngine:
                 if isinstance(linked, dict):
                     available.update(linked)
         selected_fields = [field for field in _unique(fields) if field.value in available]
+        # Preserve an unavailable lookup field so the plan can state its absence
+        # instead of substituting an unrelated fact that happens to be available.
+        absence_contract_fields = {
+            FactField.RECOMMENDED_PRIORITY,
+            FactField.ESCALATED,
+        }
+        for requested_field in requested_lookup_fields:
+            if requested_field not in absence_contract_fields:
+                continue
+            if requested_field not in selected_fields:
+                selected_fields.append(requested_field)
         # Identity names remain in the plan even when absent so downstream normalization
         # can distinguish unavailable data from policy exclusion.
         for identity in _IDENTITY:
@@ -247,6 +262,18 @@ class ContextPolicyEngine:
             limits=self.limits,
             policy_ms=max(0.0, (clock() - started) * 1000),
         )
+
+    @staticmethod
+    def _precise_lookup_focus(focus: FocusSelection) -> FocusSelection:
+        scored = [
+            dimension
+            for dimension in focus.dimensions
+            if dimension in focus.scores
+        ]
+        if len(scored) <= 1:
+            return focus
+        primary = max(scored, key=lambda dimension: focus.scores[dimension])
+        return replace(focus, dimensions=(primary,))
 
     @staticmethod
     def _focus_requirements(focus: FocusSelection) -> list[ContextRequirement]:
@@ -272,7 +299,12 @@ class ContextPolicyEngine:
             FocusDimension.PRIORITY: (FactField.RECOMMENDED_PRIORITY,),
             FocusDimension.HOST: (*_ENTITY,),
             FocusDimension.CORRELATION: (*_CORRELATION,),
-            FocusDimension.EVIDENCE: (FactField.LATEST_TIMELINE_EVENT, FactField.MITRE),
+            FocusDimension.EVIDENCE: (
+                FactField.RULE,
+                FactField.WAZUH_LEVEL,
+                FactField.LATEST_TIMELINE_EVENT,
+                FactField.MITRE,
+            ),
             FocusDimension.ESCALATION: (*_ESCALATION,),
             FocusDimension.GENERAL: (*_STATUS, FactField.RISK_SCORE, FactField.CORRELATED),
         }

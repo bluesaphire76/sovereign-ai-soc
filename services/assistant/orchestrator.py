@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import json
 import logging
 import math
 import os
-import re
 import time
 from dataclasses import dataclass
 from typing import Any, Callable, Literal
@@ -32,6 +32,8 @@ from services.ai_execution.metrics import (
     ASSISTANT_V3_RENDER_DURATION,
     ASSISTANT_V3_RESPONSES,
     ASSISTANT_V3_SEMANTIC_INDEX_DURATION,
+    ASSISTANT_V3_STAGE_DURATION,
+    ASSISTANT_V3_CONTEXT_ITEMS,
     FALLBACK_TOTAL,
     GROUNDING_REJECTIONS,
 )
@@ -42,6 +44,8 @@ from services.assistant.focus import (
     build_focused_fact_view,
     general_focus_selection,
     get_semantic_focus_router,
+    get_shared_semantic_embedding_provider,
+    normalize_embedding_text,
 )
 from services.assistant.grounding import (
     deterministic_claim_output,
@@ -59,7 +63,7 @@ from services.assistant.retrieval import (
 from services.assistant.runtime import assistant_runtime_snapshot
 from services.assistant.sources import SourceRecord, assign_source_ids
 from services.assistant.v3.builder import V3AnalyticalContextBuilder
-from services.assistant.v3.contracts import V3AnalyticalContextPackage
+from services.assistant.v3.contracts import AuthorityClass, V3AnalyticalContextPackage
 from services.assistant.v3.attribution import build_v3_attribution
 from services.assistant.v3.discourse import (
     RenderedV3Answer,
@@ -148,7 +152,7 @@ class AssistantSettings:
     semantic_timeout_seconds: float = 2.0
     request_timeout_seconds: float = 45.0
     max_output_tokens: int = 768
-    response_architecture: Literal["v2", "v3"] = "v2"
+    response_architecture: Literal["v2", "v3"] = "v3"
     v3_max_output_tokens: int = 768
 
 
@@ -192,7 +196,7 @@ def _env_float(
 
 
 def _response_architecture() -> Literal["v2", "v3"]:
-    value = os.getenv("AI_ASSISTANT_RESPONSE_ARCHITECTURE", "v2").strip().lower()
+    value = os.getenv("AI_ASSISTANT_RESPONSE_ARCHITECTURE", "v3").strip().lower()
     return "v3" if value == "v3" else "v2"
 
 
@@ -268,35 +272,67 @@ def assistant_capabilities(
 
 
 def _response_language(message: str) -> AssistantResponseLanguage:
-    words = set(re.findall(r"[a-zàèéìòù]+", message.lower()))
+    words = set(
+        "".join(character if character.isalpha() else " " for character in message)
+        .casefold()
+        .split()
+    )
     strong_italian = {
         "analizza",
+        "assumi",
         "cerca",
         "collegamenti",
+        "compromissione",
+        "compromesso",
+        "condensa",
+        "conferma",
+        "conserva",
         "confronta",
+        "condividono",
         "cosa",
+        "crea",
         "evidenze",
+        "esiste",
+        "fai",
+        "fornisci",
+        "ignora",
+        "identifica",
+        "indicami",
         "incidente",
         "incidenti",
+        "promuovi",
+        "prova",
         "perché",
         "prepara",
+        "quale",
         "quali",
         "riassumi",
+        "riepiloga",
         "rischio",
         "severità",
+        "severita",
+        "significa",
         "sintesi",
         "spiega",
+        "suggerisci",
+        "usa",
         "verifica",
     }
     italian = strong_italian | {
         "che",
         "come",
+        "gli",
+        "la",
+        "le",
+        "lo",
         "della",
         "delle",
         "non",
+        "sono",
         "questa",
         "questo",
         "stato",
+        "una",
     }
     if words & strong_italian:
         return "it"
@@ -447,6 +483,30 @@ def _build_response(
         graph_edges=(
             len(v3_package.cross_incident_graph.relationships) if v3_package else 0
         ),
+        semantic_raw_candidates=(
+            v3_package.metrics.semantic_raw_candidate_count if v3_package else 0
+        ),
+        semantic_threshold_rejects=(
+            v3_package.metrics.semantic_threshold_reject_count if v3_package else 0
+        ),
+        semantic_invalid_rejects=(
+            v3_package.metrics.semantic_invalid_reject_count if v3_package else 0
+        ),
+        semantic_duplicate_rejects=(
+            v3_package.metrics.semantic_duplicate_reject_count if v3_package else 0
+        ),
+        semantic_excluded_rejects=(
+            v3_package.metrics.semantic_excluded_reject_count if v3_package else 0
+        ),
+        cross_incident_candidates_discovered=(
+            v3_package.metrics.candidate_discovered_count if v3_package else 0
+        ),
+        authoritative_rehydration_count=(
+            v3_package.metrics.authoritative_rehydration_count if v3_package else 0
+        ),
+        stale_candidate_rejects=(
+            v3_package.metrics.stale_candidate_reject_count if v3_package else 0
+        ),
         conversation_followup=(
             v3_package.resolved_scope.conversation_followup if v3_package else False
         ),
@@ -500,12 +560,12 @@ _V3_BLOCK_KINDS = {
     AnswerSectionType.EVIDENCE: "evidence",
     AnswerSectionType.TIMELINE: "analysis",
     AnswerSectionType.RELATED_INCIDENTS: "related_incidents",
-    AnswerSectionType.COMPARISON: "analysis",
-    AnswerSectionType.PATTERN: "analysis",
+    AnswerSectionType.COMPARISON: "comparison",
+    AnswerSectionType.PATTERN: "pattern",
     AnswerSectionType.TECHNICAL_CONTEXT: "technical_context",
-    AnswerSectionType.WHAT_WE_CAN_CONCLUDE: "analysis",
+    AnswerSectionType.WHAT_WE_CAN_CONCLUDE: "conclusion",
     AnswerSectionType.WHAT_WE_CANNOT_CONCLUDE: "limitations",
-    AnswerSectionType.NEXT_STEPS: "next_check",
+    AnswerSectionType.NEXT_STEPS: "recommended_checks",
     AnswerSectionType.LIMITATIONS: "limitations",
 }
 
@@ -514,7 +574,28 @@ def _v3_response_blocks(
     rendered: RenderedV3Answer,
     *,
     source_ids_by_ref: dict[str, tuple[str, ...]],
+    package: V3AnalyticalContextPackage,
 ) -> list[AssistantResponseBlock]:
+    authority_by_ref = {
+        **{item.atom_id: item.authority_class for item in package.operational_atoms},
+        **{item.knowledge_id: item.authority_class for item in package.reference_atoms},
+        **{item.knowledge_id: item.authority_class for item in package.advisory_atoms},
+        **{
+            item.candidate_id: item.authority_class
+            for item in package.cross_incident_candidates
+        },
+        **{
+            item.relationship_id: item.authority_class
+            for item in package.relationship_registry.relationships
+        },
+    }
+    response_class = {
+        AuthorityClass.OPERATIONAL_AUTHORITATIVE: "operational_source",
+        AuthorityClass.REFERENCE_KNOWLEDGE: "reference_knowledge",
+        AuthorityClass.ADVISORY_KNOWLEDGE: "advisory_playbook",
+        AuthorityClass.ANALYTICAL_DERIVATION: "analytical_relationship",
+        AuthorityClass.SEMANTIC_CANDIDATE: "semantic_candidate",
+    }
     blocks = []
     for block in rendered.blocks:
         source_ids = list(
@@ -529,6 +610,13 @@ def _v3_response_blocks(
                 kind=_V3_BLOCK_KINDS[block.section_type],
                 text=block.text,
                 source_ids=source_ids,
+                provenance_classes=list(
+                    dict.fromkeys(
+                        response_class[authority_by_ref[ref]]
+                        for ref in block.source_refs
+                        if ref in authority_by_ref
+                    )
+                ),
             )
         )
     return blocks
@@ -574,17 +662,30 @@ def _deterministic_v2_response_for_v3_failure(
     settings: AssistantSettings,
     v3_package: V3AnalyticalContextPackage | None,
 ) -> AssistantQueryResponse:
+    target_id = payload.incident_id if payload.scope == "incident" else payload.case_id
+    authoritative_sources = [
+        source
+        for source in source_records
+        if source.authority == "authoritative"
+        and source.source_type == payload.scope
+        and source.record_id == str(target_id)
+    ]
+    safe_fact_inventory = {
+        key: value
+        for key, value in focused_fact_inventory.items()
+        if key not in {"linked_incident_count", "linked_incidents"}
+    }
     output = deterministic_claim_output(
-        fact_inventory=focused_fact_inventory,
+        fact_inventory=safe_fact_inventory,
         authoritative_source_ids=[
             source.source_id
-            for source in source_records
-            if source.authority == "authoritative" and source.source_id
+            for source in authoritative_sources
+            if source.source_id
         ],
     )
     rendered = render_claim_output(
         output,
-        fact_inventory=focused_fact_inventory,
+        fact_inventory=safe_fact_inventory,
         response_language=response_language,
     )
     FALLBACK_TOTAL.labels(fallback_reason).inc()
@@ -595,7 +696,7 @@ def _deterministic_v2_response_for_v3_failure(
     return _build_response(
         payload=payload,
         output=rendered,
-        source_records=source_records,
+        source_records=authoritative_sources,
         retrieval=retrieval,
         response_language=response_language,
         generation_kind="deterministic_fallback",
@@ -623,6 +724,7 @@ def _run_v3_response(
     settings: AssistantSettings,
     generator: Callable[..., dict[str, Any]],
     clock: Callable[[], float],
+    operational_retrieval_ms: int = 0,
 ) -> AssistantQueryResponse:
     result: dict[str, Any] = {"_provider_generation_count": 0}
     if package is None:
@@ -642,13 +744,19 @@ def _run_v3_response(
 
     schema_started = clock()
     prompt_chars = 0
+    schema_chars = 0
     try:
+        schema = grounded_answer_plan_v3_schema(package)
+        required_section_codes = tuple(
+            schema["properties"]["sections"].get("required", ())
+        )
         prompt = build_v3_plan_messages(
             package,
             max_context_chars=settings.max_context_chars,
+            required_section_codes=required_section_codes,
         )
-        schema = grounded_answer_plan_v3_schema(package)
         prompt_chars = prompt.context_chars
+        schema_chars = len(json.dumps(schema, separators=(",", ":")))
         schema_build_ms = max(0, int((clock() - schema_started) * 1000))
         ASSISTANT_V3_PLAN_DURATION.labels(stage="schema", status="passed").observe(
             schema_build_ms / 1000
@@ -840,6 +948,7 @@ def _run_v3_response(
     blocks = _v3_response_blocks(
         rendered,
         source_ids_by_ref=attribution.source_ids_by_ref,
+        package=package,
     )
     sources = list(attribution.sources)
     cross_units, reference_units, advisory_units = _v3_plan_counts(plan)
@@ -881,7 +990,9 @@ def _run_v3_response(
         context_build_ms=max(0, int(package.metrics.total_context_build_ms)),
         intent_routing_ms=max(0, int(package.metrics.intent_routing_ms)),
         focus_routing_ms=max(0, int(package.metrics.focus_routing_ms)),
+        scope_resolution_ms=max(0, int(package.metrics.scope_resolution_ms)),
         context_policy_ms=max(0, int(package.metrics.context_policy_ms)),
+        operational_retrieval_ms=max(0, operational_retrieval_ms),
         atom_normalization_ms=max(0, int(package.metrics.atom_normalization_ms)),
         semantic_candidate_ms=max(0, int(package.metrics.candidate_retrieval_ms)),
         semantic_index_query_ms=max(0, int(package.metrics.semantic_index_query_ms)),
@@ -889,6 +1000,14 @@ def _run_v3_response(
             0,
             int(package.metrics.authoritative_rehydration_ms),
         ),
+        semantic_raw_candidates=package.metrics.semantic_raw_candidate_count,
+        semantic_threshold_rejects=package.metrics.semantic_threshold_reject_count,
+        semantic_invalid_rejects=package.metrics.semantic_invalid_reject_count,
+        semantic_duplicate_rejects=package.metrics.semantic_duplicate_reject_count,
+        semantic_excluded_rejects=package.metrics.semantic_excluded_reject_count,
+        cross_incident_candidates_discovered=package.metrics.candidate_discovered_count,
+        authoritative_rehydration_count=package.metrics.authoritative_rehydration_count,
+        stale_candidate_rejects=package.metrics.stale_candidate_reject_count,
         graph_ms=max(0, int(package.metrics.graph_construction_ms)),
         reference_retrieval_ms=max(
             0,
@@ -910,6 +1029,7 @@ def _run_v3_response(
         advisory_units=advisory_units,
         plan_validation_status=plan_validation_status,
         schema_build_ms=schema_build_ms,
+        schema_chars=schema_chars,
         plan_validation_ms=plan_validation_ms,
         rendering_ms=max(0, int(rendered.render_ms)),
         prompt_chars=prompt_chars,
@@ -984,14 +1104,35 @@ def run_assistant_query(
             message="Assistant message exceeds the configured limit.",
         )
 
+    question_vector = None
+    if intent_router is None and focus_router is None:
+        try:
+            question_vector = get_shared_semantic_embedding_provider().embed(
+                normalize_embedding_text(payload.message)
+            )
+        except Exception:
+            question_vector = None
+
     selected_intent_router = intent_router or get_semantic_intent_router()
     try:
-        intent_selection = selected_intent_router.route(payload.message)
+        if intent_router is None and focus_router is None:
+            intent_selection = selected_intent_router.route(
+                payload.message,
+                request_embedding=question_vector,
+            )
+        else:
+            intent_selection = selected_intent_router.route(payload.message)
     except Exception:
         intent_selection = neutral_intent_selection()
     selected_focus_router = focus_router or get_semantic_focus_router()
     try:
-        focus_selection = selected_focus_router.route(payload.message)
+        if intent_router is None and focus_router is None:
+            focus_selection = selected_focus_router.route(
+                payload.message,
+                request_embedding=question_vector,
+            )
+        else:
+            focus_selection = selected_focus_router.route(payload.message)
     except Exception:
         focus_selection = general_focus_selection(
             focus_degraded=True,
@@ -1008,6 +1149,8 @@ def run_assistant_query(
     )
     db = db_factory()
     v3_package: V3AnalyticalContextPackage | None = None
+    operational_retrieval_started = clock()
+    operational_retrieval_ms = 0
     try:
         retrieval = retrieve_assistant_context(
             retrieval_payload,
@@ -1019,6 +1162,10 @@ def run_assistant_query(
                 request_started + current_settings.semantic_timeout_seconds
             ),
             clock=clock,
+        )
+        operational_retrieval_ms = max(
+            0,
+            int((clock() - operational_retrieval_started) * 1000),
         )
         try:
             v3_package = (v3_context_builder or V3AnalyticalContextBuilder()).build(
@@ -1042,6 +1189,54 @@ def run_assistant_query(
             ASSISTANT_V3_SEMANTIC_INDEX_DURATION.labels(
                 status=v3_package.semantic_index_status
             ).observe(v3_package.metrics.semantic_index_query_ms / 1000)
+            stage_durations = {
+                "intent_routing": v3_package.metrics.intent_routing_ms,
+                "focus_routing": v3_package.metrics.focus_routing_ms,
+                "conversation_state": v3_package.metrics.conversation_state_ms,
+                "scope_resolution": v3_package.metrics.scope_resolution_ms,
+                "context_policy": v3_package.metrics.context_policy_ms,
+                "operational_retrieval": operational_retrieval_ms,
+                "atom_normalization": v3_package.metrics.atom_normalization_ms,
+                "candidate_retrieval": v3_package.metrics.candidate_retrieval_ms,
+                "semantic_retrieval": v3_package.metrics.semantic_index_query_ms,
+                "db_rehydration": v3_package.metrics.authoritative_rehydration_ms,
+                "graph_construction": v3_package.metrics.graph_construction_ms,
+                "reference_retrieval": v3_package.metrics.reference_retrieval_ms,
+                "advisory_retrieval": v3_package.metrics.advisory_retrieval_ms,
+            }
+            for stage, duration_ms in stage_durations.items():
+                ASSISTANT_V3_STAGE_DURATION.labels(
+                    stage=stage,
+                    status="passed",
+                ).observe(max(0.0, duration_ms) / 1000)
+            context_counts = {
+                "operational_atoms": len(v3_package.operational_atoms),
+                "reference_atoms": len(v3_package.reference_atoms),
+                "advisory_atoms": len(v3_package.advisory_atoms),
+                "candidates": len(v3_package.cross_incident_candidates),
+                "candidates_discovered": (
+                    v3_package.metrics.candidate_discovered_count
+                ),
+                "semantic_raw_candidates": (
+                    v3_package.metrics.semantic_raw_candidate_count
+                ),
+                "semantic_threshold_rejects": (
+                    v3_package.metrics.semantic_threshold_reject_count
+                ),
+                "rehydrated_candidates": (
+                    v3_package.metrics.authoritative_rehydration_count
+                ),
+                "stale_candidate_rejects": (
+                    v3_package.metrics.stale_candidate_reject_count
+                ),
+                "graph_edges": len(v3_package.cross_incident_graph.relationships),
+                "source_refs": len(v3_package.source_registry),
+                "relationship_refs": len(
+                    v3_package.relationship_registry.relationships
+                ),
+            }
+            for item_class, count in context_counts.items():
+                ASSISTANT_V3_CONTEXT_ITEMS.labels(item_class=item_class).observe(count)
         except Exception as exc:
             logger.warning(
                 "assistant_v3_context_build_failed request_id=%s reason=%s",
@@ -1094,6 +1289,7 @@ def run_assistant_query(
             settings=current_settings,
             generator=generator,
             clock=clock,
+            operational_retrieval_ms=operational_retrieval_ms,
         )
         logger.info(
             "assistant_v3_execution request_id=%s scope=%s target_id=%s "

@@ -1,7 +1,14 @@
 "use client";
 
 import { useMemo, useRef } from "react";
-import { AlertTriangle, Database, Library } from "lucide-react";
+import {
+  AlertTriangle,
+  BookOpenCheck,
+  Database,
+  GitCompareArrows,
+  Library,
+  Search,
+} from "lucide-react";
 
 import type {
   AssistantBlockKind,
@@ -9,6 +16,7 @@ import type {
 } from "@/lib/assistant";
 import AssistantSources from "./AssistantSources";
 import {
+  ASSISTANT_PROVENANCE,
   formatAssistantLatency,
   humanizeAssistantLimitation,
   humanizeAssistantValue,
@@ -27,9 +35,30 @@ const BLOCK_LABELS: Record<AssistantBlockKind, string> = {
   evidence: "Evidence",
   technical_context: "Technical context",
   analysis: "Analysis",
+  comparison: "Comparison",
+  pattern: "Pattern",
+  conclusion: "What we can conclude",
   next_check: "Next check",
+  recommended_checks: "Recommended checks",
   limitations: "Limitations",
 };
+
+function ProvenanceIcon({ value }: { value: keyof typeof ASSISTANT_PROVENANCE }) {
+  const className = "h-3 w-3";
+  if (value === "operational_source") {
+    return <Database aria-hidden="true" className={className} />;
+  }
+  if (value === "reference_knowledge") {
+    return <BookOpenCheck aria-hidden="true" className={className} />;
+  }
+  if (value === "analytical_relationship") {
+    return <GitCompareArrows aria-hidden="true" className={className} />;
+  }
+  if (value === "semantic_candidate") {
+    return <Search aria-hidden="true" className={className} />;
+  }
+  return <Library aria-hidden="true" className={className} />;
+}
 
 export default function AssistantAnswer({
   response,
@@ -84,13 +113,36 @@ export default function AssistantAnswer({
             <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-slate-300">
               {block.text}
             </p>
+            {(block.provenance_classes ?? []).length > 0 ? (
+              <div
+                className="mt-2 flex flex-wrap gap-1.5"
+                aria-label="Evidence provenance"
+              >
+                {block.provenance_classes.map((provenanceClass) => {
+                  const presentation = ASSISTANT_PROVENANCE[provenanceClass];
+                  return (
+                    <span
+                      key={provenanceClass}
+                      className={`inline-flex min-h-6 items-center gap-1 border px-1.5 text-[10px] font-semibold ${presentation.className}`}
+                      title={presentation.description}
+                    >
+                      <ProvenanceIcon value={provenanceClass} />
+                      {presentation.label}
+                    </span>
+                  );
+                })}
+              </div>
+            ) : null}
             {block.source_ids.length > 0 ? (
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {block.source_ids.map((sourceId) => {
                   const source = sourcesById.get(sourceId);
                   if (!source) return null;
-                  const Icon =
-                    source.authority === "authoritative" ? Database : Library;
+                  const provenanceClass =
+                    source.provenance_class ??
+                    (source.authority === "authoritative"
+                      ? "operational_source"
+                      : "advisory_playbook");
                   return (
                     <button
                       key={sourceId}
@@ -99,7 +151,7 @@ export default function AssistantAnswer({
                       className="inline-flex min-h-7 items-center gap-1 border border-slate-700 bg-slate-950 px-2 text-[11px] text-cyan-300 hover:border-cyan-700 hover:text-cyan-200"
                       title={source.label}
                     >
-                      <Icon aria-hidden="true" className="h-3 w-3" />
+                      <ProvenanceIcon value={provenanceClass} />
                       {source.label}
                     </button>
                   );
@@ -171,6 +223,30 @@ export default function AssistantAnswer({
         </summary>
         <dl className="mt-3 grid gap-x-5 gap-y-2 text-[11px] text-slate-500 sm:grid-cols-2">
           <TechnicalDetail
+            label="Effective intent"
+            value={
+              response.metadata.assistant_intent
+                ? humanizeAssistantValue(response.metadata.assistant_intent)
+                : null
+            }
+          />
+          <TechnicalDetail
+            label="Analysis scope"
+            value={
+              response.metadata.analysis_scope
+                ? humanizeAssistantValue(response.metadata.analysis_scope)
+                : null
+            }
+          />
+          <TechnicalDetail
+            label="Cross-incident context"
+            value={
+              response.metadata.cross_incident_candidates > 0
+                ? "Used"
+                : "Not used"
+            }
+          />
+          <TechnicalDetail
             label="Generation kind"
             value={humanizeAssistantValue(response.generation_kind)}
           />
@@ -197,6 +273,22 @@ export default function AssistantAnswer({
           <TechnicalDetail
             label="Semantic status"
             value={humanizeAssistantValue(response.metadata.semantic_status)}
+          />
+          <TechnicalDetail
+            label="Semantic index"
+            value={humanizeAssistantValue(
+              response.metadata.semantic_index_status,
+            )}
+          />
+          <TechnicalDetail
+            label="Plan validation"
+            value={humanizeAssistantValue(
+              response.metadata.plan_validation_status,
+            )}
+          />
+          <TechnicalDetail
+            label="Context build"
+            value={formatAssistantLatency(response.metadata.context_build_ms)}
           />
           <TechnicalDetail
             label="Semantic elapsed"

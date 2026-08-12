@@ -29,8 +29,9 @@ class _SemanticFixtureEmbedding:
         self.fail = fail
         self.calls: list[str] = []
         self._descriptor_dimensions = {
-            descriptor.embedding_text: descriptor.dimension
+            prototype: descriptor.dimension
             for descriptor in FOCUS_REGISTRY
+            for prototype in descriptor.prototype_embedding_texts
         }
         self._positions = {
             dimension: index for index, dimension in enumerate(FocusDimension)
@@ -64,8 +65,9 @@ class _CalibratedSemanticEmbedding:
     ) -> None:
         self.question_vectors = question_vectors
         self._descriptor_dimensions = {
-            descriptor.embedding_text: descriptor.dimension
+            prototype: descriptor.dimension
             for descriptor in FOCUS_REGISTRY
+            for prototype in descriptor.prototype_embedding_texts
         }
         self._positions = {
             dimension: index for index, dimension in enumerate(FocusDimension)
@@ -248,11 +250,24 @@ def test_descriptor_vectors_are_cached_once_and_warm_routing_is_fast() -> None:
     assert first.dimensions == second.dimensions == (FocusDimension.RISK,)
     assert router.descriptor_cache_size == len(FOCUS_REGISTRY)
     assert all(
-        call_counts[descriptor.embedding_text] == 1
+        call_counts[prototype] == 1
         for descriptor in FOCUS_REGISTRY
+        for prototype in descriptor.prototype_embedding_texts
     )
     assert call_counts[question] == 2
     assert second.focus_routing_ms < 100
+
+
+def test_request_scoped_vector_avoids_second_question_embedding() -> None:
+    question = "How is the incident scored?"
+    embedder = _SemanticFixtureEmbedding({question: (FocusDimension.RISK,)})
+    router = SemanticFocusRouter(embedding_provider=embedder)
+    vector = embedder.embed(question)
+
+    selection = router.route(question, request_embedding=vector)
+
+    assert selection.dimensions == (FocusDimension.RISK,)
+    assert Counter(embedder.calls)[question] == 1
 
 
 def test_low_confidence_and_embedding_failure_use_safe_general_focus() -> None:
@@ -337,6 +352,20 @@ def test_registry_separates_canonical_supporting_and_excluded_fields() -> None:
     assert severity.supporting_fact_fields == ("risk_normalization_severity",)
     assert "recommended_priority" in severity.excluded_fact_fields
     assert "correlation_summary" in correlation.excluded_fact_fields
+    evidence = descriptors[FocusDimension.EVIDENCE]
+    assert {"rule", "wazuh_level"}.isdisjoint(evidence.allowed_fact_fields)
+    assert "mitre" in evidence.supporting_fact_fields
+
+
+def test_detection_rule_question_routes_to_evidence_focus() -> None:
+    question = "Quale regola di detection ha prodotto l'incidente corrente?"
+    embedder = _SemanticFixtureEmbedding(
+        {question: (FocusDimension.EVIDENCE,)}
+    )
+
+    selection = SemanticFocusRouter(embedding_provider=embedder).route(question)
+
+    assert selection.dimensions == (FocusDimension.EVIDENCE,)
 
 
 def test_focused_fact_view_for_test_c_excludes_unrelated_inventory() -> None:

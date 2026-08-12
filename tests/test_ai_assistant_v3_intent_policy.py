@@ -11,6 +11,7 @@ from services.assistant.v3.contracts import (
     AnswerIntent,
     AuthorityClass,
     ContextRequirement,
+    FactField,
     IntentSelection,
     Provenance,
     StatusAtom,
@@ -27,8 +28,9 @@ class RegistryVectorProvider:
     def __init__(self, question_intents: dict[str, tuple[AnswerIntent, ...]]) -> None:
         self.calls: list[str] = []
         self._descriptor_vectors = {
-            normalize_embedding_text(item.embedding_text): self._vector((item.intent,))
+            normalize_embedding_text(prototype): self._vector((item.intent,))
             for item in INTENT_REGISTRY
+            for prototype in item.prototype_embedding_texts
         }
         self._question_vectors = {
             normalize_embedding_text(question): self._vector(intents)
@@ -100,8 +102,34 @@ def test_intent_descriptors_are_cached_and_multi_intent_is_bounded() -> None:
     assert first.primary_intent in {AnswerIntent.INVESTIGATE, AnswerIntent.NEXT_ACTION}
     assert len(first.secondary_intents) == 1
     assert router.descriptor_cache_size == len(INTENT_REGISTRY)
-    assert len(provider.calls) == len(INTENT_REGISTRY) + 2
+    assert len(provider.calls) == sum(
+        len(item.prototype_embedding_texts) for item in INTENT_REGISTRY
+    ) + 2
     assert second.primary_intent == first.primary_intent
+
+
+def test_intent_router_selects_the_nearest_declarative_prototype() -> None:
+    question = "Provide the analyst shift continuity package."
+    provider = RegistryVectorProvider({question: (AnswerIntent.HANDOVER,)})
+
+    result = SemanticIntentRouter(embedding_provider=provider).route(question)
+
+    assert result.primary_intent is AnswerIntent.HANDOVER
+    assert result.routing_status == "ok"
+
+
+def test_request_scoped_vector_avoids_second_intent_question_embedding() -> None:
+    question = "Prepare the factual context for the next shift."
+    provider = RegistryVectorProvider({question: (AnswerIntent.HANDOVER,)})
+    vector = provider.embed(question)
+
+    result = SemanticIntentRouter(embedding_provider=provider).route(
+        question,
+        request_embedding=vector,
+    )
+
+    assert result.primary_intent is AnswerIntent.HANDOVER
+    assert provider.calls.count(normalize_embedding_text(question)) == 1
 
 
 def test_low_confidence_and_embedding_failure_choose_neutral_summary() -> None:
@@ -185,6 +213,105 @@ def test_context_policy_keeps_fact_lookup_narrow() -> None:
     assert plan.include_advisory is False
 
 
+def test_context_policy_includes_detection_fields_for_evidence_lookup() -> None:
+    intent = _selection(AnswerIntent.FACT_LOOKUP)
+    scope = resolve_analysis_scope(
+        request_scope="incident",
+        incident_id=10,
+        case_id=None,
+        intent=intent,
+        conversation_state=None,
+    )
+
+    plan = ContextPolicyEngine().plan(
+        intent=intent,
+        focus=_focus(FocusDimension.EVIDENCE),
+        resolved_scope=scope,
+        available_facts=FACTS,
+        conversation_state=None,
+    )
+
+    assert {FactField.RULE, FactField.WAZUH_LEVEL, FactField.MITRE} <= set(
+        plan.fact_fields
+    )
+
+
+def test_fact_lookup_policy_uses_only_highest_scoring_semantic_focus() -> None:
+    intent = _selection(AnswerIntent.FACT_LOOKUP)
+    scope = resolve_analysis_scope(
+        request_scope="incident",
+        incident_id=10,
+        case_id=None,
+        intent=intent,
+        conversation_state=None,
+    )
+    focus = FocusSelection(
+        dimensions=(FocusDimension.RISK, FocusDimension.EVIDENCE),
+        scores={FocusDimension.RISK: 0.48, FocusDimension.EVIDENCE: 0.71},
+        confidence=0.71,
+    )
+
+    plan = ContextPolicyEngine().plan(
+        intent=intent,
+        focus=focus,
+        resolved_scope=scope,
+        available_facts=FACTS,
+        conversation_state=None,
+    )
+
+    assert FactField.RULE in plan.fact_fields
+    assert FactField.RISK_SCORE not in plan.fact_fields
+
+
+def test_fact_lookup_policy_preserves_an_unavailable_requested_priority() -> None:
+    intent = _selection(AnswerIntent.FACT_LOOKUP)
+    scope = resolve_analysis_scope(
+        request_scope="case",
+        incident_id=None,
+        case_id=1,
+        intent=intent,
+        conversation_state=None,
+    )
+
+    plan = ContextPolicyEngine().plan(
+        intent=intent,
+        focus=_focus(FocusDimension.PRIORITY),
+        resolved_scope=scope,
+        available_facts={"source_type": "case", "case_id": 1, "title": "Case 1"},
+        conversation_state=None,
+    )
+
+    assert FactField.RECOMMENDED_PRIORITY in plan.fact_fields
+    assert ContextRequirement.PRIORITY in plan.requirements
+
+
+def test_fact_lookup_policy_preserves_unavailable_authoritative_escalation_state() -> None:
+    intent = _selection(AnswerIntent.FACT_LOOKUP)
+    scope = resolve_analysis_scope(
+        request_scope="incident",
+        incident_id=42,
+        case_id=None,
+        intent=intent,
+        conversation_state=None,
+    )
+
+    plan = ContextPolicyEngine().plan(
+        intent=intent,
+        focus=_focus(FocusDimension.ESCALATION),
+        resolved_scope=scope,
+        available_facts={
+            "source_type": "incident",
+            "incident_id": 42,
+            "escalation_reason": "Repeated failures",
+        },
+        conversation_state=None,
+    )
+
+    assert ContextRequirement.ESCALATION in plan.requirements
+    assert FactField.ESCALATED in plan.fact_fields
+    assert FactField.ESCALATION_REASON in plan.fact_fields
+
+
 def test_context_policy_makes_open_explanation_rich_but_excludes_raw_fields() -> None:
     intent = _selection(AnswerIntent.EXPLAIN)
     scope = resolve_analysis_scope(
@@ -261,6 +388,24 @@ def test_cross_incident_intent_expands_scope_and_context_policy() -> None:
     assert plan.include_cross_incident is True
     assert plan.include_advisory is True
     assert ContextRequirement.CROSS_INCIDENT in plan.requirements
+
+
+def test_explicit_comparison_scope_is_bounded_independently_of_routed_intent() -> None:
+    intent = _selection(AnswerIntent.CROSS_INCIDENT_ANALYSIS)
+
+    scope = resolve_analysis_scope(
+        request_scope="incident",
+        incident_id=10,
+        case_id=None,
+        intent=intent,
+        conversation_state=None,
+        explicit_incident_ids=[20, 30],
+        explicit_compare_incident_ids=[20],
+    )
+
+    assert scope.analysis_scope is AnalysisScope.EXPLICIT_RECORD_SET
+    assert scope.active_incident_ids == [10, 20]
+    assert scope.explicit_compare_incident_ids == [10, 20]
 
 
 def test_v3_contracts_are_closed_and_authority_is_explicit() -> None:

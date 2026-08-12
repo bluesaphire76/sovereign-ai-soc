@@ -127,6 +127,14 @@ def test_query_endpoint_returns_blocks_and_safe_slim_audit(
     assert "message_sha256" in details
     assert "Raw question should not be stored" not in str(details)
     assert details["source_type_counts"] == {"incident": 1}
+    assert details["source_refs"] == [
+        {
+            "source_id": "S1",
+            "source_type": "incident",
+            "record_id": "245",
+            "provenance_class": "operational_source",
+        }
+    ]
     assert details["generation_kind"] == "model"
     assert details["effective_profile"] == "standard"
     assert details["effective_model"] == "ai-soc-standard"

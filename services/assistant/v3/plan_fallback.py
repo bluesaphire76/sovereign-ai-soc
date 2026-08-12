@@ -24,8 +24,15 @@ from services.assistant.v3.plan_contracts import (
     RhetoricalRole,
     SurfaceVariant,
 )
-from services.assistant.v3.plan_schema import available_absence_fields
-from services.assistant.v3.quality_policy import enrich_unit, rank_operational_atoms
+from services.assistant.v3.plan_schema import (
+    available_absence_fields,
+    comparison_has_no_recorded_differences,
+)
+from services.assistant.v3.quality_policy import (
+    absence_is_material,
+    enrich_unit,
+    rank_operational_atoms,
+)
 
 
 def _fact_refs(package: V3AnalyticalContextPackage, *, maximum: int) -> list[str]:
@@ -97,13 +104,28 @@ def _relationship_sections(
                 surface_variant=SurfaceVariant.COMPARISON_LED,
             )
         )
+    selected_relationship_units = relationship_units[:2]
+    selected_relationship_refs = {
+        ref
+        for unit in selected_relationship_units
+        for ref in unit.relationship_refs
+    }
+    aligned_candidate_units = [
+        unit.model_copy(
+            update={
+                "relationship_refs": [
+                    ref
+                    for ref in unit.relationship_refs
+                    if ref in selected_relationship_refs
+                ]
+            }
+        )
+        for unit in candidate_units
+        if selected_relationship_refs.intersection(unit.relationship_refs)
+    ]
     units = [
-        *relationship_units[:2],
-        *(
-            candidate_units[:1]
-            if not explicit_compare
-            else []
-        ),
+        *selected_relationship_units,
+        *(aligned_candidate_units[:1] if not explicit_compare else []),
     ] or candidate_units[:2]
     if package.intent_selection.primary_intent is AnswerIntent.HANDOVER:
         units = units[:1]
@@ -133,6 +155,19 @@ def _relationship_sections(
         if relationship.relationship_id in used_relationship_refs
     ]
     caveats: list[AnalyticalUnit] = []
+    if (
+        package.intent_selection.primary_intent is AnswerIntent.COMPARE
+        and comparison_has_no_recorded_differences(package)
+    ):
+        caveats.append(
+            AnalyticalUnit(
+                unit_type=AnalyticalUnitType.NON_IMPLICATION,
+                non_implication=(
+                    NonImplicationCode.NO_RECORDED_DIFFERENCE_IN_COMPARED_FIELDS
+                ),
+                rhetorical_role=RhetoricalRole.CAVEAT,
+            )
+        )
     analytical_refs = [
         relationship.relationship_id
         for relationship in used_relationships
@@ -206,7 +241,7 @@ def _relationship_sections(
     intent = package.intent_selection.primary_intent
     if intent is AnswerIntent.COMPARE and comparison is not None:
         sections.append(
-            comparison.model_copy(update={"units": comparison.units[:2]})
+            comparison.model_copy(update={"units": comparison.units[:3]})
         )
     elif intent is AnswerIntent.CROSS_INCIDENT_ANALYSIS:
         if pattern is not None:
@@ -258,7 +293,6 @@ def _comparison_section(
         "risk",
         "mitre_technique",
         "recorded_correlation",
-        "incident_identity",
     )
     comparison_scope = (
         package.resolved_scope.explicit_compare_incident_ids
@@ -329,11 +363,30 @@ def deterministic_answer_plan_v3(
     intent = package.intent_selection.primary_intent
     concise = intent in {AnswerIntent.FACT_LOOKUP, AnswerIntent.EXECUTIVE_SUMMARY}
     ranked_fact_refs = _fact_refs(package, maximum=8)
-    direct_ref_limit = 1 if intent is AnswerIntent.INVESTIGATE else 2
+    direct_ref_limit = (
+        1
+        if intent is AnswerIntent.INVESTIGATE
+        else 3
+        if intent is AnswerIntent.EXPLAIN
+        else 2
+    )
     fact_refs = ranked_fact_refs[:direct_ref_limit]
     supporting_fact_refs = ranked_fact_refs[direct_ref_limit:]
     direct_units: list[AnalyticalUnit] = []
-    if fact_refs:
+    material_absences = [
+        field
+        for field in available_absence_fields(package)
+        if absence_is_material(package, field)
+    ]
+    if intent is AnswerIntent.FACT_LOOKUP and material_absences:
+        direct_units.append(
+            AnalyticalUnit(
+                unit_type=AnalyticalUnitType.ABSENCE,
+                absence_field=material_absences[0],
+                rhetorical_role=RhetoricalRole.LEAD,
+            )
+        )
+    elif fact_refs:
         direct_units.append(
             AnalyticalUnit(
                 unit_type=AnalyticalUnitType.RECORDED_FACT,
@@ -348,7 +401,7 @@ def deterministic_answer_plan_v3(
         if isinstance(atom, RecordedCorrelationAtom)
     ][:1]
     if not direct_units:
-        absence = available_absence_fields(package)
+        absence = material_absences
         if absence:
             direct_units.append(
                 AnalyticalUnit(

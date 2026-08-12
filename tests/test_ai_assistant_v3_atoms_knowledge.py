@@ -164,7 +164,7 @@ def test_escalation_reason_or_non_boolean_value_never_infers_state() -> None:
 
     assert ContextRequirement.ESCALATION in plan.requirements
     assert FactField.ESCALATION_REASON in plan.fact_fields
-    assert FactField.ESCALATED not in plan.fact_fields
+    assert FactField.ESCALATED in plan.fact_fields
     assert any(isinstance(atom, EscalationReasonAtom) for atom in atoms)
     assert not any(isinstance(atom, EscalationStateAtom) for atom in atoms)
 

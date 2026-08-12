@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import threading
 import time
 from collections import OrderedDict
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 from models import Incident, IncidentCase
 from services.assistant.v3.contracts import (
@@ -59,6 +60,7 @@ class ConversationStateStore:
         owner_key: str,
         conversation_id: str | None,
         db: Any | None = None,
+        authorized_incident_ids: Callable[[Iterable[int]], set[int]] | None = None,
     ) -> ValidatedConversationState | None:
         if not conversation_id:
             return None
@@ -76,6 +78,8 @@ class ConversationStateStore:
             *state.active_incident_ids,
             *state.related_incident_ids,
         ])
+        if authorized_incident_ids is not None:
+            incidents &= authorized_incident_ids(incidents)
         cases = self._existing_ids(db, IncidentCase, state.active_case_ids)
         active_incidents = [value for value in state.active_incident_ids if value in incidents]
         related_incidents = [value for value in state.related_incident_ids if value in incidents]
@@ -162,7 +166,38 @@ def updated_conversation_state(
     )
 
 
-_DEFAULT_CONVERSATION_STORE = ConversationStateStore()
+def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
+    try:
+        value = int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        value = default
+    return min(max(value, minimum), maximum)
+
+
+def conversation_store_from_env() -> ConversationStateStore:
+    return ConversationStateStore(
+        ttl_seconds=_env_int(
+            "AI_SOC_ASSISTANT_CONVERSATION_TTL_SECONDS",
+            3600,
+            minimum=60,
+            maximum=86400,
+        ),
+        max_states=_env_int(
+            "AI_SOC_ASSISTANT_MAX_CONVERSATIONS",
+            512,
+            minimum=1,
+            maximum=4096,
+        ),
+        max_states_per_owner=_env_int(
+            "AI_SOC_ASSISTANT_MAX_CONVERSATIONS_PER_USER",
+            16,
+            minimum=1,
+            maximum=64,
+        ),
+    )
+
+
+_DEFAULT_CONVERSATION_STORE = conversation_store_from_env()
 
 
 def get_conversation_state_store() -> ConversationStateStore:
