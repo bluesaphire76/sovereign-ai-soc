@@ -7,6 +7,12 @@ export type ContextualAssistantScope = Exclude<AssistantScope, "global">;
 export type AssistantMode = "auto" | "standard";
 export type AssistantStatus = "ok" | "fallback";
 export type AssistantAuthority = "authoritative" | "advisory";
+export type AssistantProvenanceClass =
+  | "operational_source"
+  | "reference_knowledge"
+  | "advisory_playbook"
+  | "analytical_relationship"
+  | "semantic_candidate";
 export type AssistantGenerationKind = "model" | "deterministic_fallback";
 export type AssistantResponseLanguage = "it" | "en";
 export type AssistantRuntimeState =
@@ -21,7 +27,11 @@ export type AssistantBlockKind =
   | "evidence"
   | "technical_context"
   | "analysis"
+  | "comparison"
+  | "pattern"
+  | "conclusion"
   | "next_check"
+  | "recommended_checks"
   | "limitations";
 export type AssistantValidationStatus = "passed" | "failed" | "not_run";
 export type AssistantFallbackReason =
@@ -70,6 +80,7 @@ export type AssistantSource = {
   source_id: string;
   source_type: string;
   authority: AssistantAuthority;
+  provenance_class: AssistantProvenanceClass;
   record_id: string | null;
   label: string;
   url: string | null;
@@ -139,11 +150,21 @@ export type AssistantMetadata = {
   context_build_ms: number;
   intent_routing_ms: number;
   focus_routing_ms: number;
+  scope_resolution_ms: number;
   context_policy_ms: number;
+  operational_retrieval_ms: number;
   atom_normalization_ms: number;
   semantic_candidate_ms: number;
   semantic_index_query_ms: number;
   authoritative_rehydration_ms: number;
+  semantic_raw_candidates: number;
+  semantic_threshold_rejects: number;
+  semantic_invalid_rejects: number;
+  semantic_duplicate_rejects: number;
+  semantic_excluded_rejects: number;
+  cross_incident_candidates_discovered: number;
+  authoritative_rehydration_count: number;
+  stale_candidate_rejects: number;
   graph_ms: number;
   reference_retrieval_ms: number;
   advisory_retrieval_ms: number;
@@ -156,6 +177,7 @@ export type AssistantMetadata = {
   advisory_units: number;
   plan_validation_status: AssistantValidationStatus;
   schema_build_ms: number;
+  schema_chars: number;
   plan_validation_ms: number;
   rendering_ms: number;
   prompt_chars: number;
@@ -176,6 +198,7 @@ export type AssistantResponseBlock = {
   kind: AssistantBlockKind;
   text: string;
   source_ids: string[];
+  provenance_classes: AssistantProvenanceClass[];
 };
 
 export type AssistantQueryResponse = {

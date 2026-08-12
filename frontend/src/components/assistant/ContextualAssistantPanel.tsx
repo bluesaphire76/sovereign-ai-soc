@@ -142,6 +142,14 @@ function ContextualAssistantPanelContent({
   const mountedRef = useRef(true);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const responseRef = useRef<HTMLDivElement | null>(null);
+  const conversationIdRef = useRef<string | null>(null);
+
+  function currentConversationId() {
+    if (conversationIdRef.current === null) {
+      conversationIdRef.current = globalThis.crypto.randomUUID();
+    }
+    return conversationIdRef.current;
+  }
 
   const suggestions = ASSISTANT_SUGGESTIONS[scope];
   const anchorPrefix = `assistant-${scope}-${targetId}`;
@@ -303,6 +311,7 @@ function ContextualAssistantPanelContent({
           requested_mode: mode,
           include_semantic_memory:
             semanticMemorySupported && includeSemanticMemory,
+          conversation_id: currentConversationId(),
         },
         controller.signal,
       );
@@ -629,10 +638,10 @@ function ContextualAssistantPanelContent({
 
           <div aria-live="polite" className="min-h-5 text-xs">
             {submitting ? (
-              <span className="inline-flex items-center gap-2 text-cyan-200">
+              <span className="inline-flex items-start gap-2 text-cyan-200">
                 <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
-                Reviewing bounded context. Completion time depends on the selected
-                mode and available evidence.
+                Analyzing recorded evidence, retrieving authorized related incidents,
+                and building a grounded answer.
               </span>
             ) : notice ? (
               <span className="inline-flex items-center gap-2 text-emerald-300">

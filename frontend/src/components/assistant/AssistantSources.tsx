@@ -1,12 +1,20 @@
 import Link from "next/link";
-import { ArrowUpRight, Database, Library } from "lucide-react";
+import {
+  ArrowUpRight,
+  BookOpenCheck,
+  Database,
+  GitCompareArrows,
+  Library,
+  Search,
+} from "lucide-react";
 
 import {
   isSafeInternalAssistantUrl,
-  type AssistantAuthority,
+  type AssistantProvenanceClass,
   type AssistantSource,
 } from "@/lib/assistant";
 import {
+  ASSISTANT_PROVENANCE,
   formatAssistantScore,
   humanizeAssistantValue,
   sourceAnchorId,
@@ -17,34 +25,66 @@ type AssistantSourcesProps = {
   anchorPrefix: string;
 };
 
+const PROVENANCE_ORDER: AssistantProvenanceClass[] = [
+  "operational_source",
+  "analytical_relationship",
+  "semantic_candidate",
+  "reference_knowledge",
+  "advisory_playbook",
+];
+
+function sourceProvenance(source: AssistantSource): AssistantProvenanceClass {
+  return (
+    source.provenance_class ??
+    (source.authority === "authoritative"
+      ? "operational_source"
+      : "advisory_playbook")
+  );
+}
+
+function ProvenanceIcon({ value }: { value: AssistantProvenanceClass }) {
+  const className = "h-4 w-4";
+  if (value === "operational_source") {
+    return <Database aria-hidden="true" className={className} />;
+  }
+  if (value === "reference_knowledge") {
+    return <BookOpenCheck aria-hidden="true" className={className} />;
+  }
+  if (value === "analytical_relationship") {
+    return <GitCompareArrows aria-hidden="true" className={className} />;
+  }
+  if (value === "semantic_candidate") {
+    return <Search aria-hidden="true" className={className} />;
+  }
+  return <Library aria-hidden="true" className={className} />;
+}
+
 function SourceGroup({
-  authority,
+  provenanceClass,
   sources,
   anchorPrefix,
   sourceIndexes,
 }: {
-  authority: AssistantAuthority;
+  provenanceClass: AssistantProvenanceClass;
   sources: AssistantSource[];
   anchorPrefix: string;
   sourceIndexes: Map<string, number>;
 }) {
-  const authoritative = authority === "authoritative";
-  const Icon = authoritative ? Database : Library;
+  const presentation = ASSISTANT_PROVENANCE[provenanceClass];
 
   if (sources.length === 0) return null;
 
   return (
-    <section aria-labelledby={`${anchorPrefix}-${authority}-heading`}>
+    <section aria-labelledby={`${anchorPrefix}-${provenanceClass}-heading`}>
       <div className="mb-2 flex items-center gap-2">
-        <Icon
-          aria-hidden="true"
-          className={`h-4 w-4 ${authoritative ? "text-emerald-300" : "text-amber-300"}`}
-        />
+        <span aria-hidden="true" className={presentation.textClassName}>
+          <ProvenanceIcon value={provenanceClass} />
+        </span>
         <h4
-          id={`${anchorPrefix}-${authority}-heading`}
+          id={`${anchorPrefix}-${provenanceClass}-heading`}
           className="text-xs font-semibold text-slate-200"
         >
-          {authoritative ? "Authoritative sources" : "Advisory semantic sources"}
+          {presentation.label}
         </h4>
         <span className="text-[11px] text-slate-500">{sources.length}</span>
       </div>
@@ -65,11 +105,9 @@ function SourceGroup({
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <span
-                      className={`text-[10px] font-semibold ${
-                        authoritative ? "text-emerald-300" : "text-amber-300"
-                      }`}
+                      className={`text-[10px] font-semibold ${presentation.textClassName}`}
                     >
-                      {authoritative ? "AUTHORITATIVE" : "ADVISORY"}
+                      {presentation.label.toUpperCase()}
                     </span>
                     <span className="text-[10px] font-semibold text-cyan-300">
                       [{source.source_id}]
@@ -138,26 +176,30 @@ export default function AssistantSources({
   const sourceIndexes = new Map(
     sources.map((source, index) => [source.source_id, index] as const),
   );
-  const authoritative = sources.filter(
-    (source) => source.authority === "authoritative",
+  const grouped = new Map(
+    PROVENANCE_ORDER.map((provenanceClass) => [
+      provenanceClass,
+      sources.filter((source) => sourceProvenance(source) === provenanceClass),
+    ]),
   );
-  const advisory = sources.filter((source) => source.authority === "advisory");
+  const advisoryCount = sources.filter((source) =>
+    ["advisory_playbook", "semantic_candidate"].includes(
+      sourceProvenance(source),
+    ),
+  ).length;
 
   return (
     <div className="space-y-4">
-      <SourceGroup
-        authority="authoritative"
-        sources={authoritative}
-        anchorPrefix={anchorPrefix}
-        sourceIndexes={sourceIndexes}
-      />
-      <SourceGroup
-        authority="advisory"
-        sources={advisory}
-        anchorPrefix={anchorPrefix}
-        sourceIndexes={sourceIndexes}
-      />
-      {advisory.length > 0 ? (
+      {PROVENANCE_ORDER.map((provenanceClass) => (
+        <SourceGroup
+          key={provenanceClass}
+          provenanceClass={provenanceClass}
+          sources={grouped.get(provenanceClass) ?? []}
+          anchorPrefix={anchorPrefix}
+          sourceIndexes={sourceIndexes}
+        />
+      ))}
+      {advisoryCount > 0 ? (
         <p className="text-[11px] leading-5 text-amber-200">
           Semantic similarity is advisory and does not prove duplicate identity,
           causality, root cause, severity, or closure readiness.
