@@ -84,7 +84,8 @@ requests exceeded 15 seconds and none exceeded 20, 25, 35, or 45 seconds.
 Total-latency cohort p50/p95 values were 2,832/3,214.2 ms for fact lookup,
 5,691/10,008.1 ms for current analytical requests, 12,849/14,970.4 ms for
 cross-incident requests, and 6,706.5/14,033.7 ms for follow-ups. Semantic index
-query p95 was 26 ms and maximum was 51 ms.
+stage p95 across all requests was 26 ms. For the 80 requests that queried the
+index, query p50/p95/max was 23/40/51 ms.
 
 ## Generation Invariant
 
