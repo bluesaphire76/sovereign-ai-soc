@@ -18,6 +18,7 @@ from services.assistant.v3.contracts import (
     EscalationReasonAtom,
     EscalationStateAtom,
     EvidenceAtom,
+    FactField,
     HostAtom,
     IncidentIdentityAtom,
     MitreTechniqueAtom,
@@ -656,6 +657,18 @@ _NON_IMPLICATION_TEXT = {
         "Il ranking dei candidati indica rilevanza per il confronto, non rischio, severità o compromissione.",
         "Candidate ranking indicates comparison relevance, not risk, severity, or compromise.",
     ),
+    NonImplicationCode.NO_RECORDED_DIFFERENCE_IN_COMPARED_FIELDS: (
+        "Nei campi confrontabili disponibili non risultano valori differenti registrati.",
+        "No differing values are recorded in the available comparable fields.",
+    ),
+}
+
+
+_ABSENCE_FIELD_TEXT = {
+    FactField.RECOMMENDED_PRIORITY: (
+        "La priorita raccomandata non e registrata nel contesto autorevole disponibile.",
+        "Recommended priority is not recorded in the available authoritative context.",
+    ),
 }
 
 
@@ -850,15 +863,17 @@ def _render_advisory(
         reason = _ADVISORY_REASON_TEXT[advisory.reason_code][language_index]
         target = _ADVISORY_TARGET_TEXT[advisory.target_type][language_index]
         context = _ADVISORY_CONTEXT_TEXT[advisory.context_code][language_index]
-        reason = reason[:1].casefold() + reason[1:]
-        target = target[:1].casefold() + target[1:]
         if package.response_language == "it":
             sentences.append(
-                f"{_scope_prefix(package, purpose='come prossimo controllo, ')}{action}, usando il {context} solo come guida; {reason}; {target}."
+                f"{_scope_prefix(package, purpose='come prossimo controllo, ')}{action}. "
+                f"{reason}. Usa il {context} solo come guida, non come fatto operativo. "
+                f"{target}."
             )
         else:
             sentences.append(
-                f"{_scope_prefix(package, purpose='as the next check, ')}{action}, using the {context} only as guidance; {reason}; {target}."
+                f"{_scope_prefix(package, purpose='as the next check, ')}{action}. "
+                f"{reason}. Use the {context} only as guidance, not as an operational fact. "
+                f"{target}."
             )
     return " ".join(sentences)
 
@@ -926,6 +941,10 @@ def _render_unit(
             return _LIMITATION_TEXT[PlanLimitationCode.CANONICAL_SEVERITY_NOT_RECORDED][0 if language == "it" else 1]
         if unit.absence_field and unit.absence_field.value == "escalated":
             return _LIMITATION_TEXT[PlanLimitationCode.NO_AUTHORITATIVE_ESCALATION_BOOLEAN][0 if language == "it" else 1]
+        if unit.absence_field in _ABSENCE_FIELD_TEXT:
+            return _ABSENCE_FIELD_TEXT[unit.absence_field][
+                0 if language == "it" else 1
+            ]
     return ""
 
 
@@ -1018,6 +1037,8 @@ class RichGroundedDiscourseRenderer:
                         atoms=atoms,
                     ).split()
                 )
+                if not text:
+                    continue
                 if section.section_type is AnswerSectionType.EVIDENCE:
                     text = (
                         f"Evidenze operative di supporto: {text}"
@@ -1031,7 +1052,7 @@ class RichGroundedDiscourseRenderer:
                         else f"The relevant handling context adds: {text}"
                     )
                 normalized = text.casefold()
-                if not text or normalized in rendered_texts:
+                if normalized in rendered_texts:
                     continue
                 rendered_texts.add(normalized)
                 paragraphs.append(text)

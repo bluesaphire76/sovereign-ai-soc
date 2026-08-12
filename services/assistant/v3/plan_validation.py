@@ -37,10 +37,13 @@ from services.assistant.v3.plan_schema import (
     available_non_implication_codes,
     available_section_types,
     available_unit_types,
+    comparison_has_no_recorded_differences,
+    model_facing_available_unit_types,
     non_implication_for_relationship_type,
 )
 from services.assistant.v3.quality_policy import (
     PROPOSITION_ROLES,
+    absence_is_material,
     evidence_priority_for_unit,
     enrich_unit,
     limitation_may_lead,
@@ -305,6 +308,19 @@ class GroundedAnswerPlanV3Validator:
         }
         if not required_non_implications.issubset(provided_non_implications):
             return PlanValidationResult(False, "required_non_implication_missing")
+        if plan.answer_intent is AnswerIntent.FACT_LOOKUP:
+            required_absences = {
+                field
+                for field in available_absence_fields(package)
+                if absence_is_material(package, field)
+            }
+            provided_absences = {
+                unit.absence_field
+                for unit in plan.analytical_units
+                if unit.unit_type is AnalyticalUnitType.ABSENCE
+            }
+            if not required_absences.issubset(provided_absences):
+                return PlanValidationResult(False, "required_absence_missing")
         analytical_codes: set[NonImplicationCode] = set()
         for unit in plan.analytical_units:
             if unit.unit_type not in {
@@ -533,7 +549,7 @@ class GroundedAnswerPlanV3Validator:
             AnalyticalUnitType.SEMANTIC_SIMILARITY,
             AnalyticalUnitType.CANDIDATE_RELEVANCE,
         }
-        available_units = set(available_unit_types(package))
+        available_units = set(model_facing_available_unit_types(package))
         comparison_evidence = {
             AnalyticalUnitType.COMPARISON,
             AnalyticalUnitType.DIFFERENCE,
@@ -614,4 +630,11 @@ class GroundedAnswerPlanV3Validator:
                 result.add(
                     NonImplicationCode.SEMANTIC_SIMILARITY_NOT_RECORDED_CORRELATION
                 )
+        if (
+            package.intent_selection.primary_intent is AnswerIntent.COMPARE
+            and comparison_has_no_recorded_differences(package)
+        ):
+            result.add(
+                NonImplicationCode.NO_RECORDED_DIFFERENCE_IN_COMPARED_FIELDS
+            )
         return result

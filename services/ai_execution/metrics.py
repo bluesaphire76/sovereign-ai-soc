@@ -87,3 +87,14 @@ ASSISTANT_V3_SEMANTIC_INDEX_DURATION = Histogram(
     "Dedicated incident semantic candidate query duration.",
     labelnames=("status",),
 )
+ASSISTANT_V3_STAGE_DURATION = Histogram(
+    "assistant_v3_stage_duration_seconds",
+    "Assistant V3 request phase duration by bounded stage and status.",
+    labelnames=("stage", "status"),
+)
+ASSISTANT_V3_CONTEXT_ITEMS = Histogram(
+    "assistant_v3_context_items",
+    "Assistant V3 bounded context item counts by closed item class.",
+    labelnames=("item_class",),
+    buckets=(0, 1, 2, 4, 8, 12, 16, 24, 32, 48, 80, 120, 160),
+)

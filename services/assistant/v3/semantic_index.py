@@ -124,6 +124,11 @@ class IncidentSemanticQueryResult:
     )
     query_ms: float = 0.0
     error_category: str | None = None
+    raw_candidate_count: int = 0
+    threshold_reject_count: int = 0
+    invalid_candidate_reject_count: int = 0
+    duplicate_candidate_reject_count: int = 0
+    excluded_candidate_reject_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -563,11 +568,17 @@ class IncidentSemanticIndex:
                 query_ms=(time.monotonic() - started) * 1000,
                 error_category=category,
             )
+        points = list(getattr(result, "points", []))
         hits: list[IncidentSemanticHit] = []
         seen = set()
-        for point in getattr(result, "points", []):
+        threshold_rejects = 0
+        invalid_rejects = 0
+        duplicate_rejects = 0
+        excluded_rejects = 0
+        for point in points:
             payload = getattr(point, "payload", None) or {}
             if payload.get("source_type") != INCIDENT_SEMANTIC_SOURCE_TYPE:
+                invalid_rejects += 1
                 continue
             incident_id = payload.get("incident_id")
             fingerprint = payload.get("source_fingerprint")
@@ -575,12 +586,19 @@ class IncidentSemanticIndex:
             if (
                 not isinstance(incident_id, int)
                 or incident_id <= 0
-                or incident_id == exclude_incident_id
-                or incident_id in seen
                 or not isinstance(fingerprint, str)
                 or not isinstance(score, (int, float))
-                or float(score) < self.config.score_threshold
             ):
+                invalid_rejects += 1
+                continue
+            if incident_id == exclude_incident_id:
+                excluded_rejects += 1
+                continue
+            if incident_id in seen:
+                duplicate_rejects += 1
+                continue
+            if float(score) < self.config.score_threshold:
+                threshold_rejects += 1
                 continue
             seen.add(incident_id)
             hits.append(
@@ -594,6 +612,11 @@ class IncidentSemanticIndex:
             hits=tuple(hits),
             status="ready",
             query_ms=(time.monotonic() - started) * 1000,
+            raw_candidate_count=len(points),
+            threshold_reject_count=threshold_rejects,
+            invalid_candidate_reject_count=invalid_rejects,
+            duplicate_candidate_reject_count=duplicate_rejects,
+            excluded_candidate_reject_count=excluded_rejects,
         )
 
     def _scroll_payloads(self, *, limit: int | None) -> list[dict[str, Any]]:

@@ -5,6 +5,10 @@ from typing import Any, Callable, Mapping
 
 from services.assistant.focus import FocusSelection
 from services.assistant.v3.atoms import OperationalAtomNormalizer, authoritative_source_ids
+from services.assistant.v3.authorization import (
+    IncidentAccessPolicy,
+    get_incident_access_policy,
+)
 from services.assistant.v3.contracts import (
     AnalyticalFocus,
     AnswerIntent,
@@ -51,10 +55,14 @@ class V3AnalyticalContextBuilder:
         reference_provider: ReferenceKnowledgeProvider | None = None,
         conversation_store: ConversationStateStore | None = None,
         incident_semantic_index: IncidentSemanticIndex | None = None,
+        access_policy: IncidentAccessPolicy | None = None,
     ) -> None:
+        self._access_policy = access_policy or get_incident_access_policy()
         self._policy = policy_engine or ContextPolicyEngine()
         self._atoms = atom_normalizer or OperationalAtomNormalizer()
-        self._candidates = candidate_retriever or CrossIncidentCandidateRetriever()
+        self._candidates = candidate_retriever or CrossIncidentCandidateRetriever(
+            access_policy=self._access_policy
+        )
         self._graph = graph_builder or CrossIncidentGraphBuilder()
         self._reference = reference_provider or ReferenceKnowledgeProvider()
         self._conversations = conversation_store or get_conversation_state_store()
@@ -80,6 +88,13 @@ class V3AnalyticalContextBuilder:
             owner_key=owner_key,
             conversation_id=getattr(payload, "conversation_id", None),
             db=db,
+            authorized_incident_ids=lambda incident_ids: (
+                self._access_policy.authorized_incident_ids(
+                    db,
+                    incident_ids,
+                    current_user=current_user,
+                )
+            ),
         )
         conversation_ms = max(0.0, (clock() - conversation_started) * 1000)
         cross_intents = {
@@ -99,6 +114,16 @@ class V3AnalyticalContextBuilder:
                 if payload.case_id is not None:
                     facts["linked_case_ids"] = [payload.case_id]
                 linked_incident_facts.append(facts)
+        authorized_linked_ids = self._access_policy.authorized_incident_ids(
+            db,
+            [item["incident_id"] for item in linked_incident_facts],
+            current_user=current_user,
+        )
+        linked_incident_facts = [
+            item
+            for item in linked_incident_facts
+            if item["incident_id"] in authorized_linked_ids
+        ]
         requested_compare_incident_ids = list(
             getattr(payload, "compare_incident_ids", []) or []
         )
@@ -110,6 +135,7 @@ class V3AnalyticalContextBuilder:
             explicit_incident_ids.extend(
                 facts["incident_id"] for facts in linked_incident_facts
             )
+        scope_started = clock()
         resolved_scope = resolve_analysis_scope(
             request_scope=payload.scope,
             incident_id=payload.incident_id,
@@ -119,6 +145,7 @@ class V3AnalyticalContextBuilder:
             explicit_incident_ids=explicit_incident_ids,
             explicit_compare_incident_ids=requested_compare_incident_ids,
         )
+        scope_ms = max(0.0, (clock() - scope_started) * 1000)
         plan = self._policy.plan(
             intent=intent_selection,
             focus=focus_selection,
@@ -127,7 +154,11 @@ class V3AnalyticalContextBuilder:
             conversation_state=conversation,
             clock=clock,
         )
-        assigned_sources = list(retrieval.sources)
+        assigned_sources = self._authorized_retrieval_sources(
+            db=db,
+            sources=retrieval.sources,
+            current_user=current_user,
+        )
         source_ids = authoritative_source_ids(assigned_sources)
         atom_started = clock()
         operational_atoms = self._atoms.normalize(
@@ -157,6 +188,7 @@ class V3AnalyticalContextBuilder:
         )
         semantic_index_status = "not_requested"
         semantic_index_query_ms = 0.0
+        semantic_result = None
         if plan.include_cross_incident and isinstance(anchor_incident_id, int):
             selected_incident_ids = [
                 value
@@ -186,6 +218,7 @@ class V3AnalyticalContextBuilder:
                 semantic_hits=semantic_hits,
                 explicit_incident_ids=selected_incident_ids,
                 limits=plan.limits,
+                current_user=current_user,
                 clock=clock,
             )
             for incident in candidate_result.incidents:
@@ -207,8 +240,30 @@ class V3AnalyticalContextBuilder:
             if isinstance(incident_id, int) and incident_id in requested_active
         ]
         if requested_active:
+            filtered_active = list(dict.fromkeys(validated_active))
+            filtered_compare = [
+                incident_id
+                for incident_id in resolved_scope.explicit_compare_incident_ids
+                if incident_id in filtered_active
+            ]
+            if len(filtered_compare) < 2:
+                filtered_compare = []
             resolved_scope = resolved_scope.model_copy(
-                update={"active_incident_ids": list(dict.fromkeys(validated_active))}
+                update={
+                    "active_incident_ids": filtered_active,
+                    "explicit_compare_incident_ids": filtered_compare,
+                    "analysis_scope": (
+                        resolved_scope.analysis_scope
+                        if len(filtered_active) > 1
+                        else resolve_analysis_scope(
+                            request_scope=payload.scope,
+                            incident_id=anchor_incident_id,
+                            case_id=payload.case_id,
+                            intent=intent_selection,
+                            conversation_state=None,
+                        ).analysis_scope
+                    ),
+                }
             )
         operational_atoms = list(
             {atom.atom_id: atom for atom in operational_atoms}.values()
@@ -318,6 +373,7 @@ class V3AnalyticalContextBuilder:
             metrics=ContextBuildMetrics(
                 intent_routing_ms=intent_selection.routing_ms,
                 focus_routing_ms=focus_selection.focus_routing_ms,
+                scope_resolution_ms=scope_ms,
                 context_policy_ms=plan.policy_ms,
                 atom_normalization_ms=atom_ms,
                 candidate_retrieval_ms=(
@@ -327,6 +383,37 @@ class V3AnalyticalContextBuilder:
                 authoritative_rehydration_ms=(
                     candidate_result.authoritative_rehydration_ms if candidate_result else 0.0
                 ),
+                semantic_raw_candidate_count=(
+                    semantic_result.raw_candidate_count if semantic_result else 0
+                ),
+                semantic_threshold_reject_count=(
+                    semantic_result.threshold_reject_count if semantic_result else 0
+                ),
+                semantic_invalid_reject_count=(
+                    semantic_result.invalid_candidate_reject_count
+                    if semantic_result
+                    else 0
+                ),
+                semantic_duplicate_reject_count=(
+                    semantic_result.duplicate_candidate_reject_count
+                    if semantic_result
+                    else 0
+                ),
+                semantic_excluded_reject_count=(
+                    semantic_result.excluded_candidate_reject_count
+                    if semantic_result
+                    else 0
+                ),
+                candidate_discovered_count=(
+                    candidate_result.discovered_count if candidate_result else 0
+                ),
+                candidate_selected_count=len(candidates),
+                authoritative_rehydration_count=(
+                    candidate_result.rehydrated_count if candidate_result else 0
+                ),
+                stale_candidate_reject_count=(
+                    candidate_result.stale_reject_count if candidate_result else 0
+                ),
                 graph_construction_ms=graph_ms,
                 reference_retrieval_ms=reference_ms,
                 advisory_retrieval_ms=advisory_ms,
@@ -334,3 +421,31 @@ class V3AnalyticalContextBuilder:
                 total_context_build_ms=total_ms,
             ),
         )
+
+    def _authorized_retrieval_sources(
+        self,
+        *,
+        db: Any,
+        sources: list[Any],
+        current_user: Mapping[str, Any] | None,
+    ) -> list[Any]:
+        historical_ids = {
+            int(source.record_id)
+            for source in sources
+            if getattr(source, "source_type", None) == "historical_incident"
+            and str(getattr(source, "record_id", "") or "").isdecimal()
+        }
+        authorized_ids = self._access_policy.authorized_incident_ids(
+            db,
+            historical_ids,
+            current_user=current_user,
+        )
+        return [
+            source
+            for source in sources
+            if getattr(source, "source_type", None) != "historical_incident"
+            or (
+                str(getattr(source, "record_id", "") or "").isdecimal()
+                and int(source.record_id) in authorized_ids
+            )
+        ]

@@ -46,6 +46,15 @@ def _completed_audit_details(
 ) -> dict[str, Any]:
     source_type_counts = Counter(source.source_type for source in response.sources)
     advisory_count = sum(1 for source in response.sources if source.authority == "advisory")
+    source_refs = [
+        {
+            "source_id": source.source_id,
+            "source_type": source.source_type,
+            "record_id": source.record_id,
+            "provenance_class": source.provenance_class,
+        }
+        for source in response.sources[:12]
+    ]
     return {
         **_base_audit_details(payload),
         "status": response.status,
@@ -65,6 +74,7 @@ def _completed_audit_details(
         "thinking_disabled": response.metadata.thinking_disabled,
         "source_count": len(response.sources),
         "source_type_counts": dict(sorted(source_type_counts.items())),
+        "source_refs": source_refs,
         "semantic_memory_attempted": response.metadata.semantic_status not in {
             "not_requested",
             "disabled",

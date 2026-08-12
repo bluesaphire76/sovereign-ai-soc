@@ -16,15 +16,25 @@ class SourceRecord:
     score: float | None = None
     section: str | None = None
     source_id: str | None = None
+    provenance_class: str | None = None
 
     def with_source_id(self, source_id: str) -> "SourceRecord":
         return replace(self, source_id=source_id)
 
     def to_response_source(self) -> AssistantSource:
+        provenance_class = self.provenance_class
+        if provenance_class is None:
+            if self.authority == "authoritative":
+                provenance_class = "operational_source"
+            elif self.source_type in {"project_reference", "reference_knowledge"}:
+                provenance_class = "reference_knowledge"
+            else:
+                provenance_class = "advisory_playbook"
         return AssistantSource(
             source_id=self.source_id or "",
             source_type=self.source_type,
             authority=self.authority,  # type: ignore[arg-type]
+            provenance_class=provenance_class,  # type: ignore[arg-type]
             record_id=self.record_id,
             label=self.label,
             url=self.url,

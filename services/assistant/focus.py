@@ -39,6 +39,15 @@ class FocusDescriptor:
         )
         return f"{self.description} {examples}".strip()
 
+    @property
+    def prototype_texts(self) -> tuple[str, ...]:
+        return (self.description, *self.semantic_examples)
+
+    @property
+    def prototype_embedding_texts(self) -> tuple[str, ...]:
+        label = self.dimension.value.title()
+        return tuple(f"{label} focus. {value}" for value in self.prototype_texts)
+
 
 _LONG_FORM_FIELDS = (
     "ai_analysis",
@@ -116,6 +125,12 @@ FOCUS_REGISTRY: tuple[FocusDescriptor, ...] = (
         semantic_examples=(
             "What status is recorded?",
             "Qual e lo stato registrato?",
+            "What is the recorded status for the current incident?",
+            "Quale stato e registrato per l'incidente corrente?",
+            "Quale stato risulta memorizzato per l'incidente corrente?",
+            "Quale stato operativo risulta registrato per il record corrente?",
+            "Report the explicit current status value for one incident.",
+            "Quale stato operativo e memorizzato per l'incidente corrente?",
         ),
         allowed_fact_fields=("status",),
         supporting_fact_fields=(
@@ -141,12 +156,18 @@ FOCUS_REGISTRY: tuple[FocusDescriptor, ...] = (
     FocusDescriptor(
         dimension=FocusDimension.EVIDENCE,
         description=(
-            "Questions about recorded evidence, timeline events, observable event "
-            "facts, or supporting security references."
+            "Questions about the recorded detection rule, Wazuh level, MITRE "
+            "technique, supporting evidence, observable facts, or timeline events."
         ),
         semantic_examples=(
             "What evidence is recorded in the timeline?",
             "Quali evidenze o eventi risultano registrati?",
+            "Which rule generated this security incident?",
+            "Quale regola di rilevamento ha prodotto il record corrente?",
+            "Quale regola di detection ha prodotto l'incidente corrente?",
+            "Which MITRE technique is recorded for this incident?",
+            "Quale tecnica MITRE risulta registrata nel record corrente?",
+            "At what time was the current incident recorded?",
         ),
         allowed_fact_fields=(
             "evidence",
@@ -166,6 +187,7 @@ FOCUS_REGISTRY: tuple[FocusDescriptor, ...] = (
         semantic_examples=(
             "What priority is recommended?",
             "Quale priorita e raccomandata?",
+            "Quale priorita consigliata risulta memorizzata nel record?",
         ),
         allowed_fact_fields=("recommended_priority",),
         excluded_fact_fields=("severity", "risk_normalization_severity"),
@@ -177,8 +199,8 @@ FOCUS_REGISTRY: tuple[FocusDescriptor, ...] = (
             "recorded reason, without deriving state from a missing reason."
         ),
         semantic_examples=(
-            "Is an escalation state explicitly recorded?",
-            "Esiste uno stato di escalation esplicitamente registrato?",
+            "Does the operational record expose an authoritative escalation flag?",
+            "Il record operativo espone un flag autorevole di escalation?",
         ),
         allowed_fact_fields=("escalated",),
         supporting_fact_fields=("escalation_reason",),
@@ -253,6 +275,13 @@ class SharedSemanticEmbeddingProvider:
         return tuple(float(value) for value in vector)
 
 
+_SHARED_SEMANTIC_EMBEDDING_PROVIDER = SharedSemanticEmbeddingProvider()
+
+
+def get_shared_semantic_embedding_provider() -> SharedSemanticEmbeddingProvider:
+    return _SHARED_SEMANTIC_EMBEDDING_PROVIDER
+
+
 def normalize_embedding_text(value: str) -> str:
     return unicodedata.normalize("NFKC", " ".join(str(value or "").split()))
 
@@ -294,11 +323,14 @@ class SemanticFocusRouter:
         config: FocusRoutingConfig | None = None,
     ) -> None:
         self._embedding_provider = (
-            embedding_provider or SharedSemanticEmbeddingProvider()
+            embedding_provider or get_shared_semantic_embedding_provider()
         )
         self._registry = registry
         self._config = config or FocusRoutingConfig()
-        self._descriptor_vectors: dict[FocusDimension, tuple[float, ...]] = {}
+        self._descriptor_vectors: dict[
+            FocusDimension,
+            tuple[tuple[float, ...], ...],
+        ] = {}
         self._cache_lock = threading.Lock()
 
     @property
@@ -312,10 +344,13 @@ class SemanticFocusRouter:
                 return
             vectors = {
                 descriptor.dimension: tuple(
-                    float(value)
-                    for value in self._embedding_provider.embed(
-                        normalize_embedding_text(descriptor.embedding_text)
+                    tuple(
+                        float(value)
+                        for value in self._embedding_provider.embed(
+                            normalize_embedding_text(prototype)
+                        )
                     )
+                    for prototype in descriptor.prototype_embedding_texts
                 )
                 for descriptor in self._registry
             }
@@ -332,6 +367,7 @@ class SemanticFocusRouter:
         self,
         analyst_question: str,
         *,
+        request_embedding: Sequence[float] | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> FocusSelection:
         started = clock()
@@ -343,11 +379,17 @@ class SemanticFocusRouter:
             )
         try:
             self._ensure_descriptor_vectors()
-            question_vector = self._embedding_provider.embed(question)
+            vector = (
+                tuple(float(value) for value in request_embedding)
+                if request_embedding is not None
+                else self._embedding_provider.embed(question)
+            )
             scores = {
-                descriptor.dimension: cosine_similarity(
-                    question_vector,
-                    self._descriptor_vectors[descriptor.dimension],
+                descriptor.dimension: max(
+                    cosine_similarity(vector, prototype_vector)
+                    for prototype_vector in self._descriptor_vectors[
+                        descriptor.dimension
+                    ]
                 )
                 for descriptor in self._registry
             }
