@@ -24,6 +24,7 @@ from services.assistant.retrieval import (
     retrieve_assistant_context,
 )
 from services.assistant.sources import SourceRecord, assign_source_ids
+from qdrant_knowledge import SemanticEmbeddingNotReady
 
 
 class FakeQuery:
@@ -504,8 +505,8 @@ def test_qdrant_exception_degrades_without_losing_exact_context() -> None:
     assert result.semantic_memory_attempted is True
     assert result.semantic_memory_available is False
     assert result.semantic_error_category == "TimeoutError"
-    assert any("within its time budget" in item for item in result.limitations)
-    assert result.semantic_status == "timed_out"
+    assert any("semantic index timed out" in item.lower() for item in result.limitations)
+    assert result.semantic_status == "qdrant_timeout"
     assert result.semantic_degraded is True
     assert result.semantic_timeout_phase == "semantic_qdrant_timeout"
 
@@ -640,3 +641,64 @@ def test_semantic_retrieval_receives_bounded_timeout() -> None:
     )
 
     assert kb.calls[0]["timeout_seconds"] == pytest.approx(1.5, abs=0.01)
+
+
+def test_semantic_phase_budget_starts_when_semantic_retrieval_starts() -> None:
+    now = [5.0]
+    kb = FakeKb(contexts=[])
+
+    retrieve_assistant_context(
+        AssistantQueryRequest(message="Explain", scope="incident", incident_id=245),
+        db=FakeDb({Incident: [incident()]}),
+        settings=settings(),
+        knowledge_base_factory=lambda: kb,
+        semantic_timeout_seconds=2.0,
+        deadline_monotonic=10.0,
+        clock=lambda: now[0],
+    )
+
+    assert kb.calls[0]["timeout_seconds"] == pytest.approx(2.0)
+
+
+def test_global_deadline_caps_the_semantic_phase_budget() -> None:
+    now = [9.5]
+    kb = FakeKb(contexts=[])
+
+    retrieve_assistant_context(
+        AssistantQueryRequest(message="Explain", scope="incident", incident_id=245),
+        db=FakeDb({Incident: [incident()]}),
+        settings=settings(),
+        knowledge_base_factory=lambda: kb,
+        semantic_timeout_seconds=2.0,
+        deadline_monotonic=10.0,
+        clock=lambda: now[0],
+    )
+
+    assert kb.calls[0]["timeout_seconds"] == pytest.approx(0.5)
+
+
+@pytest.mark.parametrize(
+    ("cache_state", "expected_status"),
+    [
+        ("loading", "warming"),
+        ("unavailable", "embedding_unavailable"),
+    ],
+)
+def test_embedding_readiness_states_are_distinct(
+    cache_state: str,
+    expected_status: str,
+) -> None:
+    class DiagnosticsKb(FakeKb):
+        def retrieve_contexts_with_diagnostics(self, *_args, **_kwargs):
+            raise SemanticEmbeddingNotReady(cache_state)
+
+    result = retrieve_assistant_context(
+        AssistantQueryRequest(message="Explain", scope="incident", incident_id=245),
+        db=FakeDb({Incident: [incident()]}),
+        settings=settings(),
+        knowledge_base_factory=DiagnosticsKb,
+    )
+
+    assert result.semantic_status == expected_status
+    assert result.semantic_degraded is True
+    assert result.embedding_cache_state == cache_state

@@ -1379,6 +1379,18 @@ class LocalLlamaCppProvider:
                 and chat_template_kwargs.get("enable_thinking") is False
             )
             diagnostics["thinking_disabled"] = thinking_disabled
+            qwen_compatibility_required = bool(
+                thinking_disabled
+                and opts.get("qwen_no_think_compatibility", False)
+                and llama_cpp_profile_model_family(selected_profile).startswith(
+                    "qwen3"
+                )
+            )
+            if (
+                qwen_compatibility_required
+                and payload.get("response_format") is not None
+            ):
+                payload["messages"] = _messages_with_no_think(chat_messages)
 
             generation_started = time.monotonic()
             try:
@@ -1416,13 +1428,6 @@ class LocalLlamaCppProvider:
                     return response_data, visible_text, reasoning_only
 
                 data, text, reasoning_only = complete(payload)
-                qwen_compatibility_required = bool(
-                    thinking_disabled
-                    and opts.get("qwen_no_think_compatibility", False)
-                    and llama_cpp_profile_model_family(selected_profile).startswith(
-                        "qwen3"
-                    )
-                )
                 should_retry_reasoning = bool(
                     reasoning_only
                     and opts.get("reasoning_retry_allowed", False)

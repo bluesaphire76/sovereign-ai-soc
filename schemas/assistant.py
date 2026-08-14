@@ -70,6 +70,10 @@ AssistantFallbackReason = Literal[
     "v3_plan_validation_failed",
     "v3_renderer_failed",
     "v3_semantic_index_degraded",
+    "v31_schema_build_failed",
+    "v31_invalid_structured_output",
+    "v31_grounding_validation_failed",
+    "v31_renderer_failed",
 ]
 
 
@@ -145,6 +149,13 @@ class AssistantCapabilitiesResponse(BaseModel):
     default_profile: Literal["standard"] = "standard"
     loaded_profile: Literal["standard"] | None = None
     runtime_message: str | None = None
+    semantic_runtime_state: Literal[
+        "warming",
+        "available",
+        "embedding_unavailable",
+    ] | None = None
+    embedding_backend: str | None = None
+    embedding_cache_state: str | None = None
 
 
 class AssistantSource(BaseModel):
@@ -219,9 +230,12 @@ class AssistantMetadata(BaseModel):
     semantic_status: Literal[
         "not_requested",
         "disabled",
-        "ok",
-        "timed_out",
-        "failed",
+        "warming",
+        "embedding_unavailable",
+        "qdrant_timeout",
+        "retrieval_timeout",
+        "retrieval_failed",
+        "available",
     ] = "not_requested"
     semantic_elapsed_ms: int = 0
     semantic_degraded: bool = False
@@ -263,7 +277,7 @@ class AssistantMetadata(BaseModel):
     reference_retrieval_ms: int = 0
     advisory_retrieval_ms: int = 0
     conversation_state_ms: int = 0
-    response_architecture: Literal["v2", "v3"] = "v2"
+    response_architecture: Literal["v2", "v3", "v3_1"] = "v2"
     plan_sections: int = 0
     plan_units: int = 0
     cross_incident_units: int = 0

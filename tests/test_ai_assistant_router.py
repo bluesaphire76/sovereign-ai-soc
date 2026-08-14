@@ -60,7 +60,7 @@ def _assistant_response() -> AssistantQueryResponse:
             queue_wait_ms=10,
             generation_ms=420,
             total_latency_ms=500,
-            semantic_status="ok",
+            semantic_status="available",
             grounding_validation="passed",
             focus_validation="passed",
             source_count=1,
@@ -80,6 +80,14 @@ def test_capabilities_endpoint_is_authenticated_and_gateway_owned(
             "runtime_message": "Standard inference model is ready.",
         },
     )
+    monkeypatch.setattr(
+        "services.assistant.orchestrator.embedding_runtime_snapshot",
+        lambda: {
+            "embedding_backend": "sentence_transformers_local",
+            "embedding_cache_state": "warm",
+            "embedding_ready": True,
+        },
+    )
     monkeypatch.setenv("AI_SOC_ASSISTANT_ENABLED", "true")
 
     response = client.get(
@@ -93,6 +101,8 @@ def test_capabilities_endpoint_is_authenticated_and_gateway_owned(
     assert payload["supported_modes"] == ["auto", "standard"]
     assert payload["runtime_state"] == "ready"
     assert payload["loaded_profile"] == "standard"
+    assert payload["semantic_runtime_state"] == "available"
+    assert payload["embedding_cache_state"] == "warm"
     assert "router_base_url" not in payload
 
 

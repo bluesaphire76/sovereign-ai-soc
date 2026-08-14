@@ -7,6 +7,9 @@ or migration validation notes.
 
 ## Current Validation
 
+- [AI Assistant V3.1 Part A validation](ai-assistant-v3-1.md)
+- [AI Assistant V3.1 baseline failure](ai-assistant-v3-1-baseline-failure.md)
+- [AI Assistant V3.1 real-user proof gate](ai-assistant-v3-1-proof-gate.md)
 - [AI Assistant V3 Milestone C validation](ai-assistant-v3-milestone-c.md)
 - [AI Assistant V3 Milestone C evaluation pack](assistant-v3-eval-pack.md)
 - [AI Assistant V3 Milestone B](ai-assistant-v3-milestone-b.md)
