@@ -8,9 +8,22 @@ from pydantic import Field, field_validator, model_validator
 from services.assistant.v3.contracts import ClosedModel
 
 
-MAX_CONVERSATIONAL_SEGMENT_CHARS = 420
-MAX_CONVERSATIONAL_SEGMENTS = 2
-MAX_CONVERSATIONAL_CLAIMS = 4
+MAX_CONVERSATIONAL_SEGMENT_CHARS = 900
+MAX_CONVERSATIONAL_SEGMENTS = 4
+MAX_CONVERSATIONAL_CLAIMS = 8
+MAX_CONVERSATIONAL_CLAIMS_PER_SEGMENT = 4
+
+ConversationalSegmentId = Literal["s1", "s2", "s3", "s4"]
+ConversationalClaimId = Literal[
+    "c1",
+    "c2",
+    "c3",
+    "c4",
+    "c5",
+    "c6",
+    "c7",
+    "c8",
+]
 
 
 class ConversationalSegmentKind(str, Enum):
@@ -80,7 +93,7 @@ class ConversationalQualifierCode(str, Enum):
 
 
 class ConversationalClaim(ClosedModel):
-    claim_id: str = Field(min_length=1, max_length=80)
+    claim_id: ConversationalClaimId
     claim_type: ConversationalClaimType
     source_refs: list[str] = Field(default_factory=list, max_length=8)
     qualifier_code: ConversationalQualifierCode = ConversationalQualifierCode.NONE
@@ -93,13 +106,16 @@ class ConversationalClaim(ClosedModel):
 
 
 class ConversationalSegment(ClosedModel):
-    segment_id: str = Field(min_length=1, max_length=80)
+    segment_id: ConversationalSegmentId
     kind: ConversationalSegmentKind
     text: str = Field(
         min_length=1,
         max_length=MAX_CONVERSATIONAL_SEGMENT_CHARS,
     )
-    claim_refs: list[str] = Field(min_length=1, max_length=12)
+    claim_refs: list[ConversationalClaimId] = Field(
+        min_length=1,
+        max_length=MAX_CONVERSATIONAL_CLAIMS_PER_SEGMENT,
+    )
 
     @field_validator("text")
     @classmethod

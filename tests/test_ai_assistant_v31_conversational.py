@@ -28,7 +28,7 @@ from services.assistant.v3.conversational_validation import (
     conversational_parse_diagnostic,
     parse_grounded_conversational_answer_v31,
 )
-from services.assistant.v3.contracts import AnswerIntent
+from services.assistant.v3.contracts import AnswerIntent, PriorityAtom
 from tests.assistant_v3_test_support import analytical_package
 
 
@@ -38,29 +38,29 @@ def _answer() -> dict:
         "answer": {
             "segments": [
                 {
-                    "segment_id": "seg-1",
+                    "segment_id": "s1",
                     "kind": "direct_answer",
                     "text": (
                         "The incident is open and was raised by a registry-change "
                         "detection on endpoint-a."
                     ),
-                    "claim_refs": ["claim-1"],
+                    "claim_refs": ["c1"],
                 },
                 {
-                    "segment_id": "seg-2",
+                    "segment_id": "s2",
                     "kind": "uncertainty",
                     "text": (
                         "A second incident shares the endpoint, making it useful "
                         "for a focused evidence comparison. This analytical "
                         "relationship does not establish causality."
                     ),
-                    "claim_refs": ["claim-2", "claim-3"],
+                    "claim_refs": ["c2", "c3"],
                 },
             ]
         },
         "claims": [
             {
-                "claim_id": "claim-1",
+                "claim_id": "c1",
                 "claim_type": "operational_fact",
                 "source_refs": [
                     "incident:1:status",
@@ -70,13 +70,13 @@ def _answer() -> dict:
                 "qualifier_code": "NONE",
             },
             {
-                "claim_id": "claim-2",
+                "claim_id": "c2",
                 "claim_type": "analytical_relationship",
                 "source_refs": ["relationship:shared-host"],
                 "qualifier_code": "NONE",
             },
             {
-                "claim_id": "claim-3",
+                "claim_id": "c3",
                 "claim_type": "non_implication",
                 "source_refs": [],
                 "qualifier_code": "ANALYTICAL_RELATIONSHIP_NOT_CAUSALITY",
@@ -89,17 +89,55 @@ def _parsed(payload: dict | None = None) -> GroundedConversationalAnswerV31:
     return GroundedConversationalAnswerV31.model_validate(payload or _answer())
 
 
+def _operational_answer() -> dict:
+    return {
+        "response_language": "en",
+        "answer": {
+            "segments": [
+                {
+                    "segment_id": "s1",
+                    "kind": "direct_answer",
+                    "text": (
+                        "The record shows an open incident raised by the Registry "
+                        "changed rule on endpoint-a."
+                    ),
+                    "claim_refs": ["c1"],
+                }
+            ]
+        },
+        "claims": [
+            {
+                "claim_id": "c1",
+                "claim_type": "operational_fact",
+                "source_refs": [
+                    "incident:1:status",
+                    "incident:1:detection",
+                    "incident:1:host",
+                ],
+                "qualifier_code": "NONE",
+            }
+        ],
+    }
+
+
 def test_conversational_schema_is_closed_and_prompt_requests_final_prose() -> None:
     package = analytical_package()
     schema = grounded_conversational_answer_v31_schema(package)
     prompt = build_v31_conversational_messages(package, max_context_chars=24_000)
+    explain_prompt = build_v31_conversational_messages(
+        analytical_package(intent=AnswerIntent.EXPLAIN),
+        max_context_chars=24_000,
+    )
 
     assert schema["additionalProperties"] is False
     assert schema["properties"]["answer"]["additionalProperties"] is False
-    claim_schemas = schema["properties"]["claims"]["prefixItems"]
-    assert claim_schemas[0]["additionalProperties"] is False
-    assert all(item["additionalProperties"] is False for item in claim_schemas[1:])
-    assert "Write the final user-facing SOC analyst answer" in prompt.messages[0][
+    claim_schema = schema["properties"]["claims"]["items"]
+    assert claim_schema["additionalProperties"] is False
+    assert "oneOf" not in claim_schema
+    assert "Answer the user's actual question as a professional SOC analyst" in (
+        prompt.messages[0]["content"]
+    )
+    assert "return the final user-facing answer as strict JSON" in prompt.messages[0][
         "content"
     ]
     assert "Do not write answer prose" not in prompt.messages[0]["content"]
@@ -107,23 +145,78 @@ def test_conversational_schema_is_closed_and_prompt_requests_final_prose() -> No
     assert "first segment MUST use kind direct_answer" in prompt.messages[0][
         "content"
     ]
-    assert "MUST use kind uncertainty" in prompt.messages[0]["content"]
+    assert "Uncertainty is optional" in prompt.messages[0]["content"]
+    assert "direct_answer, then comparison or pattern" in prompt.messages[0]["content"]
+    assert "prefer two compact segments" in explain_prompt.messages[0][
+        "content"
+    ]
+    assert "when reference_knowledge is supplied, use a second" in (
+        explain_prompt.messages[0]["content"]
+    )
+    assert "do not turn available fields into an inventory" in explain_prompt.messages[
+        0
+    ]["content"]
+    assert "never use could, might, possibly, potrebbe" in explain_prompt.messages[0][
+        "content"
+    ]
+    assert "do not volunteer protected security conclusions" in explain_prompt.messages[0][
+        "content"
+    ]
+    assert "qualifier CORRELATION_NOT_COMPROMISE" in explain_prompt.messages[0][
+        "content"
+    ]
+    assert "do not suggest actions or use phrases such as should" in (
+        explain_prompt.messages[0]["content"]
+    )
+    assert "never say that the level indicates suspicious" in explain_prompt.messages[0][
+        "content"
+    ]
+    assert "if no matching claim is present" in prompt.messages[0]["content"]
+    assert "Mention each protected concept in at most one segment" in (
+        prompt.messages[0]["content"]
+    )
+    assert "exactly 2" not in prompt.messages[0]["content"]
+    assert "exactly 4" not in prompt.messages[0]["content"]
+    assert "75 and 105" not in prompt.messages[0]["content"]
+    assert "c1 MUST" not in prompt.messages[0]["content"]
     assert "A numeric risk score is only the recorded number" in prompt.messages[0][
         "content"
     ]
-    assert "analyst_utility code" in prompt.messages[0]["content"]
+    assert "never rename it incident_severity" in prompt.messages[1]["content"]
+    assert "analyst_utility boundary" in prompt.messages[0]["content"]
     assert '"analyst_utility":"identify_triggering_detection_rule"' in prompt.messages[
         1
     ]["content"]
-    assert (
-        '"unrecorded_security_conclusions":'
-        '"EVIDENCE_DOES_NOT_ESTABLISH_UNRECORDED_SECURITY_CONCLUSIONS"'
-    ) in (
-        prompt.messages[1]["content"]
+    model_payload = json.loads(explain_prompt.messages[1]["content"])
+    assert all(
+        item["claim_type"] == "non_implication"
+        for item in model_payload["code_claim_options"]
     )
-    assert '"causality":"EVIDENCE_DOES_NOT_ESTABLISH_CAUSALITY"' in (
-        prompt.messages[1]["content"]
+    atom_claim_types = {
+        item["ref"]: item["allowed_claim_type"]
+        for item in model_payload["operational_atoms"]
+    }
+    assert atom_claim_types["incident:1:detection"] == "operational_fact"
+    risk_projection = next(
+        item
+        for item in model_payload["operational_atoms"]
+        if item["ref"] == "incident:1:risk"
     )
+    assert "risk_normalization_severity" not in risk_projection
+    assert risk_projection["recorded_risk_normalization"] is None
+    assert model_payload["reference_knowledge"][0]["allowed_claim_type"] == (
+        "reference_explanation"
+    )
+    cross_payload = json.loads(prompt.messages[1]["content"])
+    cross_code_options = {
+        item["qualifier_code"]: item for item in cross_payload["code_claim_options"]
+    }
+    assert cross_code_options["CORRELATION_NOT_COMPROMISE"]["claim_type"] == (
+        "non_implication"
+    )
+    assert cross_code_options["ANALYTICAL_RELATIONSHIP_NOT_CAUSALITY"][
+        "source_refs"
+    ] == []
     assert '"anchor_incident_ids":[1]' in prompt.messages[1]["content"]
     assert '"eligible_comparison_target_ids":[2]' in prompt.messages[1][
         "content"
@@ -134,147 +227,208 @@ def test_conversational_schema_is_closed_and_prompt_requests_final_prose() -> No
 def test_conversational_schema_uses_llama_cpp_compatible_string_bounds() -> None:
     schema = grounded_conversational_answer_v31_schema(analytical_package())
     segments_schema = schema["properties"]["answer"]["properties"]["segments"]
-    text_schema = segments_schema["prefixItems"][0]["properties"]["text"]
+    text_schema = segments_schema["items"]["properties"]["text"]
 
     assert text_schema["maxLength"] == MAX_CONVERSATIONAL_SEGMENT_CHARS
     assert text_schema["maxLength"] <= 1_000
-    assert (
-        schema["properties"]["answer"]["properties"]["segments"]["maxItems"]
-        == MAX_CONVERSATIONAL_SEGMENTS
-    )
+    assert segments_schema["minItems"] == 1
+    assert segments_schema["maxItems"] == MAX_CONVERSATIONAL_SEGMENTS
     assert schema["properties"]["claims"]["maxItems"] == MAX_CONVERSATIONAL_CLAIMS
-    claims_schema = schema["properties"]["claims"]
-    safety_claim = claims_schema["prefixItems"][0]
-    claim_ids = [safety_claim["properties"]["claim_id"]["const"]] + [
-        item["properties"]["claim_id"]["const"]
-        for item in claims_schema["prefixItems"][1:]
-    ]
-    claim_refs = segments_schema["prefixItems"][0]["properties"]["claim_refs"]
-    assert safety_claim["properties"]["claim_id"]["const"] == "c1"
-    assert safety_claim["properties"]["claim_type"]["const"] == "non_implication"
-    assert claim_ids == ["c1", "c2", "c3", "c4"]
-    assert [item["const"] for item in claim_refs["prefixItems"]] == claim_ids
-    assert segments_schema["minItems"] == MAX_CONVERSATIONAL_SEGMENTS
-    assert segments_schema["prefixItems"][0]["properties"]["kind"]["const"] == (
-        "direct_answer"
-    )
-    uncertainty = segments_schema["prefixItems"][1]
-    assert uncertainty["properties"]["kind"]["const"] == "uncertainty"
-    assert [
-        item["const"]
-        for item in uncertainty["properties"]["claim_refs"]["prefixItems"]
-    ] == claim_ids
+    assert schema["properties"]["claims"]["minItems"] == 1
+    later_kinds = segments_schema["items"]["properties"]["kind"]["enum"]
+    assert "direct_answer" in later_kinds
+    assert "analysis" in later_kinds
+    assert "uncertainty" in later_kinds
+    claim_refs = segments_schema["items"]["properties"]["claim_refs"]
+    assert claim_refs["minItems"] == 1
+    assert claim_refs["maxItems"] == 4
+    assert claim_refs["items"]["enum"] == [f"c{index}" for index in range(1, 9)]
 
 
-def test_schema_binds_each_evidence_claim_type_to_matching_typed_refs() -> None:
+def test_schema_exposes_closed_claim_types_and_model_visible_refs() -> None:
     schema = grounded_conversational_answer_v31_schema(
         analytical_package(AnswerIntent.EXPLAIN)
     )
-    claim_schemas = schema["properties"]["claims"]["prefixItems"]
-    assert claim_schemas[1]["properties"]["claim_type"]["const"] == (
-        "operational_fact"
-    )
-    assert "incident:1:status" in claim_schemas[1]["properties"]["source_refs"][
-        "items"
-    ]["enum"]
-    assert claim_schemas[3]["properties"]["claim_type"]["const"] == (
-        "reference_explanation"
-    )
-    assert "reference:mitre:T1112" in claim_schemas[3]["properties"][
-        "source_refs"
-    ]["items"]["enum"]
+    claim_schema = schema["properties"]["claims"]["items"]
+    properties = claim_schema["properties"]
+    assert "operational_fact" in properties["claim_type"]["enum"]
+    assert "reference_explanation" in properties["claim_type"]["enum"]
+    assert "incident:1:status" in properties["source_refs"]["items"]["enum"]
+    assert "reference:mitre:T1112" in properties["source_refs"]["items"]["enum"]
+    assert properties["source_refs"]["minItems"] == 0
+    assert properties["source_refs"]["maxItems"] == 4
+    assert "NONE" in properties["qualifier_code"]["enum"]
 
-    cross_claims = grounded_conversational_answer_v31_schema(
+    cross_claim_schema = grounded_conversational_answer_v31_schema(
         analytical_package(AnswerIntent.CROSS_INCIDENT_ANALYSIS)
-    )["properties"]["claims"]["prefixItems"]
-    assert cross_claims[2]["properties"]["claim_type"]["const"] == (
-        "analytical_relationship"
-    )
-    assert cross_claims[3]["properties"]["claim_type"]["const"] == (
-        "semantic_candidate"
-    )
+    )["properties"]["claims"]["items"]["properties"]
+    assert "analytical_relationship" in cross_claim_schema["claim_type"]["enum"]
+    assert "semantic_candidate" in cross_claim_schema["claim_type"]["enum"]
+    assert "relationship:shared-host" in cross_claim_schema["source_refs"]["items"][
+        "enum"
+    ]
+    assert "relationship:semantic" in cross_claim_schema["source_refs"]["items"][
+        "enum"
+    ]
 
 
-def test_unrecorded_security_conclusions_share_an_explicit_safe_qualifier() -> None:
-    payload = _answer()
-    payload["claims"][1].update(
-        {
-            "claim_type": "operational_fact",
-            "source_refs": ["incident:1:status"],
-        }
-    )
-    payload["claims"][2]["qualifier_code"] = (
-        "EVIDENCE_DOES_NOT_ESTABLISH_UNRECORDED_SECURITY_CONCLUSIONS"
-    )
-    payload["answer"]["segments"][1]["text"] = (
-        "The relationship does not establish compromise or malicious activity."
-    )
+@pytest.mark.parametrize("segment_count", [1, 2, 3, 4])
+def test_flexible_segment_counts_are_accepted(segment_count: int) -> None:
+    payload = _operational_answer()
+    for index in range(2, segment_count + 1):
+        payload["answer"]["segments"].append(
+            {
+                "segment_id": f"s{index}",
+                "kind": "evidence_explanation" if index == 2 else "analysis",
+                "text": "This evidence locates the recorded activity for review.",
+                "claim_refs": ["c1"],
+            }
+        )
 
     result = GroundedConversationalAnswerV31Validator().validate(
         _parsed(payload),
-        package=analytical_package(),
+        package=analytical_package(AnswerIntent.EXPLAIN),
     )
 
     assert result.accepted is True
 
 
-def test_positive_assertion_in_uncertainty_segment_is_still_rejected() -> None:
-    payload = _answer()
-    payload["claims"][1].update(
+def test_more_than_maximum_segments_is_rejected_by_contract() -> None:
+    payload = _operational_answer()
+    payload["answer"]["segments"].extend(
         {
+            "segment_id": f"s{min(index, 4)}",
+            "kind": "analysis",
+            "text": "The supplied evidence remains available for analysis.",
+            "claim_refs": ["c1"],
+        }
+        for index in range(2, MAX_CONVERSATIONAL_SEGMENTS + 2)
+    )
+
+    assert parse_grounded_conversational_answer_v31(payload) is None
+
+
+@pytest.mark.parametrize("claim_count", [1, 2, 5, 8])
+def test_variable_claim_counts_are_accepted(claim_count: int) -> None:
+    payload = _operational_answer()
+    payload["claims"].extend(
+        {
+            "claim_id": f"c{index}",
             "claim_type": "operational_fact",
             "source_refs": ["incident:1:status"],
+            "qualifier_code": "NONE",
         }
-    )
-    payload["claims"][2]["qualifier_code"] = (
-        "EVIDENCE_DOES_NOT_ESTABLISH_UNRECORDED_SECURITY_CONCLUSIONS"
-    )
-    payload["answer"]["segments"][1]["text"] = (
-        "The incident confirms compromise and malicious activity."
+        for index in range(2, claim_count + 1)
     )
 
     result = GroundedConversationalAnswerV31Validator().validate(
         _parsed(payload),
-        package=analytical_package(),
-    )
-
-    assert result.accepted is False
-    assert result.reason == "unsupported_compromise_assertion"
-
-
-def test_missing_escalation_state_can_only_be_described_as_uncertain() -> None:
-    payload = _answer()
-    payload["claims"][1].update(
-        {
-            "claim_type": "operational_fact",
-            "source_refs": ["incident:1:status"],
-        }
-    )
-    payload["claims"][2]["qualifier_code"] = (
-        "EVIDENCE_DOES_NOT_ESTABLISH_UNRECORDED_SECURITY_CONCLUSIONS"
-    )
-    payload["answer"]["segments"][1]["text"] = (
-        "The available evidence does not establish an escalation state."
-    )
-
-    result = GroundedConversationalAnswerV31Validator().validate(
-        _parsed(payload),
-        package=analytical_package(),
+        package=analytical_package(AnswerIntent.EXPLAIN),
     )
 
     assert result.accepted is True
 
 
-def test_schema_reserves_second_segment_for_grounded_uncertainty() -> None:
-    package = analytical_package().model_copy(update={"advisory_atoms": []})
-    schema = grounded_conversational_answer_v31_schema(package)
-    segment_schemas = schema["properties"]["answer"]["properties"]["segments"][
-        "prefixItems"
-    ]
-    assert [item["properties"]["kind"]["const"] for item in segment_schemas] == [
-        "direct_answer",
-        "uncertainty",
-    ]
+def test_more_than_maximum_claims_is_rejected_by_contract() -> None:
+    payload = _operational_answer()
+    payload["claims"].extend(
+        {
+            "claim_id": f"c{min(index, 8)}",
+            "claim_type": "operational_fact",
+            "source_refs": ["incident:1:status"],
+            "qualifier_code": "NONE",
+        }
+        for index in range(2, MAX_CONVERSATIONAL_CLAIMS + 2)
+    )
+
+    assert parse_grounded_conversational_answer_v31(payload) is None
+
+
+def test_segment_claim_refs_are_granular_and_unknown_refs_fail() -> None:
+    payload = _operational_answer()
+    payload["claims"].append(
+        {
+            "claim_id": "c2",
+            "claim_type": "operational_fact",
+            "source_refs": ["incident:1:risk"],
+            "qualifier_code": "NONE",
+        }
+    )
+
+    accepted = GroundedConversationalAnswerV31Validator().validate(
+        _parsed(payload),
+        package=analytical_package(AnswerIntent.EXPLAIN),
+    )
+    payload["answer"]["segments"][0]["claim_refs"] = ["c8"]
+    rejected = GroundedConversationalAnswerV31Validator().validate(
+        _parsed(payload),
+        package=analytical_package(AnswerIntent.EXPLAIN),
+    )
+
+    assert accepted.accepted is True
+    assert rejected.reason == "unknown_claim_ref"
+
+
+def test_explain_answer_does_not_require_uncertainty() -> None:
+    payload = _operational_answer()
+    payload["answer"]["segments"].append(
+        {
+            "segment_id": "s2",
+            "kind": "analysis",
+            "text": (
+                "The triggering rule and endpoint identify where the analyst can "
+                "focus the recorded evidence review."
+            ),
+            "claim_refs": ["c1"],
+        }
+    )
+
+    result = GroundedConversationalAnswerV31Validator().validate(
+        _parsed(payload),
+        package=analytical_package(AnswerIntent.EXPLAIN),
+    )
+
+    assert result.accepted is True
+    assert all(
+        segment["kind"] != "uncertainty"
+        for segment in payload["answer"]["segments"]
+    )
+
+
+def test_executive_summary_is_first_only_for_executive_intent() -> None:
+    payload = _operational_answer()
+    payload["answer"]["segments"][0]["kind"] = "executive_summary"
+
+    rejected = GroundedConversationalAnswerV31Validator().validate(
+        _parsed(payload),
+        package=analytical_package(AnswerIntent.EXPLAIN),
+    )
+    accepted = GroundedConversationalAnswerV31Validator().validate(
+        _parsed(payload),
+        package=analytical_package(AnswerIntent.EXECUTIVE_SUMMARY),
+    )
+
+    assert rejected.reason == "direct_answer_not_first"
+    assert accepted.accepted is True
+
+
+def test_direct_answer_cannot_be_repeated_after_first_segment() -> None:
+    payload = _operational_answer()
+    payload["answer"]["segments"].append(
+        {
+            "segment_id": "s2",
+            "kind": "direct_answer",
+            "text": "The same operational evidence remains recorded.",
+            "claim_refs": ["c1"],
+        }
+    )
+
+    result = GroundedConversationalAnswerV31Validator().validate(
+        _parsed(payload),
+        package=analytical_package(AnswerIntent.EXPLAIN),
+    )
+
+    assert result.reason == "direct_answer_repeated"
 
 
 def test_conversational_view_is_bounded_and_keeps_relationship_evidence() -> None:
@@ -292,6 +446,7 @@ def test_conversational_view_is_bounded_and_keeps_relationship_evidence() -> Non
         for item in view.relationships
     )
 
+
 def test_valid_conversational_prose_and_typed_refs_are_accepted() -> None:
     result = GroundedConversationalAnswerV31Validator().validate(
         _parsed(),
@@ -299,6 +454,173 @@ def test_valid_conversational_prose_and_typed_refs_are_accepted() -> None:
     )
 
     assert result.accepted is True
+
+
+def test_direct_operational_explanation_needs_no_non_implication_claim() -> None:
+    payload = _operational_answer()
+
+    result = GroundedConversationalAnswerV31Validator().validate(
+        _parsed(payload),
+        package=analytical_package(AnswerIntent.EXPLAIN),
+    )
+
+    assert result.accepted is True
+    assert {claim["claim_type"] for claim in payload["claims"]} == {
+        "operational_fact"
+    }
+
+
+def test_negative_compromise_statement_requires_matching_segment_claim() -> None:
+    payload = _operational_answer()
+    payload["answer"]["segments"][0]["text"] = (
+        "The recorded detection does not establish compromise."
+    )
+    missing = GroundedConversationalAnswerV31Validator().validate(
+        _parsed(payload),
+        package=analytical_package(AnswerIntent.EXPLAIN),
+    )
+    payload["claims"].append(
+        {
+            "claim_id": "c2",
+            "claim_type": "non_implication",
+            "source_refs": [],
+            "qualifier_code": (
+                "EVIDENCE_DOES_NOT_ESTABLISH_UNRECORDED_SECURITY_CONCLUSIONS"
+            ),
+        }
+    )
+    payload["answer"]["segments"][0]["claim_refs"].append("c2")
+    accepted = GroundedConversationalAnswerV31Validator().validate(
+        _parsed(payload),
+        package=analytical_package(AnswerIntent.EXPLAIN),
+    )
+
+    assert missing.reason == "unsupported_compromise_assertion"
+    assert accepted.accepted is True
+
+
+def test_only_relevant_segment_references_non_implication_claim() -> None:
+    payload = _operational_answer()
+    payload["claims"].append(
+        {
+            "claim_id": "c2",
+            "claim_type": "non_implication",
+            "source_refs": [],
+            "qualifier_code": "EVIDENCE_NOT_MALICIOUSNESS",
+        }
+    )
+    payload["answer"]["segments"].extend(
+        [
+            {
+                "segment_id": "s2",
+                "kind": "analysis",
+                "text": "The endpoint and rule focus the recorded evidence review.",
+                "claim_refs": ["c1"],
+            },
+            {
+                "segment_id": "s3",
+                "kind": "uncertainty",
+                "text": "The recorded evidence does not establish malicious activity.",
+                "claim_refs": ["c2"],
+            },
+        ]
+    )
+
+    result = GroundedConversationalAnswerV31Validator().validate(
+        _parsed(payload),
+        package=analytical_package(AnswerIntent.EXPLAIN),
+    )
+
+    assert result.accepted is True
+    assert payload["answer"]["segments"][0]["claim_refs"] == ["c1"]
+    assert payload["answer"]["segments"][1]["claim_refs"] == ["c1"]
+    assert payload["answer"]["segments"][2]["claim_refs"] == ["c2"]
+
+
+def test_analytical_relationship_cannot_assert_causality() -> None:
+    payload = _answer()
+    payload["answer"]["segments"][1]["text"] = (
+        "The shared endpoint establishes causality between the incidents."
+    )
+    payload["answer"]["segments"][1]["claim_refs"] = ["c2"]
+
+    result = GroundedConversationalAnswerV31Validator().validate(
+        _parsed(payload),
+        package=analytical_package(),
+    )
+
+    assert result.reason == "unsupported_causality_assertion"
+
+
+def test_semantic_similarity_cannot_be_presented_as_recorded_correlation() -> None:
+    payload = _operational_answer()
+    payload["claims"][0].update(
+        {
+            "claim_type": "semantic_candidate",
+            "source_refs": ["relationship:semantic"],
+        }
+    )
+    payload["answer"]["segments"][0]["text"] = (
+        "The semantic similarity is a recorded correlation."
+    )
+
+    result = GroundedConversationalAnswerV31Validator().validate(
+        _parsed(payload),
+        package=analytical_package(),
+    )
+
+    assert result.reason == "semantic_candidate_as_recorded_correlation"
+
+
+def test_semantic_correlation_boundary_requires_matching_non_implication() -> None:
+    payload = _operational_answer()
+    payload["claims"][0].update(
+        {
+            "claim_type": "semantic_candidate",
+            "source_refs": ["relationship:semantic"],
+        }
+    )
+    payload["claims"].append(
+        {
+            "claim_id": "c2",
+            "claim_type": "non_implication",
+            "source_refs": [],
+            "qualifier_code": "SEMANTIC_SIMILARITY_NOT_RECORDED_CORRELATION",
+        }
+    )
+    payload["answer"]["segments"][0].update(
+        {
+            "text": "The semantic similarity is not a recorded correlation.",
+            "claim_refs": ["c1", "c2"],
+        }
+    )
+
+    result = GroundedConversationalAnswerV31Validator().validate(
+        _parsed(payload),
+        package=analytical_package(),
+    )
+
+    assert result.accepted is True
+
+
+def test_reference_knowledge_cannot_be_presented_as_current_state() -> None:
+    payload = _operational_answer()
+    payload["claims"][0].update(
+        {
+            "claim_type": "reference_explanation",
+            "source_refs": ["reference:mitre:T1112"],
+        }
+    )
+    payload["answer"]["segments"][0]["text"] = (
+        "The incident is a Modify Registry event under MITRE T1112."
+    )
+
+    result = GroundedConversationalAnswerV31Validator().validate(
+        _parsed(payload),
+        package=analytical_package(AnswerIntent.EXPLAIN),
+    )
+
+    assert result.reason == "reference_current_state_promotion"
 
 
 def test_code_only_claim_rejects_evidence_refs() -> None:
@@ -316,7 +638,7 @@ def test_code_only_claim_rejects_evidence_refs() -> None:
 
 def test_valid_unreferenced_claim_does_not_affect_visible_answer() -> None:
     payload = _answer()
-    payload["answer"]["segments"][1]["claim_refs"] = ["claim-2"]
+    payload["answer"]["segments"][1]["claim_refs"] = ["c2"]
     payload["answer"]["segments"][1][
         "text"
     ] = "A second incident shares the endpoint and is useful for comparison."
@@ -430,7 +752,31 @@ def test_authority_promotions_are_rejected(
         ("Both records belong to the same attacker.", "unsupported_actor_campaign_assertion"),
         ("This is malicious activity.", "unsupported_maliciousness_assertion"),
         (
+            "This is potentially harmful activity.",
+            "unsupported_maliciousness_assertion",
+        ),
+        (
             "Questa è un'attività malintenzionata.",
+            "unsupported_maliciousness_assertion",
+        ),
+        (
+            "Questa è un'attività potenzialmente dannosa.",
+            "unsupported_maliciousness_assertion",
+        ),
+        (
+            "Detection level 5 indicates suspicious activity.",
+            "unsupported_maliciousness_assertion",
+        ),
+        (
+            "Il livello 5 indica un'attività sospetta.",
+            "unsupported_maliciousness_assertion",
+        ),
+        (
+            "The detection proves anomalous activity.",
+            "unsupported_maliciousness_assertion",
+        ),
+        (
+            "La regola ha rilevato un'attività anomala.",
             "unsupported_maliciousness_assertion",
         ),
         ("Lateral movement occurred.", "unsupported_lateral_movement_assertion"),
@@ -509,6 +855,33 @@ def test_recorded_risk_band_cannot_support_a_different_band() -> None:
     assert result.reason == "unsupported_risk_band_assertion"
 
 
+def test_recorded_low_risk_normalization_may_be_reported_exactly() -> None:
+    package = analytical_package()
+    risk = next(
+        item for item in package.operational_atoms if item.atom_id == "incident:1:risk"
+    ).model_copy(update={"risk_normalization_severity": "LOW"})
+    package = package.model_copy(
+        update={
+            "operational_atoms": [
+                risk if item.atom_id == risk.atom_id else item
+                for item in package.operational_atoms
+            ]
+        }
+    )
+    payload = _operational_answer()
+    payload["claims"][0]["source_refs"] = [risk.atom_id]
+    payload["answer"]["segments"][0]["text"] = (
+        "The recorded risk normalization is LOW."
+    )
+
+    result = GroundedConversationalAnswerV31Validator().validate(
+        _parsed(payload),
+        package=package,
+    )
+
+    assert result.accepted is True
+
+
 def test_next_step_requires_typed_advisory_guidance() -> None:
     payload = _answer()
     payload["answer"]["segments"][1].update(
@@ -542,10 +915,50 @@ def test_advisory_language_requires_typed_advisory_guidance() -> None:
     assert result.reason == "unsupported_advisory_guidance"
 
 
+def test_recorded_recommended_priority_is_not_advisory_guidance() -> None:
+    package = analytical_package(AnswerIntent.EXPLAIN)
+    provenance = package.operational_atoms[0].provenance
+    priority = PriorityAtom(
+        atom_id="incident:1:priority",
+        authority_class=package.operational_atoms[0].authority_class,
+        provenance=provenance,
+        incident_id=1,
+        recommended_priority="LOW",
+    )
+    package = package.model_copy(update={"operational_atoms": [priority]})
+    payload = _operational_answer()
+    payload["claims"][0]["source_refs"] = [priority.atom_id]
+    payload["answer"]["segments"][0]["text"] = (
+        "La priorità consigliata registrata è LOW."
+    )
+
+    result = GroundedConversationalAnswerV31Validator().validate(
+        _parsed(payload),
+        package=package,
+    )
+
+    assert result.accepted is True
+
+
 def test_unsupported_hypothetical_explanation_is_rejected() -> None:
     payload = _answer()
     payload["answer"]["segments"][0]["text"] = (
         "The registry change could be a routine configuration action."
+    )
+
+    result = GroundedConversationalAnswerV31Validator().validate(
+        _parsed(payload),
+        package=analytical_package(),
+    )
+
+    assert result.accepted is False
+    assert result.reason == "unsupported_speculation"
+
+
+def test_unsupported_italian_hypothetical_explanation_is_rejected() -> None:
+    payload = _answer()
+    payload["answer"]["segments"][0]["text"] = (
+        "La modifica può indicare una normale attività di configurazione."
     )
 
     result = GroundedConversationalAnswerV31Validator().validate(
@@ -614,11 +1027,15 @@ def test_v31_normal_path_returns_model_authored_prose_with_one_generation() -> N
     assert response.metadata.automatic_retries == 0
 
 
+def test_v31_default_output_budget_covers_bounded_conversational_json() -> None:
+    assert AssistantSettings().v31_max_output_tokens == 1024
+
+
 def test_v31_renderer_hides_internal_claim_ids_from_visible_prose() -> None:
     payload = _answer()
     payload["answer"]["segments"][0]["text"] = (
         payload["answer"]["segments"][0]["text"].removesuffix(".")
-        + " (claim-1). CLAIM-1: This remains model-authored prose."
+        + " (c1). C1: This remains model-authored prose."
     )
     calls = 0
 
@@ -648,8 +1065,8 @@ def test_v31_renderer_hides_internal_claim_ids_from_visible_prose() -> None:
     )
 
     assert calls == 1
-    assert "(claim-1)" not in response.answer
-    assert "CLAIM-1:" not in response.answer
+    assert "(c1)" not in response.answer
+    assert "C1:" not in response.answer
     assert response.generation_kind == "model"
 
 

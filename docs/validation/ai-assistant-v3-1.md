@@ -30,6 +30,27 @@ remain pending and require an average score of at least 8/10.
 
 `MANUAL USER ACCEPTANCE: PENDING`
 
+## V3.1.1 Conversational Contract
+
+The proof-gate contract accepts one to four segments and one to eight typed
+claims. The first segment remains direct; later analysis, evidence,
+comparison, uncertainty, conclusion, and advisory-grounded next-step segments
+are selected only when useful. Each segment cites one to four supporting claims
+instead of the complete answer claim set. Non-implication claims are
+conditionally required in the segment that names a protected unsupported
+concept, and are not globally mandatory. The former 75-105 visible-word rule is
+no longer a validity condition.
+
+Model-facing refs now declare their allowed claim type, and code-only claims are
+offered as closed atomic options. This avoids decoder ambiguity without adding
+post-generation citation repair; invalid type/ref/qualifier combinations still
+fail deterministic validation.
+
+Deterministic validation still resolves every model-visible source ref through
+the typed registries, rejects authority promotions and unknown refs, and keeps
+semantic similarity distinct from recorded correlation. This change does not
+add a retry, critic, repair, rewrite, model switch, or second generation.
+
 ## Part A Technical Validation
 
 The final proof preparation used the unchanged existing Incident `5333` and

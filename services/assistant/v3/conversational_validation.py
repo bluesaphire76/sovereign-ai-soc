@@ -18,6 +18,7 @@ from services.assistant.v3.conversational_schema import (
     conversational_model_facing_evidence,
 )
 from services.assistant.v3.contracts import (
+    AnswerIntent,
     AuthorityClass,
     CompromiseStateAtom,
     EscalationStateAtom,
@@ -28,7 +29,6 @@ from services.assistant.v3.contracts import (
     StatusAtom,
     V3AnalyticalContextPackage,
 )
-from services.assistant.v3.plan_contracts import NonImplicationCode, PlanLimitationCode
 from services.assistant.v3.plan_schema import (
     available_absence_fields,
     available_limitation_codes,
@@ -98,8 +98,17 @@ _ASSERTION_GUARDS: dict[str, tuple[str, ...]] = {
     ),
     "maliciousness": (
         "malicious",
+        "harmful",
+        "dangerous",
         "malevol",
         "malintenz",
+        "dannos",
+        "pericolos",
+        "nociv",
+        "suspicious",
+        "sospett",
+        "anomalous",
+        "anomal",
         "minaccia",
         " attack",
         "attacco",
@@ -178,10 +187,14 @@ _NON_IMPLICATION_GUARDS = {
 
 _ADVISORY_GUARDS = (
     " should ",
-    "recommend",
+    "recommend that",
+    "recommend reviewing",
+    "recommend checking",
     "next step",
     "dovrebbe",
-    "consigli",
+    "si consiglia",
+    "consiglio di",
+    "consigliamo",
     "prossima azione",
     "azioni successive",
 )
@@ -189,6 +202,8 @@ _ADVISORY_GUARDS = (
 _SPECULATION_GUARDS = (
     " potrebbe ",
     " potrebbero ",
+    " può ",
+    " possono ",
     " forse ",
     " might ",
     " could be ",
@@ -203,6 +218,28 @@ _UNCERTAINTY_NEGATION_MARKERS = (
     " cannot ",
     " can't ",
     " non ",
+)
+
+_SEMANTIC_CORRELATION_MARKERS = ("correlation", "correlazione")
+
+_CURRENT_RECORD_ASSERTION_MARKERS = (
+    "the incident is ",
+    "the incident has ",
+    "this incident is ",
+    "this incident has ",
+    "the case is ",
+    "this case is ",
+    "the record shows ",
+    "the record records ",
+    "l'incidente è ",
+    "l'incidente ha ",
+    "questo incidente è ",
+    "questo incidente ha ",
+    "il caso è ",
+    "questo caso è ",
+    "il record mostra ",
+    "il record riporta ",
+    "il record registra ",
 )
 
 _QUALITATIVE_LEVEL_MARKERS = {
@@ -319,11 +356,20 @@ class GroundedConversationalAnswerV31Validator:
         }
         if not referenced_claims.issubset(known_claims):
             return ConversationalValidationResult(False, "unknown_claim_ref")
-        if answer.answer.segments[0].kind not in {
-            ConversationalSegmentKind.DIRECT_ANSWER,
-            ConversationalSegmentKind.EXECUTIVE_SUMMARY,
-        }:
+        first_kind = answer.answer.segments[0].kind
+        valid_first_kinds = {ConversationalSegmentKind.DIRECT_ANSWER}
+        if (
+            package.intent_selection.primary_intent
+            is AnswerIntent.EXECUTIVE_SUMMARY
+        ):
+            valid_first_kinds.add(ConversationalSegmentKind.EXECUTIVE_SUMMARY)
+        if first_kind not in valid_first_kinds:
             return ConversationalValidationResult(False, "direct_answer_not_first")
+        if any(
+            segment.kind is ConversationalSegmentKind.DIRECT_ANSWER
+            for segment in answer.answer.segments[1:]
+        ):
+            return ConversationalValidationResult(False, "direct_answer_repeated")
 
         view = conversational_model_facing_evidence(package)
         visible_refs = {
@@ -351,35 +397,6 @@ class GroundedConversationalAnswerV31Validator:
             if not result.accepted:
                 return result
 
-        claim_types = {item.claim_type for item in answer.claims}
-        if ConversationalClaimType.ANALYTICAL_RELATIONSHIP in claim_types and not any(
-            item.claim_type is ConversationalClaimType.NON_IMPLICATION
-            and item.qualifier_code
-            in {
-                ConversationalQualifierCode.ANALYTICAL_RELATIONSHIP_NOT_CAUSALITY,
-                ConversationalQualifierCode.SHARED_HOST_NOT_COMMON_ROOT_CAUSE,
-                ConversationalQualifierCode.SAME_CASE_NOT_CAUSALITY,
-                ConversationalQualifierCode.EVIDENCE_DOES_NOT_ESTABLISH_UNRECORDED_SECURITY_CONCLUSIONS,
-            }
-            for item in answer.claims
-        ):
-            return ConversationalValidationResult(
-                False,
-                "analytical_non_implication_missing",
-            )
-        if ConversationalClaimType.SEMANTIC_CANDIDATE in claim_types and not any(
-            item.claim_type is ConversationalClaimType.NON_IMPLICATION
-            and item.qualifier_code
-            in {
-                ConversationalQualifierCode.SEMANTIC_SIMILARITY_NOT_RECORDED_CORRELATION,
-                ConversationalQualifierCode.EVIDENCE_DOES_NOT_ESTABLISH_UNRECORDED_SECURITY_CONCLUSIONS,
-            }
-            for item in answer.claims
-        ):
-            return ConversationalValidationResult(
-                False,
-                "semantic_non_implication_missing",
-            )
         return ConversationalValidationResult(True)
 
     @staticmethod
@@ -555,6 +572,7 @@ class GroundedConversationalAnswerV31Validator:
             if ref in atom_by_ref
         ]
         qualifier_codes = {item.qualifier_code for item in claims}
+        claim_types = {item.claim_type for item in claims}
         padded_text = f" {text} "
         if any(marker in padded_text for marker in _SPECULATION_GUARDS) and not any(
             item.claim_type
@@ -586,6 +604,33 @@ class GroundedConversationalAnswerV31Validator:
             for item in claims
         ):
             return ConversationalValidationResult(False, "next_step_without_advisory")
+        if (
+            ConversationalClaimType.SEMANTIC_CANDIDATE in claim_types
+            and any(marker in text for marker in _SEMANTIC_CORRELATION_MARKERS)
+            and not (
+                _guard_mentions_are_negated(text, _SEMANTIC_CORRELATION_MARKERS)
+                and ConversationalQualifierCode.SEMANTIC_SIMILARITY_NOT_RECORDED_CORRELATION
+                in qualifier_codes
+            )
+        ):
+            return ConversationalValidationResult(
+                False,
+                "semantic_candidate_as_recorded_correlation",
+            )
+        if (
+            ConversationalClaimType.REFERENCE_EXPLANATION in claim_types
+            and not claim_types.intersection(
+                {
+                    ConversationalClaimType.OPERATIONAL_FACT,
+                    ConversationalClaimType.RECORDED_CORRELATION,
+                }
+            )
+            and any(marker in text for marker in _CURRENT_RECORD_ASSERTION_MARKERS)
+        ):
+            return ConversationalValidationResult(
+                False,
+                "reference_current_state_promotion",
+            )
         for guard, markers in _ASSERTION_GUARDS.items():
             if not any(marker in text for marker in markers):
                 continue
@@ -626,6 +671,11 @@ class GroundedConversationalAnswerV31Validator:
                 ):
                     continue
             if guard == "risk_band":
+                if (
+                    not _mentioned_qualitative_levels(text)
+                    and any(isinstance(item, RiskAtom) for item in referenced_atoms)
+                ):
+                    continue
                 recorded_risk_band = [
                     item.risk_normalization_severity
                     for item in referenced_atoms

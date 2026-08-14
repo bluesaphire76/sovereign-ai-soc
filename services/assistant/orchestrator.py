@@ -217,7 +217,7 @@ class AssistantSettings:
     max_output_tokens: int = 768
     response_architecture: Literal["v2", "v3", "v3_1"] = "v3"
     v3_max_output_tokens: int = 768
-    v31_max_output_tokens: int = 540
+    v31_max_output_tokens: int = 1024
 
 
 class AssistantError(Exception):
@@ -318,7 +318,7 @@ def get_assistant_settings() -> AssistantSettings:
         ),
         v31_max_output_tokens=_env_int(
             "AI_SOC_ASSISTANT_V31_MAX_OUTPUT_TOKENS",
-            540,
+            1024,
             minimum=512,
             maximum=2048,
         ),
