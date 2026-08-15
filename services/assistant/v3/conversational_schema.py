@@ -12,6 +12,7 @@ from services.assistant.v3.conversational_contracts import (
     ConversationalSegmentKind,
 )
 from services.assistant.v3.contracts import (
+    AnalysisScope,
     AnalyticalFocus,
     AnswerIntent,
     CompromiseStateAtom,
@@ -30,6 +31,144 @@ from services.assistant.v3.plan_schema import (
 
 _MODEL_CLAIM_IDS = [f"c{index}" for index in range(1, MAX_CONVERSATIONAL_CLAIMS + 1)]
 
+_BROAD_EXPLAIN_OPERATIONAL_CAP = 10
+_BROAD_EXPLAIN_RELATIONSHIP_CAP = 2
+_BROAD_EXPLAIN_CANDIDATE_CAP = 2
+_BROAD_EXPLAIN_REFERENCE_CAP = 1
+_BROAD_EXPLAIN_ADVISORY_CAP = 1
+
+_BROAD_EXPLAIN_ATOM_ORDER = (
+    "detection",
+    "host",
+    "mitre_technique",
+    "evidence",
+    "observable",
+    "process",
+    "user",
+    "status",
+    "risk",
+    "recorded_correlation",
+    "priority",
+    "escalation_state",
+    "escalation_reason",
+    "compromise_state",
+    "timeline_event",
+    "case_relationship",
+)
+_BROAD_EXPLAIN_ATOM_TYPE_CAPS = {
+    "mitre_technique": 2,
+    "evidence": 2,
+    "observable": 2,
+}
+_BROAD_EXPLAIN_TIER = {
+    atom_type: tier
+    for tier, atom_types in enumerate(
+        (
+            _BROAD_EXPLAIN_ATOM_ORDER[:7],
+            _BROAD_EXPLAIN_ATOM_ORDER[7:14],
+            _BROAD_EXPLAIN_ATOM_ORDER[14:],
+        )
+    )
+    for atom_type in atom_types
+}
+_FOCUS_ATOM_TYPES = {
+    AnalyticalFocus.RISK: frozenset({"risk"}),
+    AnalyticalFocus.CORRELATION: frozenset({"recorded_correlation"}),
+    AnalyticalFocus.SEVERITY: frozenset({"status"}),
+    AnalyticalFocus.STATUS: frozenset({"status"}),
+    AnalyticalFocus.HOST: frozenset({"host"}),
+    AnalyticalFocus.EVIDENCE: frozenset(
+        {"detection", "evidence", "observable", "process", "timeline_event"}
+    ),
+    AnalyticalFocus.PRIORITY: frozenset({"priority"}),
+    AnalyticalFocus.ESCALATION: frozenset(
+        {"escalation_state", "escalation_reason"}
+    ),
+    AnalyticalFocus.GENERAL: frozenset(),
+}
+_GENERIC_EXPLAIN_TIMELINE_EVENTS = frozenset(
+    {
+        "ALERT_CREATED",
+        "CASE_CREATED",
+        "CASE_UPDATED",
+        "CASE_WORKFLOW_UPDATED",
+        "INCIDENT_CREATED",
+        "INCIDENT_UPDATED",
+        "STATUS_CHANGE",
+        "STATUS_CHANGED",
+    }
+)
+
+
+def _is_current_record_explain(package: V3AnalyticalContextPackage) -> bool:
+    return (
+        package.intent_selection.primary_intent is AnswerIntent.EXPLAIN
+        and package.resolved_scope.analysis_scope is AnalysisScope.CURRENT_RECORD
+    )
+
+
+def _broad_explain_atom_rank(package: V3AnalyticalContextPackage, atom) -> tuple:
+    active_incident_ids = package.resolved_scope.active_incident_ids
+    scope_rank = {
+        incident_id: index for index, incident_id in enumerate(active_incident_ids)
+    }
+    focused_types = {
+        atom_type
+        for focus in package.focus_selection
+        for atom_type in _FOCUS_ATOM_TYPES[focus]
+    }
+    type_rank = {
+        atom_type: index
+        for index, atom_type in enumerate(_BROAD_EXPLAIN_ATOM_ORDER)
+    }
+    return (
+        scope_rank.get(atom.incident_id, len(scope_rank) + 1),
+        0 if atom.atom_type in focused_types else 1,
+        _BROAD_EXPLAIN_TIER.get(atom.atom_type, 3),
+        type_rank.get(atom.atom_type, len(type_rank)),
+        atom.incident_id or 0,
+        atom.case_id or 0,
+        atom.atom_id,
+    )
+
+
+def _broad_explain_atoms(
+    package: V3AnalyticalContextPackage,
+    atoms: list,
+) -> tuple:
+    ranked = sorted(atoms, key=lambda item: _broad_explain_atom_rank(package, item))
+    selected = []
+    fact_keys: set[tuple] = set()
+    atom_type_counts: dict[tuple, int] = {}
+    for atom in ranked:
+        if atom.atom_type == "incident_identity":
+            continue
+        if (
+            atom.atom_type == "timeline_event"
+            and atom.event_type.strip().upper() in _GENERIC_EXPLAIN_TIMELINE_EVENTS
+        ):
+            continue
+        fact_key = (
+            atom.atom_type,
+            atom.incident_id,
+            atom.case_id,
+            atom.model_dump_json(
+                exclude={"atom_id", "authority_class", "provenance", "timestamp"}
+            ),
+        )
+        if fact_key in fact_keys:
+            continue
+        scoped_type = (atom.atom_type, atom.incident_id, atom.case_id)
+        type_cap = _BROAD_EXPLAIN_ATOM_TYPE_CAPS.get(atom.atom_type, 1)
+        if atom_type_counts.get(scoped_type, 0) >= type_cap:
+            continue
+        fact_keys.add(fact_key)
+        atom_type_counts[scoped_type] = atom_type_counts.get(scoped_type, 0) + 1
+        selected.append(atom)
+        if len(selected) == _BROAD_EXPLAIN_OPERATIONAL_CAP:
+            break
+    return tuple(selected)
+
 
 def conversational_model_facing_evidence(
     package: V3AnalyticalContextPackage,
@@ -43,25 +182,26 @@ def conversational_model_facing_evidence(
             and item.compromise_confirmed is None
         )
     ]
-    if package.intent_selection.primary_intent is AnswerIntent.EXPLAIN and any(
-        item.atom_type in {"detection", "host", "mitre_technique"}
-        for item in visible_operational_atoms
-    ):
-        focus = set(package.focus_selection)
-        focus_required_types = {
-            "risk": AnalyticalFocus.RISK,
-            "priority": AnalyticalFocus.PRIORITY,
-            "recorded_correlation": AnalyticalFocus.CORRELATION,
-        }
-        visible_operational_atoms = [
+    broad_explain = _is_current_record_explain(package)
+    if broad_explain:
+        operational_atoms = _broad_explain_atoms(package, visible_operational_atoms)
+        candidates = view.candidates[:_BROAD_EXPLAIN_CANDIDATE_CAP]
+        available_evidence_refs = {
+            item.atom_id for item in operational_atoms
+        } | {item.candidate_id for item in candidates}
+        relationships = tuple(
             item
-            for item in visible_operational_atoms
-            if item.atom_type not in {"timeline_event", "incident_identity"}
-            and (
-                item.atom_type not in focus_required_types
-                or focus_required_types[item.atom_type] in focus
-            )
-        ]
+            for item in view.relationships
+            if set(item.evidence_atom_refs).issubset(available_evidence_refs)
+        )[:_BROAD_EXPLAIN_RELATIONSHIP_CAP]
+        return ModelFacingEvidence(
+            operational_atoms=operational_atoms,
+            relationships=relationships,
+            candidates=candidates,
+            reference_atoms=view.reference_atoms[:_BROAD_EXPLAIN_REFERENCE_CAP],
+            advisory_atoms=view.advisory_atoms[:_BROAD_EXPLAIN_ADVISORY_CAP],
+        )
+
     relationships = view.relationships[:3]
     required_atom_refs = {
         ref for item in relationships for ref in item.evidence_atom_refs

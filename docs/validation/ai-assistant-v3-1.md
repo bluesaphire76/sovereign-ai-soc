@@ -84,6 +84,29 @@ model; only an explicit authoritative boolean `true` or `false` is model-visible
 No generation, retry, repair, response-contract, gateway, retrieval, or frontend
 behavior changes in V3.1.2.
 
+## V3.1.3 Broad EXPLAIN Context Sufficiency
+
+For a current-record EXPLAIN, focus now ranks relevant evidence instead of acting
+as a visibility boundary. A bounded model view can therefore retain authoritative
+status, recorded risk, and recorded correlation even when their individual focus
+dimensions were not selected. Central event evidence remains ahead of operational
+assessment and supporting context; an explicit focus prioritizes atoms within its
+tier and preserves other material evidence while budget remains.
+
+The view is capped at 10 deduplicated operational atoms, 2 structurally supported
+relationships, 2 candidates, 1 relevant reference atom, and 1 advisory atom.
+Generic incident/case creation, update, workflow, and status-change timeline events
+are excluded from broad EXPLAIN; concrete evidence atoms and non-generic material
+timeline observations remain eligible. Incident identity metadata is still omitted
+when the scoped record is already structurally identified.
+
+This selection change does not alter authorization, authority classes, SQL or
+Qdrant boundaries, relationship semantics, or deterministic fail-closed
+validation. Available context is not mandatory prose: the V3.1.2 synthesis prompt
+continues to require the fewest strong facts and rejects unsupported security
+conclusions. The one-generation, zero-retry, zero-model-switch contract is
+unchanged.
+
 ## Part A Technical Validation
 
 The final proof preparation used the unchanged existing Incident `5333` and

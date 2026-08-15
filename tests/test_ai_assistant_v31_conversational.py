@@ -33,7 +33,10 @@ from services.assistant.v3.contracts import (
     AnswerIntent,
     AuthorityClass,
     CompromiseStateAtom,
+    DetectionAtom,
+    EvidenceDetailAtom,
     PriorityAtom,
+    TimelineEventAtom,
 )
 from tests.assistant_v3_test_support import analytical_package, operational_provenance
 
@@ -279,10 +282,9 @@ def test_conversational_schema_is_closed_and_prompt_requests_final_prose() -> No
         for item in model_payload["operational_atoms"]
         for value in item.values()
     )
-    assert all(
-        item["ref"] not in {"incident:1:risk", "incident:1:priority"}
-        for item in model_payload["operational_atoms"]
-    )
+    assert "incident:1:risk" in {
+        item["ref"] for item in model_payload["operational_atoms"]
+    }
     mitre_projection = next(
         item
         for item in model_payload["operational_atoms"]
@@ -554,32 +556,147 @@ def test_conversational_view_is_bounded_and_keeps_relationship_evidence() -> Non
     )
 
 
-def test_explain_view_keeps_only_focused_secondary_metadata() -> None:
+def test_broad_explain_view_keeps_sufficient_unfocused_context() -> None:
     package = analytical_package(AnswerIntent.EXPLAIN)
+    package = package.model_copy(
+        update={"focus_selection": [AnalyticalFocus.GENERAL]}
+    )
     view = conversational_model_facing_evidence(package)
     atom_types = {item.atom_type for item in view.operational_atoms}
 
     assert {"detection", "host", "mitre_technique"}.issubset(atom_types)
+    assert {"status", "risk", "recorded_correlation"}.issubset(atom_types)
     assert "recorded_correlation" in atom_types
-    assert "risk" not in atom_types
-    assert "priority" not in atom_types
     assert "timeline_event" not in atom_types
     assert "incident_identity" not in atom_types
+    assert len(view.operational_atoms) <= 10
+    assert len(view.relationships) <= 2
+    assert len(view.reference_atoms) == 1
 
-    risk_view = conversational_model_facing_evidence(
-        package.model_copy(
-            update={
-                "focus_selection": [
-                    *package.focus_selection,
-                    AnalyticalFocus.RISK,
-                    AnalyticalFocus.PRIORITY,
-                ]
-            }
-        )
+
+def test_broad_explain_focus_prioritizes_without_hiding_supporting_context() -> None:
+    package = analytical_package(AnswerIntent.EXPLAIN).model_copy(
+        update={"focus_selection": [AnalyticalFocus.STATUS]}
     )
-    risk_types = {item.atom_type for item in risk_view.operational_atoms}
+    provenance = operational_provenance(1)
+    package = package.model_copy(
+        update={
+            "operational_atoms": [
+                *package.operational_atoms,
+                *(
+                    EvidenceDetailAtom(
+                        atom_id=f"incident:1:focused-overflow:{index}",
+                        authority_class=AuthorityClass.OPERATIONAL_AUTHORITATIVE,
+                        provenance=provenance,
+                        incident_id=1,
+                        evidence_type="registry",
+                        summary=f"Distinct recorded evidence {index}",
+                    )
+                    for index in range(16)
+                ),
+            ]
+        }
+    )
+    view = conversational_model_facing_evidence(package)
+    atom_types = [item.atom_type for item in view.operational_atoms]
 
-    assert "risk" in risk_types
+    assert atom_types.index("status") < atom_types.index("risk")
+    assert {"detection", "host", "mitre_technique", "recorded_correlation"} <= set(
+        atom_types
+    )
+
+
+def test_broad_explain_bound_deduplicates_and_preserves_high_value_atoms() -> None:
+    package = analytical_package(AnswerIntent.EXPLAIN).model_copy(
+        update={"focus_selection": [AnalyticalFocus.GENERAL]}
+    )
+    provenance = operational_provenance(1)
+    extra_atoms = [
+        EvidenceDetailAtom(
+            atom_id=f"incident:1:evidence:{index}",
+            authority_class=AuthorityClass.OPERATIONAL_AUTHORITATIVE,
+            provenance=provenance,
+            incident_id=1,
+            evidence_type="registry",
+            summary=f"Recorded registry evidence {index}",
+        )
+        for index in range(16)
+    ]
+    duplicate_detection = DetectionAtom(
+        atom_id="incident:1:detection:duplicate",
+        authority_class=AuthorityClass.OPERATIONAL_AUTHORITATIVE,
+        provenance=provenance,
+        incident_id=1,
+        rule="Registry changed",
+        level=10,
+    )
+    package = package.model_copy(
+        update={
+            "operational_atoms": [
+                *package.operational_atoms,
+                duplicate_detection,
+                *extra_atoms,
+            ]
+        }
+    )
+
+    view = conversational_model_facing_evidence(package)
+    visible_refs = {item.atom_id for item in view.operational_atoms}
+
+    assert len(view.operational_atoms) == 10
+    assert "incident:1:detection" in visible_refs
+    assert duplicate_detection.atom_id not in visible_refs
+    assert "incident:1:host" in visible_refs
+    assert "incident:1:mitre:T1112" in visible_refs
+
+
+def test_generic_timeline_does_not_displace_material_explain_evidence() -> None:
+    package = analytical_package(AnswerIntent.EXPLAIN).model_copy(
+        update={"focus_selection": [AnalyticalFocus.EVIDENCE]}
+    )
+    provenance = operational_provenance(1)
+    generic_timeline = TimelineEventAtom(
+        atom_id="incident:1:timeline:generic",
+        authority_class=AuthorityClass.OPERATIONAL_AUTHORITATIVE,
+        provenance=provenance,
+        incident_id=1,
+        timestamp="2026-08-08T10:02:00Z",
+        event_type="STATUS_CHANGED",
+    )
+    material_timeline = TimelineEventAtom(
+        atom_id="incident:1:timeline:material",
+        authority_class=AuthorityClass.OPERATIONAL_AUTHORITATIVE,
+        provenance=provenance,
+        incident_id=1,
+        timestamp="2026-08-08T10:03:00Z",
+        event_type="REMEDIATION_COMPLETED",
+    )
+    material_evidence = EvidenceDetailAtom(
+        atom_id="incident:1:evidence:registry-path",
+        authority_class=AuthorityClass.OPERATIONAL_AUTHORITATIVE,
+        provenance=provenance,
+        incident_id=1,
+        evidence_type="registry",
+        summary=r"Registry value HKLM\\Software\\Example\\Run was recorded.",
+    )
+    package = package.model_copy(
+        update={
+            "operational_atoms": [
+                *package.operational_atoms,
+                generic_timeline,
+                material_timeline,
+                material_evidence,
+            ]
+        }
+    )
+
+    view = conversational_model_facing_evidence(package)
+    visible_refs = {item.atom_id for item in view.operational_atoms}
+
+    assert material_evidence.atom_id in visible_refs
+    assert material_timeline.atom_id in visible_refs
+    assert generic_timeline.atom_id not in visible_refs
+    assert "incident:1:timeline" not in visible_refs
 
 
 @pytest.mark.parametrize("recorded_state", [False, True])
