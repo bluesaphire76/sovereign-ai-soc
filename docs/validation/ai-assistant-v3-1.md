@@ -51,6 +51,39 @@ the typed registries, rejects authority promotions and unknown refs, and keeps
 semantic similarity distinct from recorded correlation. This change does not
 add a retry, critic, repair, rewrite, model switch, or second generation.
 
+## V3.1.2 Grounded Analytical Synthesis
+
+EXPLAIN now permits the model to connect multiple supplied facts into a coherent
+analytical explanation. It may describe what and where the platform observed,
+the exact meaning of a recorded relationship, the technical classification
+provided by reference knowledge, and the combined meaning supported by those
+typed sources. This is grounded synthesis, not authority promotion: it cannot
+introduce cause, intent, maliciousness, compromise, persistence, lateral
+movement, attacker or campaign attribution, probability, impact, urgency, or an
+unrecorded outcome.
+
+`analyst_utility` remains attached to each operational atom as its maximum
+defensible analytical meaning. It is explicitly not a phrase template. The
+prompt asks for related evidence to be combined rather than emitted as a field
+inventory, and status or risk should appear only when materially useful.
+The EXPLAIN model view applies that rule through the existing typed focus: risk,
+priority, and recorded correlation are exposed only when their focus is selected.
+An unrequested numeric detection-rule level is omitted so it cannot be promoted
+to qualitative incident meaning. Generic identity and latest-timeline metadata
+are also omitted when stronger EXPLAIN evidence is available, preventing a later
+workflow event from being presented as the detection time. Matching MITRE
+operational atoms carry the typed reference ref that supplies their technical
+definition.
+Ordinary EXPLAIN answers omit protected concepts by default; they do not need a
+gratuitous compromise caveat. If a protected concept is materially relevant and
+named or negated, the existing segment-local non-implication claim remains
+mandatory. Recorded correlations remain exact platform relationships, and
+reference knowledge remains explanatory rather than current operational state.
+An undefined compromise-state placeholder is not exposed to the conversational
+model; only an explicit authoritative boolean `true` or `false` is model-visible.
+No generation, retry, repair, response-contract, gateway, retrieval, or frontend
+behavior changes in V3.1.2.
+
 ## Part A Technical Validation
 
 The final proof preparation used the unchanged existing Incident `5333` and

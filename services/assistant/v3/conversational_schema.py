@@ -12,6 +12,9 @@ from services.assistant.v3.conversational_contracts import (
     ConversationalSegmentKind,
 )
 from services.assistant.v3.contracts import (
+    AnalyticalFocus,
+    AnswerIntent,
+    CompromiseStateAtom,
     RecordedCorrelationAtom,
     RelationshipClass,
     V3AnalyticalContextPackage,
@@ -32,15 +35,46 @@ def conversational_model_facing_evidence(
     package: V3AnalyticalContextPackage,
 ) -> ModelFacingEvidence:
     view = model_facing_evidence(package)
+    visible_operational_atoms = [
+        item
+        for item in view.operational_atoms
+        if not (
+            isinstance(item, CompromiseStateAtom)
+            and item.compromise_confirmed is None
+        )
+    ]
+    if package.intent_selection.primary_intent is AnswerIntent.EXPLAIN and any(
+        item.atom_type in {"detection", "host", "mitre_technique"}
+        for item in visible_operational_atoms
+    ):
+        focus = set(package.focus_selection)
+        focus_required_types = {
+            "risk": AnalyticalFocus.RISK,
+            "priority": AnalyticalFocus.PRIORITY,
+            "recorded_correlation": AnalyticalFocus.CORRELATION,
+        }
+        visible_operational_atoms = [
+            item
+            for item in visible_operational_atoms
+            if item.atom_type not in {"timeline_event", "incident_identity"}
+            and (
+                item.atom_type not in focus_required_types
+                or focus_required_types[item.atom_type] in focus
+            )
+        ]
     relationships = view.relationships[:3]
     required_atom_refs = {
         ref for item in relationships for ref in item.evidence_atom_refs
     }
     required_atoms = [
-        item for item in view.operational_atoms if item.atom_id in required_atom_refs
+        item
+        for item in visible_operational_atoms
+        if item.atom_id in required_atom_refs
     ]
     remaining_atoms = [
-        item for item in view.operational_atoms if item.atom_id not in required_atom_refs
+        item
+        for item in visible_operational_atoms
+        if item.atom_id not in required_atom_refs
     ]
     operational_atoms = tuple((required_atoms + remaining_atoms)[:12])
     required_candidates = [

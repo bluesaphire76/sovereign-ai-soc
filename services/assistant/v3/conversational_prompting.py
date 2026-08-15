@@ -5,6 +5,8 @@ import json
 from services.assistant.v3.conversational_contracts import ConversationalClaimType
 from services.assistant.v3.contracts import (
     AnswerIntent,
+    DetectionAtom,
+    MitreTechniqueAtom,
     RecordedCorrelationAtom,
     RelationshipClass,
     V3AnalyticalContextPackage,
@@ -62,11 +64,13 @@ _SOFT_WORD_TARGETS = {
 _SOFT_FLOW_BY_INTENT = {
     AnswerIntent.FACT_LOOKUP: "direct_answer; add context only if it changes meaning",
     AnswerIntent.EXPLAIN: (
-        "prefer two compact segments: direct_answer, then analysis or "
-        "evidence_explanation connecting the recorded trigger and observed entities "
-        "to any supplied technical classification; use declarative recorded statements "
-        "only, without possible causes, interpretations, actions, or additional-evidence "
-        "requests; add another segment only for a materially relevant caveat"
+        "connect the strongest supplied facts into a coherent explanation of what was "
+        "observed, where it was observed, the relevant recorded detection or exact "
+        "relationship, its supplied technical classification, and the combined supported "
+        "meaning; include a supported limitation only when materially useful; grounded "
+        "synthesis across supplied evidence is allowed, but do not enumerate fields or "
+        "speculate about cause, intent, harmfulness, attacker, outcome, probability, "
+        "impact, or urgency"
     ),
     AnswerIntent.SUMMARY: "direct_answer, then optional conclusion",
     AnswerIntent.INVESTIGATE: "direct_answer, then evidence_explanation or analysis",
@@ -78,6 +82,23 @@ _SOFT_FLOW_BY_INTENT = {
     AnswerIntent.EXECUTIVE_SUMMARY: "executive_summary or direct_answer, then conclusion",
 }
 
+_GROUNDED_SYNTHESIS_ALLOWED = (
+    "connect_supplied_operational_facts",
+    "explain_what_and_where_was_observed",
+    "explain_exact_recorded_relationship_meaning",
+    "use_reference_knowledge_for_technical_classification",
+    "summarize_combined_supported_meaning",
+)
+
+_GROUNDED_SYNTHESIS_FORBIDDEN = (
+    "infer_cause_or_causality",
+    "infer_intent_or_maliciousness",
+    "infer_any_protected_or_unrecorded_security_state",
+    "infer_unrecorded_attribution",
+    "infer_probability_impact_or_urgency",
+    "infer_unrecorded_outcome",
+)
+
 
 def _conversational_atom_projection(
     atom,
@@ -85,6 +106,7 @@ def _conversational_atom_projection(
     package: V3AnalyticalContextPackage,
 ) -> dict[str, object]:
     projection = _atom_projection(atom, package=package)
+    projection.pop("evidence_priority", None)
     projection["analyst_utility"] = _ANALYST_UTILITY_BY_ATOM_TYPE.get(
         atom.atom_type,
         "report_recorded_observation",
@@ -98,7 +120,28 @@ def _conversational_atom_projection(
         projection["recorded_risk_normalization"] = projection.pop(
             "risk_normalization_severity"
         )
-    return projection
+    if (
+        isinstance(atom, DetectionAtom)
+        and package.intent_selection.primary_intent is AnswerIntent.EXPLAIN
+    ):
+        projection.pop("level", None)
+    if projection.get("canonical_severity") is None:
+        projection.pop("canonical_severity", None)
+    if isinstance(atom, MitreTechniqueAtom):
+        if package.intent_selection.primary_intent is AnswerIntent.EXPLAIN:
+            projection.pop("technique_name", None)
+        matching_reference = next(
+            (
+                item.knowledge_id
+                for item in package.reference_atoms
+                if item.knowledge_type == "mitre_definition"
+                and item.subject == atom.technique_id
+            ),
+            None,
+        )
+        if matching_reference is not None:
+            projection["matching_reference_ref"] = matching_reference
+    return {key: value for key, value in projection.items() if value is not None}
 
 
 def _conversational_relationship_projection(relationship) -> dict[str, object]:
@@ -183,6 +226,11 @@ def build_v31_conversational_messages(
         if intent is AnswerIntent.EXPLAIN
         else [item.value for item in available_limitation_codes(package)]
     )
+    scope_projection = {
+        key: value
+        for key, value in package.resolved_scope.model_dump(mode="json").items()
+        if value is not None and value != []
+    }
     payload = {
         "question": package.question,
         "response_language": package.response_language,
@@ -212,7 +260,18 @@ def build_v31_conversational_messages(
                 "report_only_as_detection_rule_level; never rename it incident_severity "
                 "or interpret it as suspicious_or_malicious_activity"
             ),
-            "evidence_significance": "analyst_utility_only",
+            "evidence_significance": (
+                "analyst_utility_is_maximum_defensible_meaning_not_prose_recipe"
+            ),
+            "grounded_synthesis": {
+                "allowed": list(_GROUNDED_SYNTHESIS_ALLOWED),
+                "forbidden": list(_GROUNDED_SYNTHESIS_FORBIDDEN),
+            },
+            "explain_evidence_priority": (
+                "observed_event_then_location_then_exact_detection_or_relationship_"
+                "then_matching_technical_reference; status_risk_priority_timeline_"
+                "only_when_they_change_the_answer"
+            ),
             "next_steps": (
                 "cite_advisory_guidance_claims"
                 if view.advisory_atoms
@@ -223,7 +282,7 @@ def build_v31_conversational_messages(
                 "a matching non_implication claim in the same segment"
             ),
         },
-        "scope": package.resolved_scope.model_dump(mode="json"),
+        "scope": scope_projection,
         "anchor_incident_ids": anchor_incident_ids,
         "eligible_comparison_target_ids": eligible_comparison_target_ids,
         "code_claim_options": [
@@ -281,8 +340,16 @@ def build_v31_conversational_messages(
         "facts, analytical relationships, reference knowledge, advisory guidance, "
         "and uncertainty. Prefer connected explanatory prose; do not restate "
         "database fields merely because they are available. Explain what the "
-        "strongest evidence means within each atom's analyst_utility boundary, in "
-        "natural language rather than stock phrases. Write in the requested response "
+        "strongest evidence means in natural language. Each atom's analyst_utility is "
+        "its maximum defensible analytical meaning, not wording to copy or a prose "
+        "recipe. Grounded synthesis is allowed: connect multiple supplied operational "
+        "facts; explain what and where the record observed; explain a recorded "
+        "relationship only within its exact class; use supplied reference knowledge "
+        "to explain technical classification; and summarize the combined supported "
+        "meaning. Grounded synthesis must not infer cause, intent, maliciousness, "
+        "compromise, persistence, lateral movement, causality, attacker, campaign, "
+        "probability, business impact, urgency, or any unrecorded outcome. Write in the "
+        "requested response "
         "language and return the final user-facing answer as strict JSON. The first "
         "segment MUST use kind direct_answer, except that a genuine "
         "EXECUTIVE_SUMMARY intent may use executive_summary. Choose one to four "
@@ -292,19 +359,36 @@ def build_v31_conversational_messages(
         "of unsupported states. Follow this soft intent flow: "
         f"{_SOFT_FLOW_BY_INTENT[intent]}. This is writing guidance, not a fixed "
         "layout; a simple factual answer may still use one segment. "
-        "For EXPLAIN, when reference_knowledge is supplied, use a second analysis or "
-        "evidence_explanation segment so operational and reference claims remain "
-        "separate and precisely cited. "
+        "For EXPLAIN, when supplied reference_knowledge directly classifies selected "
+        "operational evidence, create a matching reference_explanation claim and cite "
+        "it from the exact segment that explains the classification; keep operational "
+        "and reference evidence as separate typed claims without imposing a layout. "
+        "A reference definition matching a selected MITRE technique is material technical "
+        "classification: select the matching operational and reference_explanation refs "
+        "and explain them before considering workflow metadata. When detection, host, a "
+        "MITRE technique, and its matching reference are available, they are the strongest "
+        "EXPLAIN evidence; do not select status, risk, priority, or timeline unless the "
+        "question asks for them. "
         "Use the fewest segments needed and keep related evidence in connected prose; "
         "do not turn available fields into an inventory or add visible section labels. "
+        "Combine related supplied facts into meaningful statements instead of listing "
+        "them field by field. For an ordinary technical EXPLAIN, omit workflow status, "
+        "risk, priority, and timeline unless the question asks for them or they materially "
+        "change the meaning of the observed event. Never include them merely to round out "
+        "the answer. "
         "Do not report an unavailable or undefined field unless the question asks for it. "
         "Select the fewest strong claims needed; never fill claim slots merely because "
         "they are available. Explain the recorded technical classification, not a "
         "hypothetical cause: never use could, might, possibly, potrebbe, potrebbero, "
         "puo, or possono to invent "
         "an interpretation of operational evidence. For an ordinary EXPLAIN question, "
-        "do not volunteer protected security conclusions unless the user explicitly "
-        "asks about one. "
+        "omit every protected concept entirely unless the user explicitly asks about "
+        "that concept. Check the exact question in the payload: never write or negate a "
+        "protected concept that is absent from the question. Code claim options are "
+        "validation tools, not topics to introduce. Do not add a protected limitation "
+        "or negative caveat merely because a relationship or code option is available. "
+        "Explain a recorded correlation within its exact class without adding an "
+        "unrelated caveat. "
         "The payload's "
         "safety_qualifier_codes and "
         "non_implication_codes define protected meanings. Omit those meanings by "
@@ -312,11 +396,9 @@ def build_v31_conversational_messages(
         "the matching code-only non_implication claim and cite that claim from the "
         "exact segment; if no matching claim is present, do not write the protected "
         "concept at all. Mention each protected concept in at most one segment, and "
-        "never repeat its caveat across segments. In particular, a sentence saying "
-        "that a recorded correlation "
-        "does not establish compromise must cite a code-only non_implication claim "
-        "with qualifier CORRELATION_NOT_COMPROMISE from that segment; recorded_correlation "
-        "claims alone cannot support the caveat. The soft visible-word target for this "
+        "never repeat its caveat across segments. An evidence or relationship claim "
+        "alone cannot support a protected negative caveat. The soft visible-word target "
+        "for this "
         f"intent is {_SOFT_WORD_TARGETS[intent]} words; this is guidance, not a "
         "hard validity rule. Each segment must contain complete sentences, end "
         "with punctuation, and cite only the one to four claims that support it. "
@@ -333,8 +415,13 @@ def build_v31_conversational_messages(
         "unique claim_id. Preserve every "
         "relationship_class and authority class exactly. Never promote analytical "
         "derivations, reference knowledge, advisory knowledge, or semantic candidates "
-        "to operational facts or a stronger relationship class. Reference knowledge "
-        "explains a concept but never records current incident or case state. Advisory "
+        "to operational facts or a stronger relationship class. A recorded correlation "
+        "is only the platform-recorded relationship it describes and must not be "
+        "promoted to any stronger relationship, state, attribution, cause, or outcome. "
+        "Reference knowledge "
+        "explains the technical meaning of supplied operational evidence but never "
+        "records current incident or case state, intent, persistence, or maliciousness. "
+        "Advisory "
         "knowledge is guidance, never a recorded action. A next_step must cite an "
         "advisory_guidance claim; otherwise omit it. When no advisory atom is supplied, "
         "do not suggest actions or use phrases such as should, recommend an action, "

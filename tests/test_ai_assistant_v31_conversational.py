@@ -28,8 +28,14 @@ from services.assistant.v3.conversational_validation import (
     conversational_parse_diagnostic,
     parse_grounded_conversational_answer_v31,
 )
-from services.assistant.v3.contracts import AnswerIntent, PriorityAtom
-from tests.assistant_v3_test_support import analytical_package
+from services.assistant.v3.contracts import (
+    AnalyticalFocus,
+    AnswerIntent,
+    AuthorityClass,
+    CompromiseStateAtom,
+    PriorityAtom,
+)
+from tests.assistant_v3_test_support import analytical_package, operational_provenance
 
 
 def _answer() -> dict:
@@ -120,6 +126,54 @@ def _operational_answer() -> dict:
     }
 
 
+def _grounded_synthesis_answer() -> dict:
+    return {
+        "response_language": "en",
+        "answer": {
+            "segments": [
+                {
+                    "segment_id": "s1",
+                    "kind": "direct_answer",
+                    "text": (
+                        "The Registry changed detection records a Registry modification "
+                        "on endpoint-a."
+                    ),
+                    "claim_refs": ["c1"],
+                },
+                {
+                    "segment_id": "s2",
+                    "kind": "evidence_explanation",
+                    "text": (
+                        "MITRE T1112 technically classifies that observed Registry "
+                        "activity as Modify Registry."
+                    ),
+                    "claim_refs": ["c2", "c3"],
+                },
+            ]
+        },
+        "claims": [
+            {
+                "claim_id": "c1",
+                "claim_type": "operational_fact",
+                "source_refs": ["incident:1:detection", "incident:1:host"],
+                "qualifier_code": "NONE",
+            },
+            {
+                "claim_id": "c2",
+                "claim_type": "operational_fact",
+                "source_refs": ["incident:1:mitre:T1112"],
+                "qualifier_code": "NONE",
+            },
+            {
+                "claim_id": "c3",
+                "claim_type": "reference_explanation",
+                "source_refs": ["reference:mitre:T1112"],
+                "qualifier_code": "NONE",
+            },
+        ],
+    }
+
+
 def test_conversational_schema_is_closed_and_prompt_requests_final_prose() -> None:
     package = analytical_package()
     schema = grounded_conversational_answer_v31_schema(package)
@@ -147,24 +201,32 @@ def test_conversational_schema_is_closed_and_prompt_requests_final_prose() -> No
     ]
     assert "Uncertainty is optional" in prompt.messages[0]["content"]
     assert "direct_answer, then comparison or pattern" in prompt.messages[0]["content"]
-    assert "prefer two compact segments" in explain_prompt.messages[0][
+    assert "connect the strongest supplied facts" in explain_prompt.messages[0][
         "content"
     ]
-    assert "when reference_knowledge is supplied, use a second" in (
+    assert "create a matching reference_explanation claim" in (
         explain_prompt.messages[0]["content"]
     )
+    assert "without imposing a layout" in explain_prompt.messages[0]["content"]
+    assert "matching a selected MITRE technique is material" in (
+        explain_prompt.messages[0]["content"]
+    )
+    assert "Code claim options are validation tools, not topics" in (
+        explain_prompt.messages[0]["content"]
+    )
+    assert "never write or negate a protected concept" in explain_prompt.messages[0][
+        "content"
+    ]
     assert "do not turn available fields into an inventory" in explain_prompt.messages[
         0
     ]["content"]
     assert "never use could, might, possibly, potrebbe" in explain_prompt.messages[0][
         "content"
     ]
-    assert "do not volunteer protected security conclusions" in explain_prompt.messages[0][
+    assert "omit every protected concept entirely" in explain_prompt.messages[0][
         "content"
     ]
-    assert "qualifier CORRELATION_NOT_COMPROMISE" in explain_prompt.messages[0][
-        "content"
-    ]
+    assert explain_prompt.messages[0]["content"].casefold().count("compromise") == 1
     assert "do not suggest actions or use phrases such as should" in (
         explain_prompt.messages[0]["content"]
     )
@@ -183,7 +245,15 @@ def test_conversational_schema_is_closed_and_prompt_requests_final_prose() -> No
         "content"
     ]
     assert "never rename it incident_severity" in prompt.messages[1]["content"]
-    assert "analyst_utility boundary" in prompt.messages[0]["content"]
+    assert "maximum defensible analytical meaning" in prompt.messages[0]["content"]
+    assert "not wording to copy or a prose recipe" in prompt.messages[0]["content"]
+    assert "Grounded synthesis is allowed" in explain_prompt.messages[0]["content"]
+    assert "Grounded synthesis must not infer cause" in explain_prompt.messages[0][
+        "content"
+    ]
+    assert "use declarative recorded statements only" not in explain_prompt.messages[0][
+        "content"
+    ]
     assert '"analyst_utility":"identify_triggering_detection_rule"' in prompt.messages[
         1
     ]["content"]
@@ -197,16 +267,47 @@ def test_conversational_schema_is_closed_and_prompt_requests_final_prose() -> No
         for item in model_payload["operational_atoms"]
     }
     assert atom_claim_types["incident:1:detection"] == "operational_fact"
-    risk_projection = next(
+    detection_projection = next(
         item
         for item in model_payload["operational_atoms"]
-        if item["ref"] == "incident:1:risk"
+        if item["ref"] == "incident:1:detection"
     )
-    assert "risk_normalization_severity" not in risk_projection
-    assert risk_projection["recorded_risk_normalization"] is None
+    assert "level" not in detection_projection
+    assert "evidence_priority" not in detection_projection
+    assert all(
+        value is not None
+        for item in model_payload["operational_atoms"]
+        for value in item.values()
+    )
+    assert all(
+        item["ref"] not in {"incident:1:risk", "incident:1:priority"}
+        for item in model_payload["operational_atoms"]
+    )
+    mitre_projection = next(
+        item
+        for item in model_payload["operational_atoms"]
+        if item["ref"] == "incident:1:mitre:T1112"
+    )
+    assert mitre_projection["matching_reference_ref"] == "reference:mitre:T1112"
+    assert "technique_name" not in mitre_projection
     assert model_payload["reference_knowledge"][0]["allowed_claim_type"] == (
         "reference_explanation"
     )
+    assert model_payload["writing_contract"]["grounded_synthesis"]["allowed"] == [
+        "connect_supplied_operational_facts",
+        "explain_what_and_where_was_observed",
+        "explain_exact_recorded_relationship_meaning",
+        "use_reference_knowledge_for_technical_classification",
+        "summarize_combined_supported_meaning",
+    ]
+    assert model_payload["writing_contract"]["explain_evidence_priority"].startswith(
+        "observed_event_then_location"
+    )
+    assert "infer_compromise_persistence_or_lateral_movement" not in (
+        model_payload["writing_contract"]["grounded_synthesis"]["forbidden"]
+    )
+    assert "enumerate_every_available_field" not in model_payload["writing_contract"]
+    assert "active_case_ids" not in model_payload["scope"]
     cross_payload = json.loads(prompt.messages[1]["content"])
     cross_code_options = {
         item["qualifier_code"]: item for item in cross_payload["code_claim_options"]
@@ -346,6 +447,12 @@ def test_more_than_maximum_claims_is_rejected_by_contract() -> None:
 
 def test_segment_claim_refs_are_granular_and_unknown_refs_fail() -> None:
     payload = _operational_answer()
+    package = analytical_package(AnswerIntent.EXPLAIN)
+    package = package.model_copy(
+        update={
+            "focus_selection": [*package.focus_selection, AnalyticalFocus.RISK]
+        }
+    )
     payload["claims"].append(
         {
             "claim_id": "c2",
@@ -357,12 +464,12 @@ def test_segment_claim_refs_are_granular_and_unknown_refs_fail() -> None:
 
     accepted = GroundedConversationalAnswerV31Validator().validate(
         _parsed(payload),
-        package=analytical_package(AnswerIntent.EXPLAIN),
+        package=package,
     )
     payload["answer"]["segments"][0]["claim_refs"] = ["c8"]
     rejected = GroundedConversationalAnswerV31Validator().validate(
         _parsed(payload),
-        package=analytical_package(AnswerIntent.EXPLAIN),
+        package=package,
     )
 
     assert accepted.accepted is True
@@ -447,6 +554,69 @@ def test_conversational_view_is_bounded_and_keeps_relationship_evidence() -> Non
     )
 
 
+def test_explain_view_keeps_only_focused_secondary_metadata() -> None:
+    package = analytical_package(AnswerIntent.EXPLAIN)
+    view = conversational_model_facing_evidence(package)
+    atom_types = {item.atom_type for item in view.operational_atoms}
+
+    assert {"detection", "host", "mitre_technique"}.issubset(atom_types)
+    assert "recorded_correlation" in atom_types
+    assert "risk" not in atom_types
+    assert "priority" not in atom_types
+    assert "timeline_event" not in atom_types
+    assert "incident_identity" not in atom_types
+
+    risk_view = conversational_model_facing_evidence(
+        package.model_copy(
+            update={
+                "focus_selection": [
+                    *package.focus_selection,
+                    AnalyticalFocus.RISK,
+                    AnalyticalFocus.PRIORITY,
+                ]
+            }
+        )
+    )
+    risk_types = {item.atom_type for item in risk_view.operational_atoms}
+
+    assert "risk" in risk_types
+
+
+@pytest.mark.parametrize("recorded_state", [False, True])
+def test_only_explicit_compromise_state_is_model_visible(
+    recorded_state: bool,
+) -> None:
+    package = analytical_package(AnswerIntent.EXPLAIN)
+    explicit_atom = CompromiseStateAtom(
+        atom_id="incident:1:compromise-state",
+        authority_class=AuthorityClass.OPERATIONAL_AUTHORITATIVE,
+        provenance=operational_provenance(1),
+        incident_id=1,
+        compromise_confirmed=recorded_state,
+    )
+    unknown_atom = explicit_atom.model_copy(
+        update={
+            "atom_id": "incident:1:compromise-state-unknown",
+            "compromise_confirmed": None,
+        }
+    )
+    package = package.model_copy(
+        update={
+            "operational_atoms": [
+                *package.operational_atoms,
+                unknown_atom,
+                explicit_atom,
+            ]
+        }
+    )
+
+    view = conversational_model_facing_evidence(package)
+    visible_refs = {item.atom_id for item in view.operational_atoms}
+
+    assert explicit_atom.atom_id in visible_refs
+    assert unknown_atom.atom_id not in visible_refs
+
+
 def test_valid_conversational_prose_and_typed_refs_are_accepted() -> None:
     result = GroundedConversationalAnswerV31Validator().validate(
         _parsed(),
@@ -470,6 +640,34 @@ def test_direct_operational_explanation_needs_no_non_implication_claim() -> None
     }
 
 
+def test_grounded_operational_and_reference_synthesis_is_accepted() -> None:
+    payload = _grounded_synthesis_answer()
+
+    result = GroundedConversationalAnswerV31Validator().validate(
+        _parsed(payload),
+        package=analytical_package(AnswerIntent.EXPLAIN),
+    )
+
+    assert result.accepted is True
+    assert all(
+        claim["claim_type"] != "non_implication" for claim in payload["claims"]
+    )
+
+
+def test_t1112_does_not_support_persistence_inference() -> None:
+    payload = _grounded_synthesis_answer()
+    payload["answer"]["segments"][1]["text"] = (
+        "MITRE T1112 shows persistence on endpoint-a."
+    )
+
+    result = GroundedConversationalAnswerV31Validator().validate(
+        _parsed(payload),
+        package=analytical_package(AnswerIntent.EXPLAIN),
+    )
+
+    assert result.reason == "unsupported_persistence_assertion"
+
+
 def test_negative_compromise_statement_requires_matching_segment_claim() -> None:
     payload = _operational_answer()
     payload["answer"]["segments"][0]["text"] = (
@@ -487,6 +685,78 @@ def test_negative_compromise_statement_requires_matching_segment_claim() -> None
             "qualifier_code": (
                 "EVIDENCE_DOES_NOT_ESTABLISH_UNRECORDED_SECURITY_CONCLUSIONS"
             ),
+        }
+    )
+    payload["answer"]["segments"][0]["claim_refs"].append("c2")
+    accepted = GroundedConversationalAnswerV31Validator().validate(
+        _parsed(payload),
+        package=analytical_package(AnswerIntent.EXPLAIN),
+    )
+
+    assert missing.reason == "unsupported_compromise_assertion"
+    assert accepted.accepted is True
+
+
+def test_positive_compromise_inference_remains_rejected() -> None:
+    payload = _operational_answer()
+    payload["answer"]["segments"][0]["text"] = "This proves compromise."
+
+    result = GroundedConversationalAnswerV31Validator().validate(
+        _parsed(payload),
+        package=analytical_package(AnswerIntent.EXPLAIN),
+    )
+
+    assert result.reason == "unsupported_compromise_assertion"
+
+
+def test_recorded_correlation_requires_exact_platform_meaning() -> None:
+    payload = _operational_answer()
+    payload["claims"][0].update(
+        {
+            "claim_type": "recorded_correlation",
+            "source_refs": ["incident:1:recorded-correlation"],
+        }
+    )
+    payload["answer"]["segments"][0]["text"] = (
+        "The platform recorded a same-host correlation."
+    )
+    accepted = GroundedConversationalAnswerV31Validator().validate(
+        _parsed(payload),
+        package=analytical_package(AnswerIntent.EXPLAIN),
+    )
+    payload["answer"]["segments"][0]["text"] = (
+        "The correlated incidents have the same cause."
+    )
+    rejected = GroundedConversationalAnswerV31Validator().validate(
+        _parsed(payload),
+        package=analytical_package(AnswerIntent.EXPLAIN),
+    )
+
+    assert accepted.accepted is True
+    assert rejected.reason == "unsupported_causality_assertion"
+
+
+def test_recorded_correlation_compromise_caveat_requires_matching_claim() -> None:
+    payload = _operational_answer()
+    payload["claims"][0].update(
+        {
+            "claim_type": "recorded_correlation",
+            "source_refs": ["incident:1:recorded-correlation"],
+        }
+    )
+    payload["answer"]["segments"][0]["text"] = (
+        "The recorded correlation does not establish compromise."
+    )
+    missing = GroundedConversationalAnswerV31Validator().validate(
+        _parsed(payload),
+        package=analytical_package(AnswerIntent.EXPLAIN),
+    )
+    payload["claims"].append(
+        {
+            "claim_id": "c2",
+            "claim_type": "non_implication",
+            "source_refs": [],
+            "qualifier_code": "CORRELATION_NOT_COMPROMISE",
         }
     )
     payload["answer"]["segments"][0]["claim_refs"].append("c2")

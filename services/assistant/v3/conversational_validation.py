@@ -93,7 +93,9 @@ _ASSERTION_GUARDS: dict[str, tuple[str, ...]] = {
         "causality",
         "causal",
         "common cause",
+        "same cause",
         "causa comune",
+        "stessa causa",
         "causat",
     ),
     "maliciousness": (
