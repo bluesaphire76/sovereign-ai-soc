@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import statistics
+import subprocess
 import sys
 import time
 import urllib.error
@@ -25,7 +26,12 @@ from services.assistant.v3.semantic_proof.contracts import (
 )
 from services.assistant.v3.semantic_proof.corpus import (
     GoldenProofCase,
+    GoldenProofCategory,
     build_golden_proof_corpus,
+)
+from services.assistant.v3.semantic_proof.guards import (
+    TypedSemanticGuard,
+    eligible_for_deterministic_proof,
 )
 from services.assistant.v3.semantic_proof.provider import TransformersNliProvider
 from services.ai_execution.client import AiExecutionClient
@@ -105,6 +111,39 @@ def _emit(report: dict[str, Any], output: Path | None) -> None:
         output.write_text(f"{rendered}\n", encoding="utf-8")
 
 
+def _nvidia_smi_snapshot() -> dict[str, float] | None:
+    try:
+        result = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=memory.used,memory.free,memory.total",
+                "--format=csv,noheader,nounits",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    first_line = result.stdout.strip().splitlines()[:1]
+    if not first_line:
+        return None
+    try:
+        used_mib, free_mib, total_mib = (
+            float(item.strip()) for item in first_line[0].split(",")
+        )
+    except (TypeError, ValueError):
+        return None
+    return {
+        "used_mib": used_mib,
+        "free_mib": free_mib,
+        "total_mib": total_mib,
+    }
+
+
 def _gpu_snapshot(device: str) -> dict[str, float]:
     try:
         import torch
@@ -115,12 +154,28 @@ def _gpu_snapshot(device: str) -> dict[str, float]:
     torch.cuda.set_device(device)
     torch.cuda.synchronize(device)
     free_bytes, total_bytes = torch.cuda.mem_get_info(device)
-    return {
-        "free_mib": free_bytes / (1024 * 1024),
-        "total_mib": total_bytes / (1024 * 1024),
+    cuda_free_mib = free_bytes / (1024 * 1024)
+    cuda_total_mib = total_bytes / (1024 * 1024)
+    nvidia_smi = _nvidia_smi_snapshot()
+    result = {
+        "free_mib": (
+            nvidia_smi["free_mib"] if nvidia_smi is not None else cuda_free_mib
+        ),
+        "total_mib": (
+            nvidia_smi["total_mib"] if nvidia_smi is not None else cuda_total_mib
+        ),
+        "cuda_runtime_free_mib": cuda_free_mib,
+        "cuda_runtime_total_mib": cuda_total_mib,
         "process_allocated_mib": torch.cuda.memory_allocated(device) / (1024 * 1024),
         "process_reserved_mib": torch.cuda.memory_reserved(device) / (1024 * 1024),
+        "process_peak_allocated_mib": torch.cuda.max_memory_allocated(device)
+        / (1024 * 1024),
+        "process_peak_reserved_mib": torch.cuda.max_memory_reserved(device)
+        / (1024 * 1024),
     }
+    if nvidia_smi is not None:
+        result["nvidia_smi_used_mib"] = nvidia_smi["used_mib"]
+    return result
 
 
 def _request_json(
@@ -293,17 +348,173 @@ def _quality_metrics(
     }
 
 
+def _rate(numerator: int, denominator: int) -> float:
+    return round(numerator / denominator, 6) if denominator else 0.0
+
+
+def _hybrid_quality_metrics(
+    cases: Sequence[GoldenProofCase],
+    decisions: Sequence[EntailmentDecision],
+) -> dict[str, Any]:
+    by_id = {item.pair_id: item for item in decisions}
+    guard = TypedSemanticGuard()
+    final_acceptance: dict[str, bool] = {}
+    proof_paths: Counter[str] = Counter()
+    guard_reasons: Counter[str] = Counter()
+    for item in cases:
+        guard_decision = guard.evaluate(item.proof_unit, item.hypothesis)
+        if not guard_decision.accepted:
+            final_acceptance[item.case_id] = False
+            proof_paths["typed_guard_reject"] += 1
+            guard_reasons[guard_decision.reason.value] += 1
+            continue
+        if eligible_for_deterministic_proof(item.proof_unit, item.hypothesis):
+            final_acceptance[item.case_id] = True
+            proof_paths["typed_deterministic_proof"] += 1
+            continue
+        nli = by_id.get(item.case_id)
+        final_acceptance[item.case_id] = bool(nli and nli.accepted)
+        proof_paths["nli_proof"] += 1
+
+    false_accept_ids = [
+        item.case_id
+        for item in cases
+        if not item.expected_accept and final_acceptance[item.case_id]
+    ]
+    false_reject_ids = [
+        item.case_id
+        for item in cases
+        if item.expected_accept and not final_acceptance[item.case_id]
+    ]
+    security_negative = [
+        item for item in cases if item.security_critical and not item.expected_accept
+    ]
+    security_false_accept_ids = [
+        item.case_id for item in security_negative if final_acceptance[item.case_id]
+    ]
+    exact = [
+        item
+        for item in cases
+        if item.category is GoldenProofCategory.EXACT_AUTHORITATIVE_FACT
+        and item.expected_accept
+    ]
+    paraphrases = [
+        item
+        for item in cases
+        if item.category is GoldenProofCategory.FAITHFUL_PARAPHRASE
+        and item.expected_accept
+    ]
+    critical_contradictions = [
+        item
+        for item in cases
+        if item.security_critical
+        and item.expected_label is EntailmentLabel.CONTRADICTION
+    ]
+    partial_compounds = [
+        item
+        for item in cases
+        if item.security_critical
+        and item.category is GoldenProofCategory.PARTIAL_COMPOUND
+    ]
+    overreach_categories = {
+        GoldenProofCategory.CAUSAL_INFERENCE,
+        GoldenProofCategory.COMPROMISE_INFERENCE,
+        GoldenProofCategory.MALICIOUSNESS_INFERENCE,
+        GoldenProofCategory.ATTACKER_CAMPAIGN_INFERENCE,
+        GoldenProofCategory.PERSISTENCE_INFERENCE,
+        GoldenProofCategory.LATERAL_MOVEMENT_INFERENCE,
+        GoldenProofCategory.IMPACT_URGENCY_INFERENCE,
+        GoldenProofCategory.RECORDED_CORRELATION_OVERREACH,
+        GoldenProofCategory.SEMANTIC_SIMILARITY_PROMOTION,
+        GoldenProofCategory.ANALYTICAL_RELATIONSHIP_PROMOTION,
+        GoldenProofCategory.REFERENCE_AS_OPERATIONAL_STATE,
+    }
+    critical_overreach = [
+        item
+        for item in cases
+        if item.security_critical and item.category in overreach_categories
+    ]
+    language_security: dict[str, dict[str, Any]] = {}
+    language_accuracy: dict[str, float] = {}
+    for language_pair in ("IT_IT", "EN_IT", "EN_EN"):
+        selected = [item for item in cases if item.language_pair == language_pair]
+        selected_security = [
+            item
+            for item in selected
+            if item.security_critical and not item.expected_accept
+        ]
+        correct = sum(
+            final_acceptance[item.case_id] == item.expected_accept
+            for item in selected
+        )
+        language_accuracy[language_pair] = _rate(correct, len(selected))
+        language_security[language_pair] = {
+            "negative_count": len(selected_security),
+            "false_accept_count": sum(
+                final_acceptance[item.case_id] for item in selected_security
+            ),
+        }
+
+    exact_acceptance_rate = _rate(
+        sum(final_acceptance[item.case_id] for item in exact),
+        len(exact),
+    )
+    paraphrase_acceptance_rate = _rate(
+        sum(final_acceptance[item.case_id] for item in paraphrases),
+        len(paraphrases),
+    )
+    contradiction_rejection_rate = _rate(
+        sum(not final_acceptance[item.case_id] for item in critical_contradictions),
+        len(critical_contradictions),
+    )
+    partial_rejection_rate = _rate(
+        sum(not final_acceptance[item.case_id] for item in partial_compounds),
+        len(partial_compounds),
+    )
+    overreach_rejection_rate = _rate(
+        sum(not final_acceptance[item.case_id] for item in critical_overreach),
+        len(critical_overreach),
+    )
+    security_gate_passed = (
+        not security_false_accept_ids
+        and contradiction_rejection_rate == 1.0
+        and partial_rejection_rate == 1.0
+        and overreach_rejection_rate == 1.0
+        and exact_acceptance_rate >= 0.98
+        and paraphrase_acceptance_rate >= 0.95
+    )
+    return {
+        "acceptance_accuracy": language_accuracy,
+        "security_by_language": language_security,
+        "false_accept_count": len(false_accept_ids),
+        "false_reject_count": len(false_reject_ids),
+        "security_critical_false_accept_count": len(security_false_accept_ids),
+        "false_accept_case_ids": false_accept_ids,
+        "false_reject_case_ids": false_reject_ids,
+        "security_critical_false_accept_case_ids": security_false_accept_ids,
+        "exact_fact_acceptance_rate": exact_acceptance_rate,
+        "faithful_paraphrase_acceptance_rate": paraphrase_acceptance_rate,
+        "critical_contradiction_rejection_rate": contradiction_rejection_rate,
+        "critical_partial_compound_rejection_rate": partial_rejection_rate,
+        "critical_overreach_rejection_rate": overreach_rejection_rate,
+        "proof_paths": dict(sorted(proof_paths.items())),
+        "typed_guard_reasons": dict(sorted(guard_reasons.items())),
+        "security_gate_passed": security_gate_passed,
+    }
+
+
 def _benchmark_outcome(
     *,
     unavailable_count: int,
     coexistence_verified: bool,
     security_critical_false_accept_count: int,
+    security_gate_passed: bool = True,
 ) -> tuple[str, int]:
     if unavailable_count:
         return "provider_failed_closed", 2
     if not coexistence_verified:
         return "completed_coexistence_not_verified", 2
-    if security_critical_false_accept_count:
+    if security_critical_false_accept_count or not security_gate_passed:
         return "completed", 1
     return "completed", 0
 
@@ -427,13 +638,30 @@ def main(argv: Sequence[str] | None = None) -> int:
     unavailable = sum(
         item.label is EntailmentLabel.UNAVAILABLE for item in latest_decisions
     )
-    quality = _quality_metrics(cases, latest_decisions)
+    nli_only_quality = _quality_metrics(cases, latest_decisions)
+    hybrid_quality = _hybrid_quality_metrics(cases, latest_decisions)
+    guard = TypedSemanticGuard()
+    hybrid_nli_pairs = tuple(
+        pair
+        for case, pair in zip(cases, pairs)
+        if guard.evaluate(case.proof_unit, case.hypothesis).accepted
+        and not eligible_for_deterministic_proof(case.proof_unit, case.hypothesis)
+    )
+    hybrid_proof_latencies: list[float] = []
+    for _ in range(args.runs):
+        proof_started = time.perf_counter()
+        for case in cases:
+            guard.evaluate(case.proof_unit, case.hypothesis)
+        provider.evaluate(hybrid_nli_pairs, batch_size=args.batch_size)
+        hybrid_proof_latencies.append((time.perf_counter() - proof_started) * 1000)
+    after_measurement = _gpu_snapshot(args.device)
     benchmark_status, exit_code = _benchmark_outcome(
         unavailable_count=unavailable,
         coexistence_verified=coexistence_verified,
-        security_critical_false_accept_count=quality[
+        security_critical_false_accept_count=hybrid_quality[
             "security_critical_false_accept_count"
         ],
+        security_gate_passed=hybrid_quality["security_gate_passed"],
     )
     report.update(
         status=benchmark_status,
@@ -442,8 +670,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         latency_p50_ms=round(_percentile(batch_latencies, 0.50), 3),
         latency_p95_ms=round(_percentile(batch_latencies, 0.95), 3),
         pairs_per_second=round(measured_pairs / measured_seconds, 3),
+        hybrid_corpus_proof_latency_ms=round(
+            statistics.mean(hybrid_proof_latencies),
+            3,
+        ),
+        hybrid_corpus_proof_latency_p50_ms=round(
+            _percentile(hybrid_proof_latencies, 0.50),
+            3,
+        ),
+        hybrid_corpus_proof_latency_p95_ms=round(
+            _percentile(hybrid_proof_latencies, 0.95),
+            3,
+        ),
+        hybrid_nli_pair_count=len(hybrid_nli_pairs),
+        gpu_after_measurement=after_measurement,
         unavailable_decision_count=unavailable,
-        **quality,
+        nli_only_quality=nli_only_quality,
+        **hybrid_quality,
     )
     _emit(report, args.output)
     return exit_code

@@ -38,15 +38,21 @@ from services.assistant.v3.semantic_proof.contracts import (
     EvidenceProofUnit,
     PremiseLanguage,
     ProofLanguage,
+    ProofPredicate,
     ProofScope,
     ProofScopeKind,
+    ProofValue,
 )
 
 
-def _proof_id(source_ref: str, field: str, language: PremiseLanguage) -> str:
-    material = f"{source_ref}\x1f{field}\x1f{language}"
+def _proof_id(
+    source_ref: str,
+    predicate: ProofPredicate,
+    language: PremiseLanguage,
+) -> str:
+    material = f"{source_ref}\x1f{predicate.value}\x1f{language}"
     suffix = hashlib.sha256(material.encode("utf-8")).hexdigest()[:24]
-    return f"proof:{language}:{field}:{suffix}"
+    return f"proof:{language}:{predicate.value.lower()}:{suffix}"
 
 
 def _number(value: float | int) -> str:
@@ -58,6 +64,16 @@ def _boolean(value: bool, language: ProofLanguage) -> str:
     if language == "it":
         return "vero" if value else "falso"
     return "true" if value else "false"
+
+
+def _proof_value(
+    *canonical_values: object,
+    required_anchors: Sequence[object] | None = None,
+) -> ProofValue:
+    return ProofValue(
+        canonical_values=[str(item) for item in canonical_values],
+        required_anchors=[str(item) for item in (required_anchors or canonical_values)],
+    )
 
 
 def _atom_scope(atom: Any) -> ProofScope:
@@ -186,7 +202,8 @@ class EvidenceProofUnitCompiler:
     def _unit(
         *,
         source_ref: str,
-        field: str,
+        predicate: ProofPredicate,
+        value: ProofValue,
         language: PremiseLanguage,
         authority_class: AuthorityClass,
         evidence_kind: EvidenceKind,
@@ -197,7 +214,7 @@ class EvidenceProofUnitCompiler:
         role: AllowedSemanticRole,
     ) -> EvidenceProofUnit:
         return EvidenceProofUnit(
-            proof_unit_id=_proof_id(source_ref, field, language),
+            proof_unit_id=_proof_id(source_ref, predicate, language),
             authority_class=authority_class,
             evidence_kind=evidence_kind,
             scope=scope,
@@ -206,13 +223,16 @@ class EvidenceProofUnitCompiler:
             provenance=provenance,
             premise_language=language,
             allowed_semantic_role=role,
+            predicate=predicate,
+            value=value,
         )
 
     def _literal_units(
         self,
         *,
         source_ref: str,
-        field: str,
+        predicate: ProofPredicate,
+        value: ProofValue,
         authority_class: AuthorityClass,
         evidence_kind: EvidenceKind,
         scope: ProofScope,
@@ -225,7 +245,8 @@ class EvidenceProofUnitCompiler:
         return [
             self._unit(
                 source_ref=source_ref,
-                field=field,
+                predicate=predicate,
+                value=value,
                 language=language,
                 authority_class=authority_class,
                 evidence_kind=evidence_kind,
@@ -267,15 +288,27 @@ class EvidenceProofUnitCompiler:
         }
         units: list[EvidenceProofUnit] = []
 
-        def add(field: str, premise: Callable[[ProofLanguage], str]) -> None:
-            units.extend(self._literal_units(field=field, premise=premise, **common))
+        def add(
+            predicate: ProofPredicate,
+            value: ProofValue,
+            premise: Callable[[ProofLanguage], str],
+        ) -> None:
+            units.extend(
+                self._literal_units(
+                    predicate=predicate,
+                    value=value,
+                    premise=premise,
+                    **common,
+                )
+            )
 
         subject_en = f"Incident {atom.incident_id}" if atom.incident_id else f"Case {atom.case_id}"
         subject_it = f"Incidente {atom.incident_id}" if atom.incident_id else f"Caso {atom.case_id}"
 
         if isinstance(atom, IncidentIdentityAtom):
             add(
-                "incident_id",
+                ProofPredicate.INCIDENT_ID,
+                _proof_value(atom.incident_id),
                 lambda language: (
                     f"Incident identifier: {atom.incident_id}."
                     if language == "en"
@@ -284,7 +317,8 @@ class EvidenceProofUnitCompiler:
             )
             if atom.timestamp:
                 add(
-                    "timestamp",
+                    ProofPredicate.INCIDENT_TIMESTAMP,
+                    _proof_value(atom.timestamp),
                     lambda language: (
                         f"{subject_en} recorded timestamp: {atom.timestamp}."
                         if language == "en"
@@ -293,7 +327,8 @@ class EvidenceProofUnitCompiler:
                 )
         elif isinstance(atom, CaseIdentityAtom):
             add(
-                "case_id",
+                ProofPredicate.CASE_ID,
+                _proof_value(atom.case_id),
                 lambda language: (
                     f"Case identifier: {atom.case_id}."
                     if language == "en"
@@ -302,7 +337,8 @@ class EvidenceProofUnitCompiler:
             )
             if atom.title:
                 add(
-                    "case_title",
+                    ProofPredicate.CASE_TITLE,
+                    _proof_value(atom.title),
                     lambda language: (
                         f"{subject_en} recorded title: {atom.title}."
                         if language == "en"
@@ -311,7 +347,8 @@ class EvidenceProofUnitCompiler:
                 )
         elif isinstance(atom, StatusAtom):
             add(
-                "status",
+                ProofPredicate.STATUS,
+                _proof_value(atom.status),
                 lambda language: (
                     f"{subject_en} status recorded as {atom.status}."
                     if language == "en"
@@ -320,17 +357,19 @@ class EvidenceProofUnitCompiler:
             )
             if atom.canonical_severity:
                 add(
-                    "canonical_severity",
+                    ProofPredicate.CANONICAL_SEVERITY,
+                    _proof_value(atom.canonical_severity),
                     lambda language: (
                         f"{subject_en} canonical severity recorded as {atom.canonical_severity}."
                         if language == "en"
-                        else f"Severita canonica registrata per {subject_it}: {atom.canonical_severity}."
+                        else f"Severità canonica registrata per {subject_it}: {atom.canonical_severity}."
                     ),
                 )
         elif isinstance(atom, RiskAtom):
             if atom.risk_score is not None:
                 add(
-                    "risk_score",
+                    ProofPredicate.RISK_SCORE,
+                    _proof_value(_number(atom.risk_score)),
                     lambda language: (
                         f"{subject_en} recorded risk score: {_number(atom.risk_score)}."
                         if language == "en"
@@ -339,7 +378,8 @@ class EvidenceProofUnitCompiler:
                 )
             if atom.risk_normalization_severity:
                 add(
-                    "risk_normalization",
+                    ProofPredicate.RISK_NORMALIZATION,
+                    _proof_value(atom.risk_normalization_severity),
                     lambda language: (
                         f"{subject_en} recorded risk normalization: {atom.risk_normalization_severity}."
                         if language == "en"
@@ -348,18 +388,24 @@ class EvidenceProofUnitCompiler:
                 )
         elif isinstance(atom, PriorityAtom):
             add(
-                "recommended_priority",
+                ProofPredicate.RECOMMENDED_PRIORITY,
+                _proof_value(atom.recommended_priority),
                 lambda language: (
                     f"{subject_en} recorded recommended priority: {atom.recommended_priority}."
                     if language == "en"
-                    else f"Priorita raccomandata registrata per {subject_it}: {atom.recommended_priority}."
+                    else f"Priorità raccomandata registrata per {subject_it}: {atom.recommended_priority}."
                 ),
             )
         elif isinstance(atom, HostAtom):
             label_en = "host" if atom.representation == "host" else "agent"
             label_it = "host" if atom.representation == "host" else "agente"
             add(
-                atom.representation,
+                (
+                    ProofPredicate.HOST
+                    if atom.representation == "host"
+                    else ProofPredicate.AGENT
+                ),
+                _proof_value(atom.host),
                 lambda language: (
                     f"{subject_en} recorded {label_en}: {atom.host}."
                     if language == "en"
@@ -368,7 +414,8 @@ class EvidenceProofUnitCompiler:
             )
         elif isinstance(atom, UserAtom):
             add(
-                "user",
+                ProofPredicate.USER,
+                _proof_value(atom.user),
                 lambda language: (
                     f"{subject_en} recorded user: {atom.user}."
                     if language == "en"
@@ -377,7 +424,8 @@ class EvidenceProofUnitCompiler:
             )
         elif isinstance(atom, DetectionAtom):
             add(
-                "detection_rule",
+                ProofPredicate.DETECTION_RULE,
+                _proof_value(atom.rule),
                 lambda language: (
                     f"{subject_en} recorded detection rule: {atom.rule}."
                     if language == "en"
@@ -386,7 +434,8 @@ class EvidenceProofUnitCompiler:
             )
             if atom.level is not None:
                 add(
-                    "detection_level",
+                    ProofPredicate.DETECTION_LEVEL,
+                    _proof_value(atom.level),
                     lambda language: (
                         f"{subject_en} recorded detection rule level: {atom.level}."
                         if language == "en"
@@ -398,7 +447,10 @@ class EvidenceProofUnitCompiler:
                 item for item in (atom.technique_id, atom.technique_name) if item
             )
             add(
-                "mitre_technique",
+                ProofPredicate.MITRE_TECHNIQUE,
+                _proof_value(
+                    *(item for item in (atom.technique_id, atom.technique_name) if item)
+                ),
                 lambda language: (
                     f"{subject_en} recorded MITRE technique: {value}."
                     if language == "en"
@@ -409,7 +461,11 @@ class EvidenceProofUnitCompiler:
             timestamp = f" at {atom.timestamp}" if atom.timestamp else ""
             timestamp_it = f" alle {atom.timestamp}" if atom.timestamp else ""
             add(
-                "timeline_event",
+                ProofPredicate.TIMELINE_EVENT,
+                _proof_value(
+                    *(item for item in (atom.event_type, atom.timestamp) if item),
+                    required_anchors=[atom.event_type],
+                ),
                 lambda language: (
                     f"{subject_en} timeline records event {atom.event_type}{timestamp}."
                     if language == "en"
@@ -418,7 +474,12 @@ class EvidenceProofUnitCompiler:
             )
         elif isinstance(atom, ObservableAtom):
             add(
-                "observable",
+                ProofPredicate.OBSERVABLE,
+                _proof_value(
+                    atom.observable_type,
+                    atom.value,
+                    required_anchors=[atom.value],
+                ),
                 lambda language: (
                     f"{subject_en} recorded {atom.observable_type} observable: {atom.value}."
                     if language == "en"
@@ -427,7 +488,8 @@ class EvidenceProofUnitCompiler:
             )
         elif isinstance(atom, ProcessAtom):
             add(
-                "process_name",
+                ProofPredicate.PROCESS_NAME,
+                _proof_value(atom.process_name),
                 lambda language: (
                     f"{subject_en} recorded process name: {atom.process_name}."
                     if language == "en"
@@ -436,7 +498,8 @@ class EvidenceProofUnitCompiler:
             )
             if atom.process_id:
                 add(
-                    "process_id",
+                    ProofPredicate.PROCESS_ID,
+                    _proof_value(atom.process_id),
                     lambda language: (
                         f"{subject_en} recorded process ID: {atom.process_id}."
                         if language == "en"
@@ -445,7 +508,8 @@ class EvidenceProofUnitCompiler:
                 )
             if atom.parent_process_name:
                 add(
-                    "parent_process",
+                    ProofPredicate.PARENT_PROCESS,
+                    _proof_value(atom.parent_process_name),
                     lambda language: (
                         f"{subject_en} recorded parent process: {atom.parent_process_name}."
                         if language == "en"
@@ -454,7 +518,12 @@ class EvidenceProofUnitCompiler:
                 )
         elif isinstance(atom, EvidenceDetailAtom):
             add(
-                "evidence_detail",
+                ProofPredicate.EVIDENCE_DETAIL,
+                _proof_value(
+                    atom.evidence_type,
+                    atom.summary,
+                    required_anchors=[atom.evidence_type],
+                ),
                 lambda language: (
                     f"{subject_en} recorded evidence of type {atom.evidence_type}: {atom.summary}."
                     if language == "en"
@@ -464,7 +533,8 @@ class EvidenceProofUnitCompiler:
         elif isinstance(atom, RecordedCorrelationAtom):
             if atom.correlated is not None:
                 add(
-                    "correlated",
+                    ProofPredicate.CORRELATION_FLAG,
+                    _proof_value(str(atom.correlated).lower()),
                     lambda language: (
                         f"{subject_en} recorded correlation flag: {_boolean(atom.correlated, language)}."
                         if language == "en"
@@ -473,7 +543,8 @@ class EvidenceProofUnitCompiler:
                 )
             if atom.correlation_type:
                 add(
-                    "correlation_type",
+                    ProofPredicate.CORRELATION_TYPE,
+                    _proof_value(atom.correlation_type),
                     lambda language: (
                         f"{subject_en} recorded correlation type: {atom.correlation_type}."
                         if language == "en"
@@ -482,7 +553,8 @@ class EvidenceProofUnitCompiler:
                 )
             if atom.correlation_score is not None:
                 add(
-                    "correlation_score",
+                    ProofPredicate.CORRELATION_SCORE,
+                    _proof_value(_number(atom.correlation_score)),
                     lambda language: (
                         f"{subject_en} recorded correlation score: {_number(atom.correlation_score)}."
                         if language == "en"
@@ -491,7 +563,8 @@ class EvidenceProofUnitCompiler:
                 )
         elif isinstance(atom, EscalationStateAtom):
             add(
-                "escalated",
+                ProofPredicate.ESCALATED,
+                _proof_value(str(atom.escalated).lower()),
                 lambda language: (
                     f"{subject_en} recorded escalation flag: {_boolean(atom.escalated, language)}."
                     if language == "en"
@@ -500,7 +573,8 @@ class EvidenceProofUnitCompiler:
             )
         elif isinstance(atom, EscalationReasonAtom):
             add(
-                "escalation_reason",
+                ProofPredicate.ESCALATION_REASON,
+                _proof_value(atom.reason),
                 lambda language: (
                     f"{subject_en} recorded escalation reason: {atom.reason}."
                     if language == "en"
@@ -510,7 +584,8 @@ class EvidenceProofUnitCompiler:
         elif isinstance(atom, CompromiseStateAtom):
             if atom.compromise_confirmed is not None:
                 add(
-                    "compromise_confirmed",
+                    ProofPredicate.COMPROMISE_CONFIRMED,
+                    _proof_value(str(atom.compromise_confirmed).lower()),
                     lambda language: (
                         f"{subject_en} recorded compromise confirmation: {_boolean(atom.compromise_confirmed, language)}."
                         if language == "en"
@@ -519,7 +594,8 @@ class EvidenceProofUnitCompiler:
                 )
         elif isinstance(atom, CaseRelationshipAtom):
             add(
-                "case_relationship",
+                ProofPredicate.CASE_RELATIONSHIP,
+                _proof_value(atom.relationship_type),
                 lambda language: (
                     f"Incident {atom.incident_id} has recorded case relationship {atom.relationship_type} with Case {atom.case_id}."
                     if language == "en"
@@ -554,7 +630,7 @@ class EvidenceProofUnitCompiler:
                         f"was derived between Incidents {relationship.left_incident_id} and {relationship.right_incident_id}."
                     )
                 return (
-                    f"E stata derivata una relazione analitica deterministica di tipo {relationship.relationship_type.value} "
+                    f"È stata derivata una relazione analitica deterministica di tipo {relationship.relationship_type.value} "
                     f"tra gli Incidenti {relationship.left_incident_id} e {relationship.right_incident_id}."
                 )
             if language == "en":
@@ -563,13 +639,20 @@ class EvidenceProofUnitCompiler:
                     f"Incident {relationship.right_incident_id} as a candidate for Incident {relationship.left_incident_id}."
                 )
             return (
-                f"La relazione di similarita semantica di tipo {relationship.relationship_type.value} ha selezionato "
+                f"La relazione di similarità semantica di tipo {relationship.relationship_type.value} ha selezionato "
                 f"l'Incidente {relationship.right_incident_id} come candidato per l'Incidente {relationship.left_incident_id}."
             )
 
         return self._literal_units(
             source_ref=relationship.relationship_id,
-            field=f"relationship_{relationship.relationship_type.value.lower()}",
+            predicate={
+                EvidenceKind.RECORDED_CORRELATION: ProofPredicate.RECORDED_RELATIONSHIP,
+                EvidenceKind.ANALYTICAL_RELATIONSHIP: (
+                    ProofPredicate.ANALYTICAL_RELATIONSHIP
+                ),
+                EvidenceKind.SEMANTIC_CANDIDATE: ProofPredicate.SEMANTIC_SIMILARITY,
+            }[kind],
+            value=_proof_value(relationship.relationship_type.value),
             authority_class=relationship.authority_class,
             evidence_kind=kind,
             scope=_relationship_scope(relationship),
@@ -614,7 +697,12 @@ class EvidenceProofUnitCompiler:
         )
         return self._literal_units(
             source_ref=candidate.candidate_id,
-            field="candidate_discovery",
+            predicate=ProofPredicate.CANDIDATE_DISCOVERY,
+            value=_proof_value(
+                candidate.candidate_incident_id,
+                *(item.value for item in candidate.discovery_signals),
+                required_anchors=[candidate.candidate_incident_id],
+            ),
             authority_class=AuthorityClass.SEMANTIC_CANDIDATE,
             evidence_kind=EvidenceKind.SEMANTIC_CANDIDATE,
             scope=scope,
@@ -625,7 +713,7 @@ class EvidenceProofUnitCompiler:
             premise=lambda language: (
                 f"Incident {candidate.candidate_incident_id} is a cross-incident candidate with discovery signals: {signals}."
                 if language == "en"
-                else f"L'Incidente {candidate.candidate_incident_id} e un candidato cross-incident con segnali di discovery: {signals}."
+                else f"L'Incidente {candidate.candidate_incident_id} è un candidato cross-incident con segnali di discovery: {signals}."
             ),
         )
 
@@ -639,7 +727,12 @@ class EvidenceProofUnitCompiler:
         return [
             self._unit(
                 source_ref=atom.knowledge_id,
-                field="reference_knowledge",
+                predicate=ProofPredicate.REFERENCE_EXPLANATION,
+                value=_proof_value(
+                    atom.subject,
+                    atom.bounded_content,
+                    required_anchors=[atom.subject],
+                ),
                 language="und",
                 authority_class=atom.authority_class,
                 evidence_kind=EvidenceKind.REFERENCE_KNOWLEDGE,
@@ -664,7 +757,12 @@ class EvidenceProofUnitCompiler:
         return [
             self._unit(
                 source_ref=atom.knowledge_id,
-                field="advisory_knowledge",
+                predicate=ProofPredicate.ADVISORY_GUIDANCE,
+                value=_proof_value(
+                    atom.subject,
+                    atom.bounded_content,
+                    required_anchors=[atom.subject],
+                ),
                 language="und",
                 authority_class=atom.authority_class,
                 evidence_kind=EvidenceKind.ADVISORY_KNOWLEDGE,

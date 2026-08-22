@@ -122,19 +122,20 @@ answers continue with a typed semantic degradation state such as
 The response architecture has one rollout control:
 
 ```text
-AI_ASSISTANT_RESPONSE_ARCHITECTURE=v2|v3|v3_1
+AI_ASSISTANT_RESPONSE_ARCHITECTURE=v2|v3|v3_1|v3_2
 ```
 
-The repository default is `v3`. Use `v3_1` only for the Part A conversational
-proof gate. Set it explicitly in a deployment environment when reconciling an
-existing rollout, then restart the API through the normal service workflow. A
-successful verification request reports response architecture `v3` or `v3_1`,
-passed grounding and plan validation, standard profile/model, exactly one
+The repository default is `v3_2`. V3.2 adds a local GPU hybrid semantic proof
+gate after the single standard-model generation. Use `v3_1`, `v3`, or `v2` only
+as explicit rollback settings. Set the architecture in the deployment
+environment, then restart the API through the normal service workflow. A
+successful V3.2 request reports `semantic_proof_status=passed`, exactly one
 provider generation, no automatic retry, and no fallback. Confirm
 the gateway returns to `ready` with `queue_depth=0` and `active_requests=0`.
 
-V3.1 rollback requires no schema or data migration. Restore the setting to
-`v3` and restart the API; `v2` remains the explicit legacy rollback only. V3
+V3.2 rollback requires no schema or data migration. Restore the setting to
+`v3_1` or `v3` and restart the API; `v2` remains the explicit legacy rollback.
+V3
 conversation state contains only bounded validated refs and is not consumed as
 authoritative prose by another response architecture. The incident semantic
 index may remain populated because Qdrant is retrieval support only.

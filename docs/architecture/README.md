@@ -17,6 +17,7 @@
 
 ## AI Assistant V3 Intelligence Foundation
 
+- [V3.2 Hybrid Semantic Grounding](v1.1-ai-assistant-v3-2-semantic-grounding.md)
 - [V3.1 Part A: Conversational Recovery](v1.0-ai-assistant-v3-1-part-a.md)
 - [Milestone C: Production Quality and Hardening](v0.9-ai-assistant-v3-milestone-c.md)
 - [Milestone B: Useful Grounded Analytical Assistant V3](v0.9-ai-assistant-v3-milestone-b.md)

@@ -30,6 +30,60 @@ class AllowedSemanticRole(str, Enum):
     INVESTIGATION_GUIDANCE = "INVESTIGATION_GUIDANCE"
 
 
+class ProofPredicate(str, Enum):
+    INCIDENT_ID = "INCIDENT_ID"
+    INCIDENT_TIMESTAMP = "INCIDENT_TIMESTAMP"
+    CASE_ID = "CASE_ID"
+    CASE_TITLE = "CASE_TITLE"
+    STATUS = "STATUS"
+    CANONICAL_SEVERITY = "CANONICAL_SEVERITY"
+    RISK_SCORE = "RISK_SCORE"
+    RISK_NORMALIZATION = "RISK_NORMALIZATION"
+    RECOMMENDED_PRIORITY = "RECOMMENDED_PRIORITY"
+    HOST = "HOST"
+    AGENT = "AGENT"
+    USER = "USER"
+    DETECTION_RULE = "DETECTION_RULE"
+    DETECTION_LEVEL = "DETECTION_LEVEL"
+    MITRE_TECHNIQUE = "MITRE_TECHNIQUE"
+    TIMELINE_EVENT = "TIMELINE_EVENT"
+    OBSERVABLE = "OBSERVABLE"
+    PROCESS_NAME = "PROCESS_NAME"
+    PROCESS_ID = "PROCESS_ID"
+    PARENT_PROCESS = "PARENT_PROCESS"
+    EVIDENCE_DETAIL = "EVIDENCE_DETAIL"
+    CORRELATION_FLAG = "CORRELATION_FLAG"
+    CORRELATION_TYPE = "CORRELATION_TYPE"
+    CORRELATION_SCORE = "CORRELATION_SCORE"
+    ESCALATED = "ESCALATED"
+    ESCALATION_REASON = "ESCALATION_REASON"
+    COMPROMISE_CONFIRMED = "COMPROMISE_CONFIRMED"
+    CASE_RELATIONSHIP = "CASE_RELATIONSHIP"
+    RECORDED_RELATIONSHIP = "RECORDED_RELATIONSHIP"
+    ANALYTICAL_RELATIONSHIP = "ANALYTICAL_RELATIONSHIP"
+    SEMANTIC_SIMILARITY = "SEMANTIC_SIMILARITY"
+    CANDIDATE_DISCOVERY = "CANDIDATE_DISCOVERY"
+    REFERENCE_EXPLANATION = "REFERENCE_EXPLANATION"
+    ADVISORY_GUIDANCE = "ADVISORY_GUIDANCE"
+
+
+class ProofValue(ClosedModel):
+    canonical_values: list[str] = Field(min_length=1, max_length=16)
+    required_anchors: list[str] = Field(default_factory=list, max_length=8)
+
+    @model_validator(mode="after")
+    def validate_values(self):
+        if any(not item.strip() for item in self.canonical_values):
+            raise ValueError("proof canonical values must be non-empty")
+        if any(not item.strip() for item in self.required_anchors):
+            raise ValueError("proof required anchors must be non-empty")
+        if len(self.canonical_values) != len(set(self.canonical_values)):
+            raise ValueError("proof canonical values must be unique")
+        if len(self.required_anchors) != len(set(self.required_anchors)):
+            raise ValueError("proof required anchors must be unique")
+        return self
+
+
 class ProofScopeKind(str, Enum):
     INCIDENT = "INCIDENT"
     CASE = "CASE"
@@ -72,6 +126,8 @@ class EvidenceProofUnit(ClosedModel):
     provenance: Provenance
     premise_language: PremiseLanguage
     allowed_semantic_role: AllowedSemanticRole
+    predicate: ProofPredicate
+    value: ProofValue
 
     @model_validator(mode="after")
     def validate_authority_contract(self):

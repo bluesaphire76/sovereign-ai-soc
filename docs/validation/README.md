@@ -7,7 +7,7 @@ or migration validation notes.
 
 ## Current Validation
 
-- [AI Assistant V3.2 Phase 0 semantic proof lab](ai-assistant-v3-2-semantic-proof-lab.md)
+- [AI Assistant V3.2 production validation](ai-assistant-v3-2-production.md)
 - [AI Assistant V3.1 Part A validation](ai-assistant-v3-1.md)
 - [AI Assistant V3.1 baseline failure](ai-assistant-v3-1-baseline-failure.md)
 - [AI Assistant V3.1 real-user proof gate](ai-assistant-v3-1-proof-gate.md)
@@ -19,6 +19,7 @@ or migration validation notes.
 
 ## Historical Validation Documents
 
+- [AI Assistant V3.2 Phase 0 semantic proof lab](ai-assistant-v3-2-semantic-proof-lab.md)
 - [v0.2 synthetic attack scenarios](v0.2_synthetic_attack_scenarios.md)
 - [v0.3 final validation](v0.3-final-validation.md)
 - [v0.3 release checklist](v0.3-release-checklist.md)

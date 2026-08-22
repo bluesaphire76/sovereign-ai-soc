@@ -59,7 +59,12 @@ export type AssistantFallbackReason =
   | "v31_schema_build_failed"
   | "v31_invalid_structured_output"
   | "v31_grounding_validation_failed"
-  | "v31_renderer_failed";
+  | "v31_renderer_failed"
+  | "v32_schema_build_failed"
+  | "v32_invalid_structured_output"
+  | "v32_semantic_proof_failed"
+  | "v32_semantic_proof_unavailable"
+  | "v32_renderer_failed";
 
 export type AssistantCapabilities = {
   enabled: boolean;
@@ -83,6 +88,14 @@ export type AssistantCapabilities = {
     | null;
   embedding_backend?: string | null;
   embedding_cache_state?: string | null;
+  semantic_proof_runtime_state?:
+    | "cold"
+    | "loading"
+    | "ready"
+    | "unavailable"
+    | null;
+  semantic_proof_model?: string | null;
+  semantic_proof_revision?: string | null;
 };
 
 export type AssistantQueryRequest = {
@@ -184,7 +197,7 @@ export type AssistantMetadata = {
   reference_retrieval_ms: number;
   advisory_retrieval_ms: number;
   conversation_state_ms: number;
-  response_architecture: "v2" | "v3" | "v3_1";
+  response_architecture: "v2" | "v3" | "v3_1" | "v3_2";
   plan_sections: number;
   plan_units: number;
   cross_incident_units: number;
@@ -202,6 +215,14 @@ export type AssistantMetadata = {
   automatic_retries: number;
   model_switches: number;
   finish_reason: string | null;
+  semantic_proof_status: "not_run" | "passed" | "failed" | "unavailable";
+  semantic_proof_ms: number;
+  semantic_proof_pairs: number;
+  typed_guard_rejects: number;
+  deterministic_proofs: number;
+  nli_proofs: number;
+  semantic_proof_model: string | null;
+  semantic_proof_revision: string | null;
   semantic_index_status:
     | "not_requested"
     | "ready"

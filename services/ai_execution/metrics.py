@@ -98,3 +98,18 @@ ASSISTANT_V3_CONTEXT_ITEMS = Histogram(
     labelnames=("item_class",),
     buckets=(0, 1, 2, 4, 8, 12, 16, 24, 32, 48, 80, 120, 160),
 )
+ASSISTANT_V32_PROOF_DURATION = Histogram(
+    "assistant_v32_semantic_proof_seconds",
+    "Assistant V3.2 whole-response semantic proof duration.",
+    labelnames=("status",),
+)
+ASSISTANT_V32_PROOF_PAIRS = Histogram(
+    "assistant_v32_semantic_proof_pairs",
+    "Assistant V3.2 proposition proof obligations per response.",
+    buckets=(1, 2, 3, 4, 6, 8, 10, 12),
+)
+ASSISTANT_V32_PROOF_DECISIONS = Counter(
+    "assistant_v32_semantic_proof_decisions_total",
+    "Assistant V3.2 proposition proof decisions by closed proof reason.",
+    labelnames=("reason",),
+)

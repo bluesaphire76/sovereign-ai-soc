@@ -28,15 +28,36 @@ from services.assistant.v3.semantic_proof.contracts import (
     EvidenceKind,
     EvidenceProofUnit,
     HypothesisFragment,
+    ProofPredicate,
 )
 from services.assistant.v3.semantic_proof.corpus import (
     GoldenProofCategory,
     build_golden_proof_corpus,
 )
 from services.assistant.v3.semantic_proof.evaluation import SemanticProofEvaluator
+from services.assistant.v3.semantic_proof.guards import (
+    TypedGuardReason,
+    TypedSemanticGuard,
+)
+from services.assistant.v3.semantic_proof.hybrid import (
+    HybridProofReason,
+    HybridSemanticProofEvaluator,
+)
+from services.assistant.v3.semantic_proof.models import (
+    MDEBERTA_V3_BASE,
+    MULTILINGUAL_MINILMV2_L6,
+    SemanticProofModelStatus,
+)
 from services.assistant.v3.semantic_proof.provider import (
     TransformersNliProvider,
     normalize_entailment_label,
+)
+from services.assistant.v3.semantic_proof.runtime import (
+    UnavailableEntailmentProvider,
+    get_semantic_proof_provider,
+    get_semantic_proof_runtime_settings,
+    reset_semantic_proof_runtime_for_tests,
+    semantic_proof_runtime_snapshot,
 )
 from tests.assistant_v3_test_support import analytical_package, operational_provenance
 
@@ -137,6 +158,41 @@ def test_semantic_proof_contracts_are_closed_and_authority_typed() -> None:
         )
 
 
+def test_semantic_model_manifest_is_pinned_and_records_rejection_boundary() -> None:
+    assert len(MULTILINGUAL_MINILMV2_L6.revision) == 40
+    assert len(MULTILINGUAL_MINILMV2_L6.weight_sha256) == 64
+    assert MULTILINGUAL_MINILMV2_L6.license == "MIT"
+    assert MULTILINGUAL_MINILMV2_L6.status is (
+        SemanticProofModelStatus.SELECTED_HYBRID_GATE
+    )
+    assert MDEBERTA_V3_BASE.status is (
+        SemanticProofModelStatus.REJECTED_AS_SOLE_GATE
+    )
+
+
+def test_semantic_runtime_is_gpu_only_offline_and_fails_closed(monkeypatch) -> None:
+    reset_semantic_proof_runtime_for_tests()
+    monkeypatch.setenv("AI_SOC_ASSISTANT_V32_NLI_DEVICE", "cpu")
+    with pytest.raises(ValueError, match="GPU-only"):
+        get_semantic_proof_runtime_settings()
+
+    monkeypatch.setenv("AI_SOC_ASSISTANT_V32_NLI_DEVICE", "cuda:0")
+    monkeypatch.setenv(
+        "AI_SOC_ASSISTANT_V32_NLI_MODEL_PATH",
+        "/tmp/not-the-pinned-model",
+    )
+    provider = get_semantic_proof_provider()
+    snapshot = semantic_proof_runtime_snapshot()
+
+    assert isinstance(provider, UnavailableEntailmentProvider)
+    assert snapshot["state"] == "unavailable"
+    assert snapshot["safe_error"] == "RuntimeError"
+    runtime_source = inspect.getsource(sys.modules[provider.__module__])
+    assert "local_files_only=True" in runtime_source
+    assert "from_pretrained" not in runtime_source
+    reset_semantic_proof_runtime_for_tests()
+
+
 def test_compiler_preserves_literal_values_without_semantic_expansion() -> None:
     package = analytical_package()
     units = EvidenceProofUnitCompiler().compile(package)
@@ -151,6 +207,9 @@ def test_compiler_preserves_literal_values_without_semantic_expansion() -> None:
     ]
 
     assert status.canonical_premise == "Incident 1 status recorded as OPEN."
+    assert status.predicate is ProofPredicate.STATUS
+    assert status.value.canonical_values == ["OPEN"]
+    assert status.value.required_anchors == ["OPEN"]
     assert mitre.canonical_premise == (
         "Incident 1 recorded MITRE technique: T1112: Modify Registry."
     )
@@ -163,6 +222,80 @@ def test_compiler_preserves_literal_values_without_semantic_expansion() -> None:
     assert "other events" not in compiled
     assert "malicious" not in compiled
     assert "caused" not in compiled
+
+
+def test_typed_guard_preserves_supported_facts_and_blocks_known_false_accepts() -> None:
+    cases = build_golden_proof_corpus()
+    guard = TypedSemanticGuard()
+    supported_rejects = [
+        item.case_id
+        for item in cases
+        if item.expected_accept
+        and not guard.evaluate(item.proof_unit, item.hypothesis).accepted
+    ]
+    known_false_accept_keys = {
+        "low_threat_interpretation:it_it",
+        "low_threat_interpretation:en_it",
+        "host_contradiction:it_it",
+        "host_contradiction:en_it",
+        "lateral_movement:it_it",
+        "urgency:it_it",
+        "urgency:en_it",
+        "semantic_similarity_promotion:it_it",
+        "semantic_similarity_promotion:en_it",
+    }
+    guard_results = {
+        item.case_id: guard.evaluate(item.proof_unit, item.hypothesis)
+        for item in cases
+        if item.case_id in known_false_accept_keys
+    }
+
+    assert supported_rejects == []
+    assert set(guard_results) == known_false_accept_keys
+    assert all(not item.accepted for item in guard_results.values())
+    assert {
+        item.reason for item in guard_results.values()
+    } <= {
+        TypedGuardReason.MISSING_REQUIRED_ANCHOR,
+        TypedGuardReason.INCOMPATIBLE_SEMANTIC_CONCEPT,
+    }
+
+
+def test_hybrid_evaluator_requires_typed_guard_and_entailment() -> None:
+    cases = build_golden_proof_corpus()
+    pairs = [
+        EntailmentPair(
+            pair_id=item.case_id,
+            proof_unit_id=item.proof_unit.proof_unit_id,
+            premise=item.proof_unit.canonical_premise,
+            premise_language=item.proof_unit.premise_language,
+            hypothesis_id=item.case_id,
+            hypothesis=item.hypothesis,
+            hypothesis_language=item.hypothesis_language,
+        )
+        for item in cases
+    ]
+    labels = {item.case_id: item.expected_label for item in cases}
+    proof_units = {
+        item.proof_unit.proof_unit_id: item.proof_unit for item in cases
+    }
+    result = HybridSemanticProofEvaluator(_StaticProvider(labels)).evaluate(
+        proof_units=list(proof_units.values()),
+        pairs=pairs,
+        batch_size=8,
+    )
+    expected_by_id = {item.case_id: item.expected_accept for item in cases}
+
+    assert {
+        item.pair_id: item.accepted for item in result.decisions
+    } == expected_by_id
+    assert result.typed_guard_reject_count == 129
+    assert result.provider_pair_count == 6
+    assert all(
+        item.reason is HybridProofReason.TYPED_GUARD_REJECTED
+        for item in result.decisions
+        if item.pair_id.startswith("low_threat_interpretation")
+    )
 
 
 def test_compiler_preserves_authority_roles_and_relationship_distinctions() -> None:
@@ -272,20 +405,20 @@ def test_compiler_does_not_materialize_unknown_compromise_state() -> None:
 def test_golden_corpus_is_closed_bounded_and_covers_every_required_class() -> None:
     cases = build_golden_proof_corpus()
 
-    assert len(cases) == 147
+    assert len(cases) == 210
     assert len({item.case_id for item in cases}) == len(cases)
     assert {item.category for item in cases} == set(GoldenProofCategory)
     assert Counter(item.language_pair for item in cases) == {
-        "IT_IT": 49,
-        "EN_IT": 49,
-        "EN_EN": 49,
+        "IT_IT": 70,
+        "EN_IT": 70,
+        "EN_EN": 70,
     }
     assert {item.expected_label for item in cases} == {
         EntailmentLabel.ENTAILMENT,
         EntailmentLabel.NEUTRAL,
         EntailmentLabel.CONTRADICTION,
     }
-    assert sum(item.security_critical for item in cases) == 96
+    assert sum(item.security_critical for item in cases) == 126
 
 
 @pytest.mark.parametrize(
@@ -410,13 +543,13 @@ def test_compound_partial_support_requires_every_fragment() -> None:
     assert result.supported_fragment_ids == ["recorded"]
 
 
-def test_lab_has_no_production_assistant_or_qdrant_dependency() -> None:
+def test_production_proof_compiler_has_no_qdrant_or_router_dependency() -> None:
     compiler_source = inspect.getsource(EvidenceProofUnitCompiler)
     orchestrator = (REPO_ROOT / "services/assistant/orchestrator.py").read_text()
     router = (REPO_ROOT / "routers/assistant.py").read_text()
 
     assert "qdrant" not in compiler_source.lower()
-    assert "semantic_proof" not in orchestrator
+    assert "semantic_proof" in orchestrator
     assert "semantic_proof" not in router
 
 

@@ -1,5 +1,8 @@
 # AI Assistant V3.2 Phase 0 Semantic Proof Lab
 
+> Historical Phase-0 record. Production integration is documented in
+> [AI Assistant V3.2 production validation](ai-assistant-v3-2-production.md).
+
 ## Boundary
 
 Phase 0 is an offline, local evaluation laboratory. It is not imported by the
@@ -115,3 +118,6 @@ frontend changes, runtime prewarm, systemd integration, CPU fallback, or any
 publication decision in the production Assistant path.
 
 `PRODUCTION V3.2 INTEGRATION AUTHORIZED: NO`
+
+This statement records the Phase-0 boundary at commit `d8e47e5`; it is not the
+current production-candidate status.

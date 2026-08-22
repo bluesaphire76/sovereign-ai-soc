@@ -44,7 +44,7 @@ def fail_closed_decision(
 
 
 class TransformersNliProvider:
-    """Replaceable GPU-only NLI provider used only by the offline proof lab."""
+    """Local GPU-only NLI provider shared by benchmarks and V3.2 runtime."""
 
     def __init__(
         self,
@@ -60,11 +60,11 @@ class TransformersNliProvider:
         if not 0.0 < entailment_threshold <= 1.0:
             raise ValueError("entailment threshold must be in (0, 1]")
         if not device.startswith("cuda"):
-            raise ValueError("semantic proof benchmark provider is GPU-only")
+            raise ValueError("semantic proof provider is GPU-only")
         if precision not in {"float32", "float16", "bfloat16"}:
-            raise ValueError("unsupported benchmark precision")
+            raise ValueError("unsupported semantic proof precision")
         if quantization != "none":
-            raise ValueError("quantized NLI loading is not implemented in Phase 0")
+            raise ValueError("quantized NLI loading is not supported")
 
         try:
             import torch
@@ -90,7 +90,7 @@ class TransformersNliProvider:
         self._model = AutoModelForSequenceClassification.from_pretrained(
             model,
             local_files_only=local_files_only,
-            torch_dtype=dtype,
+            dtype=dtype,
         )
         self._label_by_index = self._validated_label_map(self._model.config.id2label)
         self._model.to(device)
