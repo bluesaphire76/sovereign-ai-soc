@@ -7,6 +7,7 @@ or migration validation notes.
 
 ## Current Validation
 
+- [AI Assistant V3.2 Phase 0 semantic proof lab](ai-assistant-v3-2-semantic-proof-lab.md)
 - [AI Assistant V3.1 Part A validation](ai-assistant-v3-1.md)
 - [AI Assistant V3.1 baseline failure](ai-assistant-v3-1-baseline-failure.md)
 - [AI Assistant V3.1 real-user proof gate](ai-assistant-v3-1-proof-gate.md)
