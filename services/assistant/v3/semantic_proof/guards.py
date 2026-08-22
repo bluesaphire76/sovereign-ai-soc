@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import unicodedata
+from collections.abc import Sequence
 from enum import Enum
 
 from pydantic import Field
 
-from services.assistant.v3.contracts import ClosedModel
+from services.assistant.v3.contracts import AuthorityClass, ClosedModel
 from services.assistant.v3.semantic_proof.contracts import (
     EvidenceKind,
     EvidenceProofUnit,
@@ -40,6 +42,7 @@ class SemanticConcept(str, Enum):
     RECOMMENDATION = "RECOMMENDATION"
     REFERENCE_EXPLANATION = "REFERENCE_EXPLANATION"
     CURRENT_OPERATIONAL_STATE = "CURRENT_OPERATIONAL_STATE"
+    OBSERVED_BEHAVIOR = "OBSERVED_BEHAVIOR"
 
 
 class TypedGuardReason(str, Enum):
@@ -51,6 +54,9 @@ class TypedGuardReason(str, Enum):
     INCOMPATIBLE_SEMANTIC_CONCEPT = "INCOMPATIBLE_SEMANTIC_CONCEPT"
     REFERENCE_USED_AS_OPERATIONAL_STATE = "REFERENCE_USED_AS_OPERATIONAL_STATE"
     ADVISORY_USED_AS_OPERATIONAL_STATE = "ADVISORY_USED_AS_OPERATIONAL_STATE"
+    INCOMPATIBLE_AUTHORITY_COMBINATION = "INCOMPATIBLE_AUTHORITY_COMBINATION"
+    INCOMPATIBLE_SCOPE = "INCOMPATIBLE_SCOPE"
+    MISSING_COMPONENT_SUPPORT = "MISSING_COMPONENT_SUPPORT"
 
 
 class TypedGuardDecision(ClosedModel):
@@ -65,7 +71,9 @@ class TypedGuardDecision(ClosedModel):
 _CONCEPT_PHRASES: dict[SemanticConcept, tuple[str, ...]] = {
     SemanticConcept.STATUS: (
         "status",
-        "stato",
+        "stato operativo",
+        "stato dell incidente",
+        "stato del caso",
     ),
     SemanticConcept.INVESTIGATION_STATE: (
         "investigated",
@@ -126,6 +134,7 @@ _CONCEPT_PHRASES: dict[SemanticConcept, tuple[str, ...]] = {
         "correlazione registrata",
         "correlazione di piattaforma",
         "correlati dalla piattaforma",
+        "stato di correlazione",
     ),
     SemanticConcept.ANALYTICAL_RELATIONSHIP: (
         "analytical relationship",
@@ -224,6 +233,8 @@ _CONCEPT_PHRASES: dict[SemanticConcept, tuple[str, ...]] = {
         "raccomanda",
         "si consiglia",
         "azione raccomandata",
+        "cannot recommend",
+        "non posso raccomandare",
     ),
     SemanticConcept.REFERENCE_EXPLANATION: (
         "defines",
@@ -241,6 +252,12 @@ _CONCEPT_PHRASES: dict[SemanticConcept, tuple[str, ...]] = {
         "caso corrente",
         "attualmente l incidente",
     ),
+    SemanticConcept.OBSERVED_BEHAVIOR: (
+        "observed behavior",
+        "observed activity",
+        "comportamento osservato",
+        "attivita osservata",
+    ),
 }
 
 
@@ -255,41 +272,72 @@ _ALLOWED_PREDICATES: dict[SemanticConcept, frozenset[ProofPredicate]] = {
         {ProofPredicate.DETECTION_RULE, ProofPredicate.DETECTION_LEVEL}
     ),
     SemanticConcept.MITRE_CLASSIFICATION: frozenset(
-        {ProofPredicate.MITRE_TECHNIQUE, ProofPredicate.REFERENCE_EXPLANATION}
+        {
+            ProofPredicate.MITRE_TECHNIQUE,
+            ProofPredicate.MITRE_CONTEXT,
+            ProofPredicate.REFERENCE_EXPLANATION,
+            ProofPredicate.NON_IMPLICATION,
+        }
     ),
-    SemanticConcept.RISK_SCORE: frozenset({ProofPredicate.RISK_SCORE}),
+    SemanticConcept.RISK_SCORE: frozenset(
+        {
+            ProofPredicate.RISK_SCORE,
+            ProofPredicate.RISK_RECORD,
+            ProofPredicate.NON_IMPLICATION,
+        }
+    ),
     SemanticConcept.RISK_NORMALIZATION: frozenset(
-        {ProofPredicate.RISK_NORMALIZATION}
+        {
+            ProofPredicate.RISK_NORMALIZATION,
+            ProofPredicate.RISK_RECORD,
+            ProofPredicate.NON_IMPLICATION,
+        }
     ),
-    SemanticConcept.SEVERITY: frozenset({ProofPredicate.CANONICAL_SEVERITY}),
+    SemanticConcept.SEVERITY: frozenset(
+        {ProofPredicate.CANONICAL_SEVERITY, ProofPredicate.NON_IMPLICATION}
+    ),
     SemanticConcept.PRIORITY: frozenset({ProofPredicate.RECOMMENDED_PRIORITY}),
     SemanticConcept.RECORDED_CORRELATION: frozenset(
         {
             ProofPredicate.CORRELATION_FLAG,
             ProofPredicate.CORRELATION_TYPE,
             ProofPredicate.CORRELATION_SCORE,
+            ProofPredicate.RECORDED_CORRELATION_STATE,
             ProofPredicate.RECORDED_RELATIONSHIP,
+            ProofPredicate.NON_IMPLICATION,
         }
     ),
     SemanticConcept.ANALYTICAL_RELATIONSHIP: frozenset(
-        {ProofPredicate.ANALYTICAL_RELATIONSHIP}
+        {ProofPredicate.ANALYTICAL_RELATIONSHIP, ProofPredicate.NON_IMPLICATION}
     ),
     SemanticConcept.SEMANTIC_SIMILARITY: frozenset(
-        {ProofPredicate.SEMANTIC_SIMILARITY, ProofPredicate.CANDIDATE_DISCOVERY}
+        {
+            ProofPredicate.SEMANTIC_SIMILARITY,
+            ProofPredicate.CANDIDATE_DISCOVERY,
+            ProofPredicate.NON_IMPLICATION,
+        }
     ),
-    SemanticConcept.THREAT_ASSESSMENT: frozenset(),
-    SemanticConcept.COMPROMISE: frozenset({ProofPredicate.COMPROMISE_CONFIRMED}),
-    SemanticConcept.MALICIOUSNESS: frozenset(),
-    SemanticConcept.ATTACKER_ATTRIBUTION: frozenset(),
-    SemanticConcept.CAMPAIGN_ATTRIBUTION: frozenset(),
-    SemanticConcept.PERSISTENCE: frozenset(),
-    SemanticConcept.LATERAL_MOVEMENT: frozenset(),
-    SemanticConcept.CAUSALITY: frozenset(),
-    SemanticConcept.BUSINESS_IMPACT: frozenset(),
-    SemanticConcept.URGENCY: frozenset(),
-    SemanticConcept.RECOMMENDATION: frozenset({ProofPredicate.ADVISORY_GUIDANCE}),
+    SemanticConcept.THREAT_ASSESSMENT: frozenset({ProofPredicate.NON_IMPLICATION}),
+    SemanticConcept.COMPROMISE: frozenset(
+        {ProofPredicate.COMPROMISE_CONFIRMED, ProofPredicate.NON_IMPLICATION}
+    ),
+    SemanticConcept.MALICIOUSNESS: frozenset({ProofPredicate.NON_IMPLICATION}),
+    SemanticConcept.ATTACKER_ATTRIBUTION: frozenset(
+        {ProofPredicate.NON_IMPLICATION}
+    ),
+    SemanticConcept.CAMPAIGN_ATTRIBUTION: frozenset(
+        {ProofPredicate.NON_IMPLICATION}
+    ),
+    SemanticConcept.PERSISTENCE: frozenset({ProofPredicate.NON_IMPLICATION}),
+    SemanticConcept.LATERAL_MOVEMENT: frozenset({ProofPredicate.NON_IMPLICATION}),
+    SemanticConcept.CAUSALITY: frozenset({ProofPredicate.NON_IMPLICATION}),
+    SemanticConcept.BUSINESS_IMPACT: frozenset({ProofPredicate.NON_IMPLICATION}),
+    SemanticConcept.URGENCY: frozenset({ProofPredicate.NON_IMPLICATION}),
+    SemanticConcept.RECOMMENDATION: frozenset(
+        {ProofPredicate.ADVISORY_GUIDANCE, ProofPredicate.CONTEXT_LIMITATION}
+    ),
     SemanticConcept.REFERENCE_EXPLANATION: frozenset(
-        {ProofPredicate.REFERENCE_EXPLANATION}
+        {ProofPredicate.REFERENCE_EXPLANATION, ProofPredicate.MITRE_CONTEXT}
     ),
     SemanticConcept.CURRENT_OPERATIONAL_STATE: frozenset(
         predicate
@@ -302,6 +350,7 @@ _ALLOWED_PREDICATES: dict[SemanticConcept, frozenset[ProofPredicate]] = {
             ProofPredicate.CANDIDATE_DISCOVERY,
         }
     ),
+    SemanticConcept.OBSERVED_BEHAVIOR: frozenset({ProofPredicate.NON_IMPLICATION}),
 }
 
 
@@ -347,6 +396,7 @@ _FUNCTION_WORDS = frozenset(
         "al",
         "alla",
         "come",
+        "che",
         "con",
         "da",
         "dal",
@@ -370,6 +420,8 @@ _FUNCTION_WORDS = frozenset(
         "nella",
         "per",
         "stata",
+        "stato",
+        "sono",
         "su",
         "tra",
         "un",
@@ -381,6 +433,7 @@ _GENERIC_PROOF_WORDS = frozenset(
     {
         "canonical",
         "confirmation",
+        "corresponds",
         "derived",
         "identifies",
         "identified",
@@ -397,6 +450,7 @@ _GENERIC_PROOF_WORDS = frozenset(
         "canonica",
         "collega",
         "conferma",
+        "corrisponde",
         "denominata",
         "derivata",
         "derivato",
@@ -432,6 +486,19 @@ _PREDICATE_WORDS: dict[ProofPredicate, frozenset[str]] = {
     ProofPredicate.RISK_NORMALIZATION: frozenset(
         {"incident", "incidente", "risk", "rischio", "normalization", "normalizzazione"}
     ),
+    ProofPredicate.RISK_RECORD: frozenset(
+        {
+            "incident",
+            "incidente",
+            "risk",
+            "rischio",
+            "score",
+            "punteggio",
+            "normalization",
+            "normalizzazione",
+            "pari",
+        }
+    ),
     ProofPredicate.RECOMMENDED_PRIORITY: frozenset(
         {"incident", "incidente", "recommended", "raccomandata", "priority", "priorita"}
     ),
@@ -457,6 +524,31 @@ _PREDICATE_WORDS: dict[ProofPredicate, frozenset[str]] = {
             "classificazione",
             "classified",
             "classificato",
+        }
+    ),
+    ProofPredicate.MITRE_CONTEXT: frozenset(
+        {
+            "classification",
+            "classificazione",
+            "classified",
+            "classificato",
+            "context",
+            "contesto",
+            "defines",
+            "definisce",
+            "incident",
+            "incidente",
+            "knowledge",
+            "conoscenza",
+            "means",
+            "significa",
+            "mitre",
+            "reference",
+            "riferimento",
+            "states",
+            "indica",
+            "technique",
+            "tecnica",
         }
     ),
     ProofPredicate.TIMELINE_EVENT: frozenset(
@@ -486,6 +578,29 @@ _PREDICATE_WORDS: dict[ProofPredicate, frozenset[str]] = {
     ProofPredicate.CORRELATION_SCORE: frozenset(
         {"incident", "incidente", "correlation", "correlazione", "score", "punteggio"}
     ),
+    ProofPredicate.RECORDED_CORRELATION_STATE: frozenset(
+        {
+            "active",
+            "attivo",
+            "correlation",
+            "correlazione",
+            "correlated",
+            "correlato",
+            "flag",
+            "host",
+            "incident",
+            "incidente",
+            "score",
+            "punteggio",
+            "pattern",
+            "single",
+            "singolo",
+            "state",
+            "stato",
+            "type",
+            "tipo",
+        }
+    ),
     ProofPredicate.ESCALATED: frozenset(
         {"incident", "incidente", "escalation", "escalated", "flag"}
     ),
@@ -502,7 +617,40 @@ _PREDICATE_WORDS: dict[ProofPredicate, frozenset[str]] = {
         {"incident", "incidents", "incidente", "incidenti", "correlation", "correlazione", "relationship", "relazione"}
     ),
     ProofPredicate.ANALYTICAL_RELATIONSHIP: frozenset(
-        {"incident", "incidents", "incidente", "incidenti", "analytical", "analitica", "relationship", "relazione"}
+        {
+            "analytical",
+            "analitica",
+            "agent",
+            "agente",
+            "close",
+            "condivide",
+            "condividono",
+            "condivisa",
+            "condiviso",
+            "incident",
+            "incidents",
+            "incidente",
+            "incidenti",
+            "proximity",
+            "regola",
+            "relationship",
+            "relazione",
+            "rilevamento",
+            "rule",
+            "same",
+            "share",
+            "shared",
+            "stessa",
+            "stesso",
+            "tempo",
+            "temporally",
+            "temporale",
+            "temporaneamente",
+            "vicinanza",
+            "vicini",
+            "mostra",
+            "utilizzano",
+        }
     ),
     ProofPredicate.SEMANTIC_SIMILARITY: frozenset(
         {
@@ -528,6 +676,44 @@ _PREDICATE_WORDS: dict[ProofPredicate, frozenset[str]] = {
     ProofPredicate.ADVISORY_GUIDANCE: frozenset(
         {"advisory", "guidance", "guida", "recommends", "raccomanda"}
     ),
+    ProofPredicate.NON_IMPLICATION: frozenset(
+        {
+            "alone",
+            "analytical",
+            "analitica",
+            "association",
+            "associazione",
+            "correlation",
+            "correlazione",
+            "does",
+            "establish",
+            "evidence",
+            "evidenza",
+            "incident",
+            "incidente",
+            "non",
+            "not",
+            "relationship",
+            "relazione",
+            "stabilisce",
+        }
+    ),
+    ProofPredicate.CONTEXT_LIMITATION: frozenset(
+        {
+            "advisory",
+            "available",
+            "context",
+            "contesto",
+            "guidance",
+            "guida",
+            "pertinente",
+            "playbook",
+            "presente",
+            "relevant",
+            "retrieved",
+            "recuperata",
+        }
+    ),
 }
 
 _OPEN_TEXT_PREDICATES = frozenset(
@@ -537,6 +723,8 @@ _OPEN_TEXT_PREDICATES = frozenset(
         ProofPredicate.ESCALATION_REASON,
         ProofPredicate.REFERENCE_EXPLANATION,
         ProofPredicate.ADVISORY_GUIDANCE,
+        ProofPredicate.NON_IMPLICATION,
+        ProofPredicate.CONTEXT_LIMITATION,
     }
 )
 
@@ -584,12 +772,71 @@ def detect_semantic_concepts(value: str) -> tuple[SemanticConcept, ...]:
     )
 
 
-def _anchor_present(anchor: str, text_tokens: tuple[str, ...]) -> bool:
+def _typed_value_concepts(proof_unit: EvidenceProofUnit) -> set[SemanticConcept]:
+    if proof_unit.predicate not in {
+        ProofPredicate.ANALYTICAL_RELATIONSHIP,
+        ProofPredicate.RECORDED_RELATIONSHIP,
+        ProofPredicate.SEMANTIC_SIMILARITY,
+        ProofPredicate.NON_IMPLICATION,
+    }:
+        return set()
+    tokens = {
+        token
+        for value in proof_unit.value.canonical_values
+        for token in _normalized_tokens(value.replace("_", " "))
+    }
+    concepts: set[SemanticConcept] = set()
+    if tokens.intersection({"agent", "host"}):
+        concepts.add(SemanticConcept.HOST_IDENTITY)
+    if "user" in tokens:
+        concepts.add(SemanticConcept.USER_IDENTITY)
+    if tokens.intersection({"rule", "detection"}):
+        concepts.add(SemanticConcept.DETECTION)
+    if "mitre" in tokens:
+        concepts.add(SemanticConcept.MITRE_CLASSIFICATION)
+    if "correlation" in tokens:
+        concepts.add(SemanticConcept.RECORDED_CORRELATION)
+    if "semantic" in tokens:
+        concepts.add(SemanticConcept.SEMANTIC_SIMILARITY)
+    return concepts
+
+
+_TYPED_VALUE_ALIASES: dict[ProofPredicate, dict[str, tuple[str, ...]]] = {
+    ProofPredicate.STATUS: {
+        "NEW": ("new", "nuovo", "nuova"),
+        "OPEN": ("open", "aperto", "aperta"),
+        "CLOSED": ("closed", "chiuso", "chiusa"),
+        "RESOLVED": ("resolved", "risolto", "risolta"),
+    },
+    ProofPredicate.RISK_NORMALIZATION: {
+        "LOW": ("low", "basso", "bassa"),
+        "MEDIUM": ("medium", "medio", "media"),
+        "HIGH": ("high", "alto", "alta"),
+        "CRITICAL": ("critical", "critico", "critica"),
+    },
+    ProofPredicate.RECOMMENDED_PRIORITY: {
+        "LOW": ("low", "bassa"),
+        "MEDIUM": ("medium", "media"),
+        "HIGH": ("high", "alta"),
+        "CRITICAL": ("critical", "critica"),
+    },
+}
+
+
+def _anchor_present(
+    anchor: str,
+    text_tokens: tuple[str, ...],
+    *,
+    predicate: ProofPredicate,
+) -> bool:
     normalized_anchor = _normalized_tokens(anchor)
     if normalized_anchor == ("true",):
         return any(item in text_tokens for item in ("true", "vero", "vera"))
     if normalized_anchor == ("false",):
         return any(item in text_tokens for item in ("false", "falso", "falsa"))
+    aliases = _TYPED_VALUE_ALIASES.get(predicate, {}).get(anchor.upper(), ())
+    if any(_contains_tokens(text_tokens, _normalized_tokens(alias)) for alias in aliases):
+        return True
     return _contains_tokens(text_tokens, normalized_anchor)
 
 
@@ -666,7 +913,11 @@ class TypedSemanticGuard:
         missing = [
             anchor
             for anchor in proof_unit.value.required_anchors
-            if not _anchor_present(anchor, text_tokens)
+            if not _anchor_present(
+                anchor,
+                text_tokens,
+                predicate=proof_unit.predicate,
+            )
         ]
         if missing:
             return TypedGuardDecision(
@@ -709,13 +960,24 @@ class TypedSemanticGuard:
                 proof_unit_id=proof_unit.proof_unit_id,
                 reason=TypedGuardReason.POLARITY_MISMATCH,
             )
+        if (
+            proof_unit.predicate
+            in {ProofPredicate.NON_IMPLICATION, ProofPredicate.CONTEXT_LIMITATION}
+            and _NEGATION_TOKENS.intersection(canonical_tokens)
+            and not _NEGATION_TOKENS.intersection(text_tokens)
+        ):
+            return TypedGuardDecision(
+                accepted=False,
+                proof_unit_id=proof_unit.proof_unit_id,
+                reason=TypedGuardReason.POLARITY_MISMATCH,
+            )
 
         concepts = detect_semantic_concepts(text)
         canonical_concepts = {
             concept
             for value in proof_unit.value.canonical_values
-            for concept in detect_semantic_concepts(value)
-        }
+            for concept in detect_semantic_concepts(value.replace("_", " "))
+        } | _typed_value_concepts(proof_unit)
         incompatible = [
             concept
             for concept in concepts
@@ -754,6 +1016,265 @@ class TypedSemanticGuard:
         return TypedGuardDecision(
             accepted=True,
             proof_unit_id=proof_unit.proof_unit_id,
+            reason=TypedGuardReason.ACCEPTED,
+            detected_concepts=list(concepts),
+        )
+
+    def evaluate_combined(
+        self,
+        proof_units: Sequence[EvidenceProofUnit],
+        proposition: str,
+    ) -> TypedGuardDecision:
+        if len(proof_units) == 1:
+            return self.evaluate(proof_units[0], proposition)
+        material = "\x1f".join(item.proof_unit_id for item in proof_units)
+        combined_id = f"combined:{hashlib.sha256(material.encode('utf-8')).hexdigest()[:24]}"
+        text = proposition.strip()
+        if not text:
+            return TypedGuardDecision(
+                accepted=False,
+                proof_unit_id=combined_id,
+                reason=TypedGuardReason.EMPTY_PROPOSITION,
+            )
+
+        authorities = {item.authority_class for item in proof_units}
+        allowed_authority_sets = {
+            frozenset({AuthorityClass.OPERATIONAL_AUTHORITATIVE}),
+            frozenset({AuthorityClass.REFERENCE_KNOWLEDGE}),
+            frozenset({AuthorityClass.ANALYTICAL_DERIVATION}),
+            frozenset(
+                {
+                    AuthorityClass.OPERATIONAL_AUTHORITATIVE,
+                    AuthorityClass.ANALYTICAL_DERIVATION,
+                }
+            ),
+            frozenset(
+                {
+                    AuthorityClass.OPERATIONAL_AUTHORITATIVE,
+                    AuthorityClass.REFERENCE_KNOWLEDGE,
+                }
+            ),
+        }
+        if frozenset(authorities) not in allowed_authority_sets:
+            return TypedGuardDecision(
+                accepted=False,
+                proof_unit_id=combined_id,
+                reason=TypedGuardReason.INCOMPATIBLE_AUTHORITY_COMBINATION,
+            )
+        operational_boundary_bundle = authorities == {
+            AuthorityClass.OPERATIONAL_AUTHORITATIVE,
+            AuthorityClass.ANALYTICAL_DERIVATION,
+        }
+        if operational_boundary_bundle:
+            operational_refs = {
+                ref
+                for unit in proof_units
+                if unit.authority_class is AuthorityClass.OPERATIONAL_AUTHORITATIVE
+                for ref in unit.source_refs
+            }
+            analytical_units = [
+                unit
+                for unit in proof_units
+                if unit.authority_class is AuthorityClass.ANALYTICAL_DERIVATION
+            ]
+            if (
+                not operational_refs
+                or any(
+                    unit.evidence_kind is not EvidenceKind.ANALYTICAL_BOUNDARY
+                    or not operational_refs.intersection(unit.source_refs)
+                    for unit in analytical_units
+                )
+            ):
+                return TypedGuardDecision(
+                    accepted=False,
+                    proof_unit_id=combined_id,
+                    reason=TypedGuardReason.INCOMPATIBLE_AUTHORITY_COMBINATION,
+                )
+        if authorities == {
+            AuthorityClass.OPERATIONAL_AUTHORITATIVE,
+            AuthorityClass.REFERENCE_KNOWLEDGE,
+        }:
+            operational_tokens = {
+                token
+                for unit in proof_units
+                if unit.authority_class is AuthorityClass.OPERATIONAL_AUTHORITATIVE
+                for value in unit.value.canonical_values
+                for token in _normalized_tokens(value)
+            }
+            reference_tokens = {
+                token
+                for unit in proof_units
+                if unit.authority_class is AuthorityClass.REFERENCE_KNOWLEDGE
+                for value in unit.value.canonical_values
+                for token in _normalized_tokens(value)
+            }
+            if not operational_tokens.intersection(reference_tokens):
+                return TypedGuardDecision(
+                    accepted=False,
+                    proof_unit_id=combined_id,
+                    reason=TypedGuardReason.INCOMPATIBLE_AUTHORITY_COMBINATION,
+                )
+
+        incident_scopes = {
+            tuple(unit.scope.incident_ids)
+            for unit in proof_units
+            if unit.scope.incident_ids
+        }
+        case_scopes = {
+            tuple(unit.scope.case_ids)
+            for unit in proof_units
+            if unit.scope.case_ids
+        }
+        if len(incident_scopes) > 1 or len(case_scopes) > 1:
+            return TypedGuardDecision(
+                accepted=False,
+                proof_unit_id=combined_id,
+                reason=TypedGuardReason.INCOMPATIBLE_SCOPE,
+            )
+
+        text_tokens = _normalized_tokens(text)
+        missing = [
+            anchor
+            for unit in proof_units
+            for anchor in unit.value.required_anchors
+            if not _anchor_present(
+                anchor,
+                text_tokens,
+                predicate=unit.predicate,
+            )
+        ]
+        if missing:
+            return TypedGuardDecision(
+                accepted=False,
+                proof_unit_id=combined_id,
+                reason=TypedGuardReason.MISSING_REQUIRED_ANCHOR,
+                missing_anchors=list(dict.fromkeys(missing)),
+            )
+
+        allowed_numbers = {
+            number
+            for unit in proof_units
+            for number in _numeric_tokens(
+                tuple(
+                    token
+                    for value in unit.value.canonical_values
+                    for token in _normalized_tokens(value)
+                )
+            )
+        } | {
+            str(scope_id)
+            for unit in proof_units
+            for scope_id in [*unit.scope.incident_ids, *unit.scope.case_ids]
+        }
+        conflicting_numbers = sorted(_numeric_tokens(text_tokens) - allowed_numbers)
+        if conflicting_numbers:
+            return TypedGuardDecision(
+                accepted=False,
+                proof_unit_id=combined_id,
+                reason=TypedGuardReason.CONFLICTING_NUMERIC_VALUE,
+                conflicting_numbers=conflicting_numbers,
+            )
+
+        canonical_tokens = tuple(
+            token
+            for unit in proof_units
+            for token in _normalized_tokens(
+                " ".join(
+                    [unit.canonical_premise, *unit.value.canonical_values]
+                )
+            )
+        )
+        if (
+            _NEGATION_TOKENS.intersection(text_tokens)
+            and not _NEGATION_TOKENS.intersection(canonical_tokens)
+        ):
+            return TypedGuardDecision(
+                accepted=False,
+                proof_unit_id=combined_id,
+                reason=TypedGuardReason.POLARITY_MISMATCH,
+            )
+        boundary_predicates = {
+            unit.predicate
+            for unit in proof_units
+            if unit.predicate
+            in {ProofPredicate.NON_IMPLICATION, ProofPredicate.CONTEXT_LIMITATION}
+        }
+        if (
+            boundary_predicates
+            and _NEGATION_TOKENS.intersection(canonical_tokens)
+            and not _NEGATION_TOKENS.intersection(text_tokens)
+        ):
+            return TypedGuardDecision(
+                accepted=False,
+                proof_unit_id=combined_id,
+                reason=TypedGuardReason.POLARITY_MISMATCH,
+            )
+
+        concepts = detect_semantic_concepts(text)
+        predicates = {unit.predicate for unit in proof_units}
+        canonical_concepts = {
+            concept
+            for unit in proof_units
+            for value in unit.value.canonical_values
+            for concept in detect_semantic_concepts(value.replace("_", " "))
+        } | {
+            concept
+            for unit in proof_units
+            for concept in _typed_value_concepts(unit)
+        }
+        incompatible = [
+            concept
+            for concept in concepts
+            if not predicates.intersection(_ALLOWED_PREDICATES[concept])
+            and concept not in canonical_concepts
+        ]
+        if incompatible:
+            return TypedGuardDecision(
+                accepted=False,
+                proof_unit_id=combined_id,
+                reason=TypedGuardReason.INCOMPATIBLE_SEMANTIC_CONCEPT,
+                detected_concepts=list(concepts),
+            )
+
+        if SemanticConcept.CURRENT_OPERATIONAL_STATE in concepts and authorities <= {
+            AuthorityClass.REFERENCE_KNOWLEDGE,
+            AuthorityClass.ADVISORY_KNOWLEDGE,
+        }:
+            return TypedGuardDecision(
+                accepted=False,
+                proof_unit_id=combined_id,
+                reason=TypedGuardReason.REFERENCE_USED_AS_OPERATIONAL_STATE,
+                detected_concepts=list(concepts),
+            )
+
+        for unit in proof_units:
+            if operational_boundary_bundle:
+                continue
+            if unit.value.required_anchors:
+                continue
+            has_value = any(
+                _contains_tokens(text_tokens, _normalized_tokens(value))
+                for value in unit.value.canonical_values
+            )
+            has_unique_concept = any(
+                unit.predicate in _ALLOWED_PREDICATES[concept]
+                and sum(
+                    predicate in _ALLOWED_PREDICATES[concept]
+                    for predicate in predicates
+                )
+                == 1
+                for concept in concepts
+            )
+            if not (has_value or has_unique_concept):
+                return TypedGuardDecision(
+                    accepted=False,
+                    proof_unit_id=combined_id,
+                    reason=TypedGuardReason.MISSING_COMPONENT_SUPPORT,
+                )
+
+        return TypedGuardDecision(
+            accepted=True,
+            proof_unit_id=combined_id,
             reason=TypedGuardReason.ACCEPTED,
             detected_concepts=list(concepts),
         )

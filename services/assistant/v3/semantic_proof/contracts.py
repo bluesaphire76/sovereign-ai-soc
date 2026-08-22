@@ -19,6 +19,8 @@ class EvidenceKind(str, Enum):
     SEMANTIC_CANDIDATE = "SEMANTIC_CANDIDATE"
     REFERENCE_KNOWLEDGE = "REFERENCE_KNOWLEDGE"
     ADVISORY_KNOWLEDGE = "ADVISORY_KNOWLEDGE"
+    TYPED_SYNTHESIS = "TYPED_SYNTHESIS"
+    ANALYTICAL_BOUNDARY = "ANALYTICAL_BOUNDARY"
 
 
 class AllowedSemanticRole(str, Enum):
@@ -28,6 +30,8 @@ class AllowedSemanticRole(str, Enum):
     CANDIDATE_DISCOVERY = "CANDIDATE_DISCOVERY"
     TECHNICAL_EXPLANATION = "TECHNICAL_EXPLANATION"
     INVESTIGATION_GUIDANCE = "INVESTIGATION_GUIDANCE"
+    GROUNDED_SYNTHESIS = "GROUNDED_SYNTHESIS"
+    UNCERTAINTY_BOUNDARY = "UNCERTAINTY_BOUNDARY"
 
 
 class ProofPredicate(str, Enum):
@@ -39,6 +43,7 @@ class ProofPredicate(str, Enum):
     CANONICAL_SEVERITY = "CANONICAL_SEVERITY"
     RISK_SCORE = "RISK_SCORE"
     RISK_NORMALIZATION = "RISK_NORMALIZATION"
+    RISK_RECORD = "RISK_RECORD"
     RECOMMENDED_PRIORITY = "RECOMMENDED_PRIORITY"
     HOST = "HOST"
     AGENT = "AGENT"
@@ -46,6 +51,7 @@ class ProofPredicate(str, Enum):
     DETECTION_RULE = "DETECTION_RULE"
     DETECTION_LEVEL = "DETECTION_LEVEL"
     MITRE_TECHNIQUE = "MITRE_TECHNIQUE"
+    MITRE_CONTEXT = "MITRE_CONTEXT"
     TIMELINE_EVENT = "TIMELINE_EVENT"
     OBSERVABLE = "OBSERVABLE"
     PROCESS_NAME = "PROCESS_NAME"
@@ -55,6 +61,7 @@ class ProofPredicate(str, Enum):
     CORRELATION_FLAG = "CORRELATION_FLAG"
     CORRELATION_TYPE = "CORRELATION_TYPE"
     CORRELATION_SCORE = "CORRELATION_SCORE"
+    RECORDED_CORRELATION_STATE = "RECORDED_CORRELATION_STATE"
     ESCALATED = "ESCALATED"
     ESCALATION_REASON = "ESCALATION_REASON"
     COMPROMISE_CONFIRMED = "COMPROMISE_CONFIRMED"
@@ -65,6 +72,8 @@ class ProofPredicate(str, Enum):
     CANDIDATE_DISCOVERY = "CANDIDATE_DISCOVERY"
     REFERENCE_EXPLANATION = "REFERENCE_EXPLANATION"
     ADVISORY_GUIDANCE = "ADVISORY_GUIDANCE"
+    NON_IMPLICATION = "NON_IMPLICATION"
+    CONTEXT_LIMITATION = "CONTEXT_LIMITATION"
 
 
 class ProofValue(ClosedModel):
@@ -122,7 +131,7 @@ class EvidenceProofUnit(ClosedModel):
     evidence_kind: EvidenceKind
     scope: ProofScope
     canonical_premise: str = Field(min_length=1, max_length=1400)
-    source_refs: list[str] = Field(min_length=1, max_length=24)
+    source_refs: list[str] = Field(default_factory=list, max_length=24)
     provenance: Provenance
     premise_language: PremiseLanguage
     allowed_semantic_role: AllowedSemanticRole
@@ -138,6 +147,8 @@ class EvidenceProofUnit(ClosedModel):
             EvidenceKind.SEMANTIC_CANDIDATE: AuthorityClass.SEMANTIC_CANDIDATE,
             EvidenceKind.REFERENCE_KNOWLEDGE: AuthorityClass.REFERENCE_KNOWLEDGE,
             EvidenceKind.ADVISORY_KNOWLEDGE: AuthorityClass.ADVISORY_KNOWLEDGE,
+            EvidenceKind.TYPED_SYNTHESIS: AuthorityClass.ANALYTICAL_DERIVATION,
+            EvidenceKind.ANALYTICAL_BOUNDARY: AuthorityClass.ANALYTICAL_DERIVATION,
         }[self.evidence_kind]
         expected_role = {
             EvidenceKind.OPERATIONAL_FACT: AllowedSemanticRole.RECORDED_VALUE,
@@ -146,6 +157,8 @@ class EvidenceProofUnit(ClosedModel):
             EvidenceKind.SEMANTIC_CANDIDATE: AllowedSemanticRole.CANDIDATE_DISCOVERY,
             EvidenceKind.REFERENCE_KNOWLEDGE: AllowedSemanticRole.TECHNICAL_EXPLANATION,
             EvidenceKind.ADVISORY_KNOWLEDGE: AllowedSemanticRole.INVESTIGATION_GUIDANCE,
+            EvidenceKind.TYPED_SYNTHESIS: AllowedSemanticRole.GROUNDED_SYNTHESIS,
+            EvidenceKind.ANALYTICAL_BOUNDARY: AllowedSemanticRole.UNCERTAINTY_BOUNDARY,
         }[self.evidence_kind]
         if self.authority_class is not expected_authority:
             raise ValueError("proof evidence kind and authority class do not match")
@@ -155,6 +168,20 @@ class EvidenceProofUnit(ClosedModel):
             raise ValueError("proof evidence kind and semantic role do not match")
         if len(self.source_refs) != len(set(self.source_refs)):
             raise ValueError("proof source refs must be unique")
+        if (
+            not self.source_refs
+            and self.predicate is not ProofPredicate.CONTEXT_LIMITATION
+        ):
+            raise ValueError("only a context limitation may omit external source refs")
+        if (
+            self.predicate
+            in {
+                ProofPredicate.NON_IMPLICATION,
+                ProofPredicate.CONTEXT_LIMITATION,
+            }
+            and self.evidence_kind is not EvidenceKind.ANALYTICAL_BOUNDARY
+        ):
+            raise ValueError("semantic boundaries require analytical boundary evidence")
         return self
 
 

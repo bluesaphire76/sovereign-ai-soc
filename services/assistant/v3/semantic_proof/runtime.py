@@ -35,7 +35,7 @@ class SemanticProofRuntimeSettings:
     precision: Literal["float16", "float32", "bfloat16"] = "float16"
     entailment_threshold: float = 0.80
     batch_size: int = 8
-    timeout_seconds: float = 2.0
+    timeout_seconds: float = 3.0
 
 
 class SemanticProofTimeout(RuntimeError):
@@ -71,6 +71,7 @@ _PROVIDER: EntailmentProvider | None = None
 _STATE = "cold"
 _SAFE_ERROR: str | None = None
 _LOAD_MS = 0
+_PREWARM_MS = 0
 _PROOF_EXECUTOR = ThreadPoolExecutor(
     max_workers=1,
     thread_name_prefix="assistant-v32-proof",
@@ -116,7 +117,7 @@ def get_semantic_proof_runtime_settings() -> SemanticProofRuntimeSettings:
         raise ValueError("V3.2 NLI batch size must be between 1 and 32")
     try:
         timeout_seconds = float(
-            os.getenv("AI_SOC_ASSISTANT_V32_PROOF_TIMEOUT_SECONDS", "2.0")
+            os.getenv("AI_SOC_ASSISTANT_V32_PROOF_TIMEOUT_SECONDS", "3.0")
         )
     except ValueError as exc:
         raise ValueError("invalid V3.2 semantic proof timeout") from exc
@@ -189,7 +190,31 @@ def get_semantic_proof_provider() -> EntailmentProvider:
 
 
 def prewarm_semantic_proof_runtime() -> dict[str, object]:
-    get_semantic_proof_provider()
+    global _PREWARM_MS, _PROVIDER, _SAFE_ERROR, _STATE
+    provider = get_semantic_proof_provider()
+    if _STATE != "ready":
+        return semantic_proof_runtime_snapshot()
+    settings = get_semantic_proof_runtime_settings()
+    pair = EntailmentPair(
+        pair_id="semantic-proof-prewarm",
+        proof_unit_id="semantic-proof-prewarm",
+        premise="The incident status is OPEN.",
+        premise_language="en",
+        hypothesis_id="semantic-proof-prewarm",
+        hypothesis="The incident status is OPEN.",
+        hypothesis_language="en",
+    )
+    started = time.perf_counter()
+    try:
+        decisions = tuple(provider.evaluate((pair,), batch_size=settings.batch_size))
+        if len(decisions) != 1 or not decisions[0].accepted:
+            raise RuntimeError("semantic proof prewarm decision was not entailed")
+    except Exception as exc:
+        with _LOCK:
+            _SAFE_ERROR = exc.__class__.__name__
+            _STATE = "unavailable"
+            _PROVIDER = UnavailableEntailmentProvider(_SAFE_ERROR)
+    _PREWARM_MS = max(0, int((time.perf_counter() - started) * 1000))
     return semantic_proof_runtime_snapshot()
 
 
@@ -199,6 +224,7 @@ def semantic_proof_runtime_snapshot() -> dict[str, object]:
         "state": _STATE,
         "safe_error": _SAFE_ERROR,
         "load_ms": _LOAD_MS,
+        "prewarm_ms": _PREWARM_MS,
         "provider": provider_info,
         "model_id": MULTILINGUAL_MINILMV2_L6.model_id,
         "model_revision": MULTILINGUAL_MINILMV2_L6.revision,
@@ -206,9 +232,10 @@ def semantic_proof_runtime_snapshot() -> dict[str, object]:
 
 
 def reset_semantic_proof_runtime_for_tests() -> None:
-    global _LOAD_MS, _PROVIDER, _SAFE_ERROR, _STATE
+    global _LOAD_MS, _PREWARM_MS, _PROVIDER, _SAFE_ERROR, _STATE
     with _LOCK:
         _PROVIDER = None
         _STATE = "cold"
         _SAFE_ERROR = None
         _LOAD_MS = 0
+        _PREWARM_MS = 0

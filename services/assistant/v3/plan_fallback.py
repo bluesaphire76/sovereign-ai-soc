@@ -4,6 +4,7 @@ from collections import defaultdict
 from typing import Any
 
 from services.assistant.v3.contracts import (
+    AnalysisScope,
     AnswerIntent,
     AuthorityClass,
     RecordedCorrelationAtom,
@@ -57,6 +58,11 @@ def _relationship_sections(
 ) -> list[AnswerSection]:
     grouped: dict[AuthorityClass, list] = defaultdict(list)
     explicit_compare = set(package.resolved_scope.explicit_compare_incident_ids)
+    if (
+        not explicit_compare
+        and package.resolved_scope.analysis_scope is AnalysisScope.EXPLICIT_RECORD_SET
+    ):
+        explicit_compare = set(package.resolved_scope.active_incident_ids)
     selected_relationships = [
         relationship
         for relationship in package.cross_incident_graph.relationships

@@ -10,6 +10,7 @@ from services.assistant.v3.authorization import (
     get_incident_access_policy,
 )
 from services.assistant.v3.contracts import (
+    AnalysisScope,
     AnalyticalFocus,
     AnswerIntent,
     AuthorityClass,
@@ -231,6 +232,20 @@ class V3AnalyticalContextBuilder:
                 )
         candidates = list(candidate_result.candidates) if candidate_result else []
         requested_active = set(resolved_scope.active_incident_ids)
+        if (
+            resolved_scope.analysis_scope is AnalysisScope.EXPLICIT_RECORD_SET
+            and requested_active
+        ):
+            candidates = [
+                item
+                for item in candidates
+                if item.candidate_incident_id in requested_active
+            ]
+            operational_atoms = [
+                atom
+                for atom in operational_atoms
+                if atom.incident_id is None or atom.incident_id in requested_active
+            ]
         validated_active = [
             incident_id
             for incident_id in [
@@ -291,13 +306,18 @@ class V3AnalyticalContextBuilder:
         focus_dimensions = [AnalyticalFocus(item.value) for item in focus_selection.dimensions]
         conversation_id = getattr(payload, "conversation_id", None)
         if conversation_id:
+            related_incident_ids = [
+                incident_id
+                for incident_id in resolved_scope.explicit_compare_incident_ids
+                if incident_id != anchor_incident_id
+            ] or [item.candidate_incident_id for item in candidates]
             state = updated_conversation_state(
                 existing=conversation,
                 conversation_id=conversation_id,
                 owner_key=owner_key,
                 active_incident_ids=resolved_scope.active_incident_ids,
                 active_case_ids=resolved_scope.active_case_ids,
-                related_incident_ids=[item.candidate_incident_id for item in candidates],
+                related_incident_ids=related_incident_ids,
                 intent=intent_selection.primary_intent,
                 focus_dimensions=focus_dimensions,
                 atom_refs=[item.atom_id for item in operational_atoms],

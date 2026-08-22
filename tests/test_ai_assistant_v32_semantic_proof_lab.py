@@ -204,6 +204,7 @@ def test_compiler_preserves_literal_values_without_semantic_expansion() -> None:
         for item in units
         if "incident:1:recorded-correlation" in item.source_refs
         and item.premise_language == "en"
+        and item.predicate is ProofPredicate.RECORDED_CORRELATION_STATE
     ]
 
     assert status.canonical_premise == "Incident 1 status recorded as OPEN."
@@ -214,10 +215,19 @@ def test_compiler_preserves_literal_values_without_semantic_expansion() -> None:
         "Incident 1 recorded MITRE technique: T1112: Modify Registry."
     )
     assert {item.canonical_premise for item in correlation_units} == {
-        "Incident 1 recorded correlation flag: true.",
-        "Incident 1 recorded correlation type: endpoint_pattern.",
-        "Incident 1 recorded correlation score: 75.",
+        (
+            "Incident 1 recorded correlation state: flag true; "
+            "type endpoint_pattern; score 75."
+        ),
     }
+    assert correlation_units[0].predicate is (
+        ProofPredicate.RECORDED_CORRELATION_STATE
+    )
+    assert correlation_units[0].value.canonical_values == [
+        "true",
+        "endpoint_pattern",
+        "75",
+    ]
     compiled = " ".join(item.canonical_premise.lower() for item in correlation_units)
     assert "other events" not in compiled
     assert "malicious" not in compiled

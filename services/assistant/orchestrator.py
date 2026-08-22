@@ -1831,11 +1831,28 @@ def _run_v32_response(
                     ).inc()
                     logger.warning(
                         "assistant_v32_semantic_proof_rejected request_id=%s "
-                        "reason=%s status=%s pairs=%s",
+                        "reason=%s status=%s pairs=%s decisions=%s",
                         request_id,
                         validation.reason or "v32_semantic_proof_failed",
                         semantic_proof_status,
                         semantic_proof_pairs,
+                        ",".join(
+                            ":".join(
+                                (
+                                    decision.hypothesis_id,
+                                    decision.reason.value,
+                                    (
+                                        decision.guard_decision.reason.value
+                                        if decision.guard_decision is not None
+                                        else "NO_GUARD"
+                                    ),
+                                )
+                            )
+                            for decision in (
+                                proof_result.decisions if proof_result is not None else []
+                            )
+                        )
+                        or "none",
                     )
                 ASSISTANT_V32_PROOF_DURATION.labels(
                     status=semantic_proof_status
@@ -1866,10 +1883,13 @@ def _run_v32_response(
                 item.proof_unit_id: item for item in proof_units
             }
             used_units = [
-                selected_units[item.proof_unit_ref]
+                selected_units[proof_ref]
                 for item in parsed.propositions
+                for proof_ref in item.proof_unit_refs
             ]
-            plan_sections = len(parsed.sections)
+            plan_sections = len(
+                {item.section_kind for item in parsed.propositions}
+            )
             plan_units = len(parsed.propositions)
             cross_units = sum(
                 item.evidence_kind

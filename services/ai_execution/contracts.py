@@ -23,6 +23,7 @@ OutputSchema = Literal[
     "assistant_grounded_v2",
     "assistant_grounded_v3",
     "assistant_grounded_v31",
+    "assistant_grounded_v32",
 ]
 
 
@@ -66,6 +67,7 @@ class AiExecutionRequest(BaseModel):
             "assistant_grounded_v2",
             "assistant_grounded_v3",
             "assistant_grounded_v31",
+            "assistant_grounded_v32",
         } and schema is None:
             raise ValueError(
                 f"{self.output_schema} requires a structured output schema"

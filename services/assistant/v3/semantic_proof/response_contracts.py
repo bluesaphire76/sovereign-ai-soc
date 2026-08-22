@@ -8,10 +8,9 @@ from pydantic import Field, field_validator, model_validator
 from services.assistant.v3.contracts import ClosedModel
 
 
-MAX_V32_PROPOSITIONS = 12
+MAX_V32_PROPOSITIONS = 8
 MAX_V32_SECTIONS = 4
-MAX_V32_PROPOSITIONS_PER_SECTION = 6
-MAX_V32_PROPOSITION_CHARS = 600
+MAX_V32_PROPOSITION_CHARS = 320
 
 
 class V32SectionKind(str, Enum):
@@ -28,7 +27,8 @@ class V32SectionKind(str, Enum):
 class V32Proposition(ClosedModel):
     proposition_id: str = Field(min_length=2, max_length=3)
     text: str = Field(min_length=1, max_length=MAX_V32_PROPOSITION_CHARS)
-    proof_unit_ref: str = Field(min_length=1, max_length=220)
+    proof_unit_refs: list[str] = Field(min_length=1, max_length=4)
+    section_kind: V32SectionKind
 
     @field_validator("text")
     @classmethod
@@ -46,27 +46,11 @@ class V32Proposition(ClosedModel):
             raise ValueError("invalid V3.2 proposition ID")
         return value
 
-
-class V32Section(ClosedModel):
-    section_id: str = Field(min_length=2, max_length=2)
-    kind: V32SectionKind
-    proposition_refs: list[str] = Field(
-        min_length=1,
-        max_length=MAX_V32_PROPOSITIONS_PER_SECTION,
-    )
-
-    @model_validator(mode="after")
-    def validate_unique_refs(self):
-        if len(self.proposition_refs) != len(set(self.proposition_refs)):
-            raise ValueError("V3.2 section proposition refs must be unique")
-        return self
-
-    @field_validator("section_id")
+    @field_validator("proof_unit_refs")
     @classmethod
-    def validate_section_id(cls, value: str) -> str:
-        allowed = {f"s{index}" for index in range(1, MAX_V32_SECTIONS + 1)}
-        if value not in allowed:
-            raise ValueError("invalid V3.2 section ID")
+    def validate_unique_proof_refs(cls, value: list[str]) -> list[str]:
+        if len(value) != len(set(value)):
+            raise ValueError("V3.2 proposition proof refs must be unique")
         return value
 
 
@@ -76,23 +60,13 @@ class GroundedResponseDraftV32(ClosedModel):
         min_length=1,
         max_length=MAX_V32_PROPOSITIONS,
     )
-    sections: list[V32Section] = Field(min_length=1, max_length=MAX_V32_SECTIONS)
 
     @model_validator(mode="after")
-    def validate_closed_response_graph(self):
+    def validate_closed_response(self):
         proposition_ids = [item.proposition_id for item in self.propositions]
-        section_ids = [item.section_id for item in self.sections]
         if len(proposition_ids) != len(set(proposition_ids)):
             raise ValueError("V3.2 proposition IDs must be unique")
-        if len(section_ids) != len(set(section_ids)):
-            raise ValueError("V3.2 section IDs must be unique")
-        referenced = [
-            proposition_ref
-            for section in self.sections
-            for proposition_ref in section.proposition_refs
-        ]
-        if sorted(referenced) != sorted(proposition_ids):
-            raise ValueError(
-                "every V3.2 proposition must be referenced exactly once"
-            )
+        section_kinds = {item.section_kind for item in self.propositions}
+        if len(section_kinds) > MAX_V32_SECTIONS:
+            raise ValueError("V3.2 response exceeds the section-kind budget")
         return self

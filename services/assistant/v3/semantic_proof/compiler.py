@@ -26,6 +26,7 @@ from services.assistant.v3.contracts import (
     RecordedCorrelationAtom,
     ReferenceKnowledgeAtom,
     RelationshipClass,
+    RelationshipType,
     RiskAtom,
     StatusAtom,
     TimelineEventAtom,
@@ -72,7 +73,12 @@ def _proof_value(
 ) -> ProofValue:
     return ProofValue(
         canonical_values=[str(item) for item in canonical_values],
-        required_anchors=[str(item) for item in (required_anchors or canonical_values)],
+        required_anchors=[
+            str(item)
+            for item in (
+                canonical_values if required_anchors is None else required_anchors
+            )
+        ],
     )
 
 
@@ -103,6 +109,53 @@ def _kind_and_role_for_relationship(
     if relationship.relationship_class is RelationshipClass.ANALYTICAL_RELATIONSHIP:
         return EvidenceKind.ANALYTICAL_RELATIONSHIP, AllowedSemanticRole.ANALYTICAL_COMPARISON
     return EvidenceKind.SEMANTIC_CANDIDATE, AllowedSemanticRole.CANDIDATE_DISCOVERY
+
+
+def _relationship_evidence_value(
+    relationship: AnalyticalRelationship,
+    atoms_by_ref: dict[str, Any],
+) -> str | None:
+    atoms = [
+        atoms_by_ref[ref]
+        for ref in relationship.evidence_atom_refs
+        if ref in atoms_by_ref
+    ]
+    extractors: dict[RelationshipType, Callable[[Any], object | None]] = {
+        RelationshipType.SHARED_HOST: (
+            lambda atom: atom.host if isinstance(atom, HostAtom) else None
+        ),
+        RelationshipType.SHARED_AGENT: (
+            lambda atom: atom.host if isinstance(atom, HostAtom) else None
+        ),
+        RelationshipType.SHARED_USER: (
+            lambda atom: atom.user if isinstance(atom, UserAtom) else None
+        ),
+        RelationshipType.SHARED_RULE: (
+            lambda atom: atom.rule if isinstance(atom, DetectionAtom) else None
+        ),
+        RelationshipType.SHARED_MITRE: (
+            lambda atom: (
+                atom.technique_id or atom.technique_name
+                if isinstance(atom, MitreTechniqueAtom)
+                else None
+            )
+        ),
+        RelationshipType.SHARED_CORRELATION_TYPE: (
+            lambda atom: (
+                atom.correlation_type
+                if isinstance(atom, RecordedCorrelationAtom)
+                else None
+            )
+        ),
+        RelationshipType.SAME_CASE: (
+            lambda atom: atom.case_id if isinstance(atom, CaseRelationshipAtom) else None
+        ),
+    }
+    extractor = extractors.get(relationship.relationship_type)
+    if extractor is None:
+        return None
+    values = [str(value) for atom in atoms if (value := extractor(atom)) is not None]
+    return values[0] if values and len(set(values)) == 1 else None
 
 
 class EvidenceProofUnitCompiler:
@@ -148,7 +201,13 @@ class EvidenceProofUnitCompiler:
                 relationship.right_incident_id,
             }.issubset(allowed_incident_ids):
                 continue
-            units.extend(self._compile_relationship(relationship, languages=languages))
+            units.extend(
+                self._compile_relationship(
+                    relationship,
+                    package=package,
+                    languages=languages,
+                )
+            )
 
         for candidate in package.cross_incident_candidates:
             entry = registry.get(candidate.candidate_id)
@@ -180,10 +239,308 @@ class EvidenceProofUnitCompiler:
                 continue
             units.extend(self._compile_advisory(atom, languages=languages))
 
+        compiled_source_refs = {
+            source_ref for unit in units for source_ref in unit.source_refs
+        }
+        units.extend(
+            self._compile_mitre_syntheses(
+                package,
+                compiled_source_refs=compiled_source_refs,
+                languages=languages,
+            )
+        )
+        units.extend(self._compile_boundaries(package, languages=languages))
+
         unit_ids = [unit.proof_unit_id for unit in units]
         if len(unit_ids) != len(set(unit_ids)):
             raise ValueError("proof compiler produced duplicate unit IDs")
         return tuple(units)
+
+    def _compile_boundaries(
+        self,
+        package: V3AnalyticalContextPackage,
+        *,
+        languages: Sequence[ProofLanguage],
+    ) -> list[EvidenceProofUnit]:
+        units: list[EvidenceProofUnit] = []
+
+        def add(
+            *,
+            source_ref: str,
+            value: ProofValue,
+            scope: ProofScope,
+            source_refs: list[str],
+            premise: Callable[[ProofLanguage], str],
+        ) -> None:
+            record_hash = hashlib.sha256(source_ref.encode("utf-8")).hexdigest()[:32]
+            units.extend(
+                self._literal_units(
+                    source_ref=source_ref,
+                    predicate=(
+                        ProofPredicate.NON_IMPLICATION
+                        if source_refs
+                        else ProofPredicate.CONTEXT_LIMITATION
+                    ),
+                    value=value,
+                    authority_class=AuthorityClass.ANALYTICAL_DERIVATION,
+                    evidence_kind=EvidenceKind.ANALYTICAL_BOUNDARY,
+                    scope=scope,
+                    source_refs=source_refs,
+                    provenance=Provenance(
+                        authority_class=AuthorityClass.ANALYTICAL_DERIVATION,
+                        source_type="typed_semantic_boundary",
+                        source_record_id=record_hash,
+                        retrieval_method="deterministic_derivation",
+                    ),
+                    role=AllowedSemanticRole.UNCERTAINTY_BOUNDARY,
+                    languages=languages,
+                    premise=premise,
+                )
+            )
+
+        for relationship in package.relationship_registry.relationships:
+            source_ref = f"typed-boundary:{relationship.relationship_id}"
+            left = relationship.left_incident_id
+            right = relationship.right_incident_id
+            relationship_type = relationship.relationship_type.value
+            relationship_class = relationship.relationship_class
+
+            def premise(
+                language: ProofLanguage,
+                left: int = left,
+                right: int = right,
+                relationship_type: str = relationship_type,
+                relationship_class: RelationshipClass = relationship_class,
+            ) -> str:
+                if relationship_class is RelationshipClass.SEMANTIC_SIMILARITY:
+                    return (
+                        f"Relationship {relationship_type} between Incidents "
+                        f"{left} and {right} is a semantic discovery signal only; "
+                        "it is not a recorded correlation or operational conclusion."
+                        if language == "en"
+                        else f"La relazione {relationship_type} tra gli Incidenti "
+                        f"{left} e {right} è solo un segnale semantico di discovery; "
+                        "non è una correlazione registrata né una conclusione operativa."
+                    )
+                if relationship_class is RelationshipClass.RECORDED_CORRELATION:
+                    return (
+                        f"Recorded relationship {relationship_type} between "
+                        f"Incidents {left} and {right} does not by itself establish "
+                        "causality, compromise, attacker identity, or campaign membership."
+                        if language == "en"
+                        else f"La relazione registrata {relationship_type} tra gli "
+                        f"Incidenti {left} e {right} non stabilisce da sola causalità, "
+                        "compromissione, identità dell'attaccante o appartenenza a una "
+                        "campagna."
+                    )
+                return (
+                    f"Analytical relationship {relationship_type} between Incidents "
+                    f"{left} and {right} does not establish causality, a common cause, "
+                    "compromise, attacker identity, or campaign membership."
+                    if language == "en"
+                    else f"La relazione analitica {relationship_type} tra gli Incidenti "
+                    f"{left} e {right} non stabilisce causalità, causa comune, "
+                    "compromissione, identità dell'attaccante o appartenenza a una "
+                    "campagna."
+                )
+            add(
+                source_ref=source_ref,
+                value=_proof_value(
+                    relationship.relationship_type.value,
+                    required_anchors=[],
+                ),
+                scope=_relationship_scope(relationship),
+                source_refs=[
+                    relationship.relationship_id,
+                    *relationship.evidence_atom_refs,
+                ],
+                premise=premise,
+            )
+
+        for atom in package.operational_atoms:
+            if isinstance(atom, RecordedCorrelationAtom) and any(
+                value is not None
+                for value in (
+                    atom.correlated,
+                    atom.correlation_type,
+                    atom.correlation_score,
+                )
+            ):
+                add(
+                    source_ref=f"typed-boundary:{atom.atom_id}:correlation",
+                    value=_proof_value(
+                        *(
+                            value
+                            for value in (
+                                atom.correlated,
+                                atom.correlation_type,
+                                atom.correlation_score,
+                            )
+                            if value is not None
+                        ),
+                        required_anchors=[],
+                    ),
+                    scope=_atom_scope(atom),
+                    source_refs=[atom.atom_id],
+                    premise=lambda language, incident_id=atom.incident_id: (
+                        f"The recorded correlation state for Incident {incident_id} "
+                        "does not by itself establish causality, compromise, "
+                        "maliciousness, attacker identity, or campaign membership."
+                        if language == "en"
+                        else f"Lo stato di correlazione registrato per l'Incidente "
+                        f"{incident_id} non stabilisce da solo causalità, compromissione, "
+                        "malevolenza, identità dell'attaccante o appartenenza a una "
+                        "campagna."
+                    ),
+                )
+            elif isinstance(atom, RiskAtom) and (
+                atom.risk_score is not None
+                or atom.risk_normalization_severity is not None
+            ):
+                add(
+                    source_ref=f"typed-boundary:{atom.atom_id}:risk",
+                    value=_proof_value(
+                        *(
+                            value
+                            for value in (
+                                atom.risk_score,
+                                atom.risk_normalization_severity,
+                            )
+                            if value is not None
+                        ),
+                        required_anchors=[],
+                    ),
+                    scope=_atom_scope(atom),
+                    source_refs=[atom.atom_id],
+                    premise=lambda language, incident_id=atom.incident_id: (
+                        f"The recorded risk values for Incident {incident_id} do not "
+                        "establish threat level, canonical severity, urgency, or "
+                        "compromise."
+                        if language == "en"
+                        else f"I valori di rischio registrati per l'Incidente "
+                        f"{incident_id} non stabiliscono livello di minaccia, severità "
+                        "canonica, urgenza o compromissione."
+                    ),
+                )
+            elif isinstance(atom, MitreTechniqueAtom):
+                technique = atom.technique_id or atom.technique_name
+                add(
+                    source_ref=f"typed-boundary:{atom.atom_id}:mitre",
+                    value=_proof_value(technique, required_anchors=[technique]),
+                    scope=_atom_scope(atom),
+                    source_refs=[atom.atom_id],
+                    premise=lambda language,
+                    incident_id=atom.incident_id,
+                    technique=technique: (
+                        f"The recorded MITRE association {technique} for Incident "
+                        f"{incident_id} does not by itself establish observed attacker "
+                        "behavior, compromise, attacker identity, or campaign membership."
+                        if language == "en"
+                        else f"L'associazione MITRE registrata {technique} per "
+                        f"l'Incidente {incident_id} non stabilisce da sola un "
+                        "comportamento osservato dell'attaccante, compromissione, "
+                        "identità dell'attaccante o appartenenza a una campagna."
+                    ),
+                )
+
+        if package.context_plan.include_advisory and not package.advisory_atoms:
+            material = "\x1f".join(
+                (
+                    package.question,
+                    package.intent_selection.primary_intent.value,
+                    *map(str, package.resolved_scope.active_incident_ids),
+                )
+            )
+            source_ref = (
+                "typed-boundary:advisory-context:"
+                f"{hashlib.sha256(material.encode('utf-8')).hexdigest()[:24]}"
+            )
+            add(
+                source_ref=source_ref,
+                value=_proof_value(
+                    "ADVISORY_KNOWLEDGE_UNAVAILABLE",
+                    required_anchors=[],
+                ),
+                scope=ProofScope(scope_kind=ProofScopeKind.GLOBAL),
+                source_refs=[],
+                premise=lambda language: (
+                    "No relevant advisory or playbook guidance is present in the "
+                    "bounded context for this query, so specific next checks cannot "
+                    "be attributed to a retrieved playbook."
+                    if language == "en"
+                    else "Nel contesto delimitato per questa richiesta non è presente "
+                    "una guida advisory o di playbook pertinente; verifiche successive "
+                    "specifiche non possono quindi essere attribuite a un playbook "
+                    "recuperato."
+                ),
+            )
+        return units
+
+    def _compile_mitre_syntheses(
+        self,
+        package: V3AnalyticalContextPackage,
+        *,
+        compiled_source_refs: set[str],
+        languages: Sequence[ProofLanguage],
+    ) -> list[EvidenceProofUnit]:
+        units: list[EvidenceProofUnit] = []
+        references = [
+            atom
+            for atom in package.reference_atoms
+            if atom.knowledge_id in compiled_source_refs
+        ]
+        for atom in package.operational_atoms:
+            if (
+                not isinstance(atom, MitreTechniqueAtom)
+                or not atom.technique_id
+                or atom.atom_id not in compiled_source_refs
+            ):
+                continue
+            reference = next(
+                (
+                    item
+                    for item in references
+                    if item.subject == atom.technique_id
+                    and atom.technique_id in item.bounded_content
+                ),
+                None,
+            )
+            if reference is None:
+                continue
+            source_ref = f"typed-synthesis:{atom.atom_id}:{reference.knowledge_id}"
+            record_hash = hashlib.sha256(source_ref.encode("utf-8")).hexdigest()[:32]
+            provenance = Provenance(
+                authority_class=AuthorityClass.ANALYTICAL_DERIVATION,
+                source_type="typed_evidence_bundle",
+                source_record_id=record_hash,
+                retrieval_method="deterministic_derivation",
+            )
+            subject_en = f"Incident {atom.incident_id}"
+            subject_it = f"Incidente {atom.incident_id}"
+            units.extend(
+                self._literal_units(
+                    source_ref=source_ref,
+                    predicate=ProofPredicate.MITRE_CONTEXT,
+                    value=_proof_value(
+                        atom.technique_id,
+                        reference.bounded_content,
+                        required_anchors=[atom.technique_id],
+                    ),
+                    authority_class=AuthorityClass.ANALYTICAL_DERIVATION,
+                    evidence_kind=EvidenceKind.TYPED_SYNTHESIS,
+                    scope=_atom_scope(atom),
+                    source_refs=[atom.atom_id, reference.knowledge_id],
+                    provenance=provenance,
+                    role=AllowedSemanticRole.GROUNDED_SYNTHESIS,
+                    languages=languages,
+                    premise=lambda language: (
+                        f"{subject_en} recorded MITRE technique {atom.technique_id}. Reference knowledge states: {reference.bounded_content}"
+                        if language == "en"
+                        else f"Per {subject_it} è registrata la tecnica MITRE {atom.technique_id}. La conoscenza di riferimento indica: {reference.bounded_content}"
+                    ),
+                )
+            )
+        return units
 
     @staticmethod
     def _atom_is_in_scope(
@@ -366,7 +723,19 @@ class EvidenceProofUnitCompiler:
                     ),
                 )
         elif isinstance(atom, RiskAtom):
-            if atom.risk_score is not None:
+            if atom.risk_score is not None and atom.risk_normalization_severity:
+                score = _number(atom.risk_score)
+                normalization = atom.risk_normalization_severity
+                add(
+                    ProofPredicate.RISK_RECORD,
+                    _proof_value(score, normalization, required_anchors=[]),
+                    lambda language: (
+                        f"{subject_en} recorded risk score {score} and risk normalization {normalization}."
+                        if language == "en"
+                        else f"Per {subject_it} sono registrati il punteggio di rischio {score} e la normalizzazione del rischio {normalization}."
+                    ),
+                )
+            elif atom.risk_score is not None:
                 add(
                     ProofPredicate.RISK_SCORE,
                     _proof_value(_number(atom.risk_score)),
@@ -376,7 +745,7 @@ class EvidenceProofUnitCompiler:
                         else f"Punteggio di rischio registrato per {subject_it}: {_number(atom.risk_score)}."
                     ),
                 )
-            if atom.risk_normalization_severity:
+            elif atom.risk_normalization_severity:
                 add(
                     ProofPredicate.RISK_NORMALIZATION,
                     _proof_value(atom.risk_normalization_severity),
@@ -449,7 +818,12 @@ class EvidenceProofUnitCompiler:
             add(
                 ProofPredicate.MITRE_TECHNIQUE,
                 _proof_value(
-                    *(item for item in (atom.technique_id, atom.technique_name) if item)
+                    *(item for item in (atom.technique_id, atom.technique_name) if item),
+                    required_anchors=(
+                        [atom.technique_id]
+                        if atom.technique_id
+                        else [atom.technique_name]
+                    ),
                 ),
                 lambda language: (
                     f"{subject_en} recorded MITRE technique: {value}."
@@ -464,7 +838,7 @@ class EvidenceProofUnitCompiler:
                 ProofPredicate.TIMELINE_EVENT,
                 _proof_value(
                     *(item for item in (atom.event_type, atom.timestamp) if item),
-                    required_anchors=[atom.event_type],
+                    required_anchors=[atom.timestamp or atom.event_type],
                 ),
                 lambda language: (
                     f"{subject_en} timeline records event {atom.event_type}{timestamp}."
@@ -531,7 +905,60 @@ class EvidenceProofUnitCompiler:
                 ),
             )
         elif isinstance(atom, RecordedCorrelationAtom):
-            if atom.correlated is not None:
+            correlation_values = [
+                *(
+                    [str(atom.correlated).lower()]
+                    if atom.correlated is not None
+                    else []
+                ),
+                *([atom.correlation_type] if atom.correlation_type else []),
+                *(
+                    [_number(atom.correlation_score)]
+                    if atom.correlation_score is not None
+                    else []
+                ),
+            ]
+            if len(correlation_values) > 1:
+                flag_en = (
+                    f"flag {_boolean(atom.correlated, 'en')}; "
+                    if atom.correlated is not None
+                    else ""
+                )
+                flag_it = (
+                    f"flag {_boolean(atom.correlated, 'it')}; "
+                    if atom.correlated is not None
+                    else ""
+                )
+                type_en = (
+                    f"type {atom.correlation_type}; "
+                    if atom.correlation_type
+                    else ""
+                )
+                type_it = (
+                    f"tipo {atom.correlation_type}; "
+                    if atom.correlation_type
+                    else ""
+                )
+                score_en = (
+                    f"score {_number(atom.correlation_score)}"
+                    if atom.correlation_score is not None
+                    else ""
+                )
+                score_it = (
+                    f"punteggio {_number(atom.correlation_score)}"
+                    if atom.correlation_score is not None
+                    else ""
+                )
+                add(
+                    ProofPredicate.RECORDED_CORRELATION_STATE,
+                    _proof_value(*correlation_values, required_anchors=[]),
+                    lambda language: (
+                        f"{subject_en} recorded correlation state: {flag_en}{type_en}{score_en}."
+                        if language == "en"
+                        else f"Stato di correlazione registrato per {subject_it}: {flag_it}{type_it}{score_it}."
+                    ),
+                )
+            elif atom.correlated is not None:
                 add(
                     ProofPredicate.CORRELATION_FLAG,
                     _proof_value(str(atom.correlated).lower()),
@@ -541,7 +968,7 @@ class EvidenceProofUnitCompiler:
                         else f"Flag di correlazione registrato per {subject_it}: {_boolean(atom.correlated, language)}."
                     ),
                 )
-            if atom.correlation_type:
+            elif atom.correlation_type:
                 add(
                     ProofPredicate.CORRELATION_TYPE,
                     _proof_value(atom.correlation_type),
@@ -551,7 +978,7 @@ class EvidenceProofUnitCompiler:
                         else f"Tipo di correlazione registrato per {subject_it}: {atom.correlation_type}."
                     ),
                 )
-            if atom.correlation_score is not None:
+            elif atom.correlation_score is not None:
                 add(
                     ProofPredicate.CORRELATION_SCORE,
                     _proof_value(_number(atom.correlation_score)),
@@ -608,9 +1035,14 @@ class EvidenceProofUnitCompiler:
         self,
         relationship: AnalyticalRelationship,
         *,
+        package: V3AnalyticalContextPackage,
         languages: Sequence[ProofLanguage],
     ) -> list[EvidenceProofUnit]:
         kind, role = _kind_and_role_for_relationship(relationship)
+        evidence_value = _relationship_evidence_value(
+            relationship,
+            {item.atom_id: item for item in package.operational_atoms},
+        )
 
         def premise(language: ProofLanguage) -> str:
             if kind is EvidenceKind.RECORDED_CORRELATION:
@@ -624,14 +1056,25 @@ class EvidenceProofUnitCompiler:
                     f"tra gli Incidenti {relationship.left_incident_id} e {relationship.right_incident_id}."
                 )
             if kind is EvidenceKind.ANALYTICAL_RELATIONSHIP:
+                detail = (
+                    f" and the shared authoritative value is {evidence_value}"
+                    if language == "en" and evidence_value is not None
+                    else (
+                        f" e il valore autorevole condiviso è {evidence_value}"
+                        if evidence_value is not None
+                        else ""
+                    )
+                )
                 if language == "en":
                     return (
                         f"A deterministic analytical relationship of type {relationship.relationship_type.value} "
-                        f"was derived between Incidents {relationship.left_incident_id} and {relationship.right_incident_id}."
+                        f"was derived between Incidents {relationship.left_incident_id} and {relationship.right_incident_id}"
+                        f"{detail}."
                     )
                 return (
                     f"È stata derivata una relazione analitica deterministica di tipo {relationship.relationship_type.value} "
-                    f"tra gli Incidenti {relationship.left_incident_id} e {relationship.right_incident_id}."
+                    f"tra gli Incidenti {relationship.left_incident_id} e {relationship.right_incident_id}"
+                    f"{detail}."
                 )
             if language == "en":
                 return (
@@ -652,7 +1095,14 @@ class EvidenceProofUnitCompiler:
                 ),
                 EvidenceKind.SEMANTIC_CANDIDATE: ProofPredicate.SEMANTIC_SIMILARITY,
             }[kind],
-            value=_proof_value(relationship.relationship_type.value),
+            value=_proof_value(
+                relationship.relationship_type.value,
+                *([evidence_value] if evidence_value is not None else []),
+                required_anchors=[
+                    relationship.left_incident_id,
+                    relationship.right_incident_id,
+                ],
+            ),
             authority_class=relationship.authority_class,
             evidence_kind=kind,
             scope=_relationship_scope(relationship),

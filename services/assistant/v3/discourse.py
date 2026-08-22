@@ -698,8 +698,10 @@ _LIMITATION_TEXT = {
         "No relevant reference knowledge is available.",
     ),
     PlanLimitationCode.ADVISORY_KNOWLEDGE_UNAVAILABLE: (
-        "Non è disponibile guida consultiva pertinente.",
-        "No relevant advisory guidance is available.",
+        "Non è disponibile guida consultiva pertinente, quindi non posso "
+        "attribuire verifiche specifiche a un playbook recuperato.",
+        "No relevant advisory guidance is available, so I cannot attribute "
+        "specific checks to a retrieved playbook.",
     ),
     PlanLimitationCode.EVIDENCE_DOES_NOT_ESTABLISH_CAUSALITY: (
         "Le evidenze disponibili non stabiliscono causalità.",
