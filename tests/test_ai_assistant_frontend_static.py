@@ -11,23 +11,15 @@ PRESENTATION = COMPONENTS / "assistantPresentation.ts"
 CLIENT = ROOT / "frontend" / "src" / "lib" / "assistant.ts"
 
 
-def test_grounded_blocks_have_adjacent_source_chips() -> None:
+def test_grounded_answer_uses_conversational_prose_with_subordinate_sources() -> None:
     source = ANSWER.read_text(encoding="utf-8")
 
-    for label in ("Direct answer", "Analysis", "Next check", "Limitations"):
-        assert label in source
-    for label in (
-        "Comparison",
-        "Pattern",
-        "What we can conclude",
-        "Recommended checks",
-    ):
-        assert label in source
-    assert "block.source_ids.map" in source
-    assert "block.provenance_classes.map" in source
-    assert "ASSISTANT_PROVENANCE" in source
-    assert "revealSource(sourceId)" in source
-    assert "source.authority" in source
+    assert "response.blocks.map" in source
+    assert "whitespace-pre-wrap" in source
+    assert "BLOCK_LABELS" not in source
+    assert "block.source_ids.map" not in source
+    assert "block.provenance_classes.map" not in source
+    assert "border-l-2 border-slate-700" not in source
     assert "Sources (" in source
     assert "<details" in source
     assert "<details open" not in source
@@ -56,6 +48,10 @@ def test_technical_details_only_expose_the_grounded_runtime_contract() -> None:
         "Semantic index",
         "Plan validation",
         "Context build",
+        "Architecture",
+        "Provider generations",
+        "Automatic retries",
+        "Model switches",
     ):
         assert label in source
     for retired in (
@@ -81,11 +77,25 @@ def test_readiness_is_manual_and_reports_gateway_states() -> None:
     assert "setTimeout" not in source
     assert "conversation_id: currentConversationId()" in source
     assert "key={`${props.scope}:${props.targetId}`}" in source
+    assert "capabilities.semantic_runtime_state" in source
+
+
+def test_conversation_timeline_preserves_turns_and_pending_state() -> None:
+    source = PANEL.read_text(encoding="utf-8")
+
+    assert "AssistantTimelineTurn" in source
+    assert "setTurns((current) => [" in source
+    assert 'status: "pending"' in source
+    assert 'status: "completed"' in source
+    assert 'role="log"' in source
+    assert 'aria-label="SOC Assistant conversation"' in source
+    assert "turns.map" in source
+    assert "setResponse(null)" not in source
+    assert "timelineEndRef.current?.scrollIntoView" in source
 
 
 def test_v3_provenance_classes_are_readable_and_semantically_distinct() -> None:
     source = (COMPONENTS / "AssistantSources.tsx").read_text(encoding="utf-8")
-    answer = ANSWER.read_text(encoding="utf-8")
 
     for label in (
         "Operational source",
@@ -97,13 +107,14 @@ def test_v3_provenance_classes_are_readable_and_semantically_distinct() -> None:
         assert label in PRESENTATION.read_text(encoding="utf-8")
     assert "PROVENANCE_ORDER" in source
     assert "Semantic similarity is advisory" in source
-    assert "Evidence provenance" in answer
+    assert "provenance_class" in source
 
 
 def test_client_contract_is_structured_and_internal_links_are_safe() -> None:
     source = CLIENT.read_text(encoding="utf-8")
 
     assert 'export type AssistantGenerationKind = "model" | "deterministic_fallback"' in source
+    assert 'export type AssistantSemanticState' in source
     assert "blocks: AssistantResponseBlock[]" in source
     assert "!Array.isArray(response.blocks)" in source
     assert "isSafeInternalAssistantUrl" in source

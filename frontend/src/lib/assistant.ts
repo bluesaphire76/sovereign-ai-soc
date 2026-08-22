@@ -20,6 +20,15 @@ export type AssistantRuntimeState =
   | "ready"
   | "failed"
   | "stopped";
+export type AssistantSemanticState =
+  | "not_requested"
+  | "disabled"
+  | "warming"
+  | "embedding_unavailable"
+  | "qdrant_timeout"
+  | "retrieval_timeout"
+  | "retrieval_failed"
+  | "available";
 export type AssistantBlockKind =
   | "direct_answer"
   | "key_findings"
@@ -46,7 +55,16 @@ export type AssistantFallbackReason =
   | "v3_invalid_structured_output"
   | "v3_plan_validation_failed"
   | "v3_renderer_failed"
-  | "v3_semantic_index_degraded";
+  | "v3_semantic_index_degraded"
+  | "v31_schema_build_failed"
+  | "v31_invalid_structured_output"
+  | "v31_grounding_validation_failed"
+  | "v31_renderer_failed"
+  | "v32_schema_build_failed"
+  | "v32_invalid_structured_output"
+  | "v32_semantic_proof_failed"
+  | "v32_semantic_proof_unavailable"
+  | "v32_renderer_failed";
 
 export type AssistantCapabilities = {
   enabled: boolean;
@@ -63,6 +81,21 @@ export type AssistantCapabilities = {
   default_profile?: string | null;
   loaded_profile?: string | null;
   runtime_message?: string | null;
+  semantic_runtime_state?:
+    | "warming"
+    | "available"
+    | "embedding_unavailable"
+    | null;
+  embedding_backend?: string | null;
+  embedding_cache_state?: string | null;
+  semantic_proof_runtime_state?:
+    | "cold"
+    | "loading"
+    | "ready"
+    | "unavailable"
+    | null;
+  semantic_proof_model?: string | null;
+  semantic_proof_revision?: string | null;
 };
 
 export type AssistantQueryRequest = {
@@ -95,12 +128,7 @@ export type AssistantMetadata = {
   total_latency_ms: number;
   effective_profile: "standard";
   effective_model: string;
-  semantic_status:
-    | "not_requested"
-    | "disabled"
-    | "ok"
-    | "timed_out"
-    | "failed";
+  semantic_status: AssistantSemanticState;
   semantic_elapsed_ms: number;
   semantic_degraded: boolean;
   grounding_validation: AssistantValidationStatus;
@@ -169,7 +197,7 @@ export type AssistantMetadata = {
   reference_retrieval_ms: number;
   advisory_retrieval_ms: number;
   conversation_state_ms: number;
-  response_architecture: "v2" | "v3";
+  response_architecture: "v2" | "v3" | "v3_1" | "v3_2";
   plan_sections: number;
   plan_units: number;
   cross_incident_units: number;
@@ -187,6 +215,14 @@ export type AssistantMetadata = {
   automatic_retries: number;
   model_switches: number;
   finish_reason: string | null;
+  semantic_proof_status: "not_run" | "passed" | "failed" | "unavailable";
+  semantic_proof_ms: number;
+  semantic_proof_pairs: number;
+  typed_guard_rejects: number;
+  deterministic_proofs: number;
+  nli_proofs: number;
+  semantic_proof_model: string | null;
+  semantic_proof_revision: string | null;
   semantic_index_status:
     | "not_requested"
     | "ready"

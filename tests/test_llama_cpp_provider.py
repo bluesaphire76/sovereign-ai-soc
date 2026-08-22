@@ -1324,6 +1324,63 @@ def test_qwen3_compatibility_retry_is_once_and_does_not_mutate_input(monkeypatch
     assert "discard retry" not in str(response)
 
 
+def test_qwen3_structured_output_applies_no_think_on_single_request(monkeypatch):
+    monkeypatch.setenv("LLAMA_CPP_ENABLED", "true")
+    monkeypatch.setenv("LLAMA_CPP_STANDARD_MODEL_FAMILY", "qwen3")
+    registry = load_provider_registry()
+    client = build_provider_client(registry.providers["local_llama_cpp"])
+    original_messages = [{"role": "user", "content": "Return grounded JSON."}]
+    payloads = []
+
+    def fake_post(url, **kwargs):
+        payloads.append(kwargs["json"])
+        return _Response(
+            {
+                "model": "ai-soc-standard",
+                "choices": [
+                    {
+                        "message": {"content": '{"claims":[]}'},
+                        "finish_reason": "stop",
+                    }
+                ],
+            }
+        )
+
+    with patch(
+        "ai_provider_abstraction.requests.get",
+        return_value=_Response(
+            {
+                "data": [
+                    {"id": "ai-soc-standard", "status": {"value": "loaded"}},
+                ]
+            }
+        ),
+    ), patch("ai_provider_abstraction.requests.post", side_effect=fake_post):
+        response = client.generate(
+            feature="soc_assistant",
+            prompt=None,
+            messages=original_messages,
+            context=None,
+            options={
+                "llm_profile": "standard",
+                "timeout_seconds": 2,
+                "chat_template_kwargs": {"enable_thinking": False},
+                "qwen_no_think_compatibility": True,
+                "response_format": {"type": "json_object"},
+            },
+            data_control={"redaction_mode": REDACTION_LOCAL_ONLY},
+        )
+
+    assert len(payloads) == 1
+    assert payloads[0]["messages"][-1]["content"].endswith("/no_think")
+    assert original_messages == [
+        {"role": "user", "content": "Return grounded JSON."}
+    ]
+    assert response.text == '{"claims":[]}'
+    assert response.diagnostics["reasoning_retry_performed"] is False
+    assert "/no_think" not in str(response)
+
+
 def test_non_qwen_profile_never_uses_no_think_compatibility(monkeypatch):
     monkeypatch.setenv("LLAMA_CPP_ENABLED", "true")
     monkeypatch.setenv("LLAMA_CPP_QUALITY_MODEL_FAMILY", "llama")

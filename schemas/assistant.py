@@ -70,6 +70,15 @@ AssistantFallbackReason = Literal[
     "v3_plan_validation_failed",
     "v3_renderer_failed",
     "v3_semantic_index_degraded",
+    "v31_schema_build_failed",
+    "v31_invalid_structured_output",
+    "v31_grounding_validation_failed",
+    "v31_renderer_failed",
+    "v32_schema_build_failed",
+    "v32_invalid_structured_output",
+    "v32_semantic_proof_failed",
+    "v32_semantic_proof_unavailable",
+    "v32_renderer_failed",
 ]
 
 
@@ -145,6 +154,21 @@ class AssistantCapabilitiesResponse(BaseModel):
     default_profile: Literal["standard"] = "standard"
     loaded_profile: Literal["standard"] | None = None
     runtime_message: str | None = None
+    semantic_runtime_state: Literal[
+        "warming",
+        "available",
+        "embedding_unavailable",
+    ] | None = None
+    embedding_backend: str | None = None
+    embedding_cache_state: str | None = None
+    semantic_proof_runtime_state: Literal[
+        "cold",
+        "loading",
+        "ready",
+        "unavailable",
+    ] | None = None
+    semantic_proof_model: str | None = None
+    semantic_proof_revision: str | None = None
 
 
 class AssistantSource(BaseModel):
@@ -219,9 +243,12 @@ class AssistantMetadata(BaseModel):
     semantic_status: Literal[
         "not_requested",
         "disabled",
-        "ok",
-        "timed_out",
-        "failed",
+        "warming",
+        "embedding_unavailable",
+        "qdrant_timeout",
+        "retrieval_timeout",
+        "retrieval_failed",
+        "available",
     ] = "not_requested"
     semantic_elapsed_ms: int = 0
     semantic_degraded: bool = False
@@ -263,7 +290,7 @@ class AssistantMetadata(BaseModel):
     reference_retrieval_ms: int = 0
     advisory_retrieval_ms: int = 0
     conversation_state_ms: int = 0
-    response_architecture: Literal["v2", "v3"] = "v2"
+    response_architecture: Literal["v2", "v3", "v3_1", "v3_2"] = "v2"
     plan_sections: int = 0
     plan_units: int = 0
     cross_incident_units: int = 0
@@ -281,6 +308,19 @@ class AssistantMetadata(BaseModel):
     automatic_retries: int = 0
     model_switches: int = 0
     finish_reason: str | None = None
+    semantic_proof_status: Literal[
+        "not_run",
+        "passed",
+        "failed",
+        "unavailable",
+    ] = "not_run"
+    semantic_proof_ms: int = 0
+    semantic_proof_pairs: int = 0
+    typed_guard_rejects: int = 0
+    deterministic_proofs: int = 0
+    nli_proofs: int = 0
+    semantic_proof_model: str | None = None
+    semantic_proof_revision: str | None = None
     semantic_index_status: Literal[
         "not_requested",
         "ready",

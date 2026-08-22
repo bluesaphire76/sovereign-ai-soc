@@ -43,6 +43,21 @@ type ContextualAssistantPanelProps = {
   userRole?: string | null;
 };
 
+type AssistantTimelineTurn =
+  | {
+      id: string;
+      role: "user";
+      text: string;
+    }
+  | {
+      id: string;
+      role: "assistant";
+      question: string;
+      status: "pending" | "completed" | "error";
+      response?: AssistantQueryResponse;
+      error?: NormalizedAssistantError;
+    };
+
 function capabilityBadge(
   loading: boolean,
   capabilities: AssistantCapabilities | null,
@@ -130,7 +145,7 @@ function ContextualAssistantPanelContent({
   const [question, setQuestion] = useState("");
   const [mode, setMode] = useState<AssistantMode>("auto");
   const [includeSemanticMemory, setIncludeSemanticMemory] = useState(true);
-  const [response, setResponse] = useState<AssistantQueryResponse | null>(null);
+  const [turns, setTurns] = useState<AssistantTimelineTurn[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [queryError, setQueryError] =
     useState<NormalizedAssistantError | null>(null);
@@ -141,7 +156,10 @@ function ContextualAssistantPanelContent({
   const queryControllerRef = useRef<AbortController | null>(null);
   const mountedRef = useRef(true);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const responseRef = useRef<HTMLDivElement | null>(null);
+  const timelineRef = useRef<HTMLDivElement | null>(null);
+  const timelineEndRef = useRef<HTMLDivElement | null>(null);
+  const pendingTurnIdRef = useRef<string | null>(null);
+  const keepTimelinePinnedRef = useRef(true);
   const conversationIdRef = useRef<string | null>(null);
 
   function currentConversationId() {
@@ -274,37 +292,37 @@ function ContextualAssistantPanelContent({
     }
   }
 
-  async function handleSubmit(event?: FormEvent<HTMLFormElement>) {
-    event?.preventDefault();
-
+  async function submitQuestion(message: string) {
     if (submitting || !assistantEnabled || interactionLocked) return;
-
-    if (!trimmedQuestion) {
-      setValidationError("Enter a question before submitting.");
-      textareaRef.current?.focus();
-      return;
-    }
-
-    if (trimmedQuestion.length > ASSISTANT_MESSAGE_MAX_LENGTH) {
-      setValidationError(
-        `Keep the question within ${ASSISTANT_MESSAGE_MAX_LENGTH} characters.`,
-      );
-      textareaRef.current?.focus();
-      return;
-    }
-
     const controller = new AbortController();
+    const userTurnId = globalThis.crypto.randomUUID();
+    const assistantTurnId = globalThis.crypto.randomUUID();
     queryControllerRef.current = controller;
+    pendingTurnIdRef.current = assistantTurnId;
+    keepTimelinePinnedRef.current = true;
     setSubmitting(true);
     setValidationError(null);
     setQueryError(null);
     setNotice(null);
-    setResponse(null);
+    setQuestion("");
+    setTurns((current) => [
+      ...current,
+      { id: userTurnId, role: "user", text: message },
+      {
+        id: assistantTurnId,
+        role: "assistant",
+        question: message,
+        status: "pending",
+      },
+    ]);
+    window.requestAnimationFrame(() => {
+      timelineEndRef.current?.scrollIntoView({ block: "nearest" });
+    });
 
     try {
       const payload = await submitAssistantQuery(
         {
-          message: trimmedQuestion,
+          message,
           scope,
           incident_id: scope === "incident" ? targetId : null,
           case_id: scope === "case" ? targetId : null,
@@ -320,11 +338,21 @@ function ContextualAssistantPanelContent({
         return;
       }
 
-      setResponse(payload);
-      setNotice(
-        "Response complete. The question remains available for analyst refinement.",
+      setTurns((current) =>
+        current.map((turn) =>
+          turn.id === assistantTurnId && turn.role === "assistant"
+            ? { ...turn, status: "completed", response: payload }
+            : turn,
+        ),
       );
-      window.requestAnimationFrame(() => responseRef.current?.focus());
+      setNotice(
+        "Response validated. You can continue with a follow-up question.",
+      );
+      if (keepTimelinePinnedRef.current) {
+        window.requestAnimationFrame(() => {
+          timelineEndRef.current?.scrollIntoView({ block: "nearest" });
+        });
+      }
     } catch (error) {
       if (!mountedRef.current || queryControllerRef.current !== controller) {
         return;
@@ -332,13 +360,40 @@ function ContextualAssistantPanelContent({
       const normalized = normalizeAssistantApiError(error, scope);
       if (normalized.kind !== "aborted") {
         setQueryError(normalized);
+        setTurns((current) =>
+          current.map((turn) =>
+            turn.id === assistantTurnId && turn.role === "assistant"
+              ? { ...turn, status: "error", error: normalized }
+              : turn,
+          ),
+        );
       }
     } finally {
       if (mountedRef.current && queryControllerRef.current === controller) {
         queryControllerRef.current = null;
+        pendingTurnIdRef.current = null;
         setSubmitting(false);
       }
     }
+  }
+
+  async function handleSubmit(event?: FormEvent<HTMLFormElement>) {
+    event?.preventDefault();
+
+    if (!trimmedQuestion) {
+      setValidationError("Enter a question before submitting.");
+      textareaRef.current?.focus();
+      return;
+    }
+
+    if (trimmedQuestion.length > ASSISTANT_MESSAGE_MAX_LENGTH) {
+      setValidationError(
+        `Keep the question within ${ASSISTANT_MESSAGE_MAX_LENGTH} characters.`,
+      );
+      textareaRef.current?.focus();
+      return;
+    }
+    await submitQuestion(trimmedQuestion);
   }
 
   function handleCancel() {
@@ -347,6 +402,26 @@ function ContextualAssistantPanelContent({
 
     queryControllerRef.current = null;
     controller.abort();
+    const pendingTurnId = pendingTurnIdRef.current;
+    pendingTurnIdRef.current = null;
+    if (pendingTurnId) {
+      setTurns((current) =>
+        current.map((turn) =>
+          turn.id === pendingTurnId && turn.role === "assistant"
+            ? {
+                ...turn,
+                status: "error",
+                error: {
+                  kind: "aborted",
+                  message: "The assistant request was cancelled.",
+                  retryable: true,
+                  locksInteraction: false,
+                },
+              }
+            : turn,
+        ),
+      );
+    }
     setSubmitting(false);
     setNotice(
       `Request cancelled. No ${scope} state was changed and the question was retained.`,
@@ -369,6 +444,13 @@ function ContextualAssistantPanelContent({
       event.preventDefault();
       void handleSubmit();
     }
+  }
+
+  function handleTimelineScroll() {
+    const timeline = timelineRef.current;
+    if (!timeline) return;
+    keepTimelinePinnedRef.current =
+      timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < 80;
   }
 
   return (
@@ -480,24 +562,96 @@ function ContextualAssistantPanelContent({
             </div>
           ) : null}
 
-          <form className="space-y-4" onSubmit={handleSubmit}>
-            <fieldset disabled={controlsDisabled}>
-              <legend className="text-xs font-semibold text-slate-200">
-                Suggested questions
-              </legend>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {suggestions.map((suggestion) => (
-                  <button
-                    key={suggestion}
-                    type="button"
-                    onClick={() => handleSuggestion(suggestion)}
-                    className="min-h-8 max-w-full border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-left text-xs leading-5 text-slate-300 hover:border-cyan-800 hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-50"
+          {turns.length > 0 ? (
+            <div
+              ref={timelineRef}
+              onScroll={handleTimelineScroll}
+              role="log"
+              aria-label="SOC Assistant conversation"
+              aria-live="polite"
+              className="max-h-[52rem] space-y-5 overflow-y-auto border-y border-slate-800 py-4 pr-1"
+            >
+              {turns.map((turn, index) =>
+                turn.role === "user" ? (
+                  <div key={turn.id} className="flex justify-end pl-8 sm:pl-16">
+                    <div className="max-w-3xl rounded-md bg-slate-800 px-3 py-2 text-sm leading-6 text-slate-100">
+                      <p className="whitespace-pre-wrap break-words">{turn.text}</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    key={turn.id}
+                    className="flex min-w-0 items-start gap-3 pr-2"
                   >
-                    {suggestion}
-                  </button>
-                ))}
-              </div>
-            </fieldset>
+                    <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-cyan-900 bg-slate-900 text-cyan-300">
+                      <Bot aria-hidden="true" className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0 max-w-4xl flex-1">
+                      {turn.status === "pending" ? (
+                        <div className="inline-flex items-start gap-2 text-sm leading-6 text-slate-300">
+                          <Loader2
+                            aria-hidden="true"
+                            className="mt-1 h-4 w-4 shrink-0 animate-spin text-cyan-300"
+                          />
+                          Validating scope and evidence, then generating one grounded response.
+                        </div>
+                      ) : turn.status === "completed" && turn.response ? (
+                        <AssistantAnswer
+                          response={turn.response}
+                          anchorPrefix={`${anchorPrefix}-turn-${index}`}
+                        />
+                      ) : turn.error ? (
+                        <div
+                          role="alert"
+                          className="border-l-2 border-amber-700 pl-3 text-xs leading-5 text-amber-100"
+                        >
+                          <span className="inline-flex items-start gap-2">
+                            <AlertTriangle
+                              aria-hidden="true"
+                              className="mt-0.5 h-3.5 w-3.5 shrink-0"
+                            />
+                            {turn.error.message}
+                          </span>
+                          {turn.error.retryable && !submitting ? (
+                            <button
+                              type="button"
+                              onClick={() => void submitQuestion(turn.question)}
+                              className="mt-2 inline-flex min-h-8 items-center gap-1.5 border border-slate-700 bg-slate-900 px-2.5 font-medium text-slate-200 hover:bg-slate-800"
+                            >
+                              <RefreshCw aria-hidden="true" className="h-3.5 w-3.5" />
+                              Try again
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ),
+              )}
+              <div ref={timelineEndRef} aria-hidden="true" />
+            </div>
+          ) : null}
+
+          <form className="space-y-4" onSubmit={handleSubmit}>
+            {turns.length === 0 ? (
+              <fieldset disabled={controlsDisabled}>
+                <legend className="text-xs font-semibold text-slate-200">
+                  Suggested questions
+                </legend>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {suggestions.map((suggestion) => (
+                    <button
+                      key={suggestion}
+                      type="button"
+                      onClick={() => handleSuggestion(suggestion)}
+                      className="min-h-8 max-w-full border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-left text-xs leading-5 text-slate-300 hover:border-cyan-800 hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+            ) : null}
 
             <div>
               <label
@@ -598,7 +752,7 @@ function ContextualAssistantPanelContent({
                       Include semantic memory
                     </span>
                     <span className="mt-0.5 block text-[10px] leading-4 text-slate-500">
-                      Qdrant similarity is advisory and requires analyst review.
+                      Qdrant similarity is advisory. Encoder: {capabilities.semantic_runtime_state ?? "unknown"}.
                     </span>
                   </span>
                 </label>
@@ -637,68 +791,13 @@ function ContextualAssistantPanelContent({
           </form>
 
           <div aria-live="polite" className="min-h-5 text-xs">
-            {submitting ? (
-              <span className="inline-flex items-start gap-2 text-cyan-200">
-                <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
-                Analyzing recorded evidence, retrieving authorized related incidents,
-                and building a grounded answer.
-              </span>
-            ) : notice ? (
+            {!submitting && notice ? (
               <span className="inline-flex items-center gap-2 text-emerald-300">
                 <ShieldCheck aria-hidden="true" className="h-3.5 w-3.5" />
                 {notice}
               </span>
             ) : null}
           </div>
-
-          {queryError && queryError.kind !== "disabled" ? (
-            <div
-              className={`border-l-2 px-3 py-2 text-xs leading-5 ${
-                queryError.kind === "forbidden" ||
-                queryError.kind === "not_found"
-                  ? "border-red-700 bg-red-950/30 text-red-200"
-                  : "border-amber-700 bg-amber-950/20 text-amber-100"
-              }`}
-              role="alert"
-            >
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <span className="inline-flex items-start gap-2">
-                  <AlertTriangle
-                    aria-hidden="true"
-                    className="mt-0.5 h-3.5 w-3.5 shrink-0"
-                  />
-                  {queryError.message}
-                </span>
-                {queryError.retryable ? (
-                  <button
-                    type="button"
-                    onClick={() => void handleSubmit()}
-                    disabled={!trimmedQuestion || submitting}
-                    className="inline-flex min-h-8 w-fit items-center gap-1.5 border border-slate-700 bg-slate-900 px-2.5 font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-50"
-                  >
-                    <RefreshCw aria-hidden="true" className="h-3.5 w-3.5" />
-                    Try again
-                  </button>
-                ) : null}
-              </div>
-            </div>
-          ) : null}
-
-          {response ? (
-            <div
-              ref={responseRef}
-              tabIndex={-1}
-              className="border-t border-slate-800 pt-4 outline-none focus-visible:ring-1 focus-visible:ring-cyan-500"
-              aria-live="polite"
-            >
-              <AssistantAnswer response={response} anchorPrefix={anchorPrefix} />
-            </div>
-          ) : !submitting && !queryError && assistantEnabled ? (
-            <div className="border-t border-slate-800 pt-3 text-xs leading-5 text-slate-500">
-              No question has been submitted. Suggested questions only populate
-              the input and never run automatically.
-            </div>
-          ) : null}
 
           <div className="flex items-start gap-2 border-t border-slate-800 pt-3 text-[11px] leading-5 text-slate-500">
             <Database aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-cyan-400" />

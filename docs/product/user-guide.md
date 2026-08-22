@@ -149,24 +149,29 @@ semantic memory, and submit explicitly. Suggested questions never run
 automatically. Ctrl+Enter or Cmd+Enter submits; Enter adds a new line. All
 generative work uses the queued standard-profile inference gateway.
 
-Operational database sources are marked `AUTHORITATIVE`. Qdrant semantic-memory
-sources are marked `ADVISORY`; semantic retrieval is bounded to two seconds and
-may fail open.
-Similarity does not prove identity, cause, severity, or closure readiness. The
-backend validates closed V3 answer-plan sections such as Direct answer, Key
-findings, Evidence, Related incidents, Comparison, Recommended checks, and
-Limitations. Source and block labels distinguish operational sources,
-reference knowledge, advisory/playbook guidance, analytical relationships, and
-semantic candidates. Incident and case sources use validated internal detail
-links.
+The panel is a conversation timeline. A submitted question and assistant
+pending turn appear immediately; the complete answer replaces that pending
+turn only after deterministic validation. Follow-up questions retain earlier
+turns while the current detail page remains mounted. The current provider does
+not expose safely validated segments incrementally, so the UI does not simulate
+token streaming.
 
-The panel keeps a bounded conversation while the current Incident or Case
-detail view remains mounted. Changing record context creates a new opaque
-conversation ID; the backend isolates state by authenticated owner, expires it,
+Operational database sources are marked `AUTHORITATIVE`. Qdrant semantic-memory
+sources are marked `ADVISORY`; semantic retrieval has its own bounded phase
+budget and may fail open.
+Similarity does not prove identity, cause, severity, or closure readiness. The
+V3.1 backend validates model-authored prose through closed typed claims and
+source refs before it becomes visible. Sources distinguish operational,
+reference, advisory/playbook, analytical-relationship, and semantic-candidate
+provenance and use validated internal detail links. Sources and technical
+diagnostics are collapsed by default so the primary flow remains conversational.
+
+Changing record context creates a new opaque conversation ID; the backend
+isolates state by authenticated owner, expires it,
 and persists only validated IDs and refs. Previous Assistant prose and user
 assertions never become operational evidence. There is no browser persistence,
-streaming, or autonomous action. VIEWER users do not receive the interactive
-panel.
+unvalidated streaming, or autonomous action. VIEWER users do not receive the
+interactive panel.
 
 The response remains read-only and cannot update incidents, cases, workflows,
 detection controls, or remediation decisions. Recommended checks are guidance,

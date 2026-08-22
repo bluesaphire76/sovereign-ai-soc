@@ -114,27 +114,31 @@ sudo journalctl -u ai-soc-llama-cpp-router.service -n 200 --no-pager
 For queue deadlines, inspect queue depth, active requests, task status, and
 request durations. Do not enable a second provider path or a second prewarm
 owner as a workaround. Qdrant failure is independent: Assistant SQL-grounded
-answers continue with semantic status `failed` or `timed_out`.
+answers continue with a typed semantic degradation state such as
+`qdrant_timeout`, `retrieval_timeout`, or `retrieval_failed`.
 
 ## Assistant V3 Rollout And Rollback
 
 The response architecture has one rollout control:
 
 ```text
-AI_ASSISTANT_RESPONSE_ARCHITECTURE=v2|v3
+AI_ASSISTANT_RESPONSE_ARCHITECTURE=v2|v3|v3_1|v3_2
 ```
 
-The repository default is `v3`. Set it explicitly in a deployment environment
-when reconciling an existing rollout, then restart the API through the normal
-service workflow. A successful verification request reports response
-architecture `v3`, passed grounding and plan validation, standard profile/model,
-exactly one provider generation, no automatic retry, and no fallback. Confirm
+The repository default is `v3_2`. V3.2 adds a local GPU hybrid semantic proof
+gate after the single standard-model generation. Use `v3_1`, `v3`, or `v2` only
+as explicit rollback settings. Set the architecture in the deployment
+environment, then restart the API through the normal service workflow. A
+successful V3.2 request reports `semantic_proof_status=passed`, exactly one
+provider generation, no automatic retry, and no fallback. Confirm
 the gateway returns to `ready` with `queue_depth=0` and `active_requests=0`.
 
-Rollback requires no schema or data migration. Restore the setting to `v2` and
-restart the API. V3 conversation state contains only bounded validated refs and
-is not consumed as authoritative prose by V2. The incident semantic index may
-remain populated because Qdrant is retrieval support only.
+V3.2 rollback requires no schema or data migration. Restore the setting to
+`v3_1` or `v3` and restart the API; `v2` remains the explicit legacy rollback.
+V3
+conversation state contains only bounded validated refs and is not consumed as
+authoritative prose by another response architecture. The incident semantic
+index may remain populated because Qdrant is retrieval support only.
 
 Do not copy `.env.example` over a deployment `.env`. Reconcile key names only,
 preserve all local values, and never print secrets during an audit.
@@ -238,8 +242,8 @@ docker compose -f deploy/demo/docker-compose.demo.yml start qdrant
 ```
 
 Expected: an authoritative model response still succeeds; semantic status is
-`failed` or `timed_out`, and Qdrant unavailability alone does not cause
-fallback.
+`qdrant_timeout` or `retrieval_failed`, and Qdrant unavailability alone does
+not cause fallback.
 
 ### F. Concurrent Platform Use
 

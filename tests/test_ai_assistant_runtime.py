@@ -7,6 +7,7 @@ from services.ai_execution.errors import GatewayUnavailable
 from services.assistant.runtime import (
     assistant_lifespan,
     assistant_runtime_snapshot,
+    semantic_proof_prewarm_enabled,
 )
 
 
@@ -58,3 +59,32 @@ def test_api_lifespan_only_owns_local_embedding_prewarm(monkeypatch) -> None:
 
     asyncio.run(exercise())
     assert calls == ["start", "running", "stop"]
+
+
+def test_api_lifespan_prewarms_semantic_proof_only_for_enabled_v32(
+    monkeypatch,
+) -> None:
+    calls = []
+    monkeypatch.setenv("AI_SOC_ASSISTANT_ENABLED", "true")
+    monkeypatch.setenv("AI_ASSISTANT_RESPONSE_ARCHITECTURE", "v3_2")
+    monkeypatch.setattr(
+        "services.assistant.runtime.prewarm_semantic_proof_runtime",
+        lambda: calls.append("proof"),
+    )
+    monkeypatch.setattr(
+        "services.assistant.runtime.start_embedding_prewarm",
+        lambda: calls.append("embedding"),
+    )
+    monkeypatch.setattr(
+        "services.assistant.runtime.stop_embedding_prewarm",
+        lambda: calls.append("stop"),
+    )
+
+    assert semantic_proof_prewarm_enabled()
+
+    async def exercise() -> None:
+        async with assistant_lifespan(object()):
+            calls.append("running")
+
+    asyncio.run(exercise())
+    assert calls == ["proof", "embedding", "running", "stop"]

@@ -920,10 +920,13 @@ def test_v3_structured_output_budget_is_bounded_but_not_truncation_prone(
     assert settings.v3_max_output_tokens < 2048
 
 
-def test_v3_is_default_response_architecture_with_explicit_v2_rollback(
+def test_v32_is_default_response_architecture_with_explicit_rollbacks(
     monkeypatch,
 ) -> None:
     monkeypatch.delenv("AI_ASSISTANT_RESPONSE_ARCHITECTURE", raising=False)
+    assert get_assistant_settings().response_architecture == "v3_2"
+
+    monkeypatch.setenv("AI_ASSISTANT_RESPONSE_ARCHITECTURE", "v3")
     assert get_assistant_settings().response_architecture == "v3"
 
     monkeypatch.setenv("AI_ASSISTANT_RESPONSE_ARCHITECTURE", "v2")

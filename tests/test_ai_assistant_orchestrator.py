@@ -128,7 +128,7 @@ def _retrieval(*, advisory: bool = False) -> RetrievalResult:
         semantic_memory_requested=advisory,
         semantic_memory_attempted=advisory,
         semantic_memory_available=advisory,
-        semantic_status="ok" if advisory else "not_requested",
+        semantic_status="available" if advisory else "not_requested",
     )
 
 
@@ -613,15 +613,15 @@ def test_not_requested_semantic_memory_has_no_response_limitation(
     ),
     [
         (
-            "timed_out",
+            "qdrant_timeout",
             True,
             (
-                "Semantic memory was unavailable within its time budget; the "
-                "answer uses authoritative platform data."
+                "The semantic index timed out; the answer uses authoritative "
+                "platform data."
             ),
             (
-                "La memoria semantica non era disponibile entro il tempo "
-                "previsto; la risposta usa i dati autorevoli della piattaforma."
+                "L'indice semantico non ha risposto in tempo; la risposta usa i "
+                "dati autorevoli della piattaforma."
             ),
         ),
         (
@@ -634,7 +634,7 @@ def test_not_requested_semantic_memory_has_no_response_limitation(
             ),
         ),
         (
-            "failed",
+            "retrieval_failed",
             True,
             (
                 "Semantic memory retrieval failed safely; exact operational "
@@ -676,7 +676,7 @@ def test_semantic_limitations_match_the_actual_state_in_italian(
     assert response.metadata.semantic_status == semantic_status
     assert response.metadata.semantic_degraded is semantic_degraded
     assert response.limitations == [expected_limitation]
-    if semantic_status in {"disabled", "failed"}:
+    if semantic_status in {"disabled", "retrieval_failed"}:
         assert "tempo previsto" not in response.limitations[0]
 
 

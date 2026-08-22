@@ -749,9 +749,9 @@ def _retrieve_semantic_sources(
     if deadline_monotonic is not None and deadline_monotonic - clock() < 0.05:
         return SemanticRetrievalOutcome(
             limitations=[
-                "Semantic memory was skipped because the assistant request budget was exhausted."
+                "Semantic retrieval was skipped because the global assistant request budget was exhausted."
             ],
-            status="timed_out",
+            status="retrieval_timeout",
             degraded=True,
             timeout_phase="semantic_retrieval_timeout",
         )
@@ -797,13 +797,16 @@ def _retrieve_semantic_sources(
             if deadline_monotonic is not None and clock() >= deadline_monotonic:
                 raise SemanticRetrievalTimeout("qdrant")
     except SemanticEmbeddingNotReady as exc:
+        warming = exc.cache_state in {"cold", "loading"}
         return SemanticRetrievalOutcome(
             limitations=[
-                "Semantic memory was unavailable within its time budget; the answer uses authoritative platform data."
+                "Semantic embedding prewarm is still in progress; the answer uses authoritative platform data."
+                if warming
+                else "The semantic embedding is unavailable; the answer uses authoritative platform data."
             ],
             attempted=True,
             error_category="EmbeddingNotReady",
-            status="failed",
+            status="warming" if warming else "embedding_unavailable",
             degraded=True,
             embedding_backend="sentence_transformers_local",
             embedding_cache_state=exc.cache_state,
@@ -818,11 +821,17 @@ def _retrieve_semantic_sources(
         }.get(exc.phase, "semantic_retrieval_timeout")
         return SemanticRetrievalOutcome(
             limitations=[
-                "Semantic memory was unavailable within its time budget; the answer uses authoritative platform data."
+                "The semantic index timed out; the answer uses authoritative platform data."
+                if exc.phase == "qdrant"
+                else "Semantic retrieval exceeded its phase budget; the answer uses authoritative platform data."
             ],
             attempted=True,
             error_category="SemanticRetrievalTimeout",
-            status="timed_out",
+            status=(
+                "qdrant_timeout"
+                if exc.phase == "qdrant"
+                else "retrieval_timeout"
+            ),
             degraded=True,
             embedding_backend=diagnostics.get("embedding_backend"),
             embedding_cache_state=diagnostics.get("embedding_cache_state"),
@@ -835,11 +844,11 @@ def _retrieve_semantic_sources(
     except TimeoutError:
         return SemanticRetrievalOutcome(
             limitations=[
-                "Semantic memory was unavailable within its time budget; the answer uses authoritative platform data."
+                "The semantic index timed out; the answer uses authoritative platform data."
             ],
             attempted=True,
             error_category="TimeoutError",
-            status="timed_out",
+            status="qdrant_timeout",
             degraded=True,
             embedding_backend=diagnostics.get("embedding_backend"),
             embedding_cache_state=diagnostics.get("embedding_cache_state"),
@@ -856,7 +865,7 @@ def _retrieve_semantic_sources(
             ],
             attempted=True,
             error_category=exc.__class__.__name__,
-            status="failed",
+            status="retrieval_failed",
             degraded=True,
             embedding_backend=diagnostics.get("embedding_backend"),
             embedding_cache_state=diagnostics.get("embedding_cache_state"),
@@ -882,12 +891,12 @@ def _retrieve_semantic_sources(
     except SemanticRetrievalTimeout:
         return SemanticRetrievalOutcome(
             limitations=[
-                "Semantic memory was unavailable within its time budget; the answer uses authoritative platform data."
+                "Semantic retrieval exceeded its phase budget; the answer uses authoritative platform data."
             ],
             attempted=True,
             error_category="SemanticRetrievalTimeout",
             candidates=len(contexts),
-            status="timed_out",
+            status="retrieval_timeout",
             degraded=True,
             embedding_backend=diagnostics.get("embedding_backend"),
             embedding_cache_state=diagnostics.get("embedding_cache_state"),
@@ -910,7 +919,7 @@ def _retrieve_semantic_sources(
         candidates=len(contexts),
         rejected=sum(rejected.values()),
         rejection_reason=rejection_reason,
-        status="ok",
+        status="available",
         embedding_backend=diagnostics.get("embedding_backend"),
         embedding_cache_state=diagnostics.get("embedding_cache_state"),
         embedding_elapsed_ms=int(diagnostics.get("embedding_elapsed_ms") or 0),

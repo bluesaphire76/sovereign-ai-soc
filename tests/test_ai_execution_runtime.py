@@ -96,7 +96,12 @@ def _request(
                 "schema_document": grounded_claim_output_schema(),
             }
             if output_schema
-            in {"assistant_grounded_v2", "assistant_grounded_v3"}
+            in {
+                "assistant_grounded_v2",
+                "assistant_grounded_v3",
+                "assistant_grounded_v31",
+                "assistant_grounded_v32",
+            }
             else None
         ),
         max_output_tokens=384,
@@ -292,7 +297,12 @@ def test_generation_forces_local_llama_standard_zero_temperature(
 
 @pytest.mark.parametrize(
     "output_schema",
-    ["assistant_grounded_v2", "assistant_grounded_v3"],
+    [
+        "assistant_grounded_v2",
+        "assistant_grounded_v3",
+        "assistant_grounded_v31",
+        "assistant_grounded_v32",
+    ],
 )
 def test_grounded_generation_passes_closed_json_schema_once(
     monkeypatch,
