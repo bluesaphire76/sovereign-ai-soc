@@ -47,6 +47,8 @@ from services.assistant.v3.conversation import ConversationStateStore
 from services.assistant.v3.response_v32 import (
     GroundedResponseV32Validator,
     compile_v32_proof_units,
+    grounded_response_v32_schema,
+    v32_proposition_budget,
 )
 from services.assistant.v3.semantic_index import (
     IncidentSemanticHit,
@@ -61,6 +63,7 @@ from services.assistant.v3.semantic_proof.contracts import (
     EntailmentProviderInfo,
     EvidenceKind,
     ProofPredicate,
+    ProofScopeKind,
 )
 from services.assistant.v3.semantic_proof.guards import (
     TypedGuardReason,
@@ -326,8 +329,12 @@ def _build(
 def test_temporal_resolver_uses_zurich_and_absolute_utc_windows() -> None:
     resolver = ZurichTemporalResolver()
     last_day = resolver.resolve("ultime 24 ore", now=NOW).current
+    last_thirty_days = resolver.resolve("ultimi 30 giorni", now=NOW).current
+    today = resolver.resolve("oggi", now=NOW).current
     this_week = resolver.resolve("questa settimana", now=NOW).current
-    previous_month = resolver.resolve("ultimo mese", now=NOW).current
+    this_month = resolver.resolve("questo mese", now=NOW).current
+    previous_month = resolver.resolve("mese scorso", now=NOW).current
+    ambiguous_month = resolver.resolve("ultimo mese", now=NOW)
     comparison = resolver.resolve(
         "ultimi 7 giorni e i 7 giorni precedenti",
         now=NOW,
@@ -341,6 +348,11 @@ def test_temporal_resolver_uses_zurich_and_absolute_utc_windows() -> None:
     )
     assert this_week is not None
     assert this_week.start_utc == "2026-08-16T22:00:00Z"
+    assert last_thirty_days is not None
+    assert last_thirty_days.resolution == "LAST_30_DAYS"
+    assert today is not None and today.start_utc == "2026-08-22T22:00:00Z"
+    assert this_month is not None
+    assert this_month.start_utc == "2026-07-31T22:00:00Z"
     assert previous_month is not None
     assert (previous_month.start_utc, previous_month.end_utc) == (
         "2026-06-30T22:00:00Z",
@@ -348,6 +360,8 @@ def test_temporal_resolver_uses_zurich_and_absolute_utc_windows() -> None:
     )
     assert comparison.current is not None and comparison.previous is not None
     assert comparison.previous.end_utc == comparison.current.start_utc
+    assert ambiguous_month.current is None
+    assert ambiguous_month.routing_status == "ambiguous_time_window"
 
 
 def test_global_followups_preserve_italian_language() -> None:
@@ -377,7 +391,7 @@ def test_legacy_mitre_mapping_is_normalized_for_distribution(analytics_db) -> No
     result = _build(
         db,
         "incident_mitre_distribution",
-        "Quali tecniche MITRE sono più frequenti negli incidenti dell'ultimo mese?",
+        "Quali tecniche MITRE sono più frequenti negli incidenti del mese scorso?",
     )
     rendered = render_global_analytics_fallback(result.package)
     text = rendered.blocks[0].text
@@ -467,7 +481,7 @@ def test_registry_and_query_fingerprint_reject_unregistered_or_tampered_plans() 
         ),
         (
             "incident_mitre_distribution",
-            "Quali tecniche MITRE sono più frequenti negli incidenti dell'ultimo mese?",
+            "Quali tecniche MITRE sono più frequenti negli incidenti del mese scorso?",
             None,
             1,
         ),
@@ -597,6 +611,9 @@ def test_recorded_relationship_and_semantic_similarity_remain_distinct(
     assert promoted.reason is TypedGuardReason.INCOMPATIBLE_SEMANTIC_CONCEPT
 
     recorded_units = compile_v32_proof_units(recorded.package)
+    assert recorded_units[0].evidence_kind is EvidenceKind.ANALYTICAL_RESULT_SET
+    assert recorded_units[0].scope.scope_kind is ProofScopeKind.GLOBAL
+    assert len(recorded_units) <= 3
     recorded_proof = next(
         item
         for item in recorded_units
@@ -608,6 +625,123 @@ def test_recorded_relationship_and_semantic_similarity_remain_distinct(
     )
     assert not caused.accepted
     assert caused.reason is TypedGuardReason.INCOMPATIBLE_SEMANTIC_CONCEPT
+    assert semantic_units[0].evidence_kind is EvidenceKind.ANALYTICAL_RESULT_SET
+    assert semantic_units[0].scope.scope_kind is ProofScopeKind.GLOBAL
+    assert len(semantic_units) <= 3
+
+
+def test_global_proposition_budget_is_typed_by_analytical_operation(
+    analytics_db,
+) -> None:
+    db, _factory, incidents = analytics_db
+    count = _build(
+        db,
+        "incident_count",
+        "Quanti incidenti NEW ci sono stati nelle ultime 24 ore?",
+    )
+    recorded = _build(
+        db,
+        "recorded_related_incidents",
+        "Quali incidenti risultano correlati al 1?",
+    )
+    semantic = _build(
+        db,
+        "semantic_similar_incidents",
+        "Quali incidenti sono semanticamente simili al 1?",
+        semantic_index=StaticSemanticIndex(
+            (
+                IncidentSemanticHit(
+                    incident_id=2,
+                    score=0.87,
+                    source_fingerprint=incident_source_fingerprint(incidents[1]),
+                ),
+            )
+        ),
+    )
+
+    assert v32_proposition_budget(count.package) == 1
+    assert v32_proposition_budget(recorded.package) == 1
+    assert v32_proposition_budget(semantic.package) == 3
+    count_schema = grounded_response_v32_schema(
+        compile_v32_proof_units(count.package),
+        max_propositions=v32_proposition_budget(count.package),
+    )
+    assert count_schema["properties"]["propositions"]["maxItems"] == 1
+
+
+def test_typed_relationship_result_can_satisfy_cross_incident_contract(
+    analytics_db,
+) -> None:
+    db, _factory, incidents = analytics_db
+    recorded = _build(
+        db,
+        "recorded_related_incidents",
+        "Quali incidenti risultano correlati al 1?",
+    )
+    recorded_units = compile_v32_proof_units(recorded.package)
+    recorded_result = recorded_units[0]
+    recorded_draft = GroundedResponseDraftV32(
+        response_language="it",
+        propositions=[
+            V32Proposition(
+                proposition_id="p1",
+                text="L'analisi ha restituito 1 incidente correlato al 1: il 2.",
+                proof_unit_refs=[recorded_result.proof_unit_id],
+                section_kind=V32SectionKind.DIRECT_ANSWER,
+            )
+        ],
+    )
+
+    assert GroundedResponseV32Validator(EntailingProvider()).validate(
+        recorded_draft,
+        package=recorded.package,
+        proof_units=recorded_units,
+    ).accepted
+
+    semantic = _build(
+        db,
+        "semantic_similar_incidents",
+        "Quali incidenti sono semanticamente simili al 1?",
+        semantic_index=StaticSemanticIndex(
+            (
+                IncidentSemanticHit(
+                    incident_id=2,
+                    score=0.87,
+                    source_fingerprint=incident_source_fingerprint(incidents[1]),
+                ),
+            )
+        ),
+    )
+    semantic_units = compile_v32_proof_units(semantic.package)
+    aggregate = semantic_units[0]
+    boundary = next(
+        item
+        for item in semantic_units
+        if item.predicate is ProofPredicate.NON_IMPLICATION
+    )
+    semantic_draft = GroundedResponseDraftV32(
+        response_language="it",
+        propositions=[
+            V32Proposition(
+                proposition_id="p1",
+                text="L'incidente 2 è un candidato semanticamente simile all'1.",
+                proof_unit_refs=[aggregate.proof_unit_id],
+                section_kind=V32SectionKind.DIRECT_ANSWER,
+            ),
+            V32Proposition(
+                proposition_id="p2",
+                text="Un risultato semanticamente simile non prova lo stesso attacco.",
+                proof_unit_refs=[boundary.proof_unit_id],
+                section_kind=V32SectionKind.UNCERTAINTY,
+            ),
+        ],
+    )
+
+    assert GroundedResponseV32Validator(EntailingProvider()).validate(
+        semantic_draft,
+        package=semantic.package,
+        proof_units=semantic_units,
+    ).accepted
 
 
 def test_analytical_proof_rejects_wrong_count_window_and_security_promotion(
@@ -639,8 +773,8 @@ def test_analytical_proof_rejects_wrong_count_window_and_security_promotion(
         "Il conteggio è 3 incidenti HIGH e prova una minaccia critica dal 2026-08-16T22:00:00Z al 2026-08-23T10:00:00Z.",
     )
 
-    assert wrong_count.reason is TypedGuardReason.MISSING_REQUIRED_ANCHOR
-    assert wrong_window.reason is TypedGuardReason.MISSING_REQUIRED_ANCHOR
+    assert wrong_count.reason is TypedGuardReason.CONFLICTING_NUMERIC_VALUE
+    assert wrong_window.reason is TypedGuardReason.CONFLICTING_TEMPORAL_VALUE
     assert promoted.reason is TypedGuardReason.INCOMPATIBLE_SEMANTIC_CONCEPT
 
 
@@ -681,6 +815,85 @@ def test_valid_analytical_answer_must_traverse_v32_proof_gate(analytics_db) -> N
     assert validation.accepted
     assert validation.proof_result is not None
     assert validation.proof_result.pair_count == 1
+
+
+def test_natural_analytical_paraphrases_reach_hybrid_proof(analytics_db) -> None:
+    db, _factory, _incidents = analytics_db
+    scenarios = (
+        (
+            "incident_count",
+            "Quanti incidenti NEW ci sono stati nelle ultime 24 ore?",
+            EvidenceKind.ANALYTICAL_COUNT,
+            "Nelle ultime 24 ore risulta 1 incidente in stato NEW.",
+        ),
+        (
+            "incident_top_agents",
+            "Quali host hanno generato più incidenti negli ultimi 7 giorni?",
+            EvidenceKind.ANALYTICAL_TOP_K,
+            "Negli ultimi 7 giorni, darkstar è l'host con più incidenti: 2.",
+        ),
+        (
+            "incident_mitre_distribution",
+            "Quali tecniche MITRE sono più frequenti negli incidenti del mese scorso?",
+            EvidenceKind.ANALYTICAL_DISTRIBUTION,
+            "Nel mese scorso, MITRE T1112 risulta in 1 incidente.",
+        ),
+        (
+            "incident_compare_periods",
+            "Confronta il numero di incidenti degli ultimi 7 giorni con i 7 giorni precedenti.",
+            EvidenceKind.ANALYTICAL_COMPARISON,
+            "Il periodo corrente registra 4 incidenti e quello precedente 1.",
+        ),
+        (
+            "incident_list",
+            "Mostrami gli incidenti di darkstar-windows nelle ultime 24 ore.",
+            EvidenceKind.ANALYTICAL_RESULT_SET,
+            "Nelle ultime 24 ore non risultano incidenti per darkstar-windows.",
+        ),
+    )
+    guard = TypedSemanticGuard()
+    for definition_id, question, kind, proposition in scenarios:
+        result = _build(db, definition_id, question)
+        unit = next(
+            item
+            for item in compile_v32_proof_units(result.package)
+            if item.evidence_kind is kind
+        )
+        decision = guard.evaluate(unit, proposition)
+        assert decision.accepted, (definition_id, decision)
+
+
+def test_analytical_temporal_guard_rejects_wrong_rolling_interval(
+    analytics_db,
+) -> None:
+    db, _factory, _incidents = analytics_db
+    result = _build(
+        db,
+        "incident_count",
+        "Quanti incidenti NEW ci sono stati nelle ultime 24 ore?",
+    )
+    unit = compile_v32_proof_units(result.package)[0]
+
+    decision = TypedSemanticGuard().evaluate(
+        unit,
+        "Negli ultimi 30 giorni risulta 1 incidente NEW.",
+    )
+    constraint = unit.value.temporal_constraints[0]
+    interval = TypedSemanticGuard().evaluate(
+        unit,
+        f"L'intervallo analizzato va da {constraint.start_utc} a {constraint.end_utc}.",
+    )
+    investigation_state = TypedSemanticGuard().evaluate(
+        unit,
+        "Risultano incidenti analizzati.",
+    )
+
+    assert decision.reason is TypedGuardReason.CONFLICTING_TEMPORAL_VALUE
+    assert interval.accepted
+    assert (
+        investigation_state.reason
+        is TypedGuardReason.INCOMPATIBLE_SEMANTIC_CONCEPT
+    )
 
 
 def test_missing_or_malformed_followup_context_fails_closed(analytics_db) -> None:
@@ -879,3 +1092,55 @@ def test_ambiguous_global_query_fails_closed_before_generation(analytics_db) -> 
     assert response.metadata.provider_generation_count == 0
     assert response.metadata.fallback_reason == "global_query_ambiguous"
     assert response.metadata.semantic_proof_status == "not_run"
+
+
+def test_ambiguous_last_month_clarifies_without_generation(analytics_db) -> None:
+    _db, factory, _incidents = analytics_db
+    calls = 0
+
+    def generator(**kwargs):
+        nonlocal calls
+        del kwargs
+        calls += 1
+        return {}
+
+    response = run_assistant_query(
+        AssistantQueryRequest(
+            message=(
+                "Quali tecniche MITRE sono più frequenti negli incidenti "
+                "dell'ultimo mese?"
+            ),
+            scope="global",
+        ),
+        current_user={"id": "analyst-a", "role": "ANALYST"},
+        settings=AssistantSettings(enabled=True, response_architecture="v3_2"),
+        db_factory=factory,
+        global_context_builder=_builder("incident_mitre_distribution"),
+        generator=generator,
+    )
+
+    assert calls == 0
+    assert response.metadata.provider_generation_count == 0
+    assert response.metadata.fallback_reason == "global_time_window_ambiguous"
+    assert "ultimi 30 giorni" in response.answer
+    assert "calendario precedente" in response.answer
+
+
+def test_high_incident_filter_is_canonical_recorded_risk(analytics_db) -> None:
+    db, _factory, _incidents = analytics_db
+    result = _build(
+        db,
+        "incident_count",
+        "Quanti incidenti HIGH abbiamo avuto questa settimana?",
+    )
+
+    assert result.build_result.plan.filters == [
+        AnalyticalFilterDescriptor(
+            field=AnalyticalFilterField.RECORDED_RISK,
+            operator="EQ",
+            values=["HIGH"],
+        )
+    ]
+    assert "rischio registrato HIGH" in compile_v32_proof_units(
+        result.package
+    )[0].canonical_premise

@@ -41,6 +41,7 @@ def _window(start: datetime, end: datetime, resolution: str) -> AnalyticalTimeWi
 class ResolvedTemporalSelection:
     current: AnalyticalTimeWindow | None
     previous: AnalyticalTimeWindow | None = None
+    routing_status: str = "resolved"
 
 
 class ZurichTemporalResolver:
@@ -75,7 +76,15 @@ class ZurichTemporalResolver:
             elif any(value in normalized for value in ("today", "oggi")):
                 start = current.replace(hour=0, minute=0, second=0, microsecond=0)
                 resolution = "TODAY"
-            elif any(value in normalized for value in ("previous month", "last calendar month", "mese precedente", "scorso mese", "ultimo mese")):
+            elif any(
+                value in normalized
+                for value in ("ultimo mese", "last month")
+            ):
+                return ResolvedTemporalSelection(
+                    None,
+                    routing_status="ambiguous_time_window",
+                )
+            elif any(value in normalized for value in ("previous month", "last calendar month", "mese precedente", "scorso mese", "mese scorso")):
                 month_start = current.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
                 previous_end = month_start
                 previous_day = month_start - timedelta(days=1)
@@ -87,7 +96,7 @@ class ZurichTemporalResolver:
                 resolution = "THIS_MONTH"
 
         if start is None or resolution is None:
-            return ResolvedTemporalSelection(None)
+            return ResolvedTemporalSelection(None, routing_status="not_present")
         selected = _window(start, end, resolution)
         if not compare_periods:
             return ResolvedTemporalSelection(selected)

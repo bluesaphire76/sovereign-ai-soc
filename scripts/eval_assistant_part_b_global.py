@@ -49,7 +49,7 @@ PROMPTS = (
     ),
     (
         "B5",
-        "incident_mitre_distribution",
+        None,
         "Quali tecniche MITRE sono più frequenti negli incidenti dell'ultimo mese?",
         "mitre-month",
     ),
@@ -173,6 +173,12 @@ def main() -> int:
                 "definition_matches": (
                     metadata["analytics_definition_id"] == expected_definition
                 ),
+                "clarification_matches": (
+                    metadata["fallback_reason"] == "global_time_window_ambiguous"
+                    and metadata["provider_generation_count"] == 0
+                    if prompt_id == "B5"
+                    else True
+                ),
                 "generation_max_one": metadata["provider_generation_count"] <= 1,
                 "no_retry": metadata["automatic_retries"] == 0,
                 "no_model_switch": metadata["model_switches"] == 0,
@@ -201,6 +207,9 @@ def main() -> int:
 
     summary = {
         "total": len(results),
+        "publication_eligible": sum(
+            item["prompt_id"] != "B5" for item in results
+        ),
         "model_responses": sum(
             item["response"]["generation_kind"] == "model" for item in results
         ),
@@ -216,6 +225,24 @@ def main() -> int:
             item["response"]["metadata"]["semantic_proof_status"] == "failed"
             for item in results
         ),
+        "queue_deadline_exceeded": sum(
+            item["response"]["metadata"]["fallback_reason"]
+            == "queue_deadline_exceeded"
+            for item in results
+        ),
+        "fallback_reasons": {
+            reason: sum(
+                item["response"]["metadata"]["fallback_reason"] == reason
+                for item in results
+            )
+            for reason in sorted(
+                {
+                    item["response"]["metadata"]["fallback_reason"]
+                    for item in results
+                    if item["response"]["metadata"]["fallback_reason"] is not None
+                }
+            )
+        },
         "all_invariants_passed": all(
             all(item["checks"].values()) for item in results
         ),
@@ -232,6 +259,10 @@ def main() -> int:
         ),
         "total_wall_latency_ms": sum(item["wall_latency_ms"] for item in results),
     }
+    summary["eligible_model_publication_rate"] = round(
+        summary["model_responses"] / summary["publication_eligible"],
+        4,
+    )
     output = {
         "capabilities": capability_payload,
         "summary": summary,

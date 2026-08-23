@@ -125,6 +125,7 @@ from services.assistant.v3.response_v32 import (
     grounded_response_v32_schema,
     parse_grounded_response_v32,
     render_grounded_response_v32,
+    v32_proposition_budget,
 )
 from services.assistant.v3.semantic_proof.contracts import EvidenceKind
 from services.assistant.v3.semantic_proof.hybrid import HybridProofReason
@@ -1674,7 +1675,10 @@ def _run_v32_response(
 
     try:
         proof_units = compile_v32_proof_units(package)
-        schema = grounded_response_v32_schema(proof_units)
+        schema = grounded_response_v32_schema(
+            proof_units,
+            max_propositions=v32_proposition_budget(package),
+        )
         prompt = build_v32_messages(
             package,
             proof_units,
@@ -2201,7 +2205,9 @@ def _global_resolution_response(
     clock: Callable[[], float],
 ) -> AssistantQueryResponse:
     fallback_reason: AssistantFallbackReason
-    if routing_status == "ambiguous":
+    if routing_status == "ambiguous_time_window":
+        fallback_reason = "global_time_window_ambiguous"
+    elif routing_status == "ambiguous":
         fallback_reason = "global_query_ambiguous"
     elif routing_status in {"missing_typed_context", "unsupported_literal"}:
         fallback_reason = "global_query_unsupported"
@@ -2214,6 +2220,10 @@ def _global_resolution_response(
             "global_query_ambiguous": (
                 "La richiesta può corrispondere a più analisi supportate. Specifica "
                 "metrica, entità e intervallo temporale desiderati."
+            ),
+            "global_time_window_ambiguous": (
+                "Per 'ultimo mese' intendi gli ultimi 30 giorni oppure il mese di "
+                "calendario precedente?"
             ),
             "global_query_unsupported": (
                 "Non posso costruire un piano analitico chiuso con il contesto typed "
@@ -2233,6 +2243,10 @@ def _global_resolution_response(
             "global_query_ambiguous": (
                 "The request matches multiple supported analyses. Specify the metric, "
                 "entity, and required time range."
+            ),
+            "global_time_window_ambiguous": (
+                "By 'last month', do you mean the last 30 days or the previous "
+                "calendar month?"
             ),
             "global_query_unsupported": (
                 "I cannot build a closed analytical plan from the available typed "

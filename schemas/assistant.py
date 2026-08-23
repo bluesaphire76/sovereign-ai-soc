@@ -81,6 +81,7 @@ AssistantFallbackReason = Literal[
     "v32_renderer_failed",
     "global_query_not_understood",
     "global_query_ambiguous",
+    "global_time_window_ambiguous",
     "global_query_unsupported",
     "global_analytics_execution_failed",
 ]

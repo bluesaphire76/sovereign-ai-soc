@@ -127,6 +127,7 @@ class AnalyticsRouteDecision(ClosedModel):
         "empty_question",
         "embedding_unavailable",
         "missing_typed_context",
+        "ambiguous_time_window",
         "unsupported_literal",
     ]
     scores: list[AnalyticsRouteScore] = Field(default_factory=list, max_length=32)

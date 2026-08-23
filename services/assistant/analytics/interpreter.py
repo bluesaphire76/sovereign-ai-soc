@@ -367,6 +367,15 @@ class GlobalAnalyticsInterpreter:
             now=now,
             compare_periods=compare_periods,
         )
+        if temporal.routing_status == "ambiguous_time_window":
+            return AnalyticsInterpretationResult(
+                decision.model_copy(
+                    update={
+                        "accepted": False,
+                        "routing_status": "ambiguous_time_window",
+                    }
+                )
+            )
         if definition.requires_time_window and temporal.current is None:
             return AnalyticsInterpretationResult(
                 decision.model_copy(

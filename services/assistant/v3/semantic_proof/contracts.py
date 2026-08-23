@@ -89,9 +89,20 @@ class ProofPredicate(str, Enum):
     ANALYTICAL_RESULT_SET = "ANALYTICAL_RESULT_SET"
 
 
+class ProofTemporalConstraint(ClosedModel):
+    role: Literal["CURRENT", "PREVIOUS"]
+    resolution: str = Field(min_length=1, max_length=80)
+    start_utc: str = Field(min_length=1, max_length=80)
+    end_utc: str = Field(min_length=1, max_length=80)
+
+
 class ProofValue(ClosedModel):
     canonical_values: list[str] = Field(min_length=1, max_length=64)
     required_anchors: list[str] = Field(default_factory=list, max_length=16)
+    temporal_constraints: list[ProofTemporalConstraint] = Field(
+        default_factory=list,
+        max_length=2,
+    )
 
     @model_validator(mode="after")
     def validate_values(self):
@@ -103,6 +114,9 @@ class ProofValue(ClosedModel):
             raise ValueError("proof canonical values must be unique")
         if len(self.required_anchors) != len(set(self.required_anchors)):
             raise ValueError("proof required anchors must be unique")
+        roles = [item.role for item in self.temporal_constraints]
+        if len(roles) != len(set(roles)):
+            raise ValueError("proof temporal constraint roles must be unique")
         return self
 
 
