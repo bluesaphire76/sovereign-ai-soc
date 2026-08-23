@@ -6,6 +6,9 @@ from typing import Any
 
 from services.assistant.v3.contracts import (
     AdvisoryKnowledgeAtom,
+    AnalyticalOperation,
+    AnalyticalResultAtom,
+    AnalyticalResultKind,
     AnalyticalRelationship,
     AuthorityClass,
     CaseIdentityAtom,
@@ -156,6 +159,92 @@ def _relationship_evidence_value(
         return None
     values = [str(value) for atom in atoms if (value := extractor(atom)) is not None]
     return values[0] if values and len(set(values)) == 1 else None
+
+
+def _analytical_kind_and_predicate(
+    atom: AnalyticalResultAtom,
+) -> tuple[EvidenceKind, ProofPredicate]:
+    return {
+        AnalyticalResultKind.COUNT: (
+            EvidenceKind.ANALYTICAL_COUNT,
+            ProofPredicate.ANALYTICAL_COUNT,
+        ),
+        AnalyticalResultKind.DISTRIBUTION: (
+            EvidenceKind.ANALYTICAL_DISTRIBUTION,
+            ProofPredicate.ANALYTICAL_DISTRIBUTION,
+        ),
+        AnalyticalResultKind.TREND: (
+            EvidenceKind.ANALYTICAL_TREND,
+            ProofPredicate.ANALYTICAL_TREND,
+        ),
+        AnalyticalResultKind.COMPARISON: (
+            EvidenceKind.ANALYTICAL_COMPARISON,
+            ProofPredicate.ANALYTICAL_PERIOD_COMPARISON,
+        ),
+        AnalyticalResultKind.TOP_K: (
+            EvidenceKind.ANALYTICAL_TOP_K,
+            ProofPredicate.ANALYTICAL_TOP_K,
+        ),
+        AnalyticalResultKind.RESULT_SET: (
+            EvidenceKind.ANALYTICAL_RESULT_SET,
+            ProofPredicate.ANALYTICAL_RESULT_SET,
+        ),
+    }[atom.result_kind]
+
+
+def _analytical_filters(atom: AnalyticalResultAtom) -> str:
+    return ", ".join(
+        f"{item.field.value} {item.operator} {', '.join(item.values)}"
+        for item in atom.filters
+    ) or "none"
+
+
+def _analytical_window(atom: AnalyticalResultAtom) -> str:
+    if atom.time_window is None:
+        return "unbounded"
+    current = f"[{atom.time_window.start_utc}, {atom.time_window.end_utc})"
+    if atom.comparison_window is None:
+        return current
+    return (
+        f"current {current}; previous "
+        f"[{atom.comparison_window.start_utc}, {atom.comparison_window.end_utc})"
+    )
+
+
+def _analytical_rows(atom: AnalyticalResultAtom) -> tuple[list[str], list[str]]:
+    row_texts: list[str] = []
+    values: list[str] = []
+    for row in atom.rows[:6]:
+        dimensions = ", ".join(
+            f"{item.dimension.value}={item.value[:80]}" for item in row.dimensions
+        )
+        identity = (
+            f"INCIDENT_ID={row.incident_id}"
+            if row.incident_id is not None
+            else f"CASE_ID={row.case_id}"
+            if row.case_id is not None
+            else ""
+        )
+        measure = (
+            f"{atom.measure.value}={_number(row.measure_value)}"
+            if row.measure_value is not None
+            else ""
+        )
+        details = ", ".join(item for item in (identity, dimensions, measure) if item)
+        row_texts.append(details or row.row_id)
+        values.extend(
+            [
+                *(str(item.value[:80]) for item in row.dimensions),
+                *([str(row.incident_id)] if row.incident_id is not None else []),
+                *([str(row.case_id)] if row.case_id is not None else []),
+                *(
+                    [_number(row.measure_value)]
+                    if row.measure_value is not None
+                    else []
+                ),
+            ]
+        )
+    return row_texts, list(dict.fromkeys(values))
 
 
 class EvidenceProofUnitCompiler:
@@ -623,16 +712,20 @@ class EvidenceProofUnitCompiler:
         languages: Sequence[ProofLanguage],
     ) -> list[EvidenceProofUnit]:
         scope = _atom_scope(atom)
-        kind = (
-            EvidenceKind.RECORDED_CORRELATION
-            if isinstance(atom, RecordedCorrelationAtom)
-            else EvidenceKind.OPERATIONAL_FACT
-        )
-        role = (
-            AllowedSemanticRole.RECORDED_RELATIONSHIP
-            if kind is EvidenceKind.RECORDED_CORRELATION
-            else AllowedSemanticRole.RECORDED_VALUE
-        )
+        if isinstance(atom, AnalyticalResultAtom):
+            kind, _ = _analytical_kind_and_predicate(atom)
+            role = AllowedSemanticRole.ANALYTICAL_AGGREGATE
+        else:
+            kind = (
+                EvidenceKind.RECORDED_CORRELATION
+                if isinstance(atom, RecordedCorrelationAtom)
+                else EvidenceKind.OPERATIONAL_FACT
+            )
+            role = (
+                AllowedSemanticRole.RECORDED_RELATIONSHIP
+                if kind is EvidenceKind.RECORDED_CORRELATION
+                else AllowedSemanticRole.RECORDED_VALUE
+            )
         common = {
             "source_ref": atom.atom_id,
             "authority_class": atom.authority_class,
@@ -662,7 +755,78 @@ class EvidenceProofUnitCompiler:
         subject_en = f"Incident {atom.incident_id}" if atom.incident_id else f"Case {atom.case_id}"
         subject_it = f"Incidente {atom.incident_id}" if atom.incident_id else f"Caso {atom.case_id}"
 
-        if isinstance(atom, IncidentIdentityAtom):
+        if isinstance(atom, AnalyticalResultAtom):
+            _, predicate = _analytical_kind_and_predicate(atom)
+            rows, row_values = _analytical_rows(atom)
+            filter_values = [value for item in atom.filters for value in item.values]
+            window_values = []
+            if atom.time_window is not None:
+                window_values.extend(
+                    [atom.time_window.start_utc, atom.time_window.end_utc]
+                )
+            if atom.comparison_window is not None:
+                window_values.extend(
+                    [
+                        atom.comparison_window.start_utc,
+                        atom.comparison_window.end_utc,
+                    ]
+                )
+            scalar_values = (
+                [_number(atom.scalar_value)]
+                if atom.scalar_value is not None
+                else []
+            )
+            canonical_values = list(
+                dict.fromkeys(
+                    [
+                        *scalar_values,
+                        *row_values,
+                        *filter_values,
+                        *window_values,
+                    ]
+                )
+            )[:64] or ["empty_result_set"]
+            required = list(dict.fromkeys([*scalar_values[:1], *window_values]))
+            rows_text = "; ".join(rows) if rows else "empty result set"
+            filters_text = _analytical_filters(atom)
+            window_text = _analytical_window(atom)
+            count_text = (
+                _number(atom.scalar_value)
+                if atom.scalar_value is not None
+                else "not applicable"
+            )
+            semantic_discovery = atom.operation is AnalyticalOperation.SIMILAR_RECORDS
+            add(
+                predicate,
+                _proof_value(*canonical_values, required_anchors=required),
+                lambda language: (
+                    (
+                        f"Registered semantic discovery {atom.registry_definition_id} produced "
+                        f"{atom.result_kind.value} candidates for {atom.entity.value}; "
+                        f"filters={filters_text}; rows={rows_text}. Candidates were "
+                        "rehydrated against authorized SQL records; the result set remains "
+                        "discovery support only."
+                        if language == "en"
+                        else f"La discovery semantica registrata {atom.registry_definition_id} ha prodotto "
+                        f"candidati {atom.result_kind.value} per {atom.entity.value}; "
+                        f"filtri={filters_text}; righe={rows_text}. I candidati sono stati "
+                        "reidratati sui record SQL autorizzati; il result set resta solo "
+                        "supporto di discovery."
+                    )
+                    if semantic_discovery
+                    else
+                    f"Authorized SQL analytics definition {atom.registry_definition_id} produced "
+                    f"{atom.result_kind.value} for {atom.entity.value}; count={count_text}; "
+                    f"filters={filters_text}; UTC window={window_text}; rows={rows_text}. "
+                    f"This is a deterministic analytical derivation, not a raw recorded fact."
+                    if language == "en"
+                    else f"La definizione analytics SQL autorizzata {atom.registry_definition_id} ha prodotto "
+                    f"{atom.result_kind.value} per {atom.entity.value}; conteggio={count_text}; "
+                    f"filtri={filters_text}; finestra UTC={window_text}; righe={rows_text}. "
+                    f"È una derivazione analitica deterministica, non un fatto grezzo registrato."
+                ),
+            )
+        elif isinstance(atom, IncidentIdentityAtom):
             add(
                 ProofPredicate.INCIDENT_ID,
                 _proof_value(atom.incident_id),

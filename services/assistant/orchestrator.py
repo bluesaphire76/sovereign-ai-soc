@@ -42,6 +42,11 @@ from services.ai_execution.metrics import (
     GROUNDING_REJECTIONS,
 )
 from services.assistant.context_builder import build_assistant_context
+from services.assistant.analytics.builder import (
+    GlobalAnalyticsContextBuilder,
+    GlobalAnalyticsResolutionError,
+)
+from services.assistant.analytics.fallback import render_global_analytics_fallback
 from services.assistant.claims import grounded_claim_output_schema
 from services.assistant.focus import (
     SemanticFocusRouter,
@@ -85,6 +90,7 @@ from services.assistant.v3.conversational_validation import (
     parse_grounded_conversational_answer_v31,
 )
 from services.assistant.v3.contracts import (
+    AnalyticalResultAtom,
     AuthorityClass,
     V3AnalyticalContextPackage,
 )
@@ -420,8 +426,10 @@ def _response_language(message: str) -> AssistantResponseLanguage:
         "prepara",
         "quale",
         "quali",
+        "questi",
         "riassumi",
         "riepiloga",
+        "risultati",
         "rischio",
         "severità",
         "severita",
@@ -1910,47 +1918,77 @@ def _run_v32_response(
             )
 
     if fallback_reason is not None:
-        fallback_plan = deterministic_answer_plan_v3(package)
-        fallback_validation = GroundedAnswerPlanV3Validator().validate(
-            fallback_plan,
-            package=package,
-        )
-        if not fallback_validation.accepted:
-            return _deterministic_v2_response_for_v3_failure(
-                payload=payload,
-                focused_fact_inventory=focused_fact_inventory,
-                source_records=source_records,
-                retrieval=retrieval,
-                response_language=response_language,
-                fallback_reason=fallback_reason,
-                result=result,
-                request_started=request_started,
-                clock=clock,
-                settings=settings,
-                v3_package=package,
+        is_global_analytics = (
+            package.resolved_scope.analysis_scope.value == "GLOBAL"
+            and any(
+                isinstance(atom, AnalyticalResultAtom)
+                for atom in package.operational_atoms
             )
-        try:
-            rendered = RichGroundedDiscourseRenderer().render(
+        )
+        if is_global_analytics:
+            try:
+                rendered = render_global_analytics_fallback(package)
+            except Exception:
+                return _deterministic_v2_response_for_v3_failure(
+                    payload=payload,
+                    focused_fact_inventory=focused_fact_inventory,
+                    source_records=source_records,
+                    retrieval=retrieval,
+                    response_language=response_language,
+                    fallback_reason="v32_renderer_failed",
+                    result=result,
+                    request_started=request_started,
+                    clock=clock,
+                    settings=settings,
+                    v3_package=package,
+                )
+            plan_sections = len(rendered.blocks)
+            plan_units = len(rendered.blocks)
+            cross_units = len(package.relationship_registry.relationships)
+            reference_units = 0
+            advisory_units = 0
+        else:
+            fallback_plan = deterministic_answer_plan_v3(package)
+            fallback_validation = GroundedAnswerPlanV3Validator().validate(
                 fallback_plan,
                 package=package,
             )
-        except Exception:
-            return _deterministic_v2_response_for_v3_failure(
-                payload=payload,
-                focused_fact_inventory=focused_fact_inventory,
-                source_records=source_records,
-                retrieval=retrieval,
-                response_language=response_language,
-                fallback_reason="v32_renderer_failed",
-                result=result,
-                request_started=request_started,
-                clock=clock,
-                settings=settings,
-                v3_package=package,
-            )
-        plan_sections = len(fallback_plan.sections)
-        plan_units = len(fallback_plan.analytical_units)
-        cross_units, reference_units, advisory_units = _v3_plan_counts(fallback_plan)
+            if not fallback_validation.accepted:
+                return _deterministic_v2_response_for_v3_failure(
+                    payload=payload,
+                    focused_fact_inventory=focused_fact_inventory,
+                    source_records=source_records,
+                    retrieval=retrieval,
+                    response_language=response_language,
+                    fallback_reason=fallback_reason,
+                    result=result,
+                    request_started=request_started,
+                    clock=clock,
+                    settings=settings,
+                    v3_package=package,
+                )
+            try:
+                rendered = RichGroundedDiscourseRenderer().render(
+                    fallback_plan,
+                    package=package,
+                )
+            except Exception:
+                return _deterministic_v2_response_for_v3_failure(
+                    payload=payload,
+                    focused_fact_inventory=focused_fact_inventory,
+                    source_records=source_records,
+                    retrieval=retrieval,
+                    response_language=response_language,
+                    fallback_reason="v32_renderer_failed",
+                    result=result,
+                    request_started=request_started,
+                    clock=clock,
+                    settings=settings,
+                    v3_package=package,
+                )
+            plan_sections = len(fallback_plan.sections)
+            plan_units = len(fallback_plan.analytical_units)
+            cross_units, reference_units, advisory_units = _v3_plan_counts(fallback_plan)
 
     try:
         attribution = build_v3_attribution(
@@ -1995,6 +2033,14 @@ def _run_v32_response(
         validation_status=proof_validation_status,
     ).inc()
     sources = list(attribution.sources)
+    analytical_result = next(
+        (
+            atom
+            for atom in package.operational_atoms
+            if isinstance(atom, AnalyticalResultAtom)
+        ),
+        None,
+    )
     metadata = AssistantMetadata(
         generation_kind=generation_kind,
         queue_wait_ms=max(0, int(result.get("queue_wait_ms") or 0)),
@@ -2092,6 +2138,41 @@ def _run_v32_response(
             MULTILINGUAL_MINILMV2_L6.revision if proof_model is not None else None
         ),
         semantic_index_status=package.semantic_index_status,
+        analytics_operation=(
+            analytical_result.operation.value if analytical_result else None
+        ),
+        analytics_entity=(
+            analytical_result.entity.value if analytical_result else None
+        ),
+        analytics_definition_id=(
+            analytical_result.registry_definition_id if analytical_result else None
+        ),
+        analytics_query_plan_fingerprint=(
+            analytical_result.query_plan_fingerprint if analytical_result else None
+        ),
+        analytics_result_count=(
+            int(analytical_result.scalar_value)
+            if analytical_result is not None
+            and analytical_result.scalar_value is not None
+            else len(analytical_result.result_ids)
+            if analytical_result is not None
+            and analytical_result.result_ids
+            else len(analytical_result.rows)
+            if analytical_result is not None
+            else 0
+        ),
+        analytics_window_start_utc=(
+            analytical_result.time_window.start_utc
+            if analytical_result is not None
+            and analytical_result.time_window is not None
+            else None
+        ),
+        analytics_window_end_utc=(
+            analytical_result.time_window.end_utc
+            if analytical_result is not None
+            and analytical_result.time_window is not None
+            else None
+        ),
     )
     return AssistantQueryResponse(
         status="ok" if generation_kind == "model" else "fallback",
@@ -2111,6 +2192,93 @@ def _run_v32_response(
     )
 
 
+def _global_resolution_response(
+    *,
+    payload: AssistantQueryRequest,
+    response_language: AssistantResponseLanguage,
+    routing_status: str,
+    request_started: float,
+    clock: Callable[[], float],
+) -> AssistantQueryResponse:
+    fallback_reason: AssistantFallbackReason
+    if routing_status == "ambiguous":
+        fallback_reason = "global_query_ambiguous"
+    elif routing_status in {"missing_typed_context", "unsupported_literal"}:
+        fallback_reason = "global_query_unsupported"
+    elif routing_status == "execution_failed":
+        fallback_reason = "global_analytics_execution_failed"
+    else:
+        fallback_reason = "global_query_not_understood"
+    messages = {
+        "it": {
+            "global_query_ambiguous": (
+                "La richiesta può corrispondere a più analisi supportate. Specifica "
+                "metrica, entità e intervallo temporale desiderati."
+            ),
+            "global_query_unsupported": (
+                "Non posso costruire un piano analitico chiuso con il contesto typed "
+                "disponibile. Specifica un conteggio, elenco, ranking, distribuzione, "
+                "trend, confronto o relazione supportata."
+            ),
+            "global_analytics_execution_failed": (
+                "La query analitica autorizzata non è stata completata. Nessun risultato "
+                "parziale o testo generativo è stato pubblicato."
+            ),
+            "global_query_not_understood": (
+                "Non riesco a ricondurre la richiesta a una singola analisi supportata. "
+                "Indica metrica, entità, filtri e intervallo temporale."
+            ),
+        },
+        "en": {
+            "global_query_ambiguous": (
+                "The request matches multiple supported analyses. Specify the metric, "
+                "entity, and required time range."
+            ),
+            "global_query_unsupported": (
+                "I cannot build a closed analytical plan from the available typed "
+                "context. Specify a supported count, list, ranking, distribution, "
+                "trend, comparison, or relationship query."
+            ),
+            "global_analytics_execution_failed": (
+                "The authorized analytical query did not complete. No partial result "
+                "or generative text was published."
+            ),
+            "global_query_not_understood": (
+                "I cannot map the request to one supported analysis. Specify the "
+                "metric, entity, filters, and time range."
+            ),
+        },
+    }
+    text = messages[response_language][fallback_reason]
+    total_latency_ms = max(0, int((clock() - request_started) * 1000))
+    return AssistantQueryResponse(
+        status="fallback",
+        generation_kind="deterministic_fallback",
+        answer=text,
+        blocks=[AssistantResponseBlock(kind="direct_answer", text=text)],
+        scope=payload.scope,
+        limitations=[],
+        metadata=AssistantMetadata(
+            generation_kind="deterministic_fallback",
+            total_latency_ms=total_latency_ms,
+            semantic_status=(
+                "embedding_unavailable"
+                if routing_status == "embedding_unavailable"
+                else "not_requested"
+            ),
+            grounding_validation="not_run",
+            focus_validation="not_run",
+            fallback_reason=fallback_reason,
+            response_language=response_language,
+            analysis_scope="GLOBAL",
+            response_architecture="v3_2",
+            provider_generation_count=0,
+            automatic_retries=0,
+            model_switches=0,
+        ),
+    )
+
+
 def run_assistant_query(
     payload: AssistantQueryRequest,
     *,
@@ -2122,6 +2290,7 @@ def run_assistant_query(
     focus_router: SemanticFocusRouter | None = None,
     intent_router: SemanticIntentRouter | None = None,
     v3_context_builder: V3AnalyticalContextBuilder | None = None,
+    global_context_builder: GlobalAnalyticsContextBuilder | None = None,
     clock: Callable[[], float] = time.monotonic,
 ) -> AssistantQueryResponse:
     current_settings = settings or get_assistant_settings()
@@ -2150,6 +2319,90 @@ def run_assistant_query(
             )
         except Exception:
             question_vector = None
+
+    if payload.scope == "global":
+        db = db_factory()
+        try:
+            global_context = (
+                global_context_builder or GlobalAnalyticsContextBuilder()
+            ).build(
+                payload=payload,
+                response_language=response_language,
+                db=db,
+                current_user=current_user,
+                request_embedding=question_vector,
+                clock=clock,
+            )
+        except GlobalAnalyticsResolutionError as exc:
+            logger.info(
+                "assistant_global_query_rejected request_id=%s routing_status=%s",
+                request_id,
+                exc.routing_status,
+            )
+            return _global_resolution_response(
+                payload=payload,
+                response_language=response_language,
+                routing_status=exc.routing_status,
+                request_started=request_started,
+                clock=clock,
+            )
+        except Exception as exc:
+            logger.warning(
+                "assistant_global_analytics_failed request_id=%s reason=%s",
+                request_id,
+                exc.__class__.__name__,
+            )
+            return _global_resolution_response(
+                payload=payload,
+                response_language=response_language,
+                routing_status="execution_failed",
+                request_started=request_started,
+                clock=clock,
+            )
+        finally:
+            close = getattr(db, "close", None)
+            if callable(close):
+                close()
+
+        package = global_context.package
+        metric_labels = {
+            "intent": package.intent_selection.primary_intent.value,
+            "scope": package.resolved_scope.analysis_scope.value,
+        }
+        ASSISTANT_V3_CONTEXT_DURATION.labels(**metric_labels).observe(
+            package.metrics.total_context_build_ms / 1000
+        )
+        ASSISTANT_V3_CONTEXT_PACKAGES.labels(**metric_labels).inc()
+        response = _run_v32_response(
+            payload=payload,
+            package=package,
+            focused_fact_inventory=global_context.retrieval.fact_inventory,
+            source_records=assign_source_ids(
+                list(global_context.sources),
+                max_sources=current_settings.max_sources,
+            ),
+            retrieval=global_context.retrieval,
+            response_language=response_language,
+            request_id=request_id,
+            request_started=request_started,
+            settings=current_settings,
+            generator=generator,
+            clock=clock,
+            operational_retrieval_ms=(
+                global_context.build_result.operational_retrieval_ms
+            ),
+        )
+        logger.info(
+            "assistant_global_execution request_id=%s definition=%s operation=%s "
+            "generation_kind=%s proof=%s provider_generations=%s",
+            request_id,
+            global_context.build_result.plan.definition_id,
+            global_context.build_result.plan.operation.value,
+            response.generation_kind,
+            response.metadata.semantic_proof_status,
+            response.metadata.provider_generation_count,
+        )
+        return response
 
     selected_intent_router = intent_router or get_semantic_intent_router()
     try:

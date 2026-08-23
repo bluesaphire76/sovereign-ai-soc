@@ -175,7 +175,8 @@ def model_facing_evidence(
     ranked_atoms = rank_operational_atoms(package, package.operational_atoms)
     for atom in ranked_atoms:
         if (
-            atom.atom_id in evidence_refs
+            atom.atom_type == "analytical_result"
+            or atom.atom_id in evidence_refs
             or atom.incident_id in selected_incident_ids
             or atom.case_id in selected_case_ids
         ):

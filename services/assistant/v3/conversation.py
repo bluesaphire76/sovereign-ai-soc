@@ -11,6 +11,7 @@ from models import Incident, IncidentCase
 from services.assistant.v3.contracts import (
     AnalyticalFocus,
     AnswerIntent,
+    GlobalConversationQueryState,
     ValidatedConversationState,
 )
 
@@ -146,6 +147,7 @@ def updated_conversation_state(
     advisory_refs: list[str],
     response_language: str,
     now: float,
+    global_query: GlobalConversationQueryState | None = None,
 ) -> ValidatedConversationState:
     previous_intents = list(existing.previous_intents) if existing else []
     previous_intents = [*previous_intents, intent][-8:]
@@ -161,6 +163,7 @@ def updated_conversation_state(
         validated_relationship_refs=list(dict.fromkeys(relationship_refs))[:80],
         reference_knowledge_refs=list(dict.fromkeys(reference_refs))[:40],
         advisory_refs=list(dict.fromkeys(advisory_refs))[:40],
+        global_query=global_query,
         response_language="it" if response_language == "it" else "en",
         updated_at_epoch=max(0.0, now),
     )

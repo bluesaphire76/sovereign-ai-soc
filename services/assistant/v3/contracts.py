@@ -106,6 +106,104 @@ class FactField(str, Enum):
     CLOSURE = "closure"
 
 
+class AnalyticalOperation(str, Enum):
+    COUNT = "COUNT"
+    LIST = "LIST"
+    TOP_K = "TOP_K"
+    DISTRIBUTION = "DISTRIBUTION"
+    TREND = "TREND"
+    COMPARE_PERIODS = "COMPARE_PERIODS"
+    COMPARE_ENTITIES = "COMPARE_ENTITIES"
+    RELATED_RECORDS = "RELATED_RECORDS"
+    SIMILAR_RECORDS = "SIMILAR_RECORDS"
+
+
+class AnalyticalEntity(str, Enum):
+    INCIDENT = "INCIDENT"
+    CASE = "CASE"
+    AGENT = "AGENT"
+    DETECTION_RULE = "DETECTION_RULE"
+    MITRE_TECHNIQUE = "MITRE_TECHNIQUE"
+    STATUS = "STATUS"
+    SEVERITY = "SEVERITY"
+    RECORDED_RISK = "RECORDED_RISK"
+    RECORDED_CORRELATION = "RECORDED_CORRELATION"
+    TIME = "TIME"
+
+
+class AnalyticalMeasure(str, Enum):
+    RECORD_COUNT = "RECORD_COUNT"
+    INCIDENT_COUNT = "INCIDENT_COUNT"
+    CASE_COUNT = "CASE_COUNT"
+
+
+class AnalyticalDimension(str, Enum):
+    AGENT = "AGENT"
+    DETECTION_RULE = "DETECTION_RULE"
+    MITRE_TECHNIQUE = "MITRE_TECHNIQUE"
+    STATUS = "STATUS"
+    SEVERITY = "SEVERITY"
+    RECORDED_RISK = "RECORDED_RISK"
+    DAY = "DAY"
+
+
+class AnalyticalFilterField(str, Enum):
+    INCIDENT_ID = "INCIDENT_ID"
+    CASE_ID = "CASE_ID"
+    STATUS = "STATUS"
+    AGENT = "AGENT"
+    DETECTION_RULE = "DETECTION_RULE"
+    SEVERITY = "SEVERITY"
+    RECORDED_RISK = "RECORDED_RISK"
+    RECORDED_CORRELATION = "RECORDED_CORRELATION"
+    SLA_STATE = "SLA_STATE"
+
+
+class AnalyticalResultKind(str, Enum):
+    COUNT = "COUNT"
+    DISTRIBUTION = "DISTRIBUTION"
+    TREND = "TREND"
+    COMPARISON = "COMPARISON"
+    TOP_K = "TOP_K"
+    RESULT_SET = "RESULT_SET"
+
+
+class AnalyticalTimeWindow(ClosedModel):
+    start_utc: str = Field(min_length=1, max_length=80)
+    end_utc: str = Field(min_length=1, max_length=80)
+    timezone: Literal["Europe/Zurich"] = "Europe/Zurich"
+    resolution: str = Field(min_length=1, max_length=80)
+
+
+class AnalyticalFilterDescriptor(ClosedModel):
+    field: AnalyticalFilterField
+    operator: Literal["EQ", "IN"]
+    values: list[str] = Field(min_length=1, max_length=50)
+
+    @model_validator(mode="after")
+    def validate_values(self):
+        if any(not value.strip() for value in self.values):
+            raise ValueError("analytical filter values must be non-empty")
+        if len(self.values) != len(set(self.values)):
+            raise ValueError("analytical filter values must be unique")
+        return self
+
+
+class AnalyticalDimensionValue(ClosedModel):
+    dimension: AnalyticalDimension
+    value: str = Field(min_length=1, max_length=500)
+
+
+class AnalyticalResultRow(ClosedModel):
+    row_id: str = Field(min_length=1, max_length=180)
+    dimensions: list[AnalyticalDimensionValue] = Field(default_factory=list, max_length=8)
+    measure_value: int | float | None = None
+    incident_id: int | None = Field(default=None, gt=0)
+    case_id: int | None = Field(default=None, gt=0)
+    timestamp: str | None = Field(default=None, max_length=80)
+    status: str | None = Field(default=None, max_length=80)
+
+
 class IntentScore(ClosedModel):
     intent: AnswerIntent
     similarity: float = Field(ge=-1.0, le=1.0)
@@ -326,6 +424,37 @@ class CaseRelationshipAtom(AtomBase):
     relationship_type: str = Field(min_length=1, max_length=120)
 
 
+class AnalyticalResultAtom(AtomBase):
+    atom_type: Literal["analytical_result"] = "analytical_result"
+    authority_class: Literal[AuthorityClass.ANALYTICAL_DERIVATION] = (
+        AuthorityClass.ANALYTICAL_DERIVATION
+    )
+    result_kind: AnalyticalResultKind
+    operation: AnalyticalOperation
+    entity: AnalyticalEntity
+    measure: AnalyticalMeasure
+    filters: list[AnalyticalFilterDescriptor] = Field(default_factory=list, max_length=12)
+    time_window: AnalyticalTimeWindow | None = None
+    comparison_window: AnalyticalTimeWindow | None = None
+    dimensions: list[AnalyticalDimension] = Field(default_factory=list, max_length=4)
+    scalar_value: int | float | None = None
+    rows: list[AnalyticalResultRow] = Field(default_factory=list, max_length=20)
+    result_ids: list[int] = Field(default_factory=list, max_length=50)
+    result_truncated: bool = False
+    registry_definition_id: str = Field(min_length=1, max_length=120)
+    query_plan_fingerprint: str = Field(min_length=64, max_length=64)
+
+    @model_validator(mode="after")
+    def validate_analytical_result(self):
+        if self.provenance.authority_class is not AuthorityClass.ANALYTICAL_DERIVATION:
+            raise ValueError("analytical result requires analytical provenance")
+        if self.result_kind is AnalyticalResultKind.COUNT and self.scalar_value is None:
+            raise ValueError("count result requires a scalar value")
+        if len(self.result_ids) != len(set(self.result_ids)):
+            raise ValueError("analytical result IDs must be unique")
+        return self
+
+
 EvidenceAtom = Annotated[
     IncidentIdentityAtom
     | CaseIdentityAtom
@@ -344,7 +473,8 @@ EvidenceAtom = Annotated[
     | EscalationStateAtom
     | EscalationReasonAtom
     | CompromiseStateAtom
-    | CaseRelationshipAtom,
+    | CaseRelationshipAtom
+    | AnalyticalResultAtom,
     Field(discriminator="atom_type"),
 ]
 
@@ -534,6 +664,19 @@ class CrossIncidentEvidenceGraph(ClosedModel):
         return self
 
 
+class GlobalConversationQueryState(ClosedModel):
+    registry_definition_id: str = Field(min_length=1, max_length=120)
+    operation: AnalyticalOperation
+    entity: AnalyticalEntity
+    measure: AnalyticalMeasure
+    filters: list[AnalyticalFilterDescriptor] = Field(default_factory=list, max_length=12)
+    time_window: AnalyticalTimeWindow | None = None
+    dimensions: list[AnalyticalDimension] = Field(default_factory=list, max_length=4)
+    result_incident_ids: list[int] = Field(default_factory=list, max_length=50)
+    result_case_ids: list[int] = Field(default_factory=list, max_length=50)
+    query_plan_fingerprint: str = Field(min_length=64, max_length=64)
+
+
 class ValidatedConversationState(ClosedModel):
     conversation_id: str = Field(min_length=1, max_length=128)
     owner_key: str = Field(min_length=16, max_length=128)
@@ -546,6 +689,7 @@ class ValidatedConversationState(ClosedModel):
     validated_relationship_refs: list[str] = Field(default_factory=list, max_length=80)
     reference_knowledge_refs: list[str] = Field(default_factory=list, max_length=40)
     advisory_refs: list[str] = Field(default_factory=list, max_length=40)
+    global_query: GlobalConversationQueryState | None = None
     response_language: Literal["it", "en"]
     updated_at_epoch: float = Field(ge=0.0)
 
@@ -557,6 +701,9 @@ class ConversationStateRefs(ClosedModel):
     related_incident_ids: list[int] = Field(default_factory=list, max_length=12)
     validated_atom_refs: list[str] = Field(default_factory=list, max_length=160)
     validated_relationship_refs: list[str] = Field(default_factory=list, max_length=80)
+    global_query_plan_fingerprint: str | None = Field(default=None, max_length=64)
+    global_result_incident_ids: list[int] = Field(default_factory=list, max_length=50)
+    global_result_case_ids: list[int] = Field(default_factory=list, max_length=50)
 
 
 class SourceRegistryEntry(ClosedModel):

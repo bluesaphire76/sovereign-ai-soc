@@ -79,6 +79,10 @@ AssistantFallbackReason = Literal[
     "v32_semantic_proof_failed",
     "v32_semantic_proof_unavailable",
     "v32_renderer_failed",
+    "global_query_not_understood",
+    "global_query_ambiguous",
+    "global_query_unsupported",
+    "global_analytics_execution_failed",
 ]
 
 
@@ -327,6 +331,13 @@ class AssistantMetadata(BaseModel):
         "degraded",
         "unavailable",
     ] = "not_requested"
+    analytics_operation: str | None = None
+    analytics_entity: str | None = None
+    analytics_definition_id: str | None = None
+    analytics_query_plan_fingerprint: str | None = None
+    analytics_result_count: int = 0
+    analytics_window_start_utc: str | None = None
+    analytics_window_end_utc: str | None = None
 
 
 class AssistantQueryResponse(BaseModel):

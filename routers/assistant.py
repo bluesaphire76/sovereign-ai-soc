@@ -86,6 +86,15 @@ def _completed_audit_details(
         "cross_incident_candidates": response.metadata.cross_incident_candidates,
         "graph_edges": response.metadata.graph_edges,
         "conversation_followup": response.metadata.conversation_followup,
+        "analytics_operation": response.metadata.analytics_operation,
+        "analytics_entity": response.metadata.analytics_entity,
+        "analytics_definition_id": response.metadata.analytics_definition_id,
+        "analytics_query_plan_fingerprint": (
+            response.metadata.analytics_query_plan_fingerprint
+        ),
+        "analytics_result_count": response.metadata.analytics_result_count,
+        "analytics_window_start_utc": response.metadata.analytics_window_start_utc,
+        "analytics_window_end_utc": response.metadata.analytics_window_end_utc,
     }
 
 

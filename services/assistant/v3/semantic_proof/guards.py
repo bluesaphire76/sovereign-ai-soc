@@ -262,14 +262,42 @@ _CONCEPT_PHRASES: dict[SemanticConcept, tuple[str, ...]] = {
 
 
 _ALLOWED_PREDICATES: dict[SemanticConcept, frozenset[ProofPredicate]] = {
-    SemanticConcept.STATUS: frozenset({ProofPredicate.STATUS}),
+    SemanticConcept.STATUS: frozenset(
+        {
+            ProofPredicate.STATUS,
+            ProofPredicate.ANALYTICAL_COUNT,
+            ProofPredicate.ANALYTICAL_DISTRIBUTION,
+            ProofPredicate.ANALYTICAL_TREND,
+            ProofPredicate.ANALYTICAL_PERIOD_COMPARISON,
+            ProofPredicate.ANALYTICAL_TOP_K,
+            ProofPredicate.ANALYTICAL_RESULT_SET,
+        }
+    ),
     SemanticConcept.INVESTIGATION_STATE: frozenset(),
     SemanticConcept.HOST_IDENTITY: frozenset(
-        {ProofPredicate.HOST, ProofPredicate.AGENT}
+        {
+            ProofPredicate.HOST,
+            ProofPredicate.AGENT,
+            ProofPredicate.ANALYTICAL_COUNT,
+            ProofPredicate.ANALYTICAL_DISTRIBUTION,
+            ProofPredicate.ANALYTICAL_TREND,
+            ProofPredicate.ANALYTICAL_PERIOD_COMPARISON,
+            ProofPredicate.ANALYTICAL_TOP_K,
+            ProofPredicate.ANALYTICAL_RESULT_SET,
+        }
     ),
     SemanticConcept.USER_IDENTITY: frozenset({ProofPredicate.USER}),
     SemanticConcept.DETECTION: frozenset(
-        {ProofPredicate.DETECTION_RULE, ProofPredicate.DETECTION_LEVEL}
+        {
+            ProofPredicate.DETECTION_RULE,
+            ProofPredicate.DETECTION_LEVEL,
+            ProofPredicate.ANALYTICAL_COUNT,
+            ProofPredicate.ANALYTICAL_DISTRIBUTION,
+            ProofPredicate.ANALYTICAL_TREND,
+            ProofPredicate.ANALYTICAL_PERIOD_COMPARISON,
+            ProofPredicate.ANALYTICAL_TOP_K,
+            ProofPredicate.ANALYTICAL_RESULT_SET,
+        }
     ),
     SemanticConcept.MITRE_CLASSIFICATION: frozenset(
         {
@@ -277,6 +305,12 @@ _ALLOWED_PREDICATES: dict[SemanticConcept, frozenset[ProofPredicate]] = {
             ProofPredicate.MITRE_CONTEXT,
             ProofPredicate.REFERENCE_EXPLANATION,
             ProofPredicate.NON_IMPLICATION,
+            ProofPredicate.ANALYTICAL_COUNT,
+            ProofPredicate.ANALYTICAL_DISTRIBUTION,
+            ProofPredicate.ANALYTICAL_TREND,
+            ProofPredicate.ANALYTICAL_PERIOD_COMPARISON,
+            ProofPredicate.ANALYTICAL_TOP_K,
+            ProofPredicate.ANALYTICAL_RESULT_SET,
         }
     ),
     SemanticConcept.RISK_SCORE: frozenset(
@@ -284,6 +318,12 @@ _ALLOWED_PREDICATES: dict[SemanticConcept, frozenset[ProofPredicate]] = {
             ProofPredicate.RISK_SCORE,
             ProofPredicate.RISK_RECORD,
             ProofPredicate.NON_IMPLICATION,
+            ProofPredicate.ANALYTICAL_COUNT,
+            ProofPredicate.ANALYTICAL_DISTRIBUTION,
+            ProofPredicate.ANALYTICAL_TREND,
+            ProofPredicate.ANALYTICAL_PERIOD_COMPARISON,
+            ProofPredicate.ANALYTICAL_TOP_K,
+            ProofPredicate.ANALYTICAL_RESULT_SET,
         }
     ),
     SemanticConcept.RISK_NORMALIZATION: frozenset(
@@ -291,12 +331,37 @@ _ALLOWED_PREDICATES: dict[SemanticConcept, frozenset[ProofPredicate]] = {
             ProofPredicate.RISK_NORMALIZATION,
             ProofPredicate.RISK_RECORD,
             ProofPredicate.NON_IMPLICATION,
+            ProofPredicate.ANALYTICAL_COUNT,
+            ProofPredicate.ANALYTICAL_DISTRIBUTION,
+            ProofPredicate.ANALYTICAL_TREND,
+            ProofPredicate.ANALYTICAL_PERIOD_COMPARISON,
+            ProofPredicate.ANALYTICAL_TOP_K,
+            ProofPredicate.ANALYTICAL_RESULT_SET,
         }
     ),
     SemanticConcept.SEVERITY: frozenset(
-        {ProofPredicate.CANONICAL_SEVERITY, ProofPredicate.NON_IMPLICATION}
+        {
+            ProofPredicate.CANONICAL_SEVERITY,
+            ProofPredicate.NON_IMPLICATION,
+            ProofPredicate.ANALYTICAL_COUNT,
+            ProofPredicate.ANALYTICAL_DISTRIBUTION,
+            ProofPredicate.ANALYTICAL_TREND,
+            ProofPredicate.ANALYTICAL_PERIOD_COMPARISON,
+            ProofPredicate.ANALYTICAL_TOP_K,
+            ProofPredicate.ANALYTICAL_RESULT_SET,
+        }
     ),
-    SemanticConcept.PRIORITY: frozenset({ProofPredicate.RECOMMENDED_PRIORITY}),
+    SemanticConcept.PRIORITY: frozenset(
+        {
+            ProofPredicate.RECOMMENDED_PRIORITY,
+            ProofPredicate.ANALYTICAL_COUNT,
+            ProofPredicate.ANALYTICAL_DISTRIBUTION,
+            ProofPredicate.ANALYTICAL_TREND,
+            ProofPredicate.ANALYTICAL_PERIOD_COMPARISON,
+            ProofPredicate.ANALYTICAL_TOP_K,
+            ProofPredicate.ANALYTICAL_RESULT_SET,
+        }
+    ),
     SemanticConcept.RECORDED_CORRELATION: frozenset(
         {
             ProofPredicate.CORRELATION_FLAG,
@@ -712,6 +777,118 @@ _PREDICATE_WORDS: dict[ProofPredicate, frozenset[str]] = {
             "relevant",
             "retrieved",
             "recuperata",
+        }
+    ),
+    ProofPredicate.ANALYTICAL_COUNT: frozenset(
+        {
+            "authorized",
+            "autorizzata",
+            "count",
+            "conteggio",
+            "incident",
+            "incidente",
+            "incidents",
+            "incidenti",
+            "case",
+            "cases",
+            "caso",
+            "casi",
+            "record",
+            "records",
+            "risultato",
+            "totale",
+        }
+    ),
+    ProofPredicate.ANALYTICAL_DISTRIBUTION: frozenset(
+        {
+            "authorized",
+            "autorizzata",
+            "distribution",
+            "distribuzione",
+            "group",
+            "gruppo",
+            "incident",
+            "incidente",
+            "incidents",
+            "incidenti",
+            "records",
+            "risultato",
+        }
+    ),
+    ProofPredicate.ANALYTICAL_TREND: frozenset(
+        {
+            "authorized",
+            "autorizzata",
+            "daily",
+            "giornaliero",
+            "giorno",
+            "incident",
+            "incidente",
+            "incidents",
+            "incidenti",
+            "trend",
+            "records",
+            "risultato",
+        }
+    ),
+    ProofPredicate.ANALYTICAL_PERIOD_COMPARISON: frozenset(
+        {
+            "authorized",
+            "autorizzata",
+            "compare",
+            "comparison",
+            "confronto",
+            "current",
+            "corrente",
+            "difference",
+            "differenza",
+            "incident",
+            "incidente",
+            "incidents",
+            "incidenti",
+            "period",
+            "periodo",
+            "previous",
+            "precedente",
+            "records",
+            "risultato",
+        }
+    ),
+    ProofPredicate.ANALYTICAL_TOP_K: frozenset(
+        {
+            "agent",
+            "agente",
+            "authorized",
+            "autorizzata",
+            "detection",
+            "incident",
+            "incidente",
+            "incidents",
+            "incidenti",
+            "ranking",
+            "records",
+            "regola",
+            "risultato",
+            "top",
+        }
+    ),
+    ProofPredicate.ANALYTICAL_RESULT_SET: frozenset(
+        {
+            "authorized",
+            "autorizzata",
+            "case",
+            "cases",
+            "caso",
+            "casi",
+            "incident",
+            "incidente",
+            "incidents",
+            "incidenti",
+            "record",
+            "records",
+            "result",
+            "risultato",
+            "set",
         }
     ),
 }

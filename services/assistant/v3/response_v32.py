@@ -10,7 +10,11 @@ from pydantic import ValidationError
 from services.assistant.v3.conversational_schema import (
     conversational_model_facing_evidence,
 )
-from services.assistant.v3.contracts import AnswerIntent, V3AnalyticalContextPackage
+from services.assistant.v3.contracts import (
+    AnalysisScope,
+    AnswerIntent,
+    V3AnalyticalContextPackage,
+)
 from services.assistant.v3.discourse import (
     RenderedV3Answer,
     RenderedV3Block,
@@ -118,8 +122,21 @@ def compile_v32_proof_units(
         or item.source_refs[0] not in synthesis_refs
     )
     intent = package.intent_selection.primary_intent
+    analytical_kinds = {
+        EvidenceKind.ANALYTICAL_COUNT,
+        EvidenceKind.ANALYTICAL_DISTRIBUTION,
+        EvidenceKind.ANALYTICAL_TREND,
+        EvidenceKind.ANALYTICAL_COMPARISON,
+        EvidenceKind.ANALYTICAL_TOP_K,
+        EvidenceKind.ANALYTICAL_RESULT_SET,
+    }
 
     def priority(item: EvidenceProofUnit) -> int:
+        if (
+            package.resolved_scope.analysis_scope is AnalysisScope.GLOBAL
+            and item.evidence_kind in analytical_kinds
+        ):
+            return 0
         if intent is AnswerIntent.NEXT_ACTION:
             if item.evidence_kind is EvidenceKind.ADVISORY_KNOWLEDGE:
                 return 0
@@ -223,6 +240,27 @@ def build_v32_messages(
         "use_section_kind_for_each_proposition_rhetorical_purpose": True,
     }
     intent = package.intent_selection.primary_intent
+    analytical_kinds = {
+        EvidenceKind.ANALYTICAL_COUNT,
+        EvidenceKind.ANALYTICAL_DISTRIBUTION,
+        EvidenceKind.ANALYTICAL_TREND,
+        EvidenceKind.ANALYTICAL_COMPARISON,
+        EvidenceKind.ANALYTICAL_TOP_K,
+        EvidenceKind.ANALYTICAL_RESULT_SET,
+    }
+    if package.resolved_scope.analysis_scope is AnalysisScope.GLOBAL:
+        intent_contract.update(
+            {
+                "must_answer_from_a_typed_analytical_result": True,
+                "required_analytical_proof_unit_ids": [
+                    item.proof_unit_id
+                    for item in proof_units
+                    if item.evidence_kind in analytical_kinds
+                ],
+                "must_state_the_resolved_absolute_window_when_relevant": True,
+                "must_not_describe_analytical_derivations_as_raw_recorded_facts": True,
+            }
+        )
     if intent is AnswerIntent.NEXT_ACTION:
         next_action_refs = [
             item.proof_unit_id
@@ -274,6 +312,7 @@ def build_v32_messages(
             in {
                 EvidenceKind.RECORDED_CORRELATION,
                 EvidenceKind.ANALYTICAL_RELATIONSHIP,
+                EvidenceKind.ANALYTICAL_COMPARISON,
             }
         ]
         intent_contract.update(
@@ -311,6 +350,7 @@ def build_v32_messages(
             "do_not_write_citations_or_provenance": True,
             "use_only_the_semantic_meaning_of_the_selected_proof_unit": True,
             "use_uncertainty_boundaries_when_the_question_asks_what_is_not_proven": True,
+            "describe_sql_aggregates_as_analytical_results_not_raw_recorded_facts": True,
         },
     }
     serialized = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
@@ -544,6 +584,19 @@ class GroundedResponseV32Validator:
         ]
         sections = {item.section_kind for item in draft.propositions}
         intent = package.intent_selection.primary_intent
+        analytical_kinds = {
+            EvidenceKind.ANALYTICAL_COUNT,
+            EvidenceKind.ANALYTICAL_DISTRIBUTION,
+            EvidenceKind.ANALYTICAL_TREND,
+            EvidenceKind.ANALYTICAL_COMPARISON,
+            EvidenceKind.ANALYTICAL_TOP_K,
+            EvidenceKind.ANALYTICAL_RESULT_SET,
+        }
+        if (
+            package.resolved_scope.analysis_scope is AnalysisScope.GLOBAL
+            and not any(item.evidence_kind in analytical_kinds for item in selected)
+        ):
+            return "global_analytics_contract_mismatch"
         if intent is AnswerIntent.NEXT_ACTION:
             if package.advisory_atoms:
                 valid_evidence = any(
@@ -585,6 +638,7 @@ class GroundedResponseV32Validator:
                 in {
                     EvidenceKind.RECORDED_CORRELATION,
                     EvidenceKind.ANALYTICAL_RELATIONSHIP,
+                    EvidenceKind.ANALYTICAL_COMPARISON,
                 }
                 for item in selected
             ):
