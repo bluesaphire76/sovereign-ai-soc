@@ -21,6 +21,12 @@ class EvidenceKind(str, Enum):
     ADVISORY_KNOWLEDGE = "ADVISORY_KNOWLEDGE"
     TYPED_SYNTHESIS = "TYPED_SYNTHESIS"
     ANALYTICAL_BOUNDARY = "ANALYTICAL_BOUNDARY"
+    ANALYTICAL_COUNT = "ANALYTICAL_COUNT"
+    ANALYTICAL_DISTRIBUTION = "ANALYTICAL_DISTRIBUTION"
+    ANALYTICAL_TREND = "ANALYTICAL_TREND"
+    ANALYTICAL_COMPARISON = "ANALYTICAL_COMPARISON"
+    ANALYTICAL_TOP_K = "ANALYTICAL_TOP_K"
+    ANALYTICAL_RESULT_SET = "ANALYTICAL_RESULT_SET"
 
 
 class AllowedSemanticRole(str, Enum):
@@ -32,6 +38,7 @@ class AllowedSemanticRole(str, Enum):
     INVESTIGATION_GUIDANCE = "INVESTIGATION_GUIDANCE"
     GROUNDED_SYNTHESIS = "GROUNDED_SYNTHESIS"
     UNCERTAINTY_BOUNDARY = "UNCERTAINTY_BOUNDARY"
+    ANALYTICAL_AGGREGATE = "ANALYTICAL_AGGREGATE"
 
 
 class ProofPredicate(str, Enum):
@@ -74,11 +81,28 @@ class ProofPredicate(str, Enum):
     ADVISORY_GUIDANCE = "ADVISORY_GUIDANCE"
     NON_IMPLICATION = "NON_IMPLICATION"
     CONTEXT_LIMITATION = "CONTEXT_LIMITATION"
+    ANALYTICAL_COUNT = "ANALYTICAL_COUNT"
+    ANALYTICAL_DISTRIBUTION = "ANALYTICAL_DISTRIBUTION"
+    ANALYTICAL_TREND = "ANALYTICAL_TREND"
+    ANALYTICAL_PERIOD_COMPARISON = "ANALYTICAL_PERIOD_COMPARISON"
+    ANALYTICAL_TOP_K = "ANALYTICAL_TOP_K"
+    ANALYTICAL_RESULT_SET = "ANALYTICAL_RESULT_SET"
+
+
+class ProofTemporalConstraint(ClosedModel):
+    role: Literal["CURRENT", "PREVIOUS"]
+    resolution: str = Field(min_length=1, max_length=80)
+    start_utc: str = Field(min_length=1, max_length=80)
+    end_utc: str = Field(min_length=1, max_length=80)
 
 
 class ProofValue(ClosedModel):
-    canonical_values: list[str] = Field(min_length=1, max_length=16)
-    required_anchors: list[str] = Field(default_factory=list, max_length=8)
+    canonical_values: list[str] = Field(min_length=1, max_length=64)
+    required_anchors: list[str] = Field(default_factory=list, max_length=16)
+    temporal_constraints: list[ProofTemporalConstraint] = Field(
+        default_factory=list,
+        max_length=2,
+    )
 
     @model_validator(mode="after")
     def validate_values(self):
@@ -90,6 +114,9 @@ class ProofValue(ClosedModel):
             raise ValueError("proof canonical values must be unique")
         if len(self.required_anchors) != len(set(self.required_anchors)):
             raise ValueError("proof required anchors must be unique")
+        roles = [item.role for item in self.temporal_constraints]
+        if len(roles) != len(set(roles)):
+            raise ValueError("proof temporal constraint roles must be unique")
         return self
 
 
@@ -149,6 +176,12 @@ class EvidenceProofUnit(ClosedModel):
             EvidenceKind.ADVISORY_KNOWLEDGE: AuthorityClass.ADVISORY_KNOWLEDGE,
             EvidenceKind.TYPED_SYNTHESIS: AuthorityClass.ANALYTICAL_DERIVATION,
             EvidenceKind.ANALYTICAL_BOUNDARY: AuthorityClass.ANALYTICAL_DERIVATION,
+            EvidenceKind.ANALYTICAL_COUNT: AuthorityClass.ANALYTICAL_DERIVATION,
+            EvidenceKind.ANALYTICAL_DISTRIBUTION: AuthorityClass.ANALYTICAL_DERIVATION,
+            EvidenceKind.ANALYTICAL_TREND: AuthorityClass.ANALYTICAL_DERIVATION,
+            EvidenceKind.ANALYTICAL_COMPARISON: AuthorityClass.ANALYTICAL_DERIVATION,
+            EvidenceKind.ANALYTICAL_TOP_K: AuthorityClass.ANALYTICAL_DERIVATION,
+            EvidenceKind.ANALYTICAL_RESULT_SET: AuthorityClass.ANALYTICAL_DERIVATION,
         }[self.evidence_kind]
         expected_role = {
             EvidenceKind.OPERATIONAL_FACT: AllowedSemanticRole.RECORDED_VALUE,
@@ -159,6 +192,12 @@ class EvidenceProofUnit(ClosedModel):
             EvidenceKind.ADVISORY_KNOWLEDGE: AllowedSemanticRole.INVESTIGATION_GUIDANCE,
             EvidenceKind.TYPED_SYNTHESIS: AllowedSemanticRole.GROUNDED_SYNTHESIS,
             EvidenceKind.ANALYTICAL_BOUNDARY: AllowedSemanticRole.UNCERTAINTY_BOUNDARY,
+            EvidenceKind.ANALYTICAL_COUNT: AllowedSemanticRole.ANALYTICAL_AGGREGATE,
+            EvidenceKind.ANALYTICAL_DISTRIBUTION: AllowedSemanticRole.ANALYTICAL_AGGREGATE,
+            EvidenceKind.ANALYTICAL_TREND: AllowedSemanticRole.ANALYTICAL_AGGREGATE,
+            EvidenceKind.ANALYTICAL_COMPARISON: AllowedSemanticRole.ANALYTICAL_AGGREGATE,
+            EvidenceKind.ANALYTICAL_TOP_K: AllowedSemanticRole.ANALYTICAL_AGGREGATE,
+            EvidenceKind.ANALYTICAL_RESULT_SET: AllowedSemanticRole.ANALYTICAL_AGGREGATE,
         }[self.evidence_kind]
         if self.authority_class is not expected_authority:
             raise ValueError("proof evidence kind and authority class do not match")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import unicodedata
 from collections.abc import Sequence
 from enum import Enum
@@ -50,6 +51,7 @@ class TypedGuardReason(str, Enum):
     EMPTY_PROPOSITION = "EMPTY_PROPOSITION"
     MISSING_REQUIRED_ANCHOR = "MISSING_REQUIRED_ANCHOR"
     CONFLICTING_NUMERIC_VALUE = "CONFLICTING_NUMERIC_VALUE"
+    CONFLICTING_TEMPORAL_VALUE = "CONFLICTING_TEMPORAL_VALUE"
     POLARITY_MISMATCH = "POLARITY_MISMATCH"
     INCOMPATIBLE_SEMANTIC_CONCEPT = "INCOMPATIBLE_SEMANTIC_CONCEPT"
     REFERENCE_USED_AS_OPERATIONAL_STATE = "REFERENCE_USED_AS_OPERATIONAL_STATE"
@@ -66,6 +68,7 @@ class TypedGuardDecision(ClosedModel):
     detected_concepts: list[SemanticConcept] = Field(default_factory=list)
     missing_anchors: list[str] = Field(default_factory=list, max_length=8)
     conflicting_numbers: list[str] = Field(default_factory=list, max_length=8)
+    conflicting_temporal_values: list[str] = Field(default_factory=list, max_length=8)
 
 
 _CONCEPT_PHRASES: dict[SemanticConcept, tuple[str, ...]] = {
@@ -84,7 +87,10 @@ _CONCEPT_PHRASES: dict[SemanticConcept, tuple[str, ...]] = {
         "investigato",
         "indagato",
         "valutato",
-        "analizzato",
+        "incidente analizzato",
+        "incidenti analizzati",
+        "caso analizzato",
+        "casi analizzati",
         "risolto",
     ),
     SemanticConcept.HOST_IDENTITY: (
@@ -262,14 +268,42 @@ _CONCEPT_PHRASES: dict[SemanticConcept, tuple[str, ...]] = {
 
 
 _ALLOWED_PREDICATES: dict[SemanticConcept, frozenset[ProofPredicate]] = {
-    SemanticConcept.STATUS: frozenset({ProofPredicate.STATUS}),
+    SemanticConcept.STATUS: frozenset(
+        {
+            ProofPredicate.STATUS,
+            ProofPredicate.ANALYTICAL_COUNT,
+            ProofPredicate.ANALYTICAL_DISTRIBUTION,
+            ProofPredicate.ANALYTICAL_TREND,
+            ProofPredicate.ANALYTICAL_PERIOD_COMPARISON,
+            ProofPredicate.ANALYTICAL_TOP_K,
+            ProofPredicate.ANALYTICAL_RESULT_SET,
+        }
+    ),
     SemanticConcept.INVESTIGATION_STATE: frozenset(),
     SemanticConcept.HOST_IDENTITY: frozenset(
-        {ProofPredicate.HOST, ProofPredicate.AGENT}
+        {
+            ProofPredicate.HOST,
+            ProofPredicate.AGENT,
+            ProofPredicate.ANALYTICAL_COUNT,
+            ProofPredicate.ANALYTICAL_DISTRIBUTION,
+            ProofPredicate.ANALYTICAL_TREND,
+            ProofPredicate.ANALYTICAL_PERIOD_COMPARISON,
+            ProofPredicate.ANALYTICAL_TOP_K,
+            ProofPredicate.ANALYTICAL_RESULT_SET,
+        }
     ),
     SemanticConcept.USER_IDENTITY: frozenset({ProofPredicate.USER}),
     SemanticConcept.DETECTION: frozenset(
-        {ProofPredicate.DETECTION_RULE, ProofPredicate.DETECTION_LEVEL}
+        {
+            ProofPredicate.DETECTION_RULE,
+            ProofPredicate.DETECTION_LEVEL,
+            ProofPredicate.ANALYTICAL_COUNT,
+            ProofPredicate.ANALYTICAL_DISTRIBUTION,
+            ProofPredicate.ANALYTICAL_TREND,
+            ProofPredicate.ANALYTICAL_PERIOD_COMPARISON,
+            ProofPredicate.ANALYTICAL_TOP_K,
+            ProofPredicate.ANALYTICAL_RESULT_SET,
+        }
     ),
     SemanticConcept.MITRE_CLASSIFICATION: frozenset(
         {
@@ -277,6 +311,12 @@ _ALLOWED_PREDICATES: dict[SemanticConcept, frozenset[ProofPredicate]] = {
             ProofPredicate.MITRE_CONTEXT,
             ProofPredicate.REFERENCE_EXPLANATION,
             ProofPredicate.NON_IMPLICATION,
+            ProofPredicate.ANALYTICAL_COUNT,
+            ProofPredicate.ANALYTICAL_DISTRIBUTION,
+            ProofPredicate.ANALYTICAL_TREND,
+            ProofPredicate.ANALYTICAL_PERIOD_COMPARISON,
+            ProofPredicate.ANALYTICAL_TOP_K,
+            ProofPredicate.ANALYTICAL_RESULT_SET,
         }
     ),
     SemanticConcept.RISK_SCORE: frozenset(
@@ -284,6 +324,12 @@ _ALLOWED_PREDICATES: dict[SemanticConcept, frozenset[ProofPredicate]] = {
             ProofPredicate.RISK_SCORE,
             ProofPredicate.RISK_RECORD,
             ProofPredicate.NON_IMPLICATION,
+            ProofPredicate.ANALYTICAL_COUNT,
+            ProofPredicate.ANALYTICAL_DISTRIBUTION,
+            ProofPredicate.ANALYTICAL_TREND,
+            ProofPredicate.ANALYTICAL_PERIOD_COMPARISON,
+            ProofPredicate.ANALYTICAL_TOP_K,
+            ProofPredicate.ANALYTICAL_RESULT_SET,
         }
     ),
     SemanticConcept.RISK_NORMALIZATION: frozenset(
@@ -291,12 +337,37 @@ _ALLOWED_PREDICATES: dict[SemanticConcept, frozenset[ProofPredicate]] = {
             ProofPredicate.RISK_NORMALIZATION,
             ProofPredicate.RISK_RECORD,
             ProofPredicate.NON_IMPLICATION,
+            ProofPredicate.ANALYTICAL_COUNT,
+            ProofPredicate.ANALYTICAL_DISTRIBUTION,
+            ProofPredicate.ANALYTICAL_TREND,
+            ProofPredicate.ANALYTICAL_PERIOD_COMPARISON,
+            ProofPredicate.ANALYTICAL_TOP_K,
+            ProofPredicate.ANALYTICAL_RESULT_SET,
         }
     ),
     SemanticConcept.SEVERITY: frozenset(
-        {ProofPredicate.CANONICAL_SEVERITY, ProofPredicate.NON_IMPLICATION}
+        {
+            ProofPredicate.CANONICAL_SEVERITY,
+            ProofPredicate.NON_IMPLICATION,
+            ProofPredicate.ANALYTICAL_COUNT,
+            ProofPredicate.ANALYTICAL_DISTRIBUTION,
+            ProofPredicate.ANALYTICAL_TREND,
+            ProofPredicate.ANALYTICAL_PERIOD_COMPARISON,
+            ProofPredicate.ANALYTICAL_TOP_K,
+            ProofPredicate.ANALYTICAL_RESULT_SET,
+        }
     ),
-    SemanticConcept.PRIORITY: frozenset({ProofPredicate.RECOMMENDED_PRIORITY}),
+    SemanticConcept.PRIORITY: frozenset(
+        {
+            ProofPredicate.RECOMMENDED_PRIORITY,
+            ProofPredicate.ANALYTICAL_COUNT,
+            ProofPredicate.ANALYTICAL_DISTRIBUTION,
+            ProofPredicate.ANALYTICAL_TREND,
+            ProofPredicate.ANALYTICAL_PERIOD_COMPARISON,
+            ProofPredicate.ANALYTICAL_TOP_K,
+            ProofPredicate.ANALYTICAL_RESULT_SET,
+        }
+    ),
     SemanticConcept.RECORDED_CORRELATION: frozenset(
         {
             ProofPredicate.CORRELATION_FLAG,
@@ -714,6 +785,118 @@ _PREDICATE_WORDS: dict[ProofPredicate, frozenset[str]] = {
             "recuperata",
         }
     ),
+    ProofPredicate.ANALYTICAL_COUNT: frozenset(
+        {
+            "authorized",
+            "autorizzata",
+            "count",
+            "conteggio",
+            "incident",
+            "incidente",
+            "incidents",
+            "incidenti",
+            "case",
+            "cases",
+            "caso",
+            "casi",
+            "record",
+            "records",
+            "risultato",
+            "totale",
+        }
+    ),
+    ProofPredicate.ANALYTICAL_DISTRIBUTION: frozenset(
+        {
+            "authorized",
+            "autorizzata",
+            "distribution",
+            "distribuzione",
+            "group",
+            "gruppo",
+            "incident",
+            "incidente",
+            "incidents",
+            "incidenti",
+            "records",
+            "risultato",
+        }
+    ),
+    ProofPredicate.ANALYTICAL_TREND: frozenset(
+        {
+            "authorized",
+            "autorizzata",
+            "daily",
+            "giornaliero",
+            "giorno",
+            "incident",
+            "incidente",
+            "incidents",
+            "incidenti",
+            "trend",
+            "records",
+            "risultato",
+        }
+    ),
+    ProofPredicate.ANALYTICAL_PERIOD_COMPARISON: frozenset(
+        {
+            "authorized",
+            "autorizzata",
+            "compare",
+            "comparison",
+            "confronto",
+            "current",
+            "corrente",
+            "difference",
+            "differenza",
+            "incident",
+            "incidente",
+            "incidents",
+            "incidenti",
+            "period",
+            "periodo",
+            "previous",
+            "precedente",
+            "records",
+            "risultato",
+        }
+    ),
+    ProofPredicate.ANALYTICAL_TOP_K: frozenset(
+        {
+            "agent",
+            "agente",
+            "authorized",
+            "autorizzata",
+            "detection",
+            "incident",
+            "incidente",
+            "incidents",
+            "incidenti",
+            "ranking",
+            "records",
+            "regola",
+            "risultato",
+            "top",
+        }
+    ),
+    ProofPredicate.ANALYTICAL_RESULT_SET: frozenset(
+        {
+            "authorized",
+            "autorizzata",
+            "case",
+            "cases",
+            "caso",
+            "casi",
+            "incident",
+            "incidente",
+            "incidents",
+            "incidenti",
+            "record",
+            "records",
+            "result",
+            "risultato",
+            "set",
+        }
+    ),
 }
 
 _OPEN_TEXT_PREDICATES = frozenset(
@@ -820,6 +1003,32 @@ _TYPED_VALUE_ALIASES: dict[ProofPredicate, dict[str, tuple[str, ...]]] = {
         "HIGH": ("high", "alta"),
         "CRITICAL": ("critical", "critica"),
     },
+    ProofPredicate.ANALYTICAL_COUNT: {
+        "0": (
+            "no records",
+            "no incidents",
+            "no cases",
+            "nessun record",
+            "nessun incidente",
+            "nessun caso",
+            "non ci sono",
+            "non risultano",
+            "non sono stati registrati",
+        ),
+    },
+    ProofPredicate.ANALYTICAL_RESULT_SET: {
+        "0": (
+            "empty result set",
+            "no records",
+            "no incidents",
+            "no cases",
+            "result set vuoto",
+            "nessun record",
+            "nessun incidente",
+            "nessun caso",
+            "non risultano",
+        ),
+    },
 }
 
 
@@ -849,6 +1058,71 @@ def _numeric_tokens(tokens: tuple[str, ...]) -> set[str]:
             continue
         result.add(str(int(numeric)) if numeric.is_integer() else format(numeric, ".12g"))
     return result
+
+
+_ISO_TIMESTAMP_PATTERN = re.compile(
+    r"\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\b",
+    re.IGNORECASE,
+)
+
+
+def _temporal_resolution_mentions(value: str) -> set[str]:
+    tokens = _normalized_tokens(value)
+    mentions: set[str] = set()
+    phrases = {
+        ("today",): "TODAY",
+        ("oggi",): "TODAY",
+        ("this", "week"): "THIS_WEEK",
+        ("questa", "settimana"): "THIS_WEEK",
+        ("this", "month"): "THIS_MONTH",
+        ("questo", "mese"): "THIS_MONTH",
+        ("previous", "month"): "PREVIOUS_MONTH",
+        ("previous", "calendar", "month"): "PREVIOUS_MONTH",
+        ("mese", "scorso"): "PREVIOUS_MONTH",
+        ("scorso", "mese"): "PREVIOUS_MONTH",
+        ("last", "month"): "AMBIGUOUS_LAST_MONTH",
+        ("ultimo", "mese"): "AMBIGUOUS_LAST_MONTH",
+    }
+    for phrase, resolution in phrases.items():
+        if _contains_tokens(tokens, phrase):
+            mentions.add(resolution)
+    for index, token in enumerate(tokens):
+        if not token.isdigit():
+            continue
+        previous = tokens[index - 1] if index > 0 else ""
+        following = tokens[index + 1] if index + 1 < len(tokens) else ""
+        after_following = tokens[index + 2] if index + 2 < len(tokens) else ""
+        if token == "24" and following in {"hour", "hours", "ora", "ore"}:
+            if previous in {"last", "past", "ultime", "ultimi"}:
+                mentions.add("LAST_24_HOURS")
+            continue
+        if following not in {"day", "days", "giorno", "giorni"}:
+            continue
+        if previous in {"last", "past", "ultime", "ultimi"}:
+            mentions.add(f"LAST_{token}_DAYS")
+        if after_following in {"previous", "precedenti"}:
+            mentions.add(f"PREVIOUS_LAST_{token}_DAYS")
+    return mentions
+
+
+def _temporal_conflicts(
+    proof_unit: EvidenceProofUnit,
+    proposition: str,
+) -> list[str]:
+    constraints = proof_unit.value.temporal_constraints
+    if not constraints:
+        return []
+    expected_resolutions = {item.resolution for item in constraints}
+    mentioned_resolutions = _temporal_resolution_mentions(proposition)
+    conflicts = sorted(mentioned_resolutions - expected_resolutions)
+    expected_timestamps = {
+        value
+        for item in constraints
+        for value in (item.start_utc, item.end_utc)
+    }
+    mentioned_timestamps = set(_ISO_TIMESTAMP_PATTERN.findall(proposition))
+    conflicts.extend(sorted(mentioned_timestamps - expected_timestamps))
+    return list(dict.fromkeys(conflicts))
 
 
 def uncovered_material_tokens(
@@ -925,6 +1199,15 @@ class TypedSemanticGuard:
                 proof_unit_id=proof_unit.proof_unit_id,
                 reason=TypedGuardReason.MISSING_REQUIRED_ANCHOR,
                 missing_anchors=missing,
+            )
+
+        temporal_conflicts = _temporal_conflicts(proof_unit, text)
+        if temporal_conflicts:
+            return TypedGuardDecision(
+                accepted=False,
+                proof_unit_id=proof_unit.proof_unit_id,
+                reason=TypedGuardReason.CONFLICTING_TEMPORAL_VALUE,
+                conflicting_temporal_values=temporal_conflicts,
             )
 
         allowed_numbers = _numeric_tokens(
@@ -1149,6 +1432,21 @@ class TypedSemanticGuard:
                 proof_unit_id=combined_id,
                 reason=TypedGuardReason.MISSING_REQUIRED_ANCHOR,
                 missing_anchors=list(dict.fromkeys(missing)),
+            )
+
+        temporal_conflicts = list(
+            dict.fromkeys(
+                conflict
+                for unit in proof_units
+                for conflict in _temporal_conflicts(unit, text)
+            )
+        )
+        if temporal_conflicts:
+            return TypedGuardDecision(
+                accepted=False,
+                proof_unit_id=combined_id,
+                reason=TypedGuardReason.CONFLICTING_TEMPORAL_VALUE,
+                conflicting_temporal_values=temporal_conflicts,
             )
 
         allowed_numbers = {

@@ -6,6 +6,10 @@ from typing import Any
 
 from services.assistant.v3.contracts import (
     AdvisoryKnowledgeAtom,
+    AnalyticalEntity,
+    AnalyticalOperation,
+    AnalyticalResultAtom,
+    AnalyticalResultKind,
     AnalyticalRelationship,
     AuthorityClass,
     CaseIdentityAtom,
@@ -42,6 +46,7 @@ from services.assistant.v3.semantic_proof.contracts import (
     ProofPredicate,
     ProofScope,
     ProofScopeKind,
+    ProofTemporalConstraint,
     ProofValue,
 )
 
@@ -70,6 +75,7 @@ def _boolean(value: bool, language: ProofLanguage) -> str:
 def _proof_value(
     *canonical_values: object,
     required_anchors: Sequence[object] | None = None,
+    temporal_constraints: Sequence[ProofTemporalConstraint] = (),
 ) -> ProofValue:
     return ProofValue(
         canonical_values=[str(item) for item in canonical_values],
@@ -79,10 +85,13 @@ def _proof_value(
                 canonical_values if required_anchors is None else required_anchors
             )
         ],
+        temporal_constraints=list(temporal_constraints),
     )
 
 
 def _atom_scope(atom: Any) -> ProofScope:
+    if isinstance(atom, AnalyticalResultAtom):
+        return ProofScope(scope_kind=ProofScopeKind.GLOBAL)
     if atom.incident_id is not None:
         return ProofScope(
             scope_kind=ProofScopeKind.INCIDENT,
@@ -158,6 +167,346 @@ def _relationship_evidence_value(
     return values[0] if values and len(set(values)) == 1 else None
 
 
+def _analytical_kind_and_predicate(
+    atom: AnalyticalResultAtom,
+) -> tuple[EvidenceKind, ProofPredicate]:
+    return {
+        AnalyticalResultKind.COUNT: (
+            EvidenceKind.ANALYTICAL_COUNT,
+            ProofPredicate.ANALYTICAL_COUNT,
+        ),
+        AnalyticalResultKind.DISTRIBUTION: (
+            EvidenceKind.ANALYTICAL_DISTRIBUTION,
+            ProofPredicate.ANALYTICAL_DISTRIBUTION,
+        ),
+        AnalyticalResultKind.TREND: (
+            EvidenceKind.ANALYTICAL_TREND,
+            ProofPredicate.ANALYTICAL_TREND,
+        ),
+        AnalyticalResultKind.COMPARISON: (
+            EvidenceKind.ANALYTICAL_COMPARISON,
+            ProofPredicate.ANALYTICAL_PERIOD_COMPARISON,
+        ),
+        AnalyticalResultKind.TOP_K: (
+            EvidenceKind.ANALYTICAL_TOP_K,
+            ProofPredicate.ANALYTICAL_TOP_K,
+        ),
+        AnalyticalResultKind.RESULT_SET: (
+            EvidenceKind.ANALYTICAL_RESULT_SET,
+            ProofPredicate.ANALYTICAL_RESULT_SET,
+        ),
+    }[atom.result_kind]
+
+
+def _resolution_label(resolution: str, *, language: ProofLanguage) -> str:
+    labels = {
+        "TODAY": ("today", "oggi"),
+        "THIS_WEEK": ("this week", "questa settimana"),
+        "THIS_MONTH": ("this month", "questo mese"),
+        "PREVIOUS_MONTH": ("the previous calendar month", "il mese scorso"),
+        "LAST_24_HOURS": ("the last 24 hours", "le ultime 24 ore"),
+    }
+    if resolution in labels:
+        return labels[resolution][0 if language == "en" else 1]
+    previous = resolution.startswith("PREVIOUS_")
+    base = resolution.removeprefix("PREVIOUS_")
+    if base.startswith("LAST_") and base.endswith("_DAYS"):
+        days = base.removeprefix("LAST_").removesuffix("_DAYS")
+        if previous:
+            return (
+                f"the previous {days} days"
+                if language == "en"
+                else f"i {days} giorni precedenti"
+            )
+        return (
+            f"the last {days} days"
+            if language == "en"
+            else f"gli ultimi {days} giorni"
+        )
+    return resolution.replace("_", " ").casefold()
+
+
+def _analytical_filters(
+    atom: AnalyticalResultAtom,
+    *,
+    language: ProofLanguage | None = None,
+) -> str:
+    if language is None:
+        return ", ".join(
+            f"{item.field.value} {item.operator} {', '.join(item.values)}"
+            for item in atom.filters
+        ) or "none"
+    labels = {
+        "AGENT": ("host", "host"),
+        "DETECTION_RULE": ("detection rule", "regola di detection"),
+        "INCIDENT_ID": ("incident", "incidente"),
+        "CASE_ID": ("case", "caso"),
+        "RECORDED_RISK": ("recorded risk", "rischio registrato"),
+        "SLA_STATE": ("SLA state", "stato SLA"),
+        "STATUS": ("status", "stato"),
+    }
+    selected = []
+    for item in atom.filters:
+        label = labels.get(
+            item.field.value,
+            (
+                item.field.value.replace("_", " ").casefold(),
+                item.field.value.replace("_", " ").casefold(),
+            ),
+        )[0 if language == "en" else 1]
+        selected.append(f"{label} {', '.join(item.values)}")
+    if selected:
+        return ", ".join(selected)
+    return "no filters" if language == "en" else "nessun filtro"
+
+
+def _analytical_window(atom: AnalyticalResultAtom) -> str:
+    if atom.time_window is None:
+        return "unbounded"
+    current = f"[{atom.time_window.start_utc}, {atom.time_window.end_utc})"
+    if atom.comparison_window is None:
+        return current
+    return (
+        f"current {current}; previous "
+        f"[{atom.comparison_window.start_utc}, {atom.comparison_window.end_utc})"
+    )
+
+
+def _analytical_window_natural(
+    atom: AnalyticalResultAtom,
+    *,
+    language: ProofLanguage,
+) -> str:
+    if atom.time_window is None:
+        return "without a time window" if language == "en" else "senza finestra temporale"
+    current = (
+        f"{_resolution_label(atom.time_window.resolution, language=language)} "
+        f"(UTC [{atom.time_window.start_utc}, {atom.time_window.end_utc}))"
+    )
+    if atom.comparison_window is None:
+        return current
+    previous = (
+        f"{_resolution_label(atom.comparison_window.resolution, language=language)} "
+        f"(UTC [{atom.comparison_window.start_utc}, {atom.comparison_window.end_utc}))"
+    )
+    return (
+        f"current period {current} and previous period {previous}"
+        if language == "en"
+        else f"periodo corrente {current} e periodo precedente {previous}"
+    )
+
+
+def _analytical_rows(atom: AnalyticalResultAtom) -> tuple[list[str], list[str]]:
+    row_texts: list[str] = []
+    values: list[str] = []
+    for row in atom.rows[:20]:
+        dimensions = ", ".join(
+            f"{item.dimension.value}={item.value[:80]}" for item in row.dimensions
+        )
+        identity = (
+            f"INCIDENT_ID={row.incident_id}"
+            if row.incident_id is not None
+            else f"CASE_ID={row.case_id}"
+            if row.case_id is not None
+            else ""
+        )
+        measure = (
+            f"{atom.measure.value}={_number(row.measure_value)}"
+            if row.measure_value is not None
+            else ""
+        )
+        details = ", ".join(item for item in (identity, dimensions, measure) if item)
+        row_texts.append(details or row.row_id)
+        values.extend(
+            [
+                *(str(item.value[:80]) for item in row.dimensions),
+                *([str(row.incident_id)] if row.incident_id is not None else []),
+                *([str(row.case_id)] if row.case_id is not None else []),
+                *(
+                    [_number(row.measure_value)]
+                    if row.measure_value is not None
+                    else []
+                ),
+            ]
+        )
+    return row_texts, list(dict.fromkeys(values))
+
+
+def _analytical_rows_natural(
+    atom: AnalyticalResultAtom,
+    *,
+    language: ProofLanguage,
+) -> str:
+    values: list[str] = []
+    dimension_labels = {
+        "AGENT": ("host", "host"),
+        "DETECTION_RULE": ("detection rule", "regola di detection"),
+        "MITRE_TECHNIQUE": ("MITRE technique", "tecnica MITRE"),
+        "STATUS": ("status", "stato"),
+        "DAY": ("period", "periodo"),
+    }
+    for row in atom.rows[:20]:
+        if row.incident_id is not None:
+            label = (
+                f"Incident {row.incident_id}"
+                if language == "en"
+                else f"Incidente {row.incident_id}"
+            )
+        elif row.case_id is not None:
+            label = (
+                f"Case {row.case_id}"
+                if language == "en"
+                else f"Caso {row.case_id}"
+            )
+        else:
+            label = ", ".join(
+                f"{dimension_labels.get(item.dimension.value, (item.dimension.value, item.dimension.value))[0 if language == 'en' else 1]} {item.value}"
+                for item in row.dimensions
+            )
+        if row.measure_value is not None:
+            count = _number(row.measure_value)
+            if atom.operation is AnalyticalOperation.TOP_K and row.dimensions:
+                dimension = row.dimensions[0]
+                noun = dimension_labels.get(
+                    dimension.dimension.value,
+                    (dimension.dimension.value, dimension.dimension.value),
+                )[0 if language == "en" else 1]
+                incident_label = (
+                    "incident" if count == "1" else "incidents"
+                ) if language == "en" else (
+                    "incidente" if count == "1" else "incidenti"
+                )
+                label = (
+                    f"{noun} {dimension.value} generated {count} {incident_label}"
+                    if language == "en"
+                    else f"{noun} {dimension.value} ha generato {count} {incident_label}"
+                )
+            else:
+                label = (
+                    f"{label} with {count} incidents"
+                    if language == "en"
+                    else f"{label} con {count} incidenti"
+                )
+        values.append(label)
+    return "; ".join(values) or ("empty result set" if language == "en" else "result set vuoto")
+
+
+def _analytical_premise(
+    atom: AnalyticalResultAtom,
+    *,
+    language: ProofLanguage,
+) -> str:
+    window = _analytical_window_natural(atom, language=language)
+    filters = _analytical_filters(atom, language=language)
+    rows = _analytical_rows_natural(atom, language=language)
+    result_count = len(atom.result_ids)
+    if atom.operation is AnalyticalOperation.COUNT:
+        value = _number(atom.scalar_value or 0)
+        entity_en = "incidents" if atom.entity is AnalyticalEntity.INCIDENT else "cases"
+        entity_it = "incidenti" if atom.entity is AnalyticalEntity.INCIDENT else "casi"
+        if language == "en":
+            if value == "0":
+                return (
+                    f"For {window}, no {entity_en} matching {filters} were recorded; "
+                    "the authorized analytical count is 0."
+                )
+            return (
+                f"For {window}, the authorized analytical count of {entity_en} with "
+                f"{filters} is {value}."
+            )
+        if value == "0":
+            return (
+                f"Per {window} non sono stati registrati {entity_it} corrispondenti a "
+                f"{filters}; il conteggio analitico autorizzato è 0."
+            )
+        return (
+            f"Per {window}, il conteggio analitico autorizzato dei {entity_it} con "
+            f"{filters} è {value}."
+        )
+    if atom.operation is AnalyticalOperation.COMPARE_PERIODS:
+        current = _number(atom.rows[0].measure_value or 0) if atom.rows else "0"
+        previous = _number(atom.rows[1].measure_value or 0) if len(atom.rows) > 1 else "0"
+        difference = _number(float(current) - float(previous))
+        current_window = (
+            _resolution_label(atom.time_window.resolution, language=language)
+            if atom.time_window is not None
+            else "the current period" if language == "en" else "il periodo corrente"
+        )
+        previous_window = (
+            _resolution_label(atom.comparison_window.resolution, language=language)
+            if atom.comparison_window is not None
+            else "the previous period" if language == "en" else "il periodo precedente"
+        )
+        return (
+            f"The authorized analysis recorded {current} incidents in {current_window} "
+            f"and {previous} in {previous_window}; the difference is {difference}. "
+            f"The resolved intervals are {window}."
+            if language == "en"
+            else f"L'analisi autorizzata ha registrato {current} incidenti nel periodo "
+            f"corrente ({current_window}) e {previous} nel periodo precedente ({previous_window}); "
+            f"la differenza è {difference}. Gli intervalli risolti sono {window}."
+        )
+    if atom.operation in {AnalyticalOperation.TOP_K, AnalyticalOperation.DISTRIBUTION}:
+        kind = "ranking by incident count" if atom.operation is AnalyticalOperation.TOP_K else "distribution"
+        kind_it = "ranking per numero di incidenti" if atom.operation is AnalyticalOperation.TOP_K else "distribuzione"
+        comparison_en = ""
+        comparison_it = ""
+        if atom.operation is AnalyticalOperation.TOP_K and len(atom.rows) > 1:
+            top_value = float(atom.rows[0].measure_value or 0)
+            if all(
+                top_value > float(row.measure_value or 0)
+                for row in atom.rows[1:]
+            ):
+                comparison_en = " The other listed entries generated fewer incidents."
+                comparison_it = " Le altre voci elencate hanno generato meno incidenti."
+        return (
+            f"For {window}, the authorized analytical {kind} is: {rows}.{comparison_en}"
+            if language == "en"
+            else f"Per {window}, il risultato analitico autorizzato del {kind_it} è: {rows}.{comparison_it}"
+        )
+    if atom.operation is AnalyticalOperation.TREND:
+        return (
+            f"For {window}, the authorized daily analytical trend is: {rows}."
+            if language == "en"
+            else f"Per {window}, il trend analitico giornaliero autorizzato è: {rows}."
+        )
+    if atom.operation is AnalyticalOperation.RELATED_RECORDS:
+        return (
+            f"The authorized analysis of platform-recorded correlations with {filters} "
+            f"returned {result_count} related incidents: {', '.join(map(str, atom.result_ids)) or 'none'}."
+            if language == "en"
+            else f"L'analisi autorizzata delle correlazioni registrate dalla piattaforma con "
+            f"{filters} ha restituito {result_count} incidenti correlati: "
+            f"{', '.join(map(str, atom.result_ids)) or 'nessuno'}."
+        )
+    if atom.operation is AnalyticalOperation.SIMILAR_RECORDS:
+        return (
+            f"Semantic discovery with {filters} returned {result_count} semantically similar "
+            f"candidate incidents: "
+            f"{', '.join(map(str, atom.result_ids)) or 'none'}. The candidates were rehydrated "
+            "from authorized SQL records and remain discovery support only."
+            if language == "en"
+            else f"La discovery semantica con {filters} ha restituito {result_count} incidenti "
+            f"candidati semanticamente simili: {', '.join(map(str, atom.result_ids)) or 'nessuno'}. I candidati "
+            "sono stati reidratati da record SQL autorizzati e restano solo supporto di discovery."
+        )
+    if result_count == 0:
+        entity_en = "incidents" if atom.entity is AnalyticalEntity.INCIDENT else "cases"
+        entity_it = "incidenti" if atom.entity is AnalyticalEntity.INCIDENT else "casi"
+        return (
+            f"For {window}, no {entity_en} matching {filters} were recorded; the "
+            "authorized analytical result contains 0 records."
+            if language == "en"
+            else f"Per {window} non sono stati registrati {entity_it} corrispondenti a "
+            f"{filters}; il risultato analitico autorizzato contiene 0 record."
+        )
+    return (
+        f"The authorized analytical result with {filters} contains {result_count} records: {rows}."
+        if language == "en"
+        else f"Il risultato analitico autorizzato con {filters} contiene {result_count} record: {rows}."
+    )
+
+
 class EvidenceProofUnitCompiler:
     """Compile package-local evidence into literal, non-interpretive premises."""
 
@@ -186,10 +535,13 @@ class EvidenceProofUnitCompiler:
             if (
                 entry is None
                 or entry.authority_class is not atom.authority_class
-                or not self._atom_is_in_scope(
-                    atom,
-                    allowed_incident_ids=allowed_incident_ids,
-                    allowed_case_ids=allowed_case_ids,
+                or (
+                    not isinstance(atom, AnalyticalResultAtom)
+                    and not self._atom_is_in_scope(
+                        atom,
+                        allowed_incident_ids=allowed_incident_ids,
+                        allowed_case_ids=allowed_case_ids,
+                    )
                 )
             ):
                 continue
@@ -316,11 +668,15 @@ class EvidenceProofUnitCompiler:
                     return (
                         f"Relationship {relationship_type} between Incidents "
                         f"{left} and {right} is a semantic discovery signal only; "
-                        "it is not a recorded correlation or operational conclusion."
+                        "it does not establish a recorded correlation, causality, compromise, "
+                        "the same attack, attacker, or campaign. A semantically similar "
+                        "result is not necessarily part of the same attack."
                         if language == "en"
                         else f"La relazione {relationship_type} tra gli Incidenti "
                         f"{left} e {right} è solo un segnale semantico di discovery; "
-                        "non è una correlazione registrata né una conclusione operativa."
+                        "non stabilisce correlazione registrata, causalità, compromissione, "
+                        "lo stesso attacco, attaccante o campagna. Un risultato "
+                        "semanticamente simile non fa necessariamente parte dello stesso attacco."
                     )
                 if relationship_class is RelationshipClass.RECORDED_CORRELATION:
                     return (
@@ -623,16 +979,20 @@ class EvidenceProofUnitCompiler:
         languages: Sequence[ProofLanguage],
     ) -> list[EvidenceProofUnit]:
         scope = _atom_scope(atom)
-        kind = (
-            EvidenceKind.RECORDED_CORRELATION
-            if isinstance(atom, RecordedCorrelationAtom)
-            else EvidenceKind.OPERATIONAL_FACT
-        )
-        role = (
-            AllowedSemanticRole.RECORDED_RELATIONSHIP
-            if kind is EvidenceKind.RECORDED_CORRELATION
-            else AllowedSemanticRole.RECORDED_VALUE
-        )
+        if isinstance(atom, AnalyticalResultAtom):
+            kind, _ = _analytical_kind_and_predicate(atom)
+            role = AllowedSemanticRole.ANALYTICAL_AGGREGATE
+        else:
+            kind = (
+                EvidenceKind.RECORDED_CORRELATION
+                if isinstance(atom, RecordedCorrelationAtom)
+                else EvidenceKind.OPERATIONAL_FACT
+            )
+            role = (
+                AllowedSemanticRole.RECORDED_RELATIONSHIP
+                if kind is EvidenceKind.RECORDED_CORRELATION
+                else AllowedSemanticRole.RECORDED_VALUE
+            )
         common = {
             "source_ref": atom.atom_id,
             "authority_class": atom.authority_class,
@@ -662,7 +1022,97 @@ class EvidenceProofUnitCompiler:
         subject_en = f"Incident {atom.incident_id}" if atom.incident_id else f"Case {atom.case_id}"
         subject_it = f"Incidente {atom.incident_id}" if atom.incident_id else f"Caso {atom.case_id}"
 
-        if isinstance(atom, IncidentIdentityAtom):
+        if isinstance(atom, AnalyticalResultAtom):
+            _, predicate = _analytical_kind_and_predicate(atom)
+            _rows, row_values = _analytical_rows(atom)
+            filter_values = [value for item in atom.filters for value in item.values]
+            window_values: list[str] = []
+            temporal_constraints: list[ProofTemporalConstraint] = []
+            if atom.time_window is not None:
+                window_values.extend(
+                    [
+                        atom.time_window.start_utc,
+                        atom.time_window.end_utc,
+                        atom.time_window.resolution,
+                        _resolution_label(
+                            atom.time_window.resolution,
+                            language=languages[0],
+                        ),
+                    ]
+                )
+                temporal_constraints.append(
+                    ProofTemporalConstraint(
+                        role="CURRENT",
+                        resolution=atom.time_window.resolution,
+                        start_utc=atom.time_window.start_utc,
+                        end_utc=atom.time_window.end_utc,
+                    )
+                )
+            if atom.comparison_window is not None:
+                window_values.extend(
+                    [
+                        atom.comparison_window.start_utc,
+                        atom.comparison_window.end_utc,
+                        atom.comparison_window.resolution,
+                        _resolution_label(
+                            atom.comparison_window.resolution,
+                            language=languages[0],
+                        ),
+                    ]
+                )
+                temporal_constraints.append(
+                    ProofTemporalConstraint(
+                        role="PREVIOUS",
+                        resolution=atom.comparison_window.resolution,
+                        start_utc=atom.comparison_window.start_utc,
+                        end_utc=atom.comparison_window.end_utc,
+                    )
+                )
+            scalar_values = (
+                [_number(atom.scalar_value)]
+                if atom.scalar_value is not None
+                else []
+            )
+            result_count_values = (
+                [str(len(atom.result_ids))]
+                if atom.result_kind is AnalyticalResultKind.RESULT_SET
+                else []
+            )
+            semantic_values = (
+                ["SEMANTIC_SIMILARITY"]
+                if atom.operation is AnalyticalOperation.SIMILAR_RECORDS
+                else ["PLATFORM_RECORDED_CORRELATION"]
+                if atom.operation is AnalyticalOperation.RELATED_RECORDS
+                else []
+            )
+            comparison_values: list[str] = []
+            if atom.operation is AnalyticalOperation.COMPARE_PERIODS:
+                current = atom.rows[0].measure_value if atom.rows else 0
+                previous = atom.rows[1].measure_value if len(atom.rows) > 1 else 0
+                comparison_values.append(_number(float(current or 0) - float(previous or 0)))
+            canonical_values = list(
+                dict.fromkeys(
+                    [
+                        *scalar_values,
+                        *result_count_values,
+                        *row_values,
+                        *comparison_values,
+                        *filter_values,
+                        *window_values,
+                        *semantic_values,
+                    ]
+                )
+            )[:64] or ["empty_result_set"]
+            add(
+                predicate,
+                _proof_value(
+                    *canonical_values,
+                    required_anchors=[],
+                    temporal_constraints=temporal_constraints,
+                ),
+                lambda language: _analytical_premise(atom, language=language),
+            )
+        elif isinstance(atom, IncidentIdentityAtom):
             add(
                 ProofPredicate.INCIDENT_ID,
                 _proof_value(atom.incident_id),

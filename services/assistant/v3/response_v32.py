@@ -10,7 +10,13 @@ from pydantic import ValidationError
 from services.assistant.v3.conversational_schema import (
     conversational_model_facing_evidence,
 )
-from services.assistant.v3.contracts import AnswerIntent, V3AnalyticalContextPackage
+from services.assistant.v3.contracts import (
+    AnalysisScope,
+    AnalyticalOperation,
+    AnalyticalResultAtom,
+    AnswerIntent,
+    V3AnalyticalContextPackage,
+)
 from services.assistant.v3.discourse import (
     RenderedV3Answer,
     RenderedV3Block,
@@ -117,9 +123,104 @@ def compile_v32_proof_units(
         not in {ProofPredicate.MITRE_TECHNIQUE, ProofPredicate.REFERENCE_EXPLANATION}
         or item.source_refs[0] not in synthesis_refs
     )
+    if package.resolved_scope.analysis_scope is AnalysisScope.GLOBAL:
+        analytical_atom = next(
+            (
+                item
+                for item in package.operational_atoms
+                if isinstance(item, AnalyticalResultAtom)
+            ),
+            None,
+        )
+        if analytical_atom is not None:
+            analytical_units = [
+                item
+                for item in selected
+                if analytical_atom.atom_id in item.source_refs
+                and item.evidence_kind
+                in {
+                    EvidenceKind.ANALYTICAL_COUNT,
+                    EvidenceKind.ANALYTICAL_DISTRIBUTION,
+                    EvidenceKind.ANALYTICAL_TREND,
+                    EvidenceKind.ANALYTICAL_COMPARISON,
+                    EvidenceKind.ANALYTICAL_TOP_K,
+                    EvidenceKind.ANALYTICAL_RESULT_SET,
+                }
+            ]
+            if analytical_atom.operation in {
+                AnalyticalOperation.RELATED_RECORDS,
+                AnalyticalOperation.SIMILAR_RECORDS,
+            }:
+                relationship_kind = (
+                    EvidenceKind.RECORDED_CORRELATION
+                    if analytical_atom.operation is AnalyticalOperation.RELATED_RECORDS
+                    else EvidenceKind.SEMANTIC_CANDIDATE
+                )
+                relationships = [
+                    item
+                    for item in selected
+                    if item.evidence_kind is relationship_kind
+                    and item.predicate
+                    in {
+                        ProofPredicate.RECORDED_RELATIONSHIP,
+                        ProofPredicate.SEMANTIC_SIMILARITY,
+                    }
+                ]
+                selected_relationship = next(
+                    (
+                        item
+                        for result_id in analytical_atom.result_ids
+                        for item in relationships
+                        if result_id in item.scope.incident_ids
+                    ),
+                    relationships[0] if relationships else None,
+                )
+                relationship_ids = {
+                    item.relationship_id
+                    for item in package.relationship_registry.relationships
+                }
+                selected_relationship_ids = (
+                    relationship_ids.intersection(selected_relationship.source_refs)
+                    if selected_relationship is not None
+                    else set()
+                )
+                boundary = next(
+                    (
+                        item
+                        for item in selected
+                        if item.predicate is ProofPredicate.NON_IMPLICATION
+                        and selected_relationship_ids.intersection(item.source_refs)
+                    ),
+                    None,
+                )
+                return tuple(
+                    [
+                        *analytical_units,
+                        *(
+                            [selected_relationship]
+                            if selected_relationship is not None
+                            else []
+                        ),
+                        *([boundary] if boundary is not None else []),
+                    ]
+                )
+            return tuple(analytical_units)
     intent = package.intent_selection.primary_intent
+    analytical_kinds = {
+        EvidenceKind.ANALYTICAL_COUNT,
+        EvidenceKind.ANALYTICAL_DISTRIBUTION,
+        EvidenceKind.ANALYTICAL_TREND,
+        EvidenceKind.ANALYTICAL_COMPARISON,
+        EvidenceKind.ANALYTICAL_TOP_K,
+        EvidenceKind.ANALYTICAL_RESULT_SET,
+    }
 
     def priority(item: EvidenceProofUnit) -> int:
+        if (
+            package.resolved_scope.analysis_scope is AnalysisScope.GLOBAL
+            and item.evidence_kind in analytical_kinds
+        ):
+            return 0
         if intent is AnswerIntent.NEXT_ACTION:
             if item.evidence_kind is EvidenceKind.ADVISORY_KNOWLEDGE:
                 return 0
@@ -146,10 +247,14 @@ def compile_v32_proof_units(
 
 def grounded_response_v32_schema(
     proof_units: tuple[EvidenceProofUnit, ...],
+    *,
+    max_propositions: int = MAX_V32_PROPOSITIONS,
 ) -> dict[str, Any]:
     proof_unit_ids = [item.proof_unit_id for item in proof_units]
     if not proof_unit_ids:
         raise ValueError("V3.2 response schema requires proof units")
+    if not 1 <= max_propositions <= MAX_V32_PROPOSITIONS:
+        raise ValueError("V3.2 response schema proposition budget is invalid")
     proposition_ids = [f"p{index}" for index in range(1, MAX_V32_PROPOSITIONS + 1)]
     return {
         "type": "object",
@@ -160,7 +265,7 @@ def grounded_response_v32_schema(
             "propositions": {
                 "type": "array",
                 "minItems": 1,
-                "maxItems": MAX_V32_PROPOSITIONS,
+                "maxItems": max_propositions,
                 "items": {
                     "type": "object",
                     "additionalProperties": False,
@@ -201,6 +306,32 @@ def grounded_response_v32_schema(
     }
 
 
+def v32_proposition_budget(package: V3AnalyticalContextPackage) -> int:
+    if package.resolved_scope.analysis_scope is not AnalysisScope.GLOBAL:
+        return MAX_V32_PROPOSITIONS
+    analytical_atom = next(
+        (
+            item
+            for item in package.operational_atoms
+            if isinstance(item, AnalyticalResultAtom)
+        ),
+        None,
+    )
+    if analytical_atom is None:
+        return 1
+    if analytical_atom.operation is AnalyticalOperation.SIMILAR_RECORDS:
+        return 3
+    if analytical_atom.operation is AnalyticalOperation.RELATED_RECORDS:
+        return 1
+    if analytical_atom.operation in {
+        AnalyticalOperation.TOP_K,
+        AnalyticalOperation.DISTRIBUTION,
+        AnalyticalOperation.TREND,
+    }:
+        return min(3, max(1, len(analytical_atom.rows)))
+    return 1
+
+
 def build_v32_messages(
     package: V3AnalyticalContextPackage,
     proof_units: tuple[EvidenceProofUnit, ...],
@@ -223,6 +354,38 @@ def build_v32_messages(
         "use_section_kind_for_each_proposition_rhetorical_purpose": True,
     }
     intent = package.intent_selection.primary_intent
+    analytical_kinds = {
+        EvidenceKind.ANALYTICAL_COUNT,
+        EvidenceKind.ANALYTICAL_DISTRIBUTION,
+        EvidenceKind.ANALYTICAL_TREND,
+        EvidenceKind.ANALYTICAL_COMPARISON,
+        EvidenceKind.ANALYTICAL_TOP_K,
+        EvidenceKind.ANALYTICAL_RESULT_SET,
+    }
+    if package.resolved_scope.analysis_scope is AnalysisScope.GLOBAL:
+        analytical_proof_ids = [
+            item.proof_unit_id
+            for item in proof_units
+            if item.evidence_kind in analytical_kinds
+        ]
+        intent_contract.update(
+            {
+                "must_answer_from_a_typed_analytical_result": True,
+                "required_analytical_proof_unit_ids": analytical_proof_ids,
+                "first_proposition_must_be_direct_answer_using_analytical_proof": (
+                    intent is not AnswerIntent.CROSS_INCIDENT_ANALYSIS
+                ),
+                "first_proposition_required_proof_unit_id": (
+                    analytical_proof_ids[0]
+                    if analytical_proof_ids
+                    and intent is not AnswerIntent.CROSS_INCIDENT_ANALYSIS
+                    else None
+                ),
+                "state_the_resolved_interval_naturally_when_relevant": True,
+                "must_not_describe_analytical_derivations_as_raw_recorded_facts": True,
+                "do_not_write_separate_query_sql_or_provenance_propositions": True,
+            }
+        )
     if intent is AnswerIntent.NEXT_ACTION:
         next_action_refs = [
             item.proof_unit_id
@@ -264,6 +427,12 @@ def build_v32_messages(
                 "must_include_an_uncertainty_boundary_for_analytical_or_semantic_relationships": True,
                 "required_relationship_proof_unit_ids": relationship_refs,
                 "required_boundary_proof_unit_ids": boundary_refs,
+                "relationship_answer_plan": [
+                    "answer the question directly",
+                    "use a required relationship proof unit",
+                    "use a required boundary proof unit when one is supplied",
+                    "include the analytical result proof unit in one proposition",
+                ],
             }
         )
     elif intent is AnswerIntent.COMPARE:
@@ -274,6 +443,7 @@ def build_v32_messages(
             in {
                 EvidenceKind.RECORDED_CORRELATION,
                 EvidenceKind.ANALYTICAL_RELATIONSHIP,
+                EvidenceKind.ANALYTICAL_COMPARISON,
             }
         ]
         intent_contract.update(
@@ -297,7 +467,14 @@ def build_v32_messages(
             "answer_directly": True,
             "natural_analyst_prose": True,
             "select_only_the_strongest_question_relevant_evidence": True,
-            "target_two_to_six_short_propositions_when_evidence_allows": True,
+            "prefer_one_direct_proposition_for_global_analytics": (
+                package.resolved_scope.analysis_scope is AnalysisScope.GLOBAL
+                and intent is not AnswerIntent.CROSS_INCIDENT_ANALYSIS
+            ),
+            "add_global_supporting_propositions_only_for_a_distinct_useful_fact": True,
+            "target_two_to_six_short_propositions_for_contextual_answers": (
+                package.resolved_scope.analysis_scope is not AnalysisScope.GLOBAL
+            ),
             "maximum_words_per_proposition": 30,
             "one_atomic_factual_proposition_per_sentence": True,
             "one_to_four_proof_unit_refs_per_proposition": True,
@@ -311,6 +488,10 @@ def build_v32_messages(
             "do_not_write_citations_or_provenance": True,
             "use_only_the_semantic_meaning_of_the_selected_proof_unit": True,
             "use_uncertainty_boundaries_when_the_question_asks_what_is_not_proven": True,
+            "every_negative_relationship_limit_must_reference_the_boundary_proof_unit": True,
+            "describe_sql_aggregates_as_analytical_results_not_raw_recorded_facts": True,
+            "do_not_discuss_query_execution_sql_filters_or_provenance": True,
+            "include_time_meaning_in_the_direct_result_not_as_a_separate_statement": True,
         },
     }
     serialized = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
@@ -319,10 +500,18 @@ def build_v32_messages(
     system = (
         "You are the writing component of a grounded SOC assistant. Write a useful, "
         "natural and concise answer. Select only the strongest evidence relevant to "
-        "the question; do not enumerate every available proof unit. Prefer two to "
-        "six short propositions and keep each under 30 words. Express every material "
+        "the question; do not enumerate every available proof unit. For GLOBAL "
+        "analytics, make the first proposition the direct answer. Usually one proposition "
+        "is sufficient; add another only for a distinct useful fact. Never split the "
+        "time interval or count into a redundant proposition. Cross-incident answers "
+        "must select the supplied relationship proof unit and any supplied boundary, "
+        "as well as the analytical result. For other "
+        "scopes prefer two to six. Keep each under 30 words. Do not write separate "
+        "statements about SQL, query execution, filters, or provenance. Express every material "
         "factual statement as one proposition backed by one to four supplied proof "
         "units. Select every proof unit whose fact or value appears in the sentence. "
+        "A proposition stating that a relationship does not prove something must "
+        "select the boundary proof unit; a candidate or aggregate unit alone is not enough. "
         "Multiple values may share one sentence only when the selected proof units "
         "jointly contain all of them. Keep unrelated facts in separate propositions. "
         "The answer is invalid unless the intent_contract is satisfied before any "
@@ -544,6 +733,31 @@ class GroundedResponseV32Validator:
         ]
         sections = {item.section_kind for item in draft.propositions}
         intent = package.intent_selection.primary_intent
+        analytical_kinds = {
+            EvidenceKind.ANALYTICAL_COUNT,
+            EvidenceKind.ANALYTICAL_DISTRIBUTION,
+            EvidenceKind.ANALYTICAL_TREND,
+            EvidenceKind.ANALYTICAL_COMPARISON,
+            EvidenceKind.ANALYTICAL_TOP_K,
+            EvidenceKind.ANALYTICAL_RESULT_SET,
+        }
+        if (
+            package.resolved_scope.analysis_scope is AnalysisScope.GLOBAL
+            and not any(item.evidence_kind in analytical_kinds for item in selected)
+        ):
+            return "global_analytics_contract_mismatch"
+        if (
+            package.resolved_scope.analysis_scope is AnalysisScope.GLOBAL
+            and intent is not AnswerIntent.CROSS_INCIDENT_ANALYSIS
+        ):
+            first_units = [
+                units_by_id[proof_ref]
+                for proof_ref in draft.propositions[0].proof_unit_refs
+            ]
+            if not any(
+                item.evidence_kind in analytical_kinds for item in first_units
+            ):
+                return "global_direct_answer_contract_mismatch"
         if intent is AnswerIntent.NEXT_ACTION:
             if package.advisory_atoms:
                 valid_evidence = any(
@@ -560,21 +774,37 @@ class GroundedResponseV32Validator:
             ):
                 return "next_action_contract_mismatch"
         elif intent is AnswerIntent.CROSS_INCIDENT_ANALYSIS:
+            analytical_relationship_result = any(
+                isinstance(atom, AnalyticalResultAtom)
+                and atom.operation
+                in {
+                    AnalyticalOperation.RELATED_RECORDS,
+                    AnalyticalOperation.SIMILAR_RECORDS,
+                }
+                for atom in package.operational_atoms
+            ) and any(item.evidence_kind in analytical_kinds for item in selected)
             relationship_kinds = {
                 EvidenceKind.RECORDED_CORRELATION,
                 EvidenceKind.ANALYTICAL_RELATIONSHIP,
                 EvidenceKind.SEMANTIC_CANDIDATE,
             }
-            if not any(item.evidence_kind in relationship_kinds for item in selected):
+            if not analytical_relationship_result and not any(
+                item.evidence_kind in relationship_kinds for item in selected
+            ):
                 return "cross_incident_contract_mismatch"
-            if any(
+            semantic_result = any(
+                isinstance(atom, AnalyticalResultAtom)
+                and atom.operation is AnalyticalOperation.SIMILAR_RECORDS
+                for atom in package.operational_atoms
+            )
+            if (semantic_result or any(
                 item.evidence_kind
                 in {
                     EvidenceKind.ANALYTICAL_RELATIONSHIP,
                     EvidenceKind.SEMANTIC_CANDIDATE,
                 }
                 for item in selected
-            ) and not any(
+            )) and not any(
                 item.predicate is ProofPredicate.NON_IMPLICATION
                 for item in selected
             ):
@@ -585,6 +815,7 @@ class GroundedResponseV32Validator:
                 in {
                     EvidenceKind.RECORDED_CORRELATION,
                     EvidenceKind.ANALYTICAL_RELATIONSHIP,
+                    EvidenceKind.ANALYTICAL_COMPARISON,
                 }
                 for item in selected
             ):

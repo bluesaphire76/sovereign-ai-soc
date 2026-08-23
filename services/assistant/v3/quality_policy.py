@@ -192,6 +192,8 @@ def evidence_priority_for_atom(
     package: V3AnalyticalContextPackage,
     atom: EvidenceAtom,
 ) -> EvidencePriority:
+    if atom.atom_type == "analytical_result":
+        return EvidencePriority.PRIMARY
     order = _ATOM_ORDER[package.intent_selection.primary_intent]
     try:
         position = order.index(atom.atom_type)
@@ -245,6 +247,7 @@ def rank_operational_atoms(
     return sorted(
         atoms,
         key=lambda atom: (
+            0 if atom.atom_type == "analytical_result" else 1,
             _PRIORITY_RANK[evidence_priority_for_atom(package, atom)],
             scope_rank.get(atom.incident_id, len(scope_rank) + 1),
             atom_type_rank.get(atom.atom_type, len(atom_type_rank) + 1),
