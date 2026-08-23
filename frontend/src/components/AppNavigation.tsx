@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import {
   Activity,
   BarChart3,
+  Bot,
   Briefcase,
   ChevronDown,
   Columns3,
@@ -258,6 +259,16 @@ export default function AppNavigation() {
   const navItems: NavItem[] = user
     ? [
         ...NAV_ITEMS,
+        ...(user.role === "ADMIN" || user.role === "ANALYST"
+          ? [
+              {
+                href: "/assistant",
+                label: "AI SOC Assistant",
+                icon: <Bot className="h-3.5 w-3.5" strokeWidth={1.75} />,
+                match: "prefix" as const,
+              },
+            ]
+          : []),
         ...(user.role === "ADMIN" || user.role === "ANALYST"
           ? [
               {

@@ -117,6 +117,27 @@ export default function AssistantAnswer({
             }
           />
           <TechnicalDetail
+            label="Analytics operation"
+            value={response.metadata.analytics_operation}
+          />
+          <TechnicalDetail
+            label="Analytics entity"
+            value={response.metadata.analytics_entity}
+          />
+          <TechnicalDetail
+            label="Analytics definition"
+            value={response.metadata.analytics_definition_id}
+          />
+          <TechnicalDetail
+            label="Resolved window"
+            value={
+              response.metadata.analytics_window_start_utc &&
+              response.metadata.analytics_window_end_utc
+                ? `${response.metadata.analytics_window_start_utc} - ${response.metadata.analytics_window_end_utc}`
+                : null
+            }
+          />
+          <TechnicalDetail
             label="Cross-incident context"
             value={
               response.metadata.cross_incident_candidates > 0

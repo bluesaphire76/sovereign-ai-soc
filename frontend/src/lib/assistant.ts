@@ -64,7 +64,11 @@ export type AssistantFallbackReason =
   | "v32_invalid_structured_output"
   | "v32_semantic_proof_failed"
   | "v32_semantic_proof_unavailable"
-  | "v32_renderer_failed";
+  | "v32_renderer_failed"
+  | "global_query_not_understood"
+  | "global_query_ambiguous"
+  | "global_query_unsupported"
+  | "global_analytics_execution_failed";
 
 export type AssistantCapabilities = {
   enabled: boolean;
@@ -228,6 +232,13 @@ export type AssistantMetadata = {
     | "ready"
     | "degraded"
     | "unavailable";
+  analytics_operation: string | null;
+  analytics_entity: string | null;
+  analytics_definition_id: string | null;
+  analytics_query_plan_fingerprint: string | null;
+  analytics_result_count: number;
+  analytics_window_start_utc: string | null;
+  analytics_window_end_utc: string | null;
 };
 
 export type AssistantResponseBlock = {
@@ -363,7 +374,7 @@ export function isSafeInternalAssistantUrl(value: string | null | undefined): va
 
 export function normalizeAssistantApiError(
   error: unknown,
-  scope: ContextualAssistantScope,
+  scope: AssistantScope,
 ): NormalizedAssistantError {
   if (error instanceof DOMException && error.name === "AbortError") {
     return {
