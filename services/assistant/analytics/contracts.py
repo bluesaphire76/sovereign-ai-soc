@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from enum import Enum
 from typing import Literal
 
 from pydantic import Field, model_validator
@@ -36,6 +37,7 @@ class AnalyticsRegistryDefinition(ClosedModel):
         "SQL_THEN_TYPED_DERIVATION",
         "RECORDED_RELATIONSHIP_LOOKUP",
         "SEMANTIC_DISCOVERY_REHYDRATION",
+        "REFERENCE_LOOKUP",
     ]
     ordering: Literal["NONE", "VALUE_DESC", "TIME_DESC", "TIME_ASC"] = "NONE"
     maximum_limit: int = Field(default=20, ge=1, le=50)
@@ -109,6 +111,81 @@ class AnalyticsQueryPlan(ClosedModel):
             **values,
             query_plan_fingerprint=cls.fingerprint_for(fingerprint_payload),
         )
+
+
+class SemanticAggregation(str, Enum):
+    NONE = "NONE"
+    COUNT = "COUNT"
+    COUNT_DISTINCT = "COUNT_DISTINCT"
+    FREQUENCY = "FREQUENCY"
+    DISTRIBUTION = "DISTRIBUTION"
+    TREND = "TREND"
+    PERIOD_COMPARE = "PERIOD_COMPARE"
+    ENTITY_COMPARE = "ENTITY_COMPARE"
+
+
+class SemanticOrdering(str, Enum):
+    NONE = "NONE"
+    VALUE_ASC = "VALUE_ASC"
+    VALUE_DESC = "VALUE_DESC"
+    TIME_ASC = "TIME_ASC"
+    TIME_DESC = "TIME_DESC"
+
+
+class SemanticDetailLevel(str, Enum):
+    SUMMARY = "SUMMARY"
+    RECORDS = "RECORDS"
+    EXPLANATION = "EXPLANATION"
+    GUIDANCE = "GUIDANCE"
+
+
+class SemanticQueryAST(ClosedModel):
+    """Compositional, non-executable meaning resolved from one user turn."""
+
+    language: Literal["en", "it"]
+    source: Literal[AnalyticalEntity.INCIDENT, AnalyticalEntity.CASE]
+    target: AnalyticalEntity
+    operation: AnalyticalOperation
+    aggregation: SemanticAggregation = SemanticAggregation.NONE
+    distinct: bool = False
+    filters: list[AnalyticalFilterDescriptor] = Field(default_factory=list, max_length=12)
+    negative_filters: list[AnalyticalFilterDescriptor] = Field(
+        default_factory=list,
+        max_length=12,
+    )
+    group_by: list[AnalyticalDimension] = Field(default_factory=list, max_length=4)
+    ordering: SemanticOrdering = SemanticOrdering.NONE
+    limit: int = Field(default=20, ge=1, le=50)
+    time_window: AnalyticalTimeWindow | None = None
+    comparison_window: AnalyticalTimeWindow | None = None
+    anchor_record_id: int | None = Field(default=None, gt=0)
+    use_previous_result: bool = False
+    previous_result_ref: str | None = Field(default=None, max_length=64)
+    previous_result_empty: bool = False
+    detail_level: SemanticDetailLevel = SemanticDetailLevel.SUMMARY
+    confidence: float = Field(ge=0.0, le=1.0)
+    parser_backend: Literal["stanza_ud"] = "stanza_ud"
+
+    @model_validator(mode="after")
+    def validate_semantic_composition(self):
+        positive = {(item.field, tuple(item.values)) for item in self.filters}
+        negative = {(item.field, tuple(item.values)) for item in self.negative_filters}
+        if positive.intersection(negative):
+            raise ValueError("semantic AST contains contradictory filters")
+        if self.distinct and self.aggregation is not SemanticAggregation.COUNT_DISTINCT:
+            raise ValueError("distinct projection requires count-distinct aggregation")
+        if self.operation is AnalyticalOperation.COMPARE_PERIODS:
+            if self.time_window is None or self.comparison_window is None:
+                raise ValueError("period comparison requires two typed windows")
+        elif self.comparison_window is not None:
+            raise ValueError("comparison window requires period comparison")
+        if self.use_previous_result and self.previous_result_ref is None:
+            raise ValueError("previous-result composition requires a typed reference")
+        if not self.use_previous_result and (
+            self.previous_result_ref is not None or self.previous_result_empty
+        ):
+            raise ValueError("previous-result state is inconsistent")
+        return self
 
 
 class AnalyticsRouteScore(ClosedModel):

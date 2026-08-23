@@ -17,6 +17,9 @@ rich
 # Semantic memory and knowledge indexing
 qdrant-client
 sentence-transformers
+stanza==1.11.0
+dateparser==1.2.2
+python-dateutil>=2.9,<3
 PyYAML
 
 # Reporting, enrichment and observability

@@ -35,6 +35,7 @@ from services.assistant.v3.semantic_index import (
     incident_source_fingerprint,
     semantic_query_text_from_facts,
 )
+from services.assistant.v3.knowledge import MITRE_REFERENCE_CATALOG
 
 
 class AnalyticsAccessPolicy(Protocol):
@@ -158,19 +159,30 @@ class AuthoritativeAnalyticsExecutor:
             values = item.values
             if item.field is AnalyticalFilterField.INCIDENT_ID:
                 numeric = [int(value) for value in values if value.isdigit()]
-                query = query.filter(
-                    Incident.id.in_(numeric)
-                    if item.operator == "IN"
-                    else Incident.id == numeric[0]
-                )
+                if item.operator == "IN":
+                    query = query.filter(Incident.id.in_(numeric))
+                elif item.operator == "NOT_IN":
+                    query = query.filter(Incident.id.notin_(numeric))
+                elif item.operator == "NOT_EQ":
+                    query = query.filter(Incident.id != numeric[0])
+                else:
+                    query = query.filter(Incident.id == numeric[0])
             elif item.field is AnalyticalFilterField.STATUS:
-                query = query.filter(Incident.status == values[0])
+                query = AuthoritativeAnalyticsExecutor._apply_values(
+                    query, Incident.status, item.operator, values
+                )
             elif item.field is AnalyticalFilterField.AGENT:
-                query = query.filter(Incident.agent == values[0])
+                query = AuthoritativeAnalyticsExecutor._apply_values(
+                    query, Incident.agent, item.operator, values
+                )
             elif item.field is AnalyticalFilterField.DETECTION_RULE:
-                query = query.filter(Incident.rule == values[0])
+                query = AuthoritativeAnalyticsExecutor._apply_values(
+                    query, Incident.rule, item.operator, values
+                )
             elif item.field is AnalyticalFilterField.RECORDED_RISK:
-                query = query.filter(Incident.recommended_priority == values[0])
+                query = AuthoritativeAnalyticsExecutor._apply_values(
+                    query, Incident.recommended_priority, item.operator, values
+                )
             elif item.field is AnalyticalFilterField.RECORDED_CORRELATION:
                 query = query.filter(Incident.correlated.is_(values[0].lower() == "true"))
             elif item.field is AnalyticalFilterField.SEVERITY:
@@ -178,6 +190,16 @@ class AuthoritativeAnalyticsExecutor:
             else:
                 raise ValueError("unsupported incident analytics filter")
         return query
+
+    @staticmethod
+    def _apply_values(query: Any, column: Any, operator: str, values: list[str]) -> Any:
+        if operator == "IN":
+            return query.filter(column.in_(values))
+        if operator == "NOT_IN":
+            return query.filter(column.notin_(values))
+        if operator == "NOT_EQ":
+            return query.filter(column != values[0])
+        return query.filter(column == values[0])
 
     @staticmethod
     def _apply_case_filters(
@@ -190,17 +212,26 @@ class AuthoritativeAnalyticsExecutor:
             values = item.values
             if item.field is AnalyticalFilterField.CASE_ID:
                 numeric = [int(value) for value in values if value.isdigit()]
-                query = query.filter(
-                    IncidentCase.id.in_(numeric)
-                    if item.operator == "IN"
-                    else IncidentCase.id == numeric[0]
-                )
+                if item.operator == "IN":
+                    query = query.filter(IncidentCase.id.in_(numeric))
+                elif item.operator == "NOT_IN":
+                    query = query.filter(IncidentCase.id.notin_(numeric))
+                elif item.operator == "NOT_EQ":
+                    query = query.filter(IncidentCase.id != numeric[0])
+                else:
+                    query = query.filter(IncidentCase.id == numeric[0])
             elif item.field is AnalyticalFilterField.STATUS:
-                query = query.filter(IncidentCase.status == values[0])
+                query = AuthoritativeAnalyticsExecutor._apply_values(
+                    query, IncidentCase.status, item.operator, values
+                )
             elif item.field is AnalyticalFilterField.AGENT:
-                query = query.filter(IncidentCase.agent == values[0])
+                query = AuthoritativeAnalyticsExecutor._apply_values(
+                    query, IncidentCase.agent, item.operator, values
+                )
             elif item.field is AnalyticalFilterField.SEVERITY:
-                query = query.filter(IncidentCase.severity == values[0])
+                query = AuthoritativeAnalyticsExecutor._apply_values(
+                    query, IncidentCase.severity, item.operator, values
+                )
             elif item.field is AnalyticalFilterField.SLA_STATE:
                 if values[0] != "BREACHED":
                     raise ValueError("unsupported case SLA state")
@@ -242,7 +273,29 @@ class AuthoritativeAnalyticsExecutor:
         result_ids: list[int] = []
         truncated = False
 
-        if plan.entity is AnalyticalEntity.CASE:
+        if definition.execution_strategy == "REFERENCE_LOOKUP":
+            selected_filter = next(
+                (
+                    item
+                    for item in plan.filters
+                    if item.field is AnalyticalFilterField.MITRE_TECHNIQUE
+                ),
+                None,
+            )
+            technique_id = selected_filter.values[0] if selected_filter else ""
+            if technique_id in MITRE_REFERENCE_CATALOG:
+                result_rows = [
+                    AnalyticalResultRow(
+                        row_id=f"mitre:{technique_id}",
+                        dimensions=[
+                            AnalyticalDimensionValue(
+                                dimension=AnalyticalDimension.MITRE_TECHNIQUE,
+                                value=technique_id,
+                            )
+                        ],
+                    )
+                ]
+        elif plan.entity is AnalyticalEntity.CASE:
             query = self._case_query(db, current_user=current_user)
             query = self._apply_case_filters(query, plan, now=current_time)
             if plan.operation is AnalyticalOperation.COUNT:
@@ -356,14 +409,25 @@ class AuthoritativeAnalyticsExecutor:
                 query = self._incident_query(db, current_user=current_user)
                 query = self._apply_time(query, plan, column=Incident.timestamp)
                 query = self._apply_incident_filters(query, plan)
-                scalar_value = int(query.count())
+                if plan.entity is AnalyticalEntity.AGENT:
+                    scalar_value = int(
+                        query.filter(Incident.agent.isnot(None))
+                        .with_entities(func.count(func.distinct(Incident.agent)))
+                        .scalar()
+                        or 0
+                    )
+                else:
+                    scalar_value = int(query.count())
         elif plan.operation is AnalyticalOperation.LIST:
-            query = self._incident_query(db, current_user=current_user)
-            query = self._apply_time(query, plan, column=Incident.timestamp)
-            query = self._apply_incident_filters(query, plan)
-            rows = query.order_by(Incident.timestamp.desc(), Incident.id.desc()).limit(
-                plan.limit + 1
-            ).all()
+            if plan.previous_result_empty:
+                rows = []
+            else:
+                query = self._incident_query(db, current_user=current_user)
+                query = self._apply_time(query, plan, column=Incident.timestamp)
+                query = self._apply_incident_filters(query, plan)
+                rows = query.order_by(Incident.timestamp.desc(), Incident.id.desc()).limit(
+                    plan.limit + 1
+                ).all()
             truncated = len(rows) > plan.limit
             incident_rows = tuple(rows[: plan.limit])
             result_ids = [int(row.id) for row in incident_rows]
@@ -416,6 +480,35 @@ class AuthoritativeAnalyticsExecutor:
                 plan,
                 current_user=current_user,
             )
+        elif plan.operation is AnalyticalOperation.COMPARE_ENTITIES:
+            query = self._incident_query(
+                db,
+                Incident.agent,
+                func.count(Incident.id).label("record_count"),
+                current_user=current_user,
+            )
+            query = self._apply_time(query, plan, column=Incident.timestamp)
+            query = self._apply_incident_filters(query, plan)
+            rows = (
+                query.filter(Incident.agent.isnot(None))
+                .group_by(Incident.agent)
+                .order_by(func.count(Incident.id).desc(), Incident.agent.asc())
+                .limit(plan.limit)
+                .all()
+            )
+            result_rows = [
+                AnalyticalResultRow(
+                    row_id=f"agent:{index}",
+                    dimensions=[
+                        AnalyticalDimensionValue(
+                            dimension=AnalyticalDimension.AGENT,
+                            value=str(self._row_value(row, 0, "agent")),
+                        )
+                    ],
+                    measure_value=int(self._row_value(row, 1, "record_count")),
+                )
+                for index, row in enumerate(rows, start=1)
+            ]
         else:
             raise ValueError("registered analytics operation is not implemented")
 
@@ -490,11 +583,19 @@ class AuthoritativeAnalyticsExecutor:
         query = self._apply_time(query, plan, column=Incident.timestamp)
         query = self._apply_incident_filters(query, plan)
         dimension = plan.dimensions[0]
-        if dimension is AnalyticalDimension.STATUS:
+        if dimension in {
+            AnalyticalDimension.STATUS,
+            AnalyticalDimension.RECORDED_RISK,
+        }:
+            column = (
+                Incident.status
+                if dimension is AnalyticalDimension.STATUS
+                else Incident.recommended_priority
+            )
             rows = (
                 self._incident_query(
                     db,
-                    Incident.status,
+                    column,
                     func.count(Incident.id).label("record_count"),
                     current_user=current_user,
                 )
@@ -502,8 +603,8 @@ class AuthoritativeAnalyticsExecutor:
             rows = self._apply_time(rows, plan, column=Incident.timestamp)
             rows = self._apply_incident_filters(rows, plan)
             grouped = (
-                rows.group_by(Incident.status)
-                .order_by(func.count(Incident.id).desc(), Incident.status.asc())
+                rows.group_by(column)
+                .order_by(func.count(Incident.id).desc(), column.asc())
                 .limit(plan.limit)
                 .all()
             )
@@ -513,7 +614,7 @@ class AuthoritativeAnalyticsExecutor:
                     dimensions=[
                         AnalyticalDimensionValue(
                             dimension=dimension,
-                            value=str(self._row_value(row, 0, "status") or "UNKNOWN"),
+                            value=str(self._row_value(row, 0, column.key) or "UNKNOWN"),
                         )
                     ],
                     measure_value=int(self._row_value(row, 1, "record_count")),
@@ -555,6 +656,62 @@ class AuthoritativeAnalyticsExecutor:
     ) -> list[AnalyticalResultRow]:
         if plan.time_window is None or plan.comparison_window is None:
             raise ValueError("period comparison windows are missing")
+
+        if plan.dimensions == [AnalyticalDimension.AGENT]:
+            def grouped_window(start: str, end: str) -> dict[str, int]:
+                query = self._incident_query(
+                    db,
+                    Incident.agent,
+                    func.count(Incident.id).label("record_count"),
+                    current_user=current_user,
+                )
+                query = query.filter(
+                    Incident.timestamp >= start,
+                    Incident.timestamp < end,
+                    Incident.agent.isnot(None),
+                )
+                query = self._apply_incident_filters(query, plan)
+                rows = query.group_by(Incident.agent).all()
+                return {
+                    str(self._row_value(row, 0, "agent")): int(
+                        self._row_value(row, 1, "record_count")
+                    )
+                    for row in rows
+                }
+
+            current_counts = grouped_window(
+                plan.time_window.start_utc,
+                plan.time_window.end_utc,
+            )
+            previous_counts = grouped_window(
+                plan.comparison_window.start_utc,
+                plan.comparison_window.end_utc,
+            )
+            agents = sorted(
+                current_counts.keys() | previous_counts.keys(),
+                key=lambda agent: (
+                    -abs(current_counts.get(agent, 0) - previous_counts.get(agent, 0)),
+                    -current_counts.get(agent, 0),
+                    agent,
+                ),
+            )[: plan.limit]
+            return [
+                AnalyticalResultRow(
+                    row_id=f"agent-period:{index}",
+                    dimensions=[
+                        AnalyticalDimensionValue(
+                            dimension=AnalyticalDimension.AGENT,
+                            value=agent,
+                        )
+                    ],
+                    measure_value=current_counts.get(agent, 0),
+                    comparison_value=previous_counts.get(agent, 0),
+                    delta_value=(
+                        current_counts.get(agent, 0) - previous_counts.get(agent, 0)
+                    ),
+                )
+                for index, agent in enumerate(agents, start=1)
+            ]
 
         def count_window(start: str, end: str) -> int:
             query = self._incident_query(db, current_user=current_user)

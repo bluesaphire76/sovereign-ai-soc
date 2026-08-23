@@ -17,6 +17,7 @@
 
 ## AI Assistant V3 Intelligence Foundation
 
+- [Global Assistant Product Recovery](v1.3-global-assistant-product-recovery.md)
 - [V3.2 Hybrid Semantic Grounding](v1.1-ai-assistant-v3-2-semantic-grounding.md)
 - [Part B Global Assistant and Authoritative Analytics](v1.2-ai-assistant-part-b-global.md)
 - [V3.1 Part A: Conversational Recovery](v1.0-ai-assistant-v3-1-part-a.md)
