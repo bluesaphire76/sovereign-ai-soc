@@ -52,13 +52,17 @@ def test_api_lifespan_only_owns_local_embedding_prewarm(monkeypatch) -> None:
         "services.assistant.runtime.stop_embedding_prewarm",
         lambda: calls.append("stop"),
     )
+    monkeypatch.setattr(
+        "services.assistant.runtime.start_semantic_nlu_prewarm",
+        lambda: calls.append("nlu"),
+    )
 
     async def exercise() -> None:
         async with assistant_lifespan(object()):
             calls.append("running")
 
     asyncio.run(exercise())
-    assert calls == ["start", "running", "stop"]
+    assert calls == ["start", "nlu", "running", "stop"]
 
 
 def test_api_lifespan_prewarms_semantic_proof_only_for_enabled_v32(
@@ -79,6 +83,10 @@ def test_api_lifespan_prewarms_semantic_proof_only_for_enabled_v32(
         "services.assistant.runtime.stop_embedding_prewarm",
         lambda: calls.append("stop"),
     )
+    monkeypatch.setattr(
+        "services.assistant.runtime.start_semantic_nlu_prewarm",
+        lambda: calls.append("nlu"),
+    )
 
     assert semantic_proof_prewarm_enabled()
 
@@ -87,4 +95,4 @@ def test_api_lifespan_prewarms_semantic_proof_only_for_enabled_v32(
             calls.append("running")
 
     asyncio.run(exercise())
-    assert calls == ["proof", "embedding", "running", "stop"]
+    assert calls == ["proof", "embedding", "nlu", "running", "stop"]

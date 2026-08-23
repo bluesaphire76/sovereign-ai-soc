@@ -49,7 +49,7 @@ PROMPTS = (
     ),
     (
         "B5",
-        None,
+        "incident_mitre_distribution",
         "Quali tecniche MITRE sono più frequenti negli incidenti dell'ultimo mese?",
         "mitre-month",
     ),
@@ -173,12 +173,7 @@ def main() -> int:
                 "definition_matches": (
                     metadata["analytics_definition_id"] == expected_definition
                 ),
-                "clarification_matches": (
-                    metadata["fallback_reason"] == "global_time_window_ambiguous"
-                    and metadata["provider_generation_count"] == 0
-                    if prompt_id == "B5"
-                    else True
-                ),
+                "clarification_matches": True,
                 "generation_max_one": metadata["provider_generation_count"] <= 1,
                 "no_retry": metadata["automatic_retries"] == 0,
                 "no_model_switch": metadata["model_switches"] == 0,
@@ -207,9 +202,7 @@ def main() -> int:
 
     summary = {
         "total": len(results),
-        "publication_eligible": sum(
-            item["prompt_id"] != "B5" for item in results
-        ),
+        "publication_eligible": len(results),
         "model_responses": sum(
             item["response"]["generation_kind"] == "model" for item in results
         ),
