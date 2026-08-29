@@ -164,7 +164,7 @@ class SemanticQueryAST(ClosedModel):
     previous_result_empty: bool = False
     detail_level: SemanticDetailLevel = SemanticDetailLevel.SUMMARY
     confidence: float = Field(ge=0.0, le=1.0)
-    parser_backend: Literal["stanza_ud"] = "stanza_ud"
+    parser_backend: Literal["joint_ast_ranker"] = "joint_ast_ranker"
 
     @model_validator(mode="after")
     def validate_semantic_composition(self):

@@ -10,6 +10,8 @@ from dateparser.date import DateDataParser
 from dateparser.languages.loader import LocaleDataLoader
 from dateparser.search import search_dates
 from dateutil import parser as dateutil_parser
+from dateutil.relativedelta import relativedelta
+from text_to_num import alpha2digit
 
 from services.assistant.analytics.nlu_runtime import DependencyDocument
 from services.assistant.v3.contracts import AnalyticalTimeWindow
@@ -48,6 +50,37 @@ def _start_of_month(value: datetime) -> datetime:
 
 def _previous_month_start(value: datetime) -> datetime:
     return _start_of_month(_start_of_month(value) - timedelta(days=1))
+
+
+def _shifted_calendar_window(
+    current: datetime,
+    *,
+    period: str,
+    offset: int,
+) -> tuple[datetime, datetime] | None:
+    if offset < 1:
+        return None
+    if period == "day":
+        end = _start_of_day(current) - timedelta(days=offset - 1)
+        return end - timedelta(days=1), end
+    if period == "week":
+        end = _start_of_week(current) - timedelta(weeks=offset - 1)
+        return end - timedelta(weeks=1), end
+    if period == "month":
+        end = _start_of_month(current) - relativedelta(months=offset - 1)
+        return end - relativedelta(months=1), end
+    if period == "year":
+        current_year = current.replace(
+            month=1,
+            day=1,
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+        end = current_year - relativedelta(years=offset - 1)
+        return end - relativedelta(years=1), end
+    return None
 
 
 def _duration_resolution(start: datetime, end: datetime, period: str) -> str:
@@ -164,7 +197,9 @@ class ZurichTemporalResolver:
                 token.upos == "ADV"
                 or (
                     token.upos in {"NOUN", "PROPN"}
-                    and "day" in parsed_periods
+                    and parsed_periods.intersection(
+                        {"day", "week", "month", "year"}
+                    )
                 )
                 or (
                     token.upos == "NUM"
@@ -192,6 +227,22 @@ class ZurichTemporalResolver:
                     selected.add(child.token_id)
                     next_frontier.append(child.token_id)
             frontier = next_frontier
+        frontier = list(roots)
+        for _depth in range(3):
+            next_frontier = []
+            for child_id in frontier:
+                child = document.token(child_id)
+                parent = document.token(child.head_id) if child is not None else None
+                if parent is None or parent.upos in {"VERB", "AUX"}:
+                    continue
+                if parent.token_id not in selected:
+                    selected.add(parent.token_id)
+                    next_frontier.append(parent.token_id)
+                selected.update(
+                    sibling.token_id
+                    for sibling in document.children(parent.token_id)
+                )
+            frontier = next_frontier
         return " ".join(
             token.text
             for token in document.tokens
@@ -217,8 +268,10 @@ class ZurichTemporalResolver:
                 for child in document.children(token.token_id)
                 if child.relation == "flat"
             )
-            non_numeric_token = not token.text.isdigit()
-            if not flat and not non_numeric_token:
+            absolute_token = any(
+                not character.isalnum() for character in token.text
+            )
+            if not flat and not absolute_token:
                 continue
             phrase = " ".join(
                 item.text
@@ -232,7 +285,7 @@ class ZurichTemporalResolver:
                 ).get_date_data(phrase).date_obj
                 if parsed is not None:
                     break
-            if parsed is None and non_numeric_token:
+            if parsed is None and absolute_token:
                 try:
                     parsed = dateutil_parser.parse(
                         phrase,
@@ -247,6 +300,47 @@ class ZurichTemporalResolver:
                 parsed = parsed.replace(tzinfo=ZURICH)
             selected.append(parsed.astimezone(ZURICH))
         return tuple(dict.fromkeys(selected))
+
+    def _document_duration(
+        self,
+        document: DependencyDocument | None,
+        *,
+        language: str | None,
+    ) -> tuple[int, str] | None:
+        if document is None or language is None:
+            return None
+        for token in document.tokens:
+            if token.upos != "NUM":
+                continue
+            numeric_text = alpha2digit(token.text, language, threshold=0)
+            if not numeric_text.isdigit():
+                continue
+            quantity = int(numeric_text)
+            if quantity < 1 or quantity > 3660:
+                continue
+            head = document.token(token.head_id)
+            candidates = (
+                head,
+                document.token(head.head_id) if head is not None else None,
+            )
+            period = next(
+                (
+                    selected
+                    for item in candidates
+                    if item is not None
+                    and (
+                        selected := self.canonical_period_term(
+                            item.lemma,
+                            language=document.language,
+                        )
+                    )
+                    is not None
+                ),
+                None,
+            )
+            if period is not None:
+                return quantity, period
+        return None
 
     def _calendar_window(
         self,
@@ -319,11 +413,31 @@ class ZurichTemporalResolver:
                     )
                     or []
                 )
+        normalized_matches: list[tuple[str, datetime, list[str], str]] = []
+        for matched_text, value, matched_languages in matches:
+            data = DateDataParser(
+                languages=matched_languages,
+                settings=settings,
+            ).get_date_data(matched_text)
+            selected = value.astimezone(ZURICH).replace(microsecond=0)
+            if data.period == "month":
+                selected = _start_of_month(selected)
+            elif data.period == "year":
+                selected = selected.replace(
+                    month=1,
+                    day=1,
+                    hour=0,
+                    minute=0,
+                    second=0,
+                    microsecond=0,
+                )
+            normalized_matches.append(
+                (matched_text, selected, matched_languages, data.period)
+            )
         distinct_dates = sorted(
-            {
-                value.astimezone(ZURICH).replace(microsecond=0)
-                for _matched, value, _languages in matches
-            }.union(value.replace(microsecond=0) for value in document_dates)
+            {value for _matched, value, _languages, _period in normalized_matches}.union(
+                value.replace(microsecond=0) for value in document_dates
+            )
         )
         if len(distinct_dates) >= 2:
             start = distinct_dates[0]
@@ -341,16 +455,12 @@ class ZurichTemporalResolver:
             return distinct_dates[0], current, "SINCE_ABSOLUTE"
         if temporal_relation == "RANGE_BOUNDARY" and distinct_dates:
             return distinct_dates[0], current, "SINCE_ABSOLUTE"
-        for matched_text, value, matched_languages in matches:
-            start = value.astimezone(ZURICH)
+        for matched_text, start, matched_languages, matched_period in normalized_matches:
             canonical_period = self._canonical_period(
                 matched_text,
                 matched_languages,
             )
-            data = DateDataParser(
-                languages=matched_languages,
-                settings=settings,
-            ).get_date_data(matched_text)
+            data_period = matched_period
             if canonical_period == "day" and start.date() == current.date():
                 return _start_of_day(current), current, "TODAY"
             if canonical_period == "day" and start.date() == (
@@ -372,7 +482,7 @@ class ZurichTemporalResolver:
                     return selected_month, current, "THIS_MONTH"
                 if selected_month == _previous_month_start(current):
                     return selected_month, current_month, "PREVIOUS_MONTH"
-            if canonical_period is None and data.period == "day" and start < current:
+            if canonical_period is None and data_period == "day" and start < current:
                 selected_day = _start_of_day(start)
                 return selected_day, selected_day + timedelta(days=1), "ABSOLUTE_DAY"
             if not start < current:
@@ -383,7 +493,7 @@ class ZurichTemporalResolver:
             return start, current, _duration_resolution(
                 start,
                 current,
-                canonical_period or data.period,
+                canonical_period or data_period,
             )
         return None
 
@@ -396,6 +506,7 @@ class ZurichTemporalResolver:
         document: DependencyDocument | None = None,
         temporal_relation: str | None = None,
         day_part: str | None = None,
+        calendar_period_shift: int | None = None,
     ) -> ResolvedTemporalSelection:
         current = (now or datetime.now(timezone.utc)).astimezone(ZURICH)
         language = self._language(document)
@@ -407,8 +518,26 @@ class ZurichTemporalResolver:
             languages=languages,
             settings=settings,
         )
+        if not temporal_text and search_dates(
+            text,
+            languages=languages,
+            settings=settings,
+        ):
+            temporal_text = text
+        if language is not None and temporal_text:
+            temporal_text = alpha2digit(
+                temporal_text,
+                language,
+                threshold=0,
+            )
 
-        if day_part is not None and day_part != "NONE":
+        anchor_matches = search_dates(
+            temporal_text,
+            languages=languages,
+            settings=settings,
+        ) or []
+
+        if day_part is not None and day_part != "NONE" and not anchor_matches:
             start_hour, end_hour = {
                 "MORNING": (0, 12),
                 "AFTERNOON": (12, 18),
@@ -427,6 +556,38 @@ class ZurichTemporalResolver:
                     _window(start, end, f"THIS_{day_part}"),
                 )
 
+        if day_part is not None and day_part != "NONE" and anchor_matches:
+            anchor = anchor_matches[0][1].astimezone(ZURICH)
+            start_hour, end_hour = {
+                "MORNING": (0, 12),
+                "AFTERNOON": (12, 18),
+                "EVENING": (18, 24),
+                "NIGHT": (18, 24),
+            }[day_part]
+            part_start = _start_of_day(anchor) + timedelta(hours=start_hour)
+            part_end = _start_of_day(anchor) + timedelta(hours=end_hour)
+            if temporal_relation in {"START_BOUNDARY", "RANGE_BOUNDARY"}:
+                if part_start < current:
+                    return ResolvedTemporalSelection(
+                        _window(part_start, current, f"SINCE_{day_part}"),
+                    )
+            elif temporal_relation == "END_BOUNDARY":
+                return ResolvedTemporalSelection(
+                    _window(
+                        datetime(1970, 1, 1, tzinfo=ZURICH),
+                        part_end,
+                        f"BEFORE_{day_part}",
+                    ),
+                )
+            elif part_start < min(part_end, current):
+                return ResolvedTemporalSelection(
+                    _window(
+                        part_start,
+                        min(part_end, current),
+                        day_part,
+                    ),
+                )
+
         document_dates = self._document_dates(
             document,
             languages=languages,
@@ -435,6 +596,60 @@ class ZurichTemporalResolver:
         )
 
         canonical_period = self._canonical_period(temporal_text, languages)
+        if canonical_period is not None and calendar_period_shift is not None:
+            shifted = _shifted_calendar_window(
+                current,
+                period=canonical_period,
+                offset=calendar_period_shift,
+            )
+            if shifted is not None:
+                start, end = shifted
+                resolution = (
+                    f"PREVIOUS_{canonical_period.upper()}"
+                    if calendar_period_shift == 1
+                    else (
+                        f"{calendar_period_shift}_PERIODS_BEFORE_CURRENT_"
+                        f"{canonical_period.upper()}"
+                    )
+                )
+                selected = _window(start, end, resolution)
+                if not compare_periods:
+                    return ResolvedTemporalSelection(selected)
+                duration = end - start
+                return ResolvedTemporalSelection(
+                    selected,
+                    _window(
+                        start - duration,
+                        start,
+                        f"PREVIOUS_{resolution}",
+                    ),
+                )
+        structured_duration = self._document_duration(
+            document,
+            language=language,
+        )
+        if structured_duration is not None:
+            quantity, period = structured_duration
+            unit = {
+                "hour": timedelta(hours=1),
+                "day": timedelta(days=1),
+                "week": timedelta(weeks=1),
+                "month": timedelta(days=30),
+                "year": timedelta(days=365),
+            }[period]
+            start = current - (quantity * unit)
+            resolution = _duration_resolution(start, current, period)
+            selected = _window(start, current, resolution)
+            if not compare_periods:
+                return ResolvedTemporalSelection(selected)
+            return ResolvedTemporalSelection(
+                selected,
+                _window(
+                    start - (quantity * unit),
+                    start,
+                    f"PREVIOUS_{resolution}",
+                ),
+            )
         if temporal_relation == "CURRENT_PERIOD" and canonical_period is not None:
             current_start = {
                 "day": _start_of_day,

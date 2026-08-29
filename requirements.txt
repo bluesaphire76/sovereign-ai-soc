@@ -19,6 +19,7 @@ qdrant-client
 sentence-transformers
 stanza==1.11.0
 dateparser==1.2.2
+text2num==3.0.2
 python-dateutil>=2.9,<3
 PyYAML
 

@@ -21,12 +21,18 @@ def main() -> int:
         "--embedding-revision",
         help="Optional immutable Hugging Face revision for release provisioning.",
     )
+    parser.add_argument(
+        "--joint-revision",
+        help="Optional immutable revision for the joint semantic-plan encoder.",
+    )
     args = parser.parse_args()
 
     stanza_dir = args.root / "stanza"
     embedding_dir = args.root / "multilingual-e5-small"
+    joint_dir = args.root / "paraphrase-multilingual-mpnet-base-v2"
     stanza_dir.mkdir(parents=True, exist_ok=True)
     embedding_dir.mkdir(parents=True, exist_ok=True)
+    joint_dir.mkdir(parents=True, exist_ok=True)
 
     stanza.download(
         "multilingual",
@@ -56,8 +62,16 @@ def main() -> int:
     if args.embedding_revision:
         download_options["revision"] = args.embedding_revision
     snapshot_download(**download_options)
+    joint_options: dict[str, object] = {
+        "repo_id": "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
+        "local_dir": str(joint_dir),
+    }
+    if args.joint_revision:
+        joint_options["revision"] = args.joint_revision
+    snapshot_download(**joint_options)
     print(f"Stanza models: {stanza_dir}")
     print(f"Embedding model: {embedding_dir}")
+    print(f"Joint semantic model: {joint_dir}")
     return 0
 
 

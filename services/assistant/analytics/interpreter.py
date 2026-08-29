@@ -1,17 +1,18 @@
 from __future__ import annotations
 
+import math
 import time
 import threading
-import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
-from difflib import SequenceMatcher
 from typing import Any, Callable, Mapping, Protocol, Sequence
 
 from models import Incident
 from services.assistant.analytics.contracts import (
     AnalyticsQueryPlan,
+    AnalyticsRegistryDefinition,
     AnalyticsRouteDecision,
+    AnalyticsRouteScore,
     SemanticAggregation,
     SemanticDetailLevel,
     SemanticOrdering,
@@ -22,6 +23,17 @@ from services.assistant.analytics.nlu_runtime import (
     DependencyParser,
     DependencyToken,
     get_dependency_parser,
+)
+from services.assistant.analytics.joint_parser import (
+    JointSemanticEvidence,
+    JointSemanticPlanRanker,
+    get_joint_semantic_plan_ranker,
+)
+from services.assistant.analytics.literal_resolution import (
+    has_discourse_reference,
+    numeric_literals,
+    normalized_literal_tokens,
+    resolve_closed_literals,
 )
 from services.assistant.analytics.registry import DEFAULT_ANALYTICS_REGISTRY, AnalyticsRegistry
 from services.assistant.analytics.semantic_primitives import (
@@ -72,32 +84,6 @@ _STATUS_CONCEPTS: Mapping[str, str] = {
 }
 
 
-def _normalized_words(value: str) -> tuple[str, ...]:
-    folded = unicodedata.normalize("NFKD", str(value or "").casefold())
-    words: list[str] = []
-    current: list[str] = []
-    for character in folded:
-        if unicodedata.combining(character):
-            continue
-        if character.isalnum():
-            current.append(character)
-        elif current:
-            words.append("".join(current))
-            current = []
-    if current:
-        words.append("".join(current))
-    return tuple(words)
-
-
-def _contains_words(haystack: tuple[str, ...], needle: tuple[str, ...]) -> bool:
-    if not needle or len(needle) > len(haystack):
-        return False
-    return any(
-        haystack[offset : offset + len(needle)] == needle
-        for offset in range(len(haystack) - len(needle) + 1)
-    )
-
-
 @dataclass(frozen=True)
 class AnalyticsInterpretationResult:
     decision: AnalyticsRouteDecision
@@ -119,6 +105,8 @@ class SemanticFrame:
     document: DependencyDocument
     action: PrimitiveDecision
     mentions: tuple[EntityMention, ...]
+    evidence_mentions: tuple[EntityMention, ...]
+    action_evidence: tuple[PrimitiveDecision, ...]
     target: EntityMention | None
     superlative: bool
     negative: bool
@@ -146,6 +134,26 @@ _ENTITY_MAP: Mapping[EntityPrimitive, AnalyticalEntity] = {
     EntityPrimitive.RISK: AnalyticalEntity.RECORDED_RISK,
     EntityPrimitive.TIME: AnalyticalEntity.TIME,
 }
+
+_PRIMITIVE_BY_ANALYTICAL_ENTITY = {
+    value: key for key, value in _ENTITY_MAP.items()
+}
+
+
+def _action_for_definition(definition_id: str, operation: AnalyticalOperation) -> ActionPrimitive:
+    if definition_id == "mitre_reference_lookup":
+        return ActionPrimitive.EXPLAIN
+    return {
+        AnalyticalOperation.COUNT: ActionPrimitive.COUNT,
+        AnalyticalOperation.LIST: ActionPrimitive.RETRIEVE,
+        AnalyticalOperation.TOP_K: ActionPrimitive.RANK,
+        AnalyticalOperation.DISTRIBUTION: ActionPrimitive.DISTRIBUTE,
+        AnalyticalOperation.TREND: ActionPrimitive.TREND,
+        AnalyticalOperation.COMPARE_PERIODS: ActionPrimitive.COMPARE,
+        AnalyticalOperation.COMPARE_ENTITIES: ActionPrimitive.COMPARE,
+        AnalyticalOperation.RELATED_RECORDS: ActionPrimitive.RELATE,
+        AnalyticalOperation.SIMILAR_RECORDS: ActionPrimitive.SIMILAR,
+    }[operation]
 
 
 class SemanticAnalyticsRouter:
@@ -222,11 +230,12 @@ class SemanticAnalyticsRouter:
                 )
             )
 
-        mentions = [
+        evidence_mentions = tuple(
             item
             for item in mentions
-            if item.confidence >= 0.79 and item.margin >= 0.02
-        ]
+            if item.confidence >= 0.79 and item.margin >= 0.002
+        )
+        mentions = [item for item in evidence_mentions if item.margin >= 0.02]
         primary_sentence = next(
             (
                 sentence_id
@@ -438,19 +447,6 @@ class SemanticAnalyticsRouter:
         ) -> bool:
             if decision.primitive is not preferred:
                 return False
-            if preferred in {ActionPrimitive.RANK, ActionPrimitive.EXCLUDE}:
-                closed_filter_values = {
-                    *_INCIDENT_STATUSES,
-                    *_RECORDED_RISK_VALUES,
-                }
-                if any(
-                    _contains_words(
-                        _normalized_words(token.lemma),
-                        _normalized_words(value),
-                    )
-                    for value in closed_filter_values
-                ):
-                    return False
             if preferred is ActionPrimitive.RANK:
                 temporal_role = self._primitives.temporal_relation(token.lemma)
                 if (
@@ -564,10 +560,23 @@ class SemanticAnalyticsRouter:
             for token, decision in action_candidates
             )
         )
+        closed_literal_parts = {
+            normalized_literal_tokens(value)
+            for value in (*_INCIDENT_STATUSES, *_RECORDED_RISK_VALUES)
+        }
+        explicit_exclusion = any(
+            decision.primitive is ActionPrimitive.EXCLUDE
+            and decision.confidence >= 0.82
+            and decision.margin >= 0.01
+            and normalized_literal_tokens(token.text) not in closed_literal_parts
+            for token, decision in action_candidates
+        )
         return SemanticFrame(
             document=document,
             action=action,
             mentions=tuple(mentions),
+            evidence_mentions=evidence_mentions,
+            action_evidence=tuple(decision for _token, decision in action_candidates),
             target=target,
             superlative=any(
                 item.feature("Degree") == "Sup"
@@ -585,9 +594,7 @@ class SemanticAnalyticsRouter:
                 or item.feature("PronType") == "Neg"
                 for item in document.tokens
             )
-            or (
-                action.primitive is ActionPrimitive.EXCLUDE and action_confident
-            ),
+            or explicit_exclusion,
             quantified=quantified,
             action_confident=action_confident,
         )
@@ -632,6 +639,9 @@ class SemanticAnalyticsRouter:
         )
 
 
+_DEFAULT_JOINT_PLAN_RANKER = get_joint_semantic_plan_ranker()
+
+
 class GlobalAnalyticsInterpreter:
     def __init__(
         self,
@@ -639,10 +649,12 @@ class GlobalAnalyticsInterpreter:
         router: SemanticAnalyticsRouter | None = None,
         registry: AnalyticsRegistry | None = None,
         temporal_resolver: ZurichTemporalResolver | None = None,
+        plan_ranker: JointSemanticPlanRanker | None = None,
     ) -> None:
         self._router = router or SemanticAnalyticsRouter()
         self._registry = registry or DEFAULT_ANALYTICS_REGISTRY
         self._temporal = temporal_resolver or ZurichTemporalResolver()
+        self._plan_ranker = plan_ranker or _DEFAULT_JOINT_PLAN_RANKER
 
     @staticmethod
     def _row_value(row: Any, column: Any) -> Any:
@@ -655,7 +667,7 @@ class GlobalAnalyticsInterpreter:
     def _sql_identities(
         cls,
         db: Any,
-        question: str,
+        document: DependencyDocument,
         *,
         column: Any,
         apply_authorized_scope: Callable[[Any], Any] | None = None,
@@ -675,70 +687,337 @@ class GlobalAnalyticsInterpreter:
                 if (text := str(cls._row_value(row, column) or "").strip())
             )
         )
-        query_words = _normalized_words(question)
-        candidate_words = {item: _normalized_words(item) for item in candidates}
-        frequencies: dict[str, int] = {}
-        for words in candidate_words.values():
-            for word in set(words):
-                frequencies[word] = frequencies.get(word, 0) + 1
-        matches: list[tuple[str, float]] = []
-        for candidate, words in candidate_words.items():
-            if _contains_words(query_words, words):
-                matches.append((candidate, 2.0 + len(words)))
-                continue
-            distinctive = tuple(
-                word for word in words if len(word) >= 3 and frequencies.get(word) == 1
-            )
-            matched = sum(
-                1
-                for word in distinctive
-                if word in query_words
-                or any(
-                    len(query_word) >= 4
-                    and SequenceMatcher(None, word, query_word).ratio() >= 0.9
-                    for query_word in query_words
-                )
-            )
-            minimum_matches = 2 if len(words) > 1 else 1
-            if matched >= minimum_matches:
-                matches.append((candidate, matched / max(1, len(distinctive))))
-        matches.sort(key=lambda item: (-item[1], -len(candidate_words[item[0]]), item[0]))
-        selected: list[str] = []
-        for candidate, _score in matches:
-            words = candidate_words[candidate]
-            if any(
-                len(words) < len(candidate_words[other])
-                and _contains_words(candidate_words[other], words)
-                for other in selected
-            ):
-                continue
-            selected.append(candidate)
-        return tuple(selected[:10])
+        return resolve_closed_literals(document, candidates, maximum=10)
 
     @staticmethod
     def _numeric_tokens(document: DependencyDocument) -> tuple[int, ...]:
-        return tuple(
-            int(item.text)
-            for item in document.tokens
-            if item.upos == "NUM" and item.text.isdigit() and int(item.text) > 0
-        )
+        return numeric_literals(document)
 
     @staticmethod
-    def _mitre_identifier(question: str) -> str | None:
-        words = _normalized_words(question)
-        for identifier in sorted(
-            MITRE_REFERENCE_CATALOG,
-            key=lambda value: (-len(_normalized_words(value)), value),
-        ):
-            if _contains_words(words, _normalized_words(identifier)):
-                return identifier
+    def _incident_numeric_reference(frame: SemanticFrame) -> int | None:
+        incident_token_ids = {
+            mention.token.token_id
+            for mention in frame.evidence_mentions
+            if mention.primitive is EntityPrimitive.INCIDENT
+        }
+        temporal_token_ids = {
+            mention.token.token_id
+            for mention in frame.evidence_mentions
+            if mention.primitive is EntityPrimitive.TIME
+        }
+        for token in reversed(frame.document.tokens):
+            if token.upos != "NUM" or not token.text.isdigit():
+                continue
+            head = frame.document.token(token.head_id)
+            if token.head_id in temporal_token_ids:
+                continue
+            if (
+                head is not None
+                and frame.document.language in {"en", "it"}
+                and ZurichTemporalResolver().canonical_period_term(
+                    head.lemma,
+                    language=frame.document.language,
+                )
+                is not None
+            ):
+                continue
+            if (
+                token.head_id in incident_token_ids
+                or (
+                    head is not None
+                    and any(
+                        child.token_id in incident_token_ids
+                        for child in frame.document.children(head.token_id)
+                    )
+                )
+            ):
+                value = int(token.text)
+                return value if value > 0 else None
+            value = int(token.text)
+            if value > 0:
+                return value
         return None
+
+    @staticmethod
+    def _mitre_identifier(document: DependencyDocument) -> str | None:
+        selected = resolve_closed_literals(document, MITRE_REFERENCE_CATALOG, maximum=1)
+        return selected[0] if selected else None
+
+    def _calendar_period_shift(
+        self,
+        document: DependencyDocument,
+    ) -> int | None:
+        for period_token in document.tokens:
+            if self._temporal.canonical_period_term(
+                period_token.lemma,
+                language=document.language,
+            ) is None:
+                continue
+            if any(
+                child.upos == "NUM"
+                for child in document.children(period_token.token_id)
+            ):
+                continue
+            structural_modifiers = tuple(document.children(period_token.token_id)) + tuple(
+                sibling
+                for sibling in document.children(period_token.head_id)
+                if sibling.token_id > period_token.token_id
+            )
+            for modifier in structural_modifiers:
+                if (
+                    modifier.upos != "ADJ"
+                    or modifier.relation not in {"amod", "nmod", "obl"}
+                ):
+                    continue
+                modifier_period = self._router.primitives.temporal_relation(
+                    f"{modifier.lemma} {period_token.lemma}"
+                )
+                if (
+                    modifier_period.primitive
+                    is not TemporalRelationPrimitive.PREVIOUS_PERIOD
+                    or modifier_period.confidence < 0.82
+                    or modifier_period.margin < 0.01
+                ):
+                    continue
+                boundary = max(
+                    (
+                        self._router.primitives.temporal_relation(child.lemma)
+                        for child in document.children(modifier.token_id)
+                        if child.relation in {"case", "mark", "fixed"}
+                    ),
+                    key=lambda item: (item.margin, item.confidence),
+                    default=None,
+                )
+                if (
+                    boundary is not None
+                    and boundary.primitive is TemporalRelationPrimitive.END_BOUNDARY
+                    and boundary.confidence >= 0.84
+                    and boundary.margin >= 0.005
+                ):
+                    return 2
+                return 1
+        return None
+
+    def _has_discourse_reference(self, document: DependencyDocument) -> bool:
+        if has_discourse_reference(document):
+            return True
+        for modifier in document.tokens:
+            if modifier.upos not in {"ADJ", "DET"} or modifier.relation not in {
+                "amod",
+                "det",
+            }:
+                continue
+            head = document.token(modifier.head_id)
+            if head is None or self._temporal.canonical_period_term(
+                head.lemma,
+                language=document.language,
+            ) is not None:
+                continue
+            relation = self._router.primitives.temporal_relation(modifier.lemma)
+            if (
+                relation.primitive is TemporalRelationPrimitive.PREVIOUS_PERIOD
+                and relation.confidence >= 0.82
+                and relation.margin >= 0.008
+            ):
+                return True
+        return False
 
     @staticmethod
     def _previous_state(
         conversation: ValidatedConversationState | None,
     ) -> GlobalConversationQueryState | None:
         return conversation.global_query if conversation is not None else None
+
+    def _joint_evidence(
+        self,
+        frame: SemanticFrame,
+        *,
+        db: Any,
+        conversation: ValidatedConversationState | None,
+        apply_authorized_incident_scope: Callable[[Any], Any] | None,
+        now: datetime | None,
+    ) -> JointSemanticEvidence:
+        action_scores: dict[ActionPrimitive, float] = {}
+        for decision in (frame.action, *frame.action_evidence):
+            evidence_score = min(
+                1.0,
+                decision.confidence * (0.55 + min(0.45, decision.margin * 12)),
+            )
+            action_scores[decision.primitive] = max(
+                action_scores.get(decision.primitive, 0.0),
+                evidence_score,
+            )
+        negated_action_scores: dict[ActionPrimitive, float] = {}
+        for marker in frame.document.tokens:
+            if marker.upos not in {"ADP", "SCONJ"}:
+                continue
+            exclusion = self._router.primitives.action(marker.lemma)
+            if (
+                exclusion.primitive is not ActionPrimitive.EXCLUDE
+                or exclusion.margin < 0.01
+            ):
+                continue
+            scope_root = frame.document.token(marker.head_id)
+            if scope_root is None:
+                continue
+            for scoped in (
+                scope_root,
+                *self._router._descendants(
+                    frame.document,
+                    scope_root.token_id,
+                    depth=3,
+                ),
+            ):
+                if scoped.upos not in {"VERB", "ADJ", "NOUN", "PROPN"}:
+                    continue
+                decision = self._router.primitives.action(scoped.lemma)
+                if decision.margin < 0.01:
+                    continue
+                negated_action_scores[decision.primitive] = max(
+                    negated_action_scores.get(decision.primitive, 0.0),
+                    decision.confidence,
+                )
+
+        entity_scores: dict[EntityPrimitive, float] = {}
+        for mention in frame.evidence_mentions:
+            evidence_score = min(
+                1.0,
+                mention.confidence * min(1.0, mention.margin * 30),
+            )
+            entity_scores[mention.primitive] = max(
+                entity_scores.get(mention.primitive, 0.0),
+                evidence_score,
+            )
+        joint_entity_scores, target_entity_scores = (
+            self._plan_ranker.semantic_entity_scores(
+                tuple(
+                    (
+                        token.lemma,
+                        token.relation
+                        in {"root", "obj", "nsubj", "nsubj:pass"},
+                    )
+                    for token in frame.document.tokens
+                    if token.upos in {"NOUN", "PROPN"}
+                )
+            )
+        )
+        for primitive, score in joint_entity_scores.items():
+            entity_scores[primitive] = max(
+                entity_scores.get(primitive, 0.0),
+                score,
+            )
+
+        agents = self._sql_identities(
+            db,
+            frame.document,
+            column=Incident.agent,
+            apply_authorized_scope=apply_authorized_incident_scope,
+        )
+        rules = self._sql_identities(
+            db,
+            frame.document,
+            column=Incident.rule,
+            apply_authorized_scope=apply_authorized_incident_scope,
+        )
+        temporal_present = any(
+            mention.primitive is EntityPrimitive.TIME
+            for mention in frame.evidence_mentions
+        ) or any(
+            self._temporal.is_temporal_term(
+                token.text,
+                language=frame.document.language,
+                now=now,
+            )
+            for token in frame.document.tokens
+            if token.upos in {"ADV", "NOUN", "NUM", "PROPN"}
+        )
+        temporal_comparison = (
+            action_scores.get(ActionPrimitive.COMPARE, 0.0) >= 0.4
+            and temporal_present
+        )
+        return JointSemanticEvidence(
+            primary_action=frame.action.primitive,
+            primary_action_reliable=(
+                frame.quantified
+                or (
+                    frame.action.margin >= 0.015
+                    and frame.action.primitive not in negated_action_scores
+                )
+            ),
+            action_scores=action_scores,
+            entity_scores=entity_scores,
+            target_entity_scores=target_entity_scores,
+            negated_action_scores=negated_action_scores,
+            authoritative_agent_count=len(agents),
+            authoritative_rule_count=len(rules),
+            numeric_reference=self._incident_numeric_reference(frame) is not None,
+            mitre_reference=self._mitre_identifier(frame.document) is not None,
+            temporal_present=temporal_present,
+            temporal_comparison=temporal_comparison,
+            demonstrative_reference=self._has_discourse_reference(frame.document),
+            previous=self._previous_state(conversation),
+        )
+
+    @staticmethod
+    def _frame_for_definition(
+        frame: SemanticFrame,
+        definition: AnalyticsRegistryDefinition,
+        *,
+        confidence: float,
+    ) -> SemanticFrame:
+        selected_action = _action_for_definition(
+            definition.definition_id,
+            definition.operation,
+        )
+        if (
+            definition.definition_id == "incident_list"
+            and frame.action.primitive is ActionPrimitive.EXPLAIN
+            and frame.action_confident
+        ):
+            selected_action = ActionPrimitive.EXPLAIN
+        action = PrimitiveDecision(
+            primitive=selected_action,
+            confidence=max(frame.action.confidence, confidence),
+            margin=max(frame.action.margin, 0.02),
+        )
+        target_primitive = _PRIMITIVE_BY_ANALYTICAL_ENTITY.get(definition.entity)
+        if target_primitive is None:
+            target_primitive = EntityPrimitive.INCIDENT
+        target = max(
+            (
+                mention
+                for mention in frame.evidence_mentions
+                if mention.primitive is target_primitive
+            ),
+            key=lambda mention: (mention.confidence, mention.margin),
+            default=None,
+        )
+        if target is None:
+            token = next(
+                (
+                    item
+                    for item in frame.document.tokens
+                    if item.relation == "root"
+                ),
+                frame.document.tokens[0],
+            )
+            target = EntityMention(
+                token=token,
+                primitive=target_primitive,
+                confidence=confidence,
+                margin=0.02,
+                interrogative=False,
+            )
+        mentions = frame.mentions
+        if not any(item.primitive is target_primitive for item in mentions):
+            mentions = (*mentions, target)
+        return replace(
+            frame,
+            action=action,
+            mentions=mentions,
+            target=target,
+            action_confident=True,
+        )
 
     def _semantic_filters(
         self,
@@ -749,38 +1028,65 @@ class GlobalAnalyticsInterpreter:
         question: str,
         apply_authorized_incident_scope: Callable[[Any], Any] | None,
     ) -> tuple[list[AnalyticalFilterDescriptor], list[AnalyticalFilterDescriptor], tuple[str, ...]]:
-        words = _normalized_words(question)
+        del question
         filters: list[AnalyticalFilterDescriptor] = []
         negative_filters: list[AnalyticalFilterDescriptor] = []
         statuses = _CASE_STATUSES if source is AnalyticalEntity.CASE else _INCIDENT_STATUSES
-        selected_statuses = [
-            status for status in statuses if _contains_words(words, _normalized_words(status))
-        ]
+        selected_statuses = list(
+            resolve_closed_literals(frame.document, statuses, maximum=len(statuses))
+        )
         if not selected_statuses:
-            entity_token_ids = {item.token.token_id for item in frame.mentions}
+            domain_token_ids = {
+                item.token.token_id
+                for item in frame.mentions
+                if item.primitive
+                in {EntityPrimitive.INCIDENT, EntityPrimitive.CASE}
+            }
+            status_spans: list[str] = []
             for token in frame.document.tokens:
-                if token.upos not in {"ADJ", "VERB"} or token.relation not in {
-                    "amod",
-                    "acl",
-                    "acl:relcl",
-                    "xcomp",
-                }:
+                if token.upos not in {"ADJ", "VERB"}:
                     continue
-                if token.head_id not in entity_token_ids:
+                if token.relation not in {"amod", "acl", "acl:relcl", "xcomp"}:
                     continue
-                if any(
-                    _contains_words(
-                        _normalized_words(token.lemma),
-                        _normalized_words(value),
-                    )
-                    for value in _RECORDED_RISK_VALUES
+                head = frame.document.token(token.head_id)
+                if (
+                    token.head_id not in domain_token_ids
+                    and (head is None or head.head_id not in domain_token_ids)
+                ):
+                    continue
+                status_spans.append(token.lemma)
+            selected_statuses.extend(
+                self._plan_ranker.semantic_statuses(
+                    status_spans,
+                    allowed=statuses,
+                )
+            )
+            for token in frame.document.tokens:
+                if selected_statuses:
+                    break
+                if token.upos not in {"ADJ", "VERB"}:
+                    continue
+                if token.relation not in {"amod", "acl", "acl:relcl", "xcomp"}:
+                    continue
+                head = frame.document.token(token.head_id)
+                if (
+                    token.head_id not in domain_token_ids
+                    and (head is None or head.head_id not in domain_token_ids)
                 ):
                     continue
                 status, confidence, margin = self._router.primitives.closed_value(
                     token.lemma,
                     {value: _STATUS_CONCEPTS[value] for value in statuses},
                 )
-                if confidence >= 0.82 and margin >= 0.012:
+                minimum_confidence, minimum_margin = (
+                    (0.84, 0.01)
+                    if source is AnalyticalEntity.CASE
+                    else (0.87, 0.035)
+                )
+                if (
+                    confidence >= minimum_confidence
+                    and margin >= minimum_margin
+                ):
                     selected_statuses.append(status)
         if selected_statuses:
             descriptor = AnalyticalFilterDescriptor(
@@ -792,11 +1098,13 @@ class GlobalAnalyticsInterpreter:
             )
             (negative_filters if frame.negative else filters).append(descriptor)
 
-        selected_risks = [
-            value
-            for value in _RECORDED_RISK_VALUES
-            if _contains_words(words, _normalized_words(value))
-        ]
+        selected_risks = list(
+            resolve_closed_literals(
+                frame.document,
+                _RECORDED_RISK_VALUES,
+                maximum=len(_RECORDED_RISK_VALUES),
+            )
+        )
         if selected_risks:
             field = (
                 AnalyticalFilterField.SEVERITY
@@ -814,7 +1122,7 @@ class GlobalAnalyticsInterpreter:
 
         agents = self._sql_identities(
             db,
-            question,
+            frame.document,
             column=Incident.agent,
             apply_authorized_scope=apply_authorized_incident_scope,
         )
@@ -828,7 +1136,7 @@ class GlobalAnalyticsInterpreter:
             )
         rules = self._sql_identities(
             db,
-            question,
+            frame.document,
             column=Incident.rule,
             apply_authorized_scope=apply_authorized_incident_scope,
         )
@@ -909,9 +1217,7 @@ class GlobalAnalyticsInterpreter:
             apply_authorized_incident_scope=apply_authorized_incident_scope,
         )
 
-        demonstrative = any(
-            item.feature("PronType") in {"Dem", "Rel"} for item in frame.document.tokens
-        )
+        demonstrative = self._has_discourse_reference(frame.document)
         filter_only_followup = previous is not None and (
             frame.target is None
             or all(item.primitive is EntityPrimitive.TIME for item in frame.mentions)
@@ -957,7 +1263,7 @@ class GlobalAnalyticsInterpreter:
                     )
             filters.extend(inherited_dimension_filters)
 
-        mitre_identifier = self._mitre_identifier(question)
+        mitre_identifier = self._mitre_identifier(frame.document)
         operation = AnalyticalOperation.LIST
         aggregation = SemanticAggregation.NONE
         distinct = False
@@ -1141,6 +1447,48 @@ class GlobalAnalyticsInterpreter:
             decision = self._router.primitives.temporal_relation(item.lemma)
             head = frame.document.token(item.head_id)
             head_children = frame.document.children(head.token_id) if head is not None else ()
+            head_subtree_ids = (
+                {
+                    head.token_id,
+                    *(
+                        child.token_id
+                        for child in self._router._descendants(
+                            frame.document,
+                            head.token_id,
+                            depth=2,
+                        )
+                    ),
+                }
+                if head is not None
+                else set()
+            )
+            head_has_non_temporal_entity = any(
+                mention.token.token_id in head_subtree_ids
+                and mention.primitive
+                in {
+                    EntityPrimitive.INCIDENT,
+                    EntityPrimitive.CASE,
+                    EntityPrimitive.AGENT,
+                    EntityPrimitive.DETECTION_RULE,
+                    EntityPrimitive.MITRE_TECHNIQUE,
+                    EntityPrimitive.STATUS,
+                    EntityPrimitive.RISK,
+                    EntityPrimitive.SLA,
+                }
+                for mention in frame.evidence_mentions
+            )
+            head_subtree_literal_parts = {
+                part
+                for token in frame.document.tokens
+                if token.token_id in head_subtree_ids
+                for part in normalized_literal_tokens(token.text)
+            }
+            head_has_authoritative_agent = any(
+                set(normalized_literal_tokens(agent)).issubset(
+                    head_subtree_literal_parts
+                )
+                for agent in agents
+            )
             relation_has_temporal_head = bool(
                 head is not None
                 and (
@@ -1159,8 +1507,7 @@ class GlobalAnalyticsInterpreter:
                         and any(not character.isalnum() for character in head.text)
                     )
                     or any(
-                        child.relation == "flat"
-                        and (
+                        (
                             self._temporal.is_temporal_term(
                                 child.text,
                                 language=frame.document.language,
@@ -1172,7 +1519,14 @@ class GlobalAnalyticsInterpreter:
                             )
                             is not None
                         )
-                        for child in head_children
+                        for child in (
+                            *head_children,
+                            *self._router._descendants(
+                                frame.document,
+                                head.token_id,
+                                depth=2,
+                            ),
+                        )
                     )
                 )
             )
@@ -1198,31 +1552,82 @@ class GlobalAnalyticsInterpreter:
                 or not relation_has_temporal_head
             ):
                 continue
-            temporal_relations.append(decision)
-        temporal_relation = max(
-            (
-                item
-                for item in temporal_relations
-                if item.margin
-                >= (
-                    0.008
-                    if item.primitive
-                    in {
-                        TemporalRelationPrimitive.CURRENT_PERIOD,
-                        TemporalRelationPrimitive.PREVIOUS_PERIOD,
-                    }
-                    else 0.005
-                )
+            if (
+                decision.primitive
+                in {
+                    TemporalRelationPrimitive.START_BOUNDARY,
+                    TemporalRelationPrimitive.END_BOUNDARY,
+                    TemporalRelationPrimitive.RANGE_BOUNDARY,
+                }
+                and item.relation not in {"case", "mark", "fixed"}
+            ):
+                continue
+            if (
+                decision.primitive
+                in {
+                    TemporalRelationPrimitive.START_BOUNDARY,
+                    TemporalRelationPrimitive.END_BOUNDARY,
+                    TemporalRelationPrimitive.RANGE_BOUNDARY,
+                }
+                and head is not None
                 and (
-                    item.primitive
-                    in {
-                        TemporalRelationPrimitive.CURRENT_PERIOD,
-                        TemporalRelationPrimitive.PREVIOUS_PERIOD,
-                    }
-                    or item.confidence >= 0.84
+                    head_has_non_temporal_entity
+                    or head_has_authoritative_agent
+                    or not (
+                        self._temporal.is_temporal_term(
+                            head.text,
+                            language=frame.document.language,
+                            now=now,
+                        )
+                        or self._temporal.is_temporal_term(
+                            head.lemma,
+                            language=frame.document.language,
+                            now=now,
+                        )
+                        or (
+                            head.upos in {"NOUN", "NUM"}
+                            and relation_has_temporal_head
+                        )
+                    )
                 )
-                and item.primitive is not TemporalRelationPrimitive.NEUTRAL
-            ),
+            ):
+                continue
+            temporal_relations.append(decision)
+        eligible_temporal_relations = tuple(
+            item
+            for item in temporal_relations
+            if item.margin
+            >= (
+                0.008
+                if item.primitive
+                in {
+                    TemporalRelationPrimitive.CURRENT_PERIOD,
+                    TemporalRelationPrimitive.PREVIOUS_PERIOD,
+                }
+                else 0.005
+            )
+            and (
+                item.primitive
+                in {
+                    TemporalRelationPrimitive.CURRENT_PERIOD,
+                    TemporalRelationPrimitive.PREVIOUS_PERIOD,
+                }
+                or item.confidence >= 0.84
+            )
+            and item.primitive is not TemporalRelationPrimitive.NEUTRAL
+        )
+        boundary_relations = tuple(
+            item
+            for item in eligible_temporal_relations
+            if item.primitive
+            in {
+                TemporalRelationPrimitive.START_BOUNDARY,
+                TemporalRelationPrimitive.END_BOUNDARY,
+                TemporalRelationPrimitive.RANGE_BOUNDARY,
+            }
+        )
+        temporal_relation = max(
+            boundary_relations or eligible_temporal_relations,
             key=lambda item: (item.margin, item.confidence),
             default=None,
         )
@@ -1241,7 +1646,7 @@ class GlobalAnalyticsInterpreter:
                         (
                             self._router.primitives.day_part(item.lemma)
                             for item in frame.document.tokens
-                            if item.upos in {"NOUN", "ADV"}
+                            if item.upos == "NOUN"
                             and item.relation
                             in {"obl", "obl:unmarked", "advmod", "root"}
                         ),
@@ -1251,12 +1656,11 @@ class GlobalAnalyticsInterpreter:
                 )
                 is not None
                 and day_part.primitive is not DayPartPrimitive.NONE
-                and (
-                    day_part.confidence >= 0.86
-                    or day_part.margin >= 0.015
-                )
+                and day_part.confidence >= 0.86
+                and day_part.margin >= 0.015
                 else None
             ),
+            calendar_period_shift=self._calendar_period_shift(frame.document),
         )
         if temporal.routing_status == "ambiguous_time_window":
             raise ValueError("ambiguous_time_window")
@@ -1313,7 +1717,11 @@ class GlobalAnalyticsInterpreter:
             comparison_window = temporal.current
         if filter_only_followup and time_window is None:
             time_window = previous.time_window
-            comparison_window = getattr(previous, "comparison_window", None)
+            comparison_window = (
+                getattr(previous, "comparison_window", None)
+                if operation is AnalyticalOperation.COMPARE_PERIODS
+                else None
+            )
         if compare_periods and time_window is None and previous is not None:
             time_window = previous.time_window
             if time_window is not None:
@@ -1372,10 +1780,10 @@ class GlobalAnalyticsInterpreter:
         ):
             raise ValueError("unsupported semantic action")
 
-        numeric = self._numeric_tokens(frame.document)
+        anchor_reference = self._incident_numeric_reference(frame)
         anchor_id = (
-            numeric[-1]
-            if numeric
+            anchor_reference
+            if anchor_reference is not None
             and (
                 operation
                 in {
@@ -1463,6 +1871,7 @@ class GlobalAnalyticsInterpreter:
         limit = requested_limit or (
             1
             if rank_previous_comparison
+            or (grouped_period_comparison and frame.superlative)
             else 5
             if operation in {AnalyticalOperation.TOP_K, AnalyticalOperation.DISTRIBUTION}
             else previous.limit
@@ -1601,36 +2010,38 @@ class GlobalAnalyticsInterpreter:
             return AnalyticsInterpretationResult(
                 decision.model_copy(update={"accepted": False, "routing_status": "unsupported_literal"})
             )
-        words = _normalized_words(question)
+        document = get_dependency_parser().parse(question)
         filters = list(definition.fixed_filters)
         statuses = _CASE_STATUSES if definition.entity is AnalyticalEntity.CASE else _INCIDENT_STATUSES
-        for status in statuses:
-            if _contains_words(words, _normalized_words(status)):
-                filters.append(
-                    AnalyticalFilterDescriptor(
-                        field=AnalyticalFilterField.STATUS,
-                        operator="EQ",
-                        values=[status],
-                    )
+        selected_statuses = resolve_closed_literals(document, statuses, maximum=1)
+        if selected_statuses:
+            filters.append(
+                AnalyticalFilterDescriptor(
+                    field=AnalyticalFilterField.STATUS,
+                    operator="EQ",
+                    values=[selected_statuses[0]],
                 )
-                break
-        for value in _RECORDED_RISK_VALUES:
-            if _contains_words(words, _normalized_words(value)):
-                filters.append(
-                    AnalyticalFilterDescriptor(
-                        field=(
-                            AnalyticalFilterField.SEVERITY
-                            if definition.entity is AnalyticalEntity.CASE
-                            else AnalyticalFilterField.RECORDED_RISK
-                        ),
-                        operator="EQ",
-                        values=[value],
-                    )
+            )
+        selected_risks = resolve_closed_literals(
+            document,
+            _RECORDED_RISK_VALUES,
+            maximum=1,
+        )
+        if selected_risks:
+            filters.append(
+                AnalyticalFilterDescriptor(
+                    field=(
+                        AnalyticalFilterField.SEVERITY
+                        if definition.entity is AnalyticalEntity.CASE
+                        else AnalyticalFilterField.RECORDED_RISK
+                    ),
+                    operator="EQ",
+                    values=[selected_risks[0]],
                 )
-                break
+            )
         agents = self._sql_identities(
             db,
-            question,
+            document,
             column=Incident.agent,
             apply_authorized_scope=apply_authorized_incident_scope,
         )
@@ -1642,7 +2053,7 @@ class GlobalAnalyticsInterpreter:
                     values=[agents[0]],
                 )
             )
-        numeric = tuple(int(word) for word in words if word.isdigit() and int(word) > 0)
+        numeric = numeric_literals(document)
         anchor_id = numeric[-1] if numeric and definition.operation in {
             AnalyticalOperation.RELATED_RECORDS,
             AnalyticalOperation.SIMILAR_RECORDS,
@@ -1670,6 +2081,7 @@ class GlobalAnalyticsInterpreter:
             question,
             now=now,
             compare_periods=definition.operation is AnalyticalOperation.COMPARE_PERIODS,
+            document=document,
         )
         if temporal.routing_status == "ambiguous_time_window":
             return AnalyticsInterpretationResult(
@@ -1737,6 +2149,57 @@ class GlobalAnalyticsInterpreter:
             )
         try:
             frame = self._router.frame(question)
+            joint_question_vector = (
+                tuple(float(value) for value in request_embedding)
+                if request_embedding is not None and len(request_embedding) == 768
+                else self._plan_ranker.encode_question(question)
+            )
+            source_candidates = self._plan_ranker.rank_source_plans(
+                question_vector=joint_question_vector,
+            )
+            if (
+                source_candidates
+                and source_candidates[0].candidate_id == "UNSUPPORTED"
+                and source_candidates[0].similarity >= 0.8
+                and (
+                    len(source_candidates) == 1
+                    or source_candidates[0].similarity
+                    - source_candidates[1].similarity
+                    >= 0.5
+                )
+            ):
+                raise ValueError("unsupported semantic request")
+            evidence = replace(
+                self._joint_evidence(
+                    frame,
+                    db=db,
+                    conversation=conversation,
+                    apply_authorized_incident_scope=apply_authorized_incident_scope,
+                    now=now,
+                ),
+                source_plan_scores={
+                    item.candidate_id: item.similarity
+                    for item in source_candidates
+                },
+            )
+            joint_decision = self._plan_ranker.rank(
+                question,
+                evidence=evidence,
+                definitions=self._registry.definitions,
+                question_vector=joint_question_vector,
+            )
+            if not joint_decision.accepted or joint_decision.definition_id is None:
+                raise ValueError("unsupported semantic request")
+            selected_definition = self._registry.resolve(
+                joint_decision.definition_id
+            )
+            if selected_definition is None:
+                raise ValueError("unsupported semantic request")
+            frame = self._frame_for_definition(
+                frame,
+                selected_definition,
+                confidence=joint_decision.confidence,
+            )
             ast = self._compose_ast(
                 question,
                 frame=frame,
@@ -1773,8 +2236,16 @@ class GlobalAnalyticsInterpreter:
         decision = AnalyticsRouteDecision(
             accepted=True,
             definition_id=definition_id,
-            confidence=ast.confidence,
+            confidence=joint_decision.confidence,
             routing_status="ok",
+            scores=[
+                AnalyticsRouteScore(
+                    definition_id=item.definition_id,
+                    similarity=math.tanh(item.score / 4),
+                )
+                for item in joint_decision.candidates
+                if item.definition_id != "__unsupported__"
+            ],
             routing_ms=max(0.0, (clock() - started) * 1000),
         )
         return AnalyticsInterpretationResult(decision=decision, plan=plan, semantic_ast=ast)
@@ -1796,7 +2267,9 @@ def semantic_nlu_runtime_snapshot() -> dict[str, object]:
         return {
             "semantic_nlu_state": _NLU_PREWARM_STATE,
             "semantic_nlu_prewarm_ms": _NLU_PREWARM_MS,
-            "semantic_nlu_backend": "stanza_ud+multilingual_e5_small",
+            "semantic_nlu_backend": (
+                "stanza_ud+multilingual_e5_small+joint_multilingual_mpnet"
+            ),
         }
 
 
@@ -1811,7 +2284,10 @@ def start_semantic_nlu_prewarm() -> None:
     def load() -> None:
         global _NLU_PREWARM_STATE, _NLU_PREWARM_MS
         started = time.monotonic()
-        ready = _DEFAULT_ANALYTICS_ROUTER.warm()
+        ready = (
+            _DEFAULT_ANALYTICS_ROUTER.warm()
+            and _DEFAULT_JOINT_PLAN_RANKER.warm()
+        )
         with _NLU_PREWARM_LOCK:
             _NLU_PREWARM_STATE = "ready" if ready else "unavailable"
             _NLU_PREWARM_MS = max(0, int((time.monotonic() - started) * 1000))

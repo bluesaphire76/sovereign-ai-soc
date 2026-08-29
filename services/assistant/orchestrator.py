@@ -47,6 +47,12 @@ from services.assistant.analytics.builder import (
     GlobalAnalyticsResolutionError,
 )
 from services.assistant.analytics.fallback import render_global_analytics_fallback
+from services.assistant.analytics.general_soc import (
+    GeneralSocPlanDecision,
+    GeneralSocSemanticPlanRouter,
+    GeneralSocSourcePlan,
+    get_general_soc_semantic_plan_router,
+)
 from services.assistant.claims import grounded_claim_output_schema
 from services.assistant.focus import (
     SemanticFocusRouter,
@@ -2226,9 +2232,9 @@ def _global_resolution_response(
                 "calendario precedente?"
             ),
             "global_query_unsupported": (
-                "Non posso costruire un piano analitico chiuso con il contesto typed "
-                "disponibile. Specifica un conteggio, elenco, ranking, distribuzione, "
-                "trend, confronto o relazione supportata."
+                "Le fonti disponibili non contengono informazioni sufficienti per "
+                "rispondere a questa richiesta. Prova a indicare il dato operativo, "
+                "il concetto di sicurezza o il tipo di guida che stai cercando."
             ),
             "global_analytics_execution_failed": (
                 "La query analitica autorizzata non è stata completata. Nessun risultato "
@@ -2249,9 +2255,9 @@ def _global_resolution_response(
                 "calendar month?"
             ),
             "global_query_unsupported": (
-                "I cannot build a closed analytical plan from the available typed "
-                "context. Specify a supported count, list, ranking, distribution, "
-                "trend, comparison, or relationship query."
+                "The available sources do not contain enough information to answer "
+                "this request. Try specifying the operational fact, security concept, "
+                "or type of guidance you need."
             ),
             "global_analytics_execution_failed": (
                 "The authorized analytical query did not complete. No partial result "
@@ -2303,6 +2309,7 @@ def run_assistant_query(
     generator: Callable[..., dict[str, Any]] = generate_ai_response,
     focus_router: SemanticFocusRouter | None = None,
     intent_router: SemanticIntentRouter | None = None,
+    general_soc_router: GeneralSocSemanticPlanRouter | None = None,
     v3_context_builder: V3AnalyticalContextBuilder | None = None,
     global_context_builder: GlobalAnalyticsContextBuilder | None = None,
     clock: Callable[[], float] = time.monotonic,
@@ -2326,6 +2333,7 @@ def run_assistant_query(
         )
 
     question_vector = None
+    global_soc_decision: GeneralSocPlanDecision | None = None
     if intent_router is None and focus_router is None:
         try:
             question_vector = get_shared_semantic_embedding_provider().embed(
@@ -2335,6 +2343,22 @@ def run_assistant_query(
             question_vector = None
 
     if payload.scope == "global":
+        global_soc_decision = (
+            general_soc_router or get_general_soc_semantic_plan_router()
+        ).route(payload.message)
+    advisory_source_plans = {
+        GeneralSocSourcePlan.PLAYBOOK,
+        GeneralSocSourcePlan.INVESTIGATION,
+        GeneralSocSourcePlan.REMEDIATION,
+    }
+    bypass_global_analytics = bool(
+        global_soc_decision is not None
+        and global_soc_decision.accepted
+        and global_soc_decision.source_plan in advisory_source_plans
+    )
+
+    if payload.scope == "global" and not bypass_global_analytics:
+        global_context = None
         db = db_factory()
         try:
             global_context = (
@@ -2344,7 +2368,12 @@ def run_assistant_query(
                 response_language=response_language,
                 db=db,
                 current_user=current_user,
-                request_embedding=question_vector,
+                request_embedding=(
+                    global_soc_decision.query_embedding
+                    if global_soc_decision is not None
+                    and global_soc_decision.query_embedding
+                    else question_vector
+                ),
                 clock=clock,
             )
         except GlobalAnalyticsResolutionError as exc:
@@ -2353,13 +2382,34 @@ def run_assistant_query(
                 request_id,
                 exc.routing_status,
             )
-            return _global_resolution_response(
-                payload=payload,
-                response_language=response_language,
-                routing_status=exc.routing_status,
-                request_started=request_started,
-                clock=clock,
-            )
+            if exc.routing_status == "unsupported_literal":
+                fallback_source_plans = {
+                    GeneralSocSourcePlan.REFERENCE,
+                    GeneralSocSourcePlan.PLAYBOOK,
+                    GeneralSocSourcePlan.INVESTIGATION,
+                    GeneralSocSourcePlan.REMEDIATION,
+                    GeneralSocSourcePlan.SIMILARITY,
+                }
+                if (
+                    global_soc_decision is None
+                    or not global_soc_decision.accepted
+                    or global_soc_decision.source_plan not in fallback_source_plans
+                ):
+                    return _global_resolution_response(
+                        payload=payload,
+                        response_language=response_language,
+                        routing_status=exc.routing_status,
+                        request_started=request_started,
+                        clock=clock,
+                    )
+            else:
+                return _global_resolution_response(
+                    payload=payload,
+                    response_language=response_language,
+                    routing_status=exc.routing_status,
+                    request_started=request_started,
+                    clock=clock,
+                )
         except Exception as exc:
             logger.warning(
                 "assistant_global_analytics_failed request_id=%s reason=%s",
@@ -2378,57 +2428,61 @@ def run_assistant_query(
             if callable(close):
                 close()
 
-        package = global_context.package
-        metric_labels = {
-            "intent": package.intent_selection.primary_intent.value,
-            "scope": package.resolved_scope.analysis_scope.value,
-        }
-        ASSISTANT_V3_CONTEXT_DURATION.labels(**metric_labels).observe(
-            package.metrics.total_context_build_ms / 1000
-        )
-        ASSISTANT_V3_CONTEXT_PACKAGES.labels(**metric_labels).inc()
-        response = _run_v32_response(
-            payload=payload,
-            package=package,
-            focused_fact_inventory=global_context.retrieval.fact_inventory,
-            source_records=assign_source_ids(
-                list(global_context.sources),
-                max_sources=current_settings.max_sources,
-            ),
-            retrieval=global_context.retrieval,
-            response_language=response_language,
-            request_id=request_id,
-            request_started=request_started,
-            settings=current_settings,
-            generator=generator,
-            clock=clock,
-            operational_retrieval_ms=(
-                global_context.build_result.operational_retrieval_ms
-            ),
-        )
-        logger.info(
-            "assistant_global_execution request_id=%s definition=%s operation=%s "
-            "generation_kind=%s proof=%s provider_generations=%s",
-            request_id,
-            global_context.build_result.plan.definition_id,
-            global_context.build_result.plan.operation.value,
-            response.generation_kind,
-            response.metadata.semantic_proof_status,
-            response.metadata.provider_generation_count,
-        )
-        return response
-
-    selected_intent_router = intent_router or get_semantic_intent_router()
-    try:
-        if intent_router is None and focus_router is None:
-            intent_selection = selected_intent_router.route(
-                payload.message,
-                request_embedding=question_vector,
+        if global_context is not None:
+            package = global_context.package
+            metric_labels = {
+                "intent": package.intent_selection.primary_intent.value,
+                "scope": package.resolved_scope.analysis_scope.value,
+            }
+            ASSISTANT_V3_CONTEXT_DURATION.labels(**metric_labels).observe(
+                package.metrics.total_context_build_ms / 1000
             )
-        else:
-            intent_selection = selected_intent_router.route(payload.message)
-    except Exception:
-        intent_selection = neutral_intent_selection()
+            ASSISTANT_V3_CONTEXT_PACKAGES.labels(**metric_labels).inc()
+            response = _run_v32_response(
+                payload=payload,
+                package=package,
+                focused_fact_inventory=global_context.retrieval.fact_inventory,
+                source_records=assign_source_ids(
+                    list(global_context.sources),
+                    max_sources=current_settings.max_sources,
+                ),
+                retrieval=global_context.retrieval,
+                response_language=response_language,
+                request_id=request_id,
+                request_started=request_started,
+                settings=current_settings,
+                generator=generator,
+                clock=clock,
+                operational_retrieval_ms=(
+                    global_context.build_result.operational_retrieval_ms
+                ),
+            )
+            logger.info(
+                "assistant_global_execution request_id=%s definition=%s operation=%s "
+                "generation_kind=%s proof=%s provider_generations=%s",
+                request_id,
+                global_context.build_result.plan.definition_id,
+                global_context.build_result.plan.operation.value,
+                response.generation_kind,
+                response.metadata.semantic_proof_status,
+                response.metadata.provider_generation_count,
+            )
+            return response
+
+    if global_soc_decision is not None:
+        intent_selection = global_soc_decision.intent_selection
+    else:
+        selected_intent_router = intent_router or get_semantic_intent_router()
+        try:
+            if intent_router is None and focus_router is None:
+                intent_selection = selected_intent_router.route(
+                    payload.message,
+                    request_embedding=question_vector,
+                )
+            else:
+                intent_selection = selected_intent_router.route(payload.message)
+        except Exception:
+            intent_selection = neutral_intent_selection()
     selected_focus_router = focus_router or get_semantic_focus_router()
     try:
         if intent_router is None and focus_router is None:
@@ -2448,7 +2502,13 @@ def run_assistant_query(
         update={
             "include_semantic_memory": (
                 payload.include_semantic_memory
-                and advisory_retrieval_allowed(intent_selection)
+                and (
+                    (
+                        global_soc_decision is not None
+                        and global_soc_decision.include_advisory
+                    )
+                    or advisory_retrieval_allowed(intent_selection)
+                )
             )
         }
     )
