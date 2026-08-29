@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import ast
 import json
 from pathlib import Path
 from datetime import datetime, timezone
 from collections.abc import Sequence
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -26,7 +28,13 @@ from services.assistant.analytics.execution import (
     PlatformAnalyticsAccessPolicy,
 )
 from services.assistant.analytics.interpreter import GlobalAnalyticsInterpreter
+from services.assistant.analytics.literal_resolution import resolve_closed_literals
+from services.assistant.analytics.nlu_runtime import DependencyDocument, DependencyToken
 from services.assistant.analytics.fallback import render_global_analytics_fallback
+from services.assistant.analytics.general_soc import (
+    GeneralSocSourcePlan,
+    get_general_soc_semantic_plan_router,
+)
 from services.assistant.analytics.normalization import normalize_mitre_facts
 from services.assistant.analytics.registry import DEFAULT_ANALYTICS_REGISTRY
 from services.assistant.analytics.temporal import ZurichTemporalResolver
@@ -459,6 +467,9 @@ def test_registry_and_query_fingerprint_reject_unregistered_or_tampered_plans() 
     not Path("/opt/ai-soc/models/semantic-nlu/stanza").exists()
     or not Path(
         "/opt/ai-soc/models/semantic-nlu/multilingual-e5-small"
+    ).exists()
+    or not Path(
+        "/opt/ai-soc/models/semantic-nlu/paraphrase-multilingual-mpnet-base-v2"
     ).exists(),
     reason="local semantic NLU assets are not provisioned",
 )
@@ -508,9 +519,132 @@ def test_compositional_semantic_nlu_handles_real_user_queries_and_open_set(
 
 
 @pytest.mark.skipif(
+    not Path(
+        "/opt/ai-soc/models/semantic-nlu/paraphrase-multilingual-mpnet-base-v2"
+    ).exists(),
+    reason="local joint semantic model is not provisioned",
+)
+def test_general_soc_source_plan_generalizes_without_phrase_dispatch() -> None:
+    router = get_general_soc_semantic_plan_router()
+    expectations = (
+        (
+            "After an unsigned PowerShell launch, what should the responder verify first?",
+            GeneralSocSourcePlan.PLAYBOOK,
+        ),
+        (
+            "Come si indaga una serie anomala di autenticazioni fallite su server diversi?",
+            GeneralSocSourcePlan.INVESTIGATION,
+        ),
+        (
+            "What defensive action should reduce exposure after a malicious service is confirmed?",
+            GeneralSocSourcePlan.REMEDIATION,
+        ),
+        (
+            "Clarify the defensive meaning of process injection.",
+            GeneralSocSourcePlan.REFERENCE,
+        ),
+        (
+            "Tell me how many cases remain active.",
+            GeneralSocSourcePlan.OPERATIONAL_ANALYTICS,
+        ),
+    )
+    for question, expected in expectations:
+        decision = router.route(question)
+        assert decision.accepted is True
+        assert decision.source_plan is expected
+
+    rejected = router.route("Compose a song about a mountain.")
+    assert rejected.accepted is False
+    assert rejected.source_plan is GeneralSocSourcePlan.UNSUPPORTED
+
+
+@pytest.mark.skipif(
     not Path("/opt/ai-soc/models/semantic-nlu/stanza").exists()
     or not Path(
         "/opt/ai-soc/models/semantic-nlu/multilingual-e5-small"
+    ).exists()
+    or not Path(
+        "/opt/ai-soc/models/semantic-nlu/paraphrase-multilingual-mpnet-base-v2"
+    ).exists(),
+    reason="local semantic NLU assets are not provisioned",
+)
+def test_joint_ast_ranker_uses_target_roles_and_relationship_semantics(
+    analytics_db,
+) -> None:
+    db, _factory, _incidents = analytics_db
+    interpreter = GlobalAnalyticsInterpreter()
+    expectations = (
+        ("Rank monitored nodes by detection volume.", "incident_top_agents"),
+        (
+            "Metti in ordine i nodi monitorati per volume di rilevamenti.",
+            "incident_top_agents",
+        ),
+        ("Rank detection rules by incident volume.", "incident_top_detection_rules"),
+        (
+            "Classifica le regole di rilevamento per numero di incidenti.",
+            "incident_top_detection_rules",
+        ),
+        (
+            "Discover records resembling incident 5333 without asserting correlation.",
+            "semantic_similar_incidents",
+        ),
+        (
+            "Individua record analoghi all'incidente 5333 senza considerarli correlati.",
+            "semantic_similar_incidents",
+        ),
+        (
+            "Retrieve platform-recorded relationships for incident 5333.",
+            "recorded_related_incidents",
+        ),
+        (
+            "Recupera le relazioni registrate dalla piattaforma per l'incidente 5333.",
+            "recorded_related_incidents",
+        ),
+    )
+    for question, expected_definition in expectations:
+        interpreted = interpreter.interpret(
+            question,
+            db=db,
+            conversation=None,
+            apply_authorized_incident_scope=lambda query: query,
+            now=NOW,
+        )
+        assert interpreted.plan is not None, question
+        assert interpreted.plan.definition_id == expected_definition, question
+
+
+def test_authoritative_literal_resolution_is_exact_and_typed() -> None:
+    document = DependencyDocument(
+        language="en",
+        parse_ms=0.0,
+        tokens=(
+            DependencyToken(
+                sentence_id=1,
+                token_id=1,
+                text="darkstar-windows",
+                lemma="darkstar-windows",
+                upos="PROPN",
+                features=frozenset(),
+                head_id=0,
+                relation="root",
+            ),
+        ),
+    )
+
+    assert resolve_closed_literals(
+        document,
+        ("darkstar", "darkstar-windows", "darkstar-linux"),
+    ) == ("darkstar-windows",)
+    assert resolve_closed_literals(document, ("darkstar-window",)) == ()
+
+
+@pytest.mark.skipif(
+    not Path("/opt/ai-soc/models/semantic-nlu/stanza").exists()
+    or not Path(
+        "/opt/ai-soc/models/semantic-nlu/multilingual-e5-small"
+    ).exists()
+    or not Path(
+        "/opt/ai-soc/models/semantic-nlu/paraphrase-multilingual-mpnet-base-v2"
     ).exists(),
     reason="local semantic NLU assets are not provisioned",
 )
@@ -526,6 +660,22 @@ def test_compositional_temporal_nlu_resolves_parts_boundaries_and_ranges(
         (
             "show incidents between 2026-08-01 and 2026-08-10",
             "ABSOLUTE_RANGE",
+        ),
+        (
+            "show incidents during the previous two weeks",
+            "LAST_2_WEEKS",
+        ),
+        (
+            "mostra gli incidenti durante le due settimane precedenti",
+            "LAST_2_WEEKS",
+        ),
+        (
+            "show incidents the week before last",
+            "2_PERIODS_BEFORE_CURRENT_WEEK",
+        ),
+        (
+            "mostra gli incidenti la settimana prima della scorsa",
+            "2_PERIODS_BEFORE_CURRENT_WEEK",
         ),
         (
             "show incidents from darkstar-windows in the last 3 weeks",
@@ -554,6 +704,9 @@ def test_compositional_temporal_nlu_resolves_parts_boundaries_and_ranges(
     not Path("/opt/ai-soc/models/semantic-nlu/stanza").exists()
     or not Path(
         "/opt/ai-soc/models/semantic-nlu/multilingual-e5-small"
+    ).exists()
+    or not Path(
+        "/opt/ai-soc/models/semantic-nlu/paraphrase-multilingual-mpnet-base-v2"
     ).exists(),
     reason="local semantic NLU assets are not provisioned",
 )
@@ -723,10 +876,20 @@ def test_semantic_nlu_modules_do_not_import_regex_routing() -> None:
         "services/assistant/analytics/temporal.py",
         "services/assistant/analytics/nlu_runtime.py",
         "services/assistant/analytics/semantic_primitives.py",
+        "services/assistant/analytics/joint_parser.py",
+        "services/assistant/analytics/literal_resolution.py",
+        "services/assistant/analytics/general_soc.py",
     ):
         source = Path(relative).read_text()
-        assert "import re" not in source
-        assert "re.compile" not in source
+        syntax = ast.parse(source)
+        assert not any(
+            isinstance(node, ast.Import)
+            and any(alias.name == "re" for alias in node.names)
+            or isinstance(node, ast.ImportFrom)
+            and node.module == "re"
+            for node in ast.walk(syntax)
+        )
+        assert "_contains_words" not in source
     registry_source = Path("services/assistant/analytics/registry.py").read_text()
     assert "semantic_examples" not in registry_source
     assert "ANALYTICS_SEMANTIC_REGISTRY" not in registry_source
@@ -1249,6 +1412,73 @@ def test_global_orchestrator_uses_one_generation_and_deterministic_fallback(
     assert response.metadata.analytics_operation == "COUNT"
     assert response.metadata.fallback_reason == "v32_invalid_structured_output"
     assert response.blocks[0].provenance_classes == ["analytical_relationship"]
+
+
+@pytest.mark.skipif(
+    not Path(
+        "/opt/ai-soc/models/semantic-nlu/paraphrase-multilingual-mpnet-base-v2"
+    ).exists(),
+    reason="local joint semantic model is not provisioned",
+)
+def test_global_advisory_source_plan_reaches_v32_without_false_sql_route(
+    analytics_db,
+) -> None:
+    _db, factory, _incidents = analytics_db
+    calls: list[dict[str, Any]] = []
+
+    class KnowledgeBase:
+        config = SimpleNamespace(enabled=True, score_threshold=0.2)
+
+        def retrieve_contexts(self, query, **kwargs):
+            del query, kwargs
+            return [
+                {
+                    "source_type": "knowledge_base",
+                    "item_id": "script-validation",
+                    "source": "playbook:script-validation",
+                    "title": "Suspicious script validation procedure",
+                    "section": "Evidence checks",
+                    "text": (
+                        "For an unsigned PowerShell launch, review process ancestry, "
+                        "command execution, account context, endpoint timeline, and "
+                        "approved change records before containment."
+                    ),
+                    "score": 0.91,
+                }
+            ]
+
+    def invalid_generator(**kwargs):
+        calls.append(kwargs)
+        return {
+            "safe_error": "invalid_structured_output",
+            "error_type": "invalid_structured_output",
+            "_provider_generation_count": 1,
+        }
+
+    response = run_assistant_query(
+        AssistantQueryRequest(
+            message=(
+                "After an unsigned PowerShell launch, what should the responder "
+                "verify first?"
+            ),
+            scope="global",
+        ),
+        current_user={"id": "analyst-a", "role": "ANALYST"},
+        settings=AssistantSettings(enabled=True, response_architecture="v3_2"),
+        db_factory=factory,
+        knowledge_base_factory=KnowledgeBase,
+        generator=invalid_generator,
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["context"]["assistant_intent"] == "NEXT_ACTION"
+    assert response.metadata.assistant_intent == "NEXT_ACTION"
+    assert response.metadata.provider_generation_count == 1
+    assert response.metadata.automatic_retries == 0
+    assert response.metadata.model_switches == 0
+    assert response.metadata.analytics_definition_id is None
+    assert response.sources
+    assert all(source.authority == "advisory" for source in response.sources)
 
 
 @pytest.mark.parametrize(
