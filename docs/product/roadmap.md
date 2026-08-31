@@ -1,7 +1,7 @@
 # Roadmap
 
 This roadmap separates published releases from future work. The current release
-baseline is `v0.7.1`.
+baseline is `v0.8.0`.
 
 | Version | Status | Theme | Highlights |
 |---|---:|---|---|
@@ -13,6 +13,7 @@ baseline is `v0.7.1`.
 | v0.6 | Released | AI investigation and governed remediation | Investigation intelligence, evidence confidence, LLM-backed remediation intelligence, approval gates, dry-run simulation, rollback readiness, execution audit trail, replay simulation, controlled internal SOAR workflow actions, Incident Command Center rewrite and observability improvements. |
 | v0.7 | Released | Governed AI, semantic memory and operational control | AI providers/OpenRouter, AI Data Control, Qdrant Semantic Memory, Recommended Playbooks, investigation graph, advanced timeline, Detection Control lifecycle/versioning, governed remediation connectors, Operation History, Alertmanager, Loki/Alloy, installability and expanded validation. |
 | v0.7.1 | Released | Runtime, memory and API hardening | Llama.cpp local runtime foundation, operational Qdrant semantic memory, HTTPS-first internal platform access, modular `api.py` composition root and permanent API refactor guardrails. |
+| v0.8.0 | Released | Grounded Assistant and authoritative analytics | Global, Incident and Case Assistant scopes, compositional typed analytics, V3.2 semantic grounding, SQL/RBAC authority and fail-closed publication. |
 
 ## Completed Product Themes
 
@@ -44,11 +45,12 @@ baseline is `v0.7.1`.
 - Prometheus/Alertmanager alerting and Loki/Grafana Alloy logging.
 - Executive-ready reporting and evidence packs.
 
-## Candidate Post-v0.7.1 Direction
+## Candidate Post-v0.8.0 Direction
 
 These are candidate directions, not implemented commitments:
 
 - Additional telemetry connectors.
+- Platform-wide UX alignment and workflow consistency.
 - Case collaboration enhancements.
 - Scheduled report generation.
 - Production adapters for provider types beyond OpenAI-compatible endpoints.

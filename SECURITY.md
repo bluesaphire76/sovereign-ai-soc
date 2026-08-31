@@ -27,7 +27,8 @@ response authority.
 
 | Version | Security support |
 |---|---|
-| `main` / v0.7.1 current baseline | Supported |
+| `main` / v0.8.0 current baseline | Supported |
+| v0.7.x | Supported |
 | v0.6.x | Supported |
 | v0.4-v0.5 | Best-effort critical fixes only |
 | < v0.4 | Not supported |

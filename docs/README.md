@@ -2,8 +2,8 @@
 
 This is the canonical documentation entry point for the repository.
 
-The current release baseline is v0.7.1. The documentation below describes the
-published v0.7 product surface unless a page is explicitly marked historical.
+The current release baseline is v0.8.0. The documentation below describes the
+published v0.8 product surface unless a page is explicitly marked historical.
 
 ## Start Here
 
@@ -27,11 +27,12 @@ published v0.7 product surface unless a page is explicitly marked historical.
 | Security reviewer | [Security model](architecture/security-model.md), [AI Data Control](architecture/v0.7-ai-data-control-policy.md) and [Qdrant Semantic Memory](architecture/v0.7-qdrant-semantic-memory.md) | Review governance, data boundaries and advisory memory. |
 | Contributor | [Contributing](../CONTRIBUTING.md), [API composition root](architecture/api-composition-root.md) and docs validation below | Make safe, reviewable changes. |
 
-## Current v0.7.x / v0.7.1 Capability Guides
+## Current v0.8 Capability Guides
 
 | Area | Documentation |
 |---|---|
 | Product surface | [Feature map](product/feature-map.md) and [Evaluation guide](product/evaluation-guide.md) |
+| Grounded AI Assistant | [Global Assistant recovery](architecture/v1.3-global-assistant-product-recovery.md), [V3.2 semantic grounding](architecture/v1.1-ai-assistant-v3-2-semantic-grounding.md) and [Part B analytics](architecture/v1.2-ai-assistant-part-b-global.md) |
 | AI providers, Ollama, llama.cpp and OpenRouter | [External AI provider abstraction](architecture/v0.7-external-ai-provider-abstraction.md) and [llama.cpp Runtime](architecture/v0.7.1-llama-cpp-runtime.md) |
 | AI data governance | [AI Data Control policy](architecture/v0.7-ai-data-control-policy.md) |
 | Qdrant semantic memory | [Qdrant Semantic Memory](architecture/v0.7-qdrant-semantic-memory.md) |
@@ -48,7 +49,7 @@ published v0.7 product surface unless a page is explicitly marked historical.
 - `docs/product/`: user-facing behavior, workflows, demos and roadmap.
 - `docs/architecture/`: current architecture, security model and feature design.
 - `docs/operations/`: installation, administration, observability and runbooks.
-- `docs/releases/`: immutable release notes, including the current v0.7.1 release.
+- `docs/releases/`: immutable release notes, including the current v0.8.0 release.
 - `docs/validation/`: historical validation evidence and current validation guides.
 - `docs/diagrams/`: editable Mermaid architecture sources.
 - `docs/assets/`: committed screenshots and rendered architecture assets.

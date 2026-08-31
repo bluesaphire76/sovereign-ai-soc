@@ -1,7 +1,7 @@
 # Sovereign AI SOC
 
-![Release](https://img.shields.io/badge/latest%20tag-v0.7.1-953fdc0)
-![main](https://img.shields.io/badge/main-v0.7.1%20release-0891b2)
+![Release](https://img.shields.io/badge/latest%20tag-v0.8.0-953fdc0)
+![main](https://img.shields.io/badge/main-v0.8.0%20release-0891b2)
 [![Dependency Graph](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/dependabot/update-graph/badge.svg)](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/dependabot/update-graph)
 [![CodeQL](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/github-code-scanning/codeql)
 [![Public CI](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/ci.yml/badge.svg)](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/ci.yml)
@@ -31,7 +31,7 @@ runtime through a single-owner inference gateway. Ollama, OpenRouter, and other
 OpenAI-compatible endpoints remain configurable low-level integrations but are
 not active generation paths in gateway mode.
 
-The current release baseline is `v0.7.1`.
+The current release baseline is `v0.8.0`.
 
 ## For First-Time Visitors
 
@@ -39,7 +39,7 @@ The current release baseline is `v0.7.1`.
 - Want to evaluate it safely? Start with [Evaluation Guide](docs/product/evaluation-guide.md).
 - Want to run it locally? Start with [External User Quickstart](docs/product/external-user-quickstart.md).
 - Want to see the architecture? Start with [Architecture](docs/architecture/architecture.md).
-- Want to evaluate the current release? Start with [v0.7.1 Release Notes](docs/releases/RELEASE_NOTES_v0.7.1.md).
+- Want to evaluate the current release? Start with [v0.8.0 Release Notes](docs/releases/RELEASE_NOTES_v0.8.0.md).
 
 ## Product Preview
 
@@ -169,9 +169,11 @@ Additional screenshots are available in [`docs/assets/screenshots`](docs/assets/
 4. Qdrant retrieves advisory playbooks and historical/operational context.
 5. A single-owner inference gateway serializes local standard-profile
    generation with deterministic fallback.
-6. Analysts investigate through timelines, graphs, cases and Recommended Playbooks.
-7. Detection and remediation changes pass through lifecycle, approval and audit controls.
-8. Health, Operation History, metrics, alerts and selected logs provide operational confidence.
+6. The contextual Assistant serves global, incident and case questions through
+   typed analytics, authoritative evidence and V3.2 semantic proof.
+7. Analysts investigate through timelines, graphs, cases and Recommended Playbooks.
+8. Detection and remediation changes pass through lifecycle, approval and audit controls.
+9. Health, Operation History, metrics, alerts and selected logs provide operational confidence.
 
 ## Why Sovereign AI SOC
 
@@ -199,6 +201,7 @@ Sovereign AI SOC demonstrates a local-first approach:
 | Incident workflow | Incident Command Center, lifecycle, Advanced Timeline, Investigation Graph, Similar Incidents, Recommended Playbooks and evidence context |
 | Case workflow | Ownership, SLA posture, closure readiness, linked incidents, persisted AI jobs, semantic closure context, graph and Kanban |
 | AI providers | Single-owner local llama.cpp standard-profile generation over a Unix socket; other provider configurations are inactive in gateway mode |
+| AI Assistant | Global, Incident and Case Assistant scopes with closed typed analytics, SQL authority, V3.2 semantic grounding and fail-closed publication |
 | AI Data Control | Per-feature role/provider policy, deterministic redaction, previews and audit-safe decision history |
 | Semantic memory | Qdrant knowledge base, historical incidents, Detection Control and approved/final Case Closure memory |
 | Remediation workflow | LLM-backed intelligence, persistent proposals, approvals, dry-run, rollback readiness, replay and safe internal conversions |
@@ -215,15 +218,18 @@ AI is used across the workflow, not only for triage.
 Active generative features use the local-only Unix socket
 `/run/ai-soc/inference-gateway.sock`. The gateway owns llama.cpp readiness,
 enforces `ai-soc-standard`, and serializes work by analyst-aware priority.
-The Contextual Assistant validates structured responses against authoritative
-facts and assigns source references in the backend; Qdrant advisory context
-fails open within a two-second budget. See
+The Contextual Assistant supports Global, Incident and Case scopes through the
+shared `/assistant/query` architecture. Operational facts remain SQL-authoritative,
+analytical results retain typed derivation provenance, and Qdrant remains
+discovery/support only. One maximum local Qwen answer generation must pass V3.2
+whole-response semantic proof before atomic publication; rejection produces a
+deterministic fail-closed response. See
 [AI Execution Gateway](docs/architecture/v0.8-ai-execution-gateway.md) and
 [Grounded Assistant Response](docs/architecture/v0.8-ai-assistant-grounded-response.md).
-The production V3 architecture adds embedding-driven intent/focus routing,
-authorized cross-incident evidence, typed provenance, bounded conversation
-state, and one schema-constrained generation; see
-[AI Assistant V3 Production Quality](docs/architecture/v0.9-ai-assistant-v3-milestone-c.md).
+The production architecture adds compositional `SemanticQueryAST` planning,
+authorized cross-incident evidence, typed provenance and bounded conversation
+state; see [Global Assistant Product Recovery](docs/architecture/v1.3-global-assistant-product-recovery.md)
+and [V3.2 Hybrid Semantic Grounding](docs/architecture/v1.1-ai-assistant-v3-2-semantic-grounding.md).
 
 - Incident AI analysis for situation summaries, risk rationale and evidence interpretation.
 - Structured AI Command Brief with provider/model visibility.
@@ -510,6 +516,7 @@ python3 scripts/validate_public_ci_baseline.py
 - [Investigation Graph](docs/architecture/v0.7-investigation-graph.md)
 - [Governed Remediation Connectors](docs/architecture/v0.7-governed-remediation-connectors.md)
 - [Service Operations and Operation History](docs/operations/v0.7-service-operations-history.md)
+- [v0.8.0 Release Notes](docs/releases/RELEASE_NOTES_v0.8.0.md)
 - [v0.7.1 Release Notes](docs/releases/RELEASE_NOTES_v0.7.1.md)
 - [v0.7.0 Release Notes](docs/releases/RELEASE_NOTES_v0.7.0.md)
 - [v0.6.0 Release Notes](docs/releases/RELEASE_NOTES_v0.6.0.md)
@@ -550,6 +557,7 @@ Existing release and validation notes:
 | v0.6 | Released | AI investigation intelligence, human-governed remediation, Incident Command Center rewrite, replay simulation, controlled internal SOAR workflow actions and observability improvements |
 | v0.7 | Released | Governed AI providers/data control, semantic memory, Recommended Playbooks, graph/timeline, Detection Control lifecycle, governed connectors, Operation History, Alertmanager/Loki/Alloy and installability |
 | v0.7.1 | Released | Llama.cpp runtime foundation, operational Qdrant memory, HTTPS-first platform access, modular `api.py` composition root and API refactor guardrails |
+| v0.8.0 | Released | Grounded Global, Incident and Case Assistant, compositional authoritative analytics, V3.2 semantic proof and fail-closed publication |
 
 See [Roadmap](docs/product/roadmap.md).
 
