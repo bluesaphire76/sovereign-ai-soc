@@ -3,8 +3,13 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from enum import Enum
+from types import MappingProxyType
 from typing import Callable, Mapping
 
+from services.assistant.analytics.contracts import (
+    AnalyticsExecutionStrategy,
+    AnalyticsRegistryDefinition,
+)
 from services.assistant.analytics.joint_parser import (
     JointSemanticPlanRanker,
     SemanticCandidateScore,
@@ -27,6 +32,50 @@ class GeneralSocSourcePlan(str, Enum):
     RELATIONSHIP = "RELATIONSHIP"
     SIMILARITY = "SIMILARITY"
     UNSUPPORTED = "UNSUPPORTED"
+
+
+GENERAL_SOC_ANALYTICS_EXECUTION_STRATEGIES: Mapping[
+    GeneralSocSourcePlan,
+    frozenset[AnalyticsExecutionStrategy],
+] = MappingProxyType(
+    {
+        GeneralSocSourcePlan.OPERATIONAL_ANALYTICS: frozenset(
+            {
+                "SQL_AGGREGATE",
+                "SQL_RESULT_SET",
+                "SQL_THEN_TYPED_DERIVATION",
+                "RECORDED_RELATIONSHIP_LOOKUP",
+                "SEMANTIC_DISCOVERY_REHYDRATION",
+            }
+        ),
+        GeneralSocSourcePlan.OPERATIONAL_FACT: frozenset({"SQL_RESULT_SET"}),
+        GeneralSocSourcePlan.REFERENCE: frozenset({"REFERENCE_LOOKUP"}),
+        GeneralSocSourcePlan.PLAYBOOK: frozenset(),
+        GeneralSocSourcePlan.INVESTIGATION: frozenset(),
+        GeneralSocSourcePlan.REMEDIATION: frozenset(),
+        GeneralSocSourcePlan.RELATIONSHIP: frozenset(
+            {"RECORDED_RELATIONSHIP_LOOKUP"}
+        ),
+        GeneralSocSourcePlan.SIMILARITY: frozenset(
+            {"SEMANTIC_DISCOVERY_REHYDRATION"}
+        ),
+        GeneralSocSourcePlan.UNSUPPORTED: frozenset(),
+    }
+)
+
+
+def source_plan_uses_analytics_builder(source_plan: GeneralSocSourcePlan) -> bool:
+    return bool(GENERAL_SOC_ANALYTICS_EXECUTION_STRATEGIES[source_plan])
+
+
+def source_plan_allows_analytics_definition(
+    source_plan: GeneralSocSourcePlan,
+    definition: AnalyticsRegistryDefinition,
+) -> bool:
+    return (
+        definition.execution_strategy
+        in GENERAL_SOC_ANALYTICS_EXECUTION_STRATEGIES[source_plan]
+    )
 
 
 @dataclass(frozen=True)
@@ -175,13 +224,13 @@ class GeneralSocSemanticPlanRouter:
         )
         execution_groups = {
             GeneralSocSourcePlan.OPERATIONAL_ANALYTICS: "analytics",
+            GeneralSocSourcePlan.OPERATIONAL_FACT: "analytics",
             GeneralSocSourcePlan.RELATIONSHIP: "analytics",
             GeneralSocSourcePlan.SIMILARITY: "analytics",
             GeneralSocSourcePlan.REFERENCE: "reference",
             GeneralSocSourcePlan.PLAYBOOK: "advisory",
             GeneralSocSourcePlan.INVESTIGATION: "advisory",
             GeneralSocSourcePlan.REMEDIATION: "advisory",
-            GeneralSocSourcePlan.OPERATIONAL_FACT: "fact",
             GeneralSocSourcePlan.UNSUPPORTED: "unsupported",
         }
         grouped_scores: dict[str, float] = {}

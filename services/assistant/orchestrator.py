@@ -52,6 +52,7 @@ from services.assistant.analytics.general_soc import (
     GeneralSocSemanticPlanRouter,
     GeneralSocSourcePlan,
     get_general_soc_semantic_plan_router,
+    source_plan_uses_analytics_builder,
 )
 from services.assistant.claims import grounded_claim_output_schema
 from services.assistant.focus import (
@@ -2346,18 +2347,26 @@ def run_assistant_query(
         global_soc_decision = (
             general_soc_router or get_general_soc_semantic_plan_router()
         ).route(payload.message)
-    advisory_source_plans = {
-        GeneralSocSourcePlan.PLAYBOOK,
-        GeneralSocSourcePlan.INVESTIGATION,
-        GeneralSocSourcePlan.REMEDIATION,
-    }
-    bypass_global_analytics = bool(
+        if not global_soc_decision.accepted:
+            return _global_resolution_response(
+                payload=payload,
+                response_language=response_language,
+                routing_status=(
+                    "unsupported_literal"
+                    if global_soc_decision.source_plan
+                    is GeneralSocSourcePlan.UNSUPPORTED
+                    else "ambiguous"
+                ),
+                request_started=request_started,
+                clock=clock,
+            )
+
+    use_global_analytics = bool(
         global_soc_decision is not None
-        and global_soc_decision.accepted
-        and global_soc_decision.source_plan in advisory_source_plans
+        and source_plan_uses_analytics_builder(global_soc_decision.source_plan)
     )
 
-    if payload.scope == "global" and not bypass_global_analytics:
+    if payload.scope == "global" and use_global_analytics:
         global_context = None
         db = db_factory()
         try:
@@ -2374,6 +2383,11 @@ def run_assistant_query(
                     and global_soc_decision.query_embedding
                     else question_vector
                 ),
+                source_plan=(
+                    global_soc_decision.source_plan
+                    if global_soc_decision is not None
+                    else None
+                ),
                 clock=clock,
             )
         except GlobalAnalyticsResolutionError as exc:
@@ -2382,27 +2396,14 @@ def run_assistant_query(
                 request_id,
                 exc.routing_status,
             )
-            if exc.routing_status == "unsupported_literal":
-                fallback_source_plans = {
-                    GeneralSocSourcePlan.REFERENCE,
-                    GeneralSocSourcePlan.PLAYBOOK,
-                    GeneralSocSourcePlan.INVESTIGATION,
-                    GeneralSocSourcePlan.REMEDIATION,
-                    GeneralSocSourcePlan.SIMILARITY,
-                }
-                if (
-                    global_soc_decision is None
-                    or not global_soc_decision.accepted
-                    or global_soc_decision.source_plan not in fallback_source_plans
-                ):
-                    return _global_resolution_response(
-                        payload=payload,
-                        response_language=response_language,
-                        routing_status=exc.routing_status,
-                        request_started=request_started,
-                        clock=clock,
-                    )
-            else:
+            reference_fallback = bool(
+                global_soc_decision is not None
+                and global_soc_decision.source_plan
+                is GeneralSocSourcePlan.REFERENCE
+                and exc.routing_status
+                in {"source_domain_mismatch", "unsupported_literal"}
+            )
+            if not reference_fallback:
                 return _global_resolution_response(
                     payload=payload,
                     response_language=response_language,

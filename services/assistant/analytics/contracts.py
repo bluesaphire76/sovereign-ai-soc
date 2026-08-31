@@ -22,6 +22,16 @@ from services.assistant.v3.contracts import (
 )
 
 
+AnalyticsExecutionStrategy = Literal[
+    "SQL_AGGREGATE",
+    "SQL_RESULT_SET",
+    "SQL_THEN_TYPED_DERIVATION",
+    "RECORDED_RELATIONSHIP_LOOKUP",
+    "SEMANTIC_DISCOVERY_REHYDRATION",
+    "REFERENCE_LOOKUP",
+]
+
+
 class AnalyticsRegistryDefinition(ClosedModel):
     definition_id: str = Field(min_length=1, max_length=120)
     operation: AnalyticalOperation
@@ -31,14 +41,7 @@ class AnalyticsRegistryDefinition(ClosedModel):
     fixed_filters: list[AnalyticalFilterDescriptor] = Field(default_factory=list, max_length=8)
     grouping_dimensions: list[AnalyticalDimension] = Field(default_factory=list, max_length=4)
     joins: list[Literal["CASE_INCIDENTS"]] = Field(default_factory=list, max_length=2)
-    execution_strategy: Literal[
-        "SQL_AGGREGATE",
-        "SQL_RESULT_SET",
-        "SQL_THEN_TYPED_DERIVATION",
-        "RECORDED_RELATIONSHIP_LOOKUP",
-        "SEMANTIC_DISCOVERY_REHYDRATION",
-        "REFERENCE_LOOKUP",
-    ]
+    execution_strategy: AnalyticsExecutionStrategy
     ordering: Literal["NONE", "VALUE_DESC", "TIME_DESC", "TIME_ASC"] = "NONE"
     maximum_limit: int = Field(default=20, ge=1, le=50)
     requires_time_window: bool = False

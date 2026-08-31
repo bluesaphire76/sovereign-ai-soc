@@ -18,6 +18,14 @@ from services.assistant.analytics.normalization import normalize_mitre_facts
 from services.assistant.analytics.interpreter import (
     GlobalAnalyticsInterpreter,
 )
+from services.assistant.analytics.general_soc import (
+    GeneralSocSourcePlan,
+    source_plan_allows_analytics_definition,
+)
+from services.assistant.analytics.registry import (
+    DEFAULT_ANALYTICS_REGISTRY,
+    AnalyticsRegistry,
+)
 from services.assistant.retrieval import RetrievalResult
 from services.assistant.sources import SourceRecord
 from services.assistant.v3.atoms import OperationalAtomNormalizer
@@ -173,6 +181,7 @@ class GlobalAnalyticsContextBuilder:
         graph_builder: CrossIncidentGraphBuilder | None = None,
         reference_provider: ReferenceKnowledgeProvider | None = None,
         conversation_store: ConversationStateStore | None = None,
+        analytics_registry: AnalyticsRegistry | None = None,
     ) -> None:
         self._access = access_policy or PlatformAnalyticsAccessPolicy()
         self._interpreter = interpreter or GlobalAnalyticsInterpreter()
@@ -183,6 +192,7 @@ class GlobalAnalyticsContextBuilder:
         self._graph = graph_builder or CrossIncidentGraphBuilder()
         self._reference = reference_provider or ReferenceKnowledgeProvider()
         self._conversations = conversation_store or get_conversation_state_store()
+        self._analytics_registry = analytics_registry or DEFAULT_ANALYTICS_REGISTRY
 
     @staticmethod
     def _row_id(row: Any) -> int:
@@ -378,6 +388,7 @@ class GlobalAnalyticsContextBuilder:
         db: Any,
         current_user: Mapping[str, Any] | None,
         request_embedding: Sequence[float] | None = None,
+        source_plan: GeneralSocSourcePlan | None = None,
         now: datetime | None = None,
         clock: Callable[[], float] = time.monotonic,
         wall_clock: Callable[[], float] = time.time,
@@ -408,6 +419,12 @@ class GlobalAnalyticsContextBuilder:
         )
         if interpreted.plan is None:
             raise GlobalAnalyticsResolutionError(interpreted.decision.routing_status)
+        definition = self._analytics_registry.resolve(interpreted.plan.definition_id)
+        if source_plan is not None and (
+            definition is None
+            or not source_plan_allows_analytics_definition(source_plan, definition)
+        ):
+            raise GlobalAnalyticsResolutionError("source_domain_mismatch")
         outcome = self._executor.execute(
             interpreted.plan,
             db=db,

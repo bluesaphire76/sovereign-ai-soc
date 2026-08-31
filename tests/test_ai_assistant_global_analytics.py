@@ -32,8 +32,12 @@ from services.assistant.analytics.literal_resolution import resolve_closed_liter
 from services.assistant.analytics.nlu_runtime import DependencyDocument, DependencyToken
 from services.assistant.analytics.fallback import render_global_analytics_fallback
 from services.assistant.analytics.general_soc import (
+    GENERAL_SOC_ANALYTICS_EXECUTION_STRATEGIES,
+    GeneralSocPlanDecision,
     GeneralSocSourcePlan,
     get_general_soc_semantic_plan_router,
+    source_plan_allows_analytics_definition,
+    source_plan_uses_analytics_builder,
 )
 from services.assistant.analytics.normalization import normalize_mitre_facts
 from services.assistant.analytics.registry import DEFAULT_ANALYTICS_REGISTRY
@@ -50,7 +54,9 @@ from services.assistant.v3.contracts import (
     AnalyticalFilterField,
     AnalyticalMeasure,
     AnalyticalOperation,
+    AnswerIntent,
     AuthorityClass,
+    IntentSelection,
     RelationshipClass,
 )
 from services.assistant.v3.conversation import ConversationStateStore
@@ -103,6 +109,43 @@ class StaticAnalyticsRouter:
             confidence=0.93 if self.definition_id else 0.0,
             routing_status=self.status,
             routing_ms=0.1,
+        )
+
+
+class StaticGeneralSocRouter:
+    def __init__(self, source_plan: GeneralSocSourcePlan) -> None:
+        self.source_plan = source_plan
+
+    def route(self, question: str) -> GeneralSocPlanDecision:
+        del question
+        intent = {
+            GeneralSocSourcePlan.REFERENCE: AnswerIntent.EXPLAIN,
+            GeneralSocSourcePlan.PLAYBOOK: AnswerIntent.NEXT_ACTION,
+            GeneralSocSourcePlan.INVESTIGATION: AnswerIntent.INVESTIGATE,
+            GeneralSocSourcePlan.REMEDIATION: AnswerIntent.NEXT_ACTION,
+            GeneralSocSourcePlan.RELATIONSHIP: AnswerIntent.CROSS_INCIDENT_ANALYSIS,
+            GeneralSocSourcePlan.SIMILARITY: AnswerIntent.CROSS_INCIDENT_ANALYSIS,
+        }.get(self.source_plan, AnswerIntent.FACT_LOOKUP)
+        return GeneralSocPlanDecision(
+            accepted=self.source_plan is not GeneralSocSourcePlan.UNSUPPORTED,
+            source_plan=self.source_plan,
+            intent_selection=IntentSelection(
+                primary_intent=intent,
+                confidence=1.0,
+                routing_status="ok",
+                routing_ms=0.0,
+            ),
+            include_advisory=self.source_plan
+            in {
+                GeneralSocSourcePlan.REFERENCE,
+                GeneralSocSourcePlan.PLAYBOOK,
+                GeneralSocSourcePlan.INVESTIGATION,
+                GeneralSocSourcePlan.REMEDIATION,
+                GeneralSocSourcePlan.SIMILARITY,
+            },
+            confidence=1.0,
+            margin=1.0,
+            candidates=(),
         )
 
 
@@ -556,6 +599,116 @@ def test_general_soc_source_plan_generalizes_without_phrase_dispatch() -> None:
     rejected = router.route("Compose a song about a mountain.")
     assert rejected.accepted is False
     assert rejected.source_plan is GeneralSocSourcePlan.UNSUPPORTED
+
+
+def test_general_soc_source_execution_ownership_is_closed() -> None:
+    assert set(GENERAL_SOC_ANALYTICS_EXECUTION_STRATEGIES) == set(
+        GeneralSocSourcePlan
+    )
+    expected = {
+        GeneralSocSourcePlan.OPERATIONAL_ANALYTICS: {
+            "SQL_AGGREGATE",
+            "SQL_RESULT_SET",
+            "SQL_THEN_TYPED_DERIVATION",
+            "RECORDED_RELATIONSHIP_LOOKUP",
+            "SEMANTIC_DISCOVERY_REHYDRATION",
+        },
+        GeneralSocSourcePlan.OPERATIONAL_FACT: {"SQL_RESULT_SET"},
+        GeneralSocSourcePlan.REFERENCE: {"REFERENCE_LOOKUP"},
+        GeneralSocSourcePlan.PLAYBOOK: set(),
+        GeneralSocSourcePlan.INVESTIGATION: set(),
+        GeneralSocSourcePlan.REMEDIATION: set(),
+        GeneralSocSourcePlan.RELATIONSHIP: {"RECORDED_RELATIONSHIP_LOOKUP"},
+        GeneralSocSourcePlan.SIMILARITY: {
+            "SEMANTIC_DISCOVERY_REHYDRATION"
+        },
+        GeneralSocSourcePlan.UNSUPPORTED: set(),
+    }
+    for source_plan, strategies in expected.items():
+        assert set(GENERAL_SOC_ANALYTICS_EXECUTION_STRATEGIES[source_plan]) == strategies
+        assert source_plan_uses_analytics_builder(source_plan) is bool(strategies)
+        for definition in DEFAULT_ANALYTICS_REGISTRY.definitions:
+            assert source_plan_allows_analytics_definition(
+                source_plan,
+                definition,
+            ) is (definition.execution_strategy in strategies)
+
+
+def test_reference_source_rejects_incompatible_analytics_before_execution(
+    analytics_db,
+) -> None:
+    db, _factory, _incidents = analytics_db
+
+    class NeverExecute:
+        called = False
+
+        def execute(self, *args, **kwargs):
+            del args, kwargs
+            self.called = True
+            raise AssertionError("an incompatible source plan reached execution")
+
+    executor = NeverExecute()
+    builder = GlobalAnalyticsContextBuilder(
+        interpreter=GlobalAnalyticsInterpreter(
+            router=StaticAnalyticsRouter("case_list")
+        ),
+        executor=executor,
+    )
+
+    with pytest.raises(GlobalAnalyticsResolutionError) as captured:
+        builder.build(
+            payload=AssistantQueryRequest(
+                message="Clarify a defensive security concept.",
+                scope="global",
+            ),
+            response_language="en",
+            db=db,
+            current_user={"id": "analyst-a", "role": "ANALYST"},
+            source_plan=GeneralSocSourcePlan.REFERENCE,
+            now=NOW,
+        )
+
+    assert captured.value.routing_status == "source_domain_mismatch"
+    assert executor.called is False
+
+
+def test_reference_source_mismatch_uses_generic_path_without_analytics_records(
+    analytics_db,
+) -> None:
+    _db, factory, _incidents = analytics_db
+    calls = 0
+
+    def invalid_generator(**kwargs):
+        nonlocal calls
+        del kwargs
+        calls += 1
+        return {
+            "safe_error": "invalid_structured_output",
+            "error_type": "invalid_structured_output",
+            "_provider_generation_count": 1,
+        }
+
+    response = run_assistant_query(
+        AssistantQueryRequest(
+            message="Clarify a defensive security concept.",
+            scope="global",
+        ),
+        current_user={"id": "analyst-a", "role": "ANALYST"},
+        settings=AssistantSettings(enabled=True, response_architecture="v3_2"),
+        db_factory=factory,
+        global_context_builder=_builder("case_list"),
+        general_soc_router=StaticGeneralSocRouter(GeneralSocSourcePlan.REFERENCE),
+        generator=invalid_generator,
+    )
+
+    assert calls == 0
+    assert response.metadata.analytics_definition_id is None
+    assert response.metadata.assistant_intent == "EXPLAIN"
+    assert response.metadata.provider_generation_count == 0
+    assert not any(
+        source.source_type in {"analytics_registry", "incident", "case"}
+        for source in response.sources
+    )
 
 
 @pytest.mark.skipif(
