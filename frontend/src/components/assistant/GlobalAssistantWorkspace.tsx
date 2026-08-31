@@ -42,10 +42,10 @@ type ConversationTurn =
     };
 
 const STARTER_QUERIES = [
-  "Quali host hanno generato più incidenti negli ultimi 7 giorni?",
-  "Confronta il numero di incidenti degli ultimi 7 giorni con i 7 giorni precedenti.",
-  "Quali incidenti risultano correlati al 5333?",
-  "Quali casi hanno superato lo SLA?",
+  "Which hosts generated the most incidents in the last 7 days?",
+  "Compare the incident count from the last 7 days with the previous 7 days.",
+  "Which incidents are correlated with incident 5333?",
+  "Which cases exceeded their SLA?",
 ];
 
 function runtimeLabel(capabilities: AssistantCapabilities | null) {
