@@ -258,7 +258,7 @@ export default function AppNavigation() {
 
   const navItems: NavItem[] = user
     ? [
-        ...NAV_ITEMS,
+        NAV_ITEMS[0],
         ...(user.role === "ADMIN" || user.role === "ANALYST"
           ? [
               {
@@ -269,6 +269,7 @@ export default function AppNavigation() {
               },
             ]
           : []),
+        ...NAV_ITEMS.slice(1),
         ...(user.role === "ADMIN" || user.role === "ANALYST"
           ? [
               {
