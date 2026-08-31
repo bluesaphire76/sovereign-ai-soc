@@ -27,7 +27,10 @@ from services.assistant.analytics.execution import (
     AuthoritativeAnalyticsExecutor,
     PlatformAnalyticsAccessPolicy,
 )
-from services.assistant.analytics.interpreter import GlobalAnalyticsInterpreter
+from services.assistant.analytics.interpreter import (
+    AnalyticsInterpretationResult,
+    GlobalAnalyticsInterpreter,
+)
 from services.assistant.analytics.literal_resolution import resolve_closed_literals
 from services.assistant.analytics.nlu_runtime import DependencyDocument, DependencyToken
 from services.assistant.analytics.fallback import render_global_analytics_fallback
@@ -94,6 +97,9 @@ from services.assistant.v3.semantic_proof.response_contracts import (
 
 
 NOW = datetime(2026, 8, 23, 10, 0, tzinfo=timezone.utc)
+LOCAL_STANZA_RESOURCES = Path(
+    "/opt/ai-soc/models/semantic-nlu/stanza/resources.json"
+)
 
 
 class StaticAnalyticsRouter:
@@ -110,6 +116,51 @@ class StaticAnalyticsRouter:
             routing_status=self.status,
             routing_ms=0.1,
         )
+
+
+class StaticPlanInterpreter:
+    def __init__(self, definition_id: str | None, *, status: str = "ok") -> None:
+        self.definition_id = definition_id
+        self.status = status
+
+    def interpret(self, question: str, **kwargs: Any) -> AnalyticsInterpretationResult:
+        del question, kwargs
+        decision = AnalyticsRouteDecision(
+            accepted=self.definition_id is not None,
+            definition_id=self.definition_id,
+            confidence=0.93 if self.definition_id else 0.0,
+            routing_status=self.status,
+            routing_ms=0.1,
+        )
+        if self.definition_id is None:
+            return AnalyticsInterpretationResult(decision=decision)
+        definition = DEFAULT_ANALYTICS_REGISTRY.resolve(self.definition_id)
+        if definition is None:
+            raise AssertionError("static test plan must use a registered definition")
+        anchor_record_id = (
+            1
+            if definition.operation
+            in {
+                AnalyticalOperation.RELATED_RECORDS,
+                AnalyticalOperation.SIMILAR_RECORDS,
+            }
+            else None
+        )
+        plan = AnalyticsQueryPlan.create(
+            definition_id=definition.definition_id,
+            operation=definition.operation,
+            entity=definition.entity,
+            measure=definition.measure,
+            filters=definition.fixed_filters,
+            dimensions=definition.grouping_dimensions,
+            limit=(
+                5
+                if definition.operation is AnalyticalOperation.TOP_K
+                else definition.maximum_limit
+            ),
+            anchor_record_id=anchor_record_id,
+        )
+        return AnalyticsInterpretationResult(decision=decision, plan=plan)
 
 
 class StaticGeneralSocRouter:
@@ -351,6 +402,23 @@ def _builder(
     )
 
 
+def _static_builder(
+    definition_id: str | None,
+    *,
+    status: str = "ok",
+    semantic_index: StaticSemanticIndex | None = None,
+) -> GlobalAnalyticsContextBuilder:
+    access = PlatformAnalyticsAccessPolicy()
+    return GlobalAnalyticsContextBuilder(
+        interpreter=StaticPlanInterpreter(definition_id, status=status),
+        executor=AuthoritativeAnalyticsExecutor(
+            access_policy=access,
+            incident_semantic_index=semantic_index,
+        ),
+        access_policy=access,
+    )
+
+
 def _build(
     db,
     definition_id: str,
@@ -361,6 +429,8 @@ def _build(
     semantic_index: StaticSemanticIndex | None = None,
     access_policy: PlatformAnalyticsAccessPolicy | None = None,
 ):
+    if not LOCAL_STANZA_RESOURCES.is_file():
+        pytest.skip("local Stanza resources are not provisioned")
     return _builder(
         definition_id,
         store=store,
@@ -649,9 +719,7 @@ def test_reference_source_rejects_incompatible_analytics_before_execution(
 
     executor = NeverExecute()
     builder = GlobalAnalyticsContextBuilder(
-        interpreter=GlobalAnalyticsInterpreter(
-            router=StaticAnalyticsRouter("case_list")
-        ),
+        interpreter=StaticPlanInterpreter("case_list"),
         executor=executor,
     )
 
@@ -696,7 +764,7 @@ def test_reference_source_mismatch_uses_generic_path_without_analytics_records(
         current_user={"id": "analyst-a", "role": "ANALYST"},
         settings=AssistantSettings(enabled=True, response_architecture="v3_2"),
         db_factory=factory,
-        global_context_builder=_builder("case_list"),
+        global_context_builder=_static_builder("case_list"),
         general_soc_router=StaticGeneralSocRouter(GeneralSocSourcePlan.REFERENCE),
         generator=invalid_generator,
     )
@@ -1553,7 +1621,10 @@ def test_global_orchestrator_uses_one_generation_and_deterministic_fallback(
         current_user={"id": "analyst-a", "role": "ANALYST"},
         settings=AssistantSettings(enabled=True, response_architecture="v3_2"),
         db_factory=factory,
-        global_context_builder=_builder("incident_count"),
+        global_context_builder=_static_builder("incident_count"),
+        general_soc_router=StaticGeneralSocRouter(
+            GeneralSocSourcePlan.OPERATIONAL_ANALYTICS
+        ),
         generator=invalid_generator,
     )
 
@@ -1712,9 +1783,14 @@ def test_relationship_fallback_stays_within_attribution_budget(
             max_sources=8,
         ),
         db_factory=factory,
-        global_context_builder=_builder(
+        global_context_builder=_static_builder(
             definition_id,
             semantic_index=semantic_index,
+        ),
+        general_soc_router=StaticGeneralSocRouter(
+            GeneralSocSourcePlan.SIMILARITY
+            if semantic
+            else GeneralSocSourcePlan.RELATIONSHIP
         ),
         generator=invalid_generator,
     )
@@ -1738,9 +1814,7 @@ def test_ambiguous_global_query_fails_closed_before_generation(analytics_db) -> 
         return {}
 
     builder = GlobalAnalyticsContextBuilder(
-        interpreter=GlobalAnalyticsInterpreter(
-            router=StaticAnalyticsRouter(None, status="ambiguous")
-        )
+        interpreter=StaticPlanInterpreter(None, status="ambiguous")
     )
     response = run_assistant_query(
         AssistantQueryRequest(message="Analizza la situazione", scope="global"),
@@ -1748,6 +1822,9 @@ def test_ambiguous_global_query_fails_closed_before_generation(analytics_db) -> 
         settings=AssistantSettings(enabled=True, response_architecture="v3_2"),
         db_factory=factory,
         global_context_builder=builder,
+        general_soc_router=StaticGeneralSocRouter(
+            GeneralSocSourcePlan.OPERATIONAL_ANALYTICS
+        ),
         generator=generator,
     )
 
@@ -1778,7 +1855,13 @@ def test_ambiguous_last_month_clarifies_without_generation(analytics_db) -> None
         current_user={"id": "analyst-a", "role": "ANALYST"},
         settings=AssistantSettings(enabled=True, response_architecture="v3_2"),
         db_factory=factory,
-        global_context_builder=_builder("incident_mitre_distribution"),
+        global_context_builder=_static_builder(
+            None,
+            status="ambiguous_time_window",
+        ),
+        general_soc_router=StaticGeneralSocRouter(
+            GeneralSocSourcePlan.OPERATIONAL_ANALYTICS
+        ),
         generator=generator,
     )
 
