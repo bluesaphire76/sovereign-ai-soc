@@ -18,6 +18,14 @@ from services.assistant.analytics.normalization import normalize_mitre_facts
 from services.assistant.analytics.interpreter import (
     GlobalAnalyticsInterpreter,
 )
+from services.assistant.analytics.general_soc import (
+    GeneralSocSourcePlan,
+    source_plan_allows_analytics_definition,
+)
+from services.assistant.analytics.registry import (
+    DEFAULT_ANALYTICS_REGISTRY,
+    AnalyticsRegistry,
+)
 from services.assistant.retrieval import RetrievalResult
 from services.assistant.sources import SourceRecord
 from services.assistant.v3.atoms import OperationalAtomNormalizer
@@ -40,6 +48,8 @@ from services.assistant.v3.contracts import (
     GlobalConversationQueryState,
     IncidentCandidate,
     IntentSelection,
+    MitreTechniqueAtom,
+    Provenance,
     RelationshipRegistry,
     ResolvedScope,
     SourceRegistryEntry,
@@ -56,6 +66,7 @@ from services.assistant.v3.graph import (
     CrossIncidentGraphBuilder,
     RecordedCorrelationLink,
 )
+from services.assistant.v3.knowledge import ReferenceKnowledgeProvider
 
 
 class GlobalAnalyticsResolutionError(Exception):
@@ -111,10 +122,21 @@ def _case_facts(row: IncidentCase) -> dict[str, Any]:
     }
 
 
-def _intent_for(outcome: AnalyticsExecutionOutcome) -> AnswerIntent:
+def _intent_for(
+    outcome: AnalyticsExecutionOutcome,
+    *,
+    detail_level: str = "SUMMARY",
+) -> AnswerIntent:
     operation = outcome.result_atom.operation
-    if operation is AnalyticalOperation.COMPARE_PERIODS:
+    if operation in {
+        AnalyticalOperation.COMPARE_PERIODS,
+        AnalyticalOperation.COMPARE_ENTITIES,
+    }:
         return AnswerIntent.COMPARE
+    if detail_level == "EXPLANATION":
+        return AnswerIntent.EXPLAIN
+    if detail_level == "GUIDANCE":
+        return AnswerIntent.NEXT_ACTION
     if operation in {
         AnalyticalOperation.RELATED_RECORDS,
         AnalyticalOperation.SIMILAR_RECORDS,
@@ -157,7 +179,9 @@ class GlobalAnalyticsContextBuilder:
         access_policy: AnalyticsAccessPolicy | None = None,
         atom_normalizer: OperationalAtomNormalizer | None = None,
         graph_builder: CrossIncidentGraphBuilder | None = None,
+        reference_provider: ReferenceKnowledgeProvider | None = None,
         conversation_store: ConversationStateStore | None = None,
+        analytics_registry: AnalyticsRegistry | None = None,
     ) -> None:
         self._access = access_policy or PlatformAnalyticsAccessPolicy()
         self._interpreter = interpreter or GlobalAnalyticsInterpreter()
@@ -166,7 +190,9 @@ class GlobalAnalyticsContextBuilder:
         )
         self._atoms = atom_normalizer or OperationalAtomNormalizer()
         self._graph = graph_builder or CrossIncidentGraphBuilder()
+        self._reference = reference_provider or ReferenceKnowledgeProvider()
         self._conversations = conversation_store or get_conversation_state_store()
+        self._analytics_registry = analytics_registry or DEFAULT_ANALYTICS_REGISTRY
 
     @staticmethod
     def _row_id(row: Any) -> int:
@@ -251,7 +277,11 @@ class GlobalAnalyticsContextBuilder:
         )
 
     @staticmethod
-    def _context_plan(intent: AnswerIntent) -> ContextPlan:
+    def _context_plan(
+        intent: AnswerIntent,
+        *,
+        include_reference: bool = False,
+    ) -> ContextPlan:
         limits = ContextLimits(
             max_operational_atoms=160,
             max_evidence_atoms=32,
@@ -259,7 +289,7 @@ class GlobalAnalyticsContextBuilder:
             max_candidates_discovered=40,
             max_candidates_rehydrated=15,
             max_graph_incidents=16,
-            max_reference_atoms=0,
+            max_reference_atoms=4 if include_reference else 0,
             max_advisory_atoms=0,
         )
         requirements = [
@@ -271,6 +301,8 @@ class GlobalAnalyticsContextBuilder:
             ContextRequirement.CORRELATION,
             ContextRequirement.MITRE,
         ]
+        if include_reference:
+            requirements = [ContextRequirement.MITRE, ContextRequirement.REFERENCE]
         if intent is AnswerIntent.CROSS_INCIDENT_ANALYSIS:
             requirements.append(ContextRequirement.CROSS_INCIDENT)
         return ContextPlan(
@@ -300,6 +332,7 @@ class GlobalAnalyticsContextBuilder:
                 FactField.SLA_DUE_AT,
             ],
             include_cross_incident=intent is AnswerIntent.CROSS_INCIDENT_ANALYSIS,
+            include_reference=include_reference,
             limits=limits,
         )
 
@@ -355,6 +388,7 @@ class GlobalAnalyticsContextBuilder:
         db: Any,
         current_user: Mapping[str, Any] | None,
         request_embedding: Sequence[float] | None = None,
+        source_plan: GeneralSocSourcePlan | None = None,
         now: datetime | None = None,
         clock: Callable[[], float] = time.monotonic,
         wall_clock: Callable[[], float] = time.time,
@@ -385,6 +419,12 @@ class GlobalAnalyticsContextBuilder:
         )
         if interpreted.plan is None:
             raise GlobalAnalyticsResolutionError(interpreted.decision.routing_status)
+        definition = self._analytics_registry.resolve(interpreted.plan.definition_id)
+        if source_plan is not None and (
+            definition is None
+            or not source_plan_allows_analytics_definition(source_plan, definition)
+        ):
+            raise GlobalAnalyticsResolutionError("source_domain_mismatch")
         outcome = self._executor.execute(
             interpreted.plan,
             db=db,
@@ -392,9 +432,24 @@ class GlobalAnalyticsContextBuilder:
             now=now,
             clock=clock,
         )
-        intent = _intent_for(outcome)
+        intent = _intent_for(
+            outcome,
+            detail_level=(
+                interpreted.semantic_ast.detail_level.value
+                if interpreted.semantic_ast
+                else "SUMMARY"
+            ),
+        )
         focus = _focus_for(outcome)
-        context_plan = self._context_plan(intent)
+        include_reference = bool(
+            interpreted.semantic_ast
+            and interpreted.semantic_ast.target is AnalyticalEntity.MITRE_TECHNIQUE
+            and interpreted.semantic_ast.detail_level.value == "EXPLANATION"
+        )
+        context_plan = self._context_plan(
+            intent,
+            include_reference=include_reference,
+        )
         record_rows = [
             *([outcome.anchor_incident] if outcome.anchor_incident is not None else []),
             *outcome.incident_rows,
@@ -417,6 +472,37 @@ class GlobalAnalyticsContextBuilder:
         operational_atoms = list(
             {item.atom_id: item for item in operational_atoms}.values()
         )[: context_plan.limits.max_operational_atoms]
+        reference_started = clock()
+        reference_inputs = []
+        if include_reference:
+            technique_filter = next(
+                (
+                    item
+                    for item in interpreted.plan.filters
+                    if item.field is AnalyticalFilterField.MITRE_TECHNIQUE
+                ),
+                None,
+            )
+            if technique_filter is not None:
+                technique_id = technique_filter.values[0]
+                reference_inputs.append(
+                    MitreTechniqueAtom(
+                        atom_id=f"reference-input:mitre:{technique_id}",
+                        authority_class=AuthorityClass.REFERENCE_KNOWLEDGE,
+                        provenance=Provenance(
+                            authority_class=AuthorityClass.REFERENCE_KNOWLEDGE,
+                            source_type="project_mitre_catalog",
+                            source_record_id=technique_id,
+                            retrieval_method="project_catalog",
+                        ),
+                        technique_id=technique_id,
+                    )
+                )
+        reference_atoms = self._reference.retrieve(
+            plan=context_plan,
+            operational_atoms=reference_inputs,
+        )
+        reference_ms = max(0.0, (clock() - reference_started) * 1000)
 
         candidates: list[IncidentCandidate] = []
         recorded_links: list[RecordedCorrelationLink] = []
@@ -511,6 +597,13 @@ class GlobalAnalyticsContextBuilder:
                 source_type="incident",
                 source_record_id=str(candidate.candidate_incident_id),
             )
+        for atom in reference_atoms:
+            registry[atom.knowledge_id] = SourceRegistryEntry(
+                source_ref=atom.knowledge_id,
+                authority_class=atom.authority_class,
+                source_type=atom.provenance.source_type,
+                source_record_id=atom.provenance.source_record_id,
+            )
 
         global_state = GlobalConversationQueryState(
             registry_definition_id=interpreted.plan.definition_id,
@@ -519,9 +612,23 @@ class GlobalAnalyticsContextBuilder:
             measure=interpreted.plan.measure,
             filters=interpreted.plan.filters,
             time_window=interpreted.plan.time_window,
+            comparison_window=interpreted.plan.comparison_window,
             dimensions=interpreted.plan.dimensions,
+            distinct=bool(interpreted.semantic_ast.distinct) if interpreted.semantic_ast else False,
+            limit=interpreted.plan.limit,
+            anchor_record_id=interpreted.plan.anchor_record_id,
+            detail_level=(
+                interpreted.semantic_ast.detail_level.value
+                if interpreted.semantic_ast
+                else "SUMMARY"
+            ),
             result_incident_ids=outcome.result_atom.result_ids,
             result_case_ids=[int(row.id) for row in outcome.case_rows],
+            result_dimension_values=[
+                dimension
+                for row in outcome.result_atom.rows
+                for dimension in row.dimensions
+            ][:50],
             query_plan_fingerprint=interpreted.plan.query_plan_fingerprint,
         )
         conversation_id = getattr(payload, "conversation_id", None)
@@ -537,7 +644,7 @@ class GlobalAnalyticsContextBuilder:
                 focus_dimensions=focus,
                 atom_refs=[item.atom_id for item in operational_atoms],
                 relationship_refs=[item.relationship_id for item in graph.relationships],
-                reference_refs=[],
+                reference_refs=[item.knowledge_id for item in reference_atoms],
                 advisory_refs=[],
                 response_language=response_language,
                 now=wall_clock(),
@@ -609,6 +716,7 @@ class GlobalAnalyticsContextBuilder:
                 len(outcome.incident_rows) + len(outcome.case_rows)
             ),
             graph_construction_ms=graph_ms,
+            reference_retrieval_ms=reference_ms,
             total_context_build_ms=total_ms,
         )
         package = V3AnalyticalContextPackage(
@@ -627,6 +735,7 @@ class GlobalAnalyticsContextBuilder:
             relationship_registry=RelationshipRegistry(
                 relationships=graph.relationships
             ),
+            reference_atoms=reference_atoms,
             semantic_index_status=(
                 outcome.semantic_index_status
                 if outcome.semantic_index_status
@@ -641,6 +750,17 @@ class GlobalAnalyticsContextBuilder:
             "unavailable": "retrieval_failed",
         }.get(outcome.semantic_index_status, "not_requested")
         sources = self._sources(outcome)
+        sources.extend(
+            SourceRecord(
+                source_type=item.provenance.source_type,
+                authority="reference",
+                record_id=item.provenance.source_record_id,
+                label=item.subject,
+                excerpt=item.bounded_content,
+                provenance_class="reference_knowledge",
+            )
+            for item in reference_atoms
+        )
         retrieval = RetrievalResult(
             scope="global",
             fact_inventory={

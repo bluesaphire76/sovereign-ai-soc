@@ -170,6 +170,11 @@ def _relationship_evidence_value(
 def _analytical_kind_and_predicate(
     atom: AnalyticalResultAtom,
 ) -> tuple[EvidenceKind, ProofPredicate]:
+    if atom.operation is AnalyticalOperation.COMPARE_ENTITIES:
+        return (
+            EvidenceKind.ANALYTICAL_COMPARISON,
+            ProofPredicate.ANALYTICAL_ENTITY_COMPARISON,
+        )
     return {
         AnalyticalResultKind.COUNT: (
             EvidenceKind.ANALYTICAL_COUNT,
@@ -244,6 +249,7 @@ def _analytical_filters(
         "RECORDED_RISK": ("recorded risk", "rischio registrato"),
         "SLA_STATE": ("SLA state", "stato SLA"),
         "STATUS": ("status", "stato"),
+        "RECORDED_RISK": ("recorded risk", "rischio registrato"),
     }
     selected = []
     for item in atom.filters:
@@ -315,7 +321,19 @@ def _analytical_rows(atom: AnalyticalResultAtom) -> tuple[list[str], list[str]]:
             if row.measure_value is not None
             else ""
         )
-        details = ", ".join(item for item in (identity, dimensions, measure) if item)
+        comparison = (
+            f"PREVIOUS_{atom.measure.value}={_number(row.comparison_value)}"
+            if row.comparison_value is not None
+            else ""
+        )
+        delta = (
+            f"DELTA_{atom.measure.value}={_number(row.delta_value)}"
+            if row.delta_value is not None
+            else ""
+        )
+        details = ", ".join(
+            item for item in (identity, dimensions, measure, comparison, delta) if item
+        )
         row_texts.append(details or row.row_id)
         values.extend(
             [
@@ -325,6 +343,16 @@ def _analytical_rows(atom: AnalyticalResultAtom) -> tuple[list[str], list[str]]:
                 *(
                     [_number(row.measure_value)]
                     if row.measure_value is not None
+                    else []
+                ),
+                *(
+                    [_number(row.comparison_value)]
+                    if row.comparison_value is not None
+                    else []
+                ),
+                *(
+                    [_number(row.delta_value)]
+                    if row.delta_value is not None
                     else []
                 ),
             ]
@@ -365,7 +393,17 @@ def _analytical_rows_natural(
             )
         if row.measure_value is not None:
             count = _number(row.measure_value)
-            if atom.operation is AnalyticalOperation.TOP_K and row.dimensions:
+            if row.comparison_value is not None and row.delta_value is not None:
+                previous = _number(row.comparison_value)
+                delta = _number(row.delta_value)
+                label = (
+                    f"{label}: {count} incidents in the current period, {previous} in the "
+                    f"previous period, a change of {delta}"
+                    if language == "en"
+                    else f"{label}: {count} incidenti nel periodo corrente, {previous} nel "
+                    f"periodo precedente, una variazione di {delta}"
+                )
+            elif atom.operation is AnalyticalOperation.TOP_K and row.dimensions:
                 dimension = row.dimensions[0]
                 noun = dimension_labels.get(
                     dimension.dimension.value,
@@ -402,8 +440,16 @@ def _analytical_premise(
     result_count = len(atom.result_ids)
     if atom.operation is AnalyticalOperation.COUNT:
         value = _number(atom.scalar_value or 0)
-        entity_en = "incidents" if atom.entity is AnalyticalEntity.INCIDENT else "cases"
-        entity_it = "incidenti" if atom.entity is AnalyticalEntity.INCIDENT else "casi"
+        entity_en = {
+            AnalyticalEntity.INCIDENT: "incidents",
+            AnalyticalEntity.CASE: "cases",
+            AnalyticalEntity.AGENT: "hosts associated with recorded incidents",
+        }.get(atom.entity, "records")
+        entity_it = {
+            AnalyticalEntity.INCIDENT: "incidenti",
+            AnalyticalEntity.CASE: "casi",
+            AnalyticalEntity.AGENT: "host associati a incidenti registrati",
+        }.get(atom.entity, "record")
         if language == "en":
             if value == "0":
                 return (
@@ -424,6 +470,14 @@ def _analytical_premise(
             f"{filters} è {value}."
         )
     if atom.operation is AnalyticalOperation.COMPARE_PERIODS:
+        if atom.rows and atom.rows[0].comparison_value is not None:
+            return (
+                f"The authorized comparison of recorded incident counts by host is: {rows}. "
+                f"The resolved intervals are {window}."
+                if language == "en"
+                else f"Il confronto autorizzato dei conteggi di incidenti registrati per host è: "
+                f"{rows}. Gli intervalli risolti sono {window}."
+            )
         current = _number(atom.rows[0].measure_value or 0) if atom.rows else "0"
         previous = _number(atom.rows[1].measure_value or 0) if len(atom.rows) > 1 else "0"
         difference = _number(float(current) - float(previous))
@@ -445,6 +499,12 @@ def _analytical_premise(
             else f"L'analisi autorizzata ha registrato {current} incidenti nel periodo "
             f"corrente ({current_window}) e {previous} nel periodo precedente ({previous_window}); "
             f"la differenza è {difference}. Gli intervalli risolti sono {window}."
+        )
+    if atom.operation is AnalyticalOperation.COMPARE_ENTITIES:
+        return (
+            f"The authorized host comparison by recorded incident count is: {rows}."
+            if language == "en"
+            else f"Il confronto autorizzato degli host per conteggio di incidenti registrati è: {rows}."
         )
     if atom.operation in {AnalyticalOperation.TOP_K, AnalyticalOperation.DISTRIBUTION}:
         kind = "ranking by incident count" if atom.operation is AnalyticalOperation.TOP_K else "distribution"
@@ -1087,9 +1147,20 @@ class EvidenceProofUnitCompiler:
             )
             comparison_values: list[str] = []
             if atom.operation is AnalyticalOperation.COMPARE_PERIODS:
-                current = atom.rows[0].measure_value if atom.rows else 0
-                previous = atom.rows[1].measure_value if len(atom.rows) > 1 else 0
-                comparison_values.append(_number(float(current or 0) - float(previous or 0)))
+                if atom.rows and atom.rows[0].comparison_value is not None:
+                    comparison_values.extend(
+                        _number(row.delta_value or 0) for row in atom.rows
+                    )
+                else:
+                    current = atom.rows[0].measure_value if atom.rows else 0
+                    previous = atom.rows[1].measure_value if len(atom.rows) > 1 else 0
+                    comparison_values.append(_number(float(current or 0) - float(previous or 0)))
+            elif atom.operation is AnalyticalOperation.COMPARE_ENTITIES:
+                leading = atom.rows[0].measure_value if atom.rows else 0
+                trailing = atom.rows[1].measure_value if len(atom.rows) > 1 else 0
+                comparison_values.append(
+                    _number(float(leading or 0) - float(trailing or 0))
+                )
             canonical_values = list(
                 dict.fromkeys(
                     [

@@ -275,6 +275,7 @@ _ALLOWED_PREDICATES: dict[SemanticConcept, frozenset[ProofPredicate]] = {
             ProofPredicate.ANALYTICAL_DISTRIBUTION,
             ProofPredicate.ANALYTICAL_TREND,
             ProofPredicate.ANALYTICAL_PERIOD_COMPARISON,
+            ProofPredicate.ANALYTICAL_ENTITY_COMPARISON,
             ProofPredicate.ANALYTICAL_TOP_K,
             ProofPredicate.ANALYTICAL_RESULT_SET,
         }
@@ -288,6 +289,7 @@ _ALLOWED_PREDICATES: dict[SemanticConcept, frozenset[ProofPredicate]] = {
             ProofPredicate.ANALYTICAL_DISTRIBUTION,
             ProofPredicate.ANALYTICAL_TREND,
             ProofPredicate.ANALYTICAL_PERIOD_COMPARISON,
+            ProofPredicate.ANALYTICAL_ENTITY_COMPARISON,
             ProofPredicate.ANALYTICAL_TOP_K,
             ProofPredicate.ANALYTICAL_RESULT_SET,
         }
@@ -301,6 +303,7 @@ _ALLOWED_PREDICATES: dict[SemanticConcept, frozenset[ProofPredicate]] = {
             ProofPredicate.ANALYTICAL_DISTRIBUTION,
             ProofPredicate.ANALYTICAL_TREND,
             ProofPredicate.ANALYTICAL_PERIOD_COMPARISON,
+            ProofPredicate.ANALYTICAL_ENTITY_COMPARISON,
             ProofPredicate.ANALYTICAL_TOP_K,
             ProofPredicate.ANALYTICAL_RESULT_SET,
         }
@@ -315,6 +318,7 @@ _ALLOWED_PREDICATES: dict[SemanticConcept, frozenset[ProofPredicate]] = {
             ProofPredicate.ANALYTICAL_DISTRIBUTION,
             ProofPredicate.ANALYTICAL_TREND,
             ProofPredicate.ANALYTICAL_PERIOD_COMPARISON,
+            ProofPredicate.ANALYTICAL_ENTITY_COMPARISON,
             ProofPredicate.ANALYTICAL_TOP_K,
             ProofPredicate.ANALYTICAL_RESULT_SET,
         }
@@ -328,6 +332,7 @@ _ALLOWED_PREDICATES: dict[SemanticConcept, frozenset[ProofPredicate]] = {
             ProofPredicate.ANALYTICAL_DISTRIBUTION,
             ProofPredicate.ANALYTICAL_TREND,
             ProofPredicate.ANALYTICAL_PERIOD_COMPARISON,
+            ProofPredicate.ANALYTICAL_ENTITY_COMPARISON,
             ProofPredicate.ANALYTICAL_TOP_K,
             ProofPredicate.ANALYTICAL_RESULT_SET,
         }
@@ -341,6 +346,7 @@ _ALLOWED_PREDICATES: dict[SemanticConcept, frozenset[ProofPredicate]] = {
             ProofPredicate.ANALYTICAL_DISTRIBUTION,
             ProofPredicate.ANALYTICAL_TREND,
             ProofPredicate.ANALYTICAL_PERIOD_COMPARISON,
+            ProofPredicate.ANALYTICAL_ENTITY_COMPARISON,
             ProofPredicate.ANALYTICAL_TOP_K,
             ProofPredicate.ANALYTICAL_RESULT_SET,
         }
@@ -353,6 +359,7 @@ _ALLOWED_PREDICATES: dict[SemanticConcept, frozenset[ProofPredicate]] = {
             ProofPredicate.ANALYTICAL_DISTRIBUTION,
             ProofPredicate.ANALYTICAL_TREND,
             ProofPredicate.ANALYTICAL_PERIOD_COMPARISON,
+            ProofPredicate.ANALYTICAL_ENTITY_COMPARISON,
             ProofPredicate.ANALYTICAL_TOP_K,
             ProofPredicate.ANALYTICAL_RESULT_SET,
         }
@@ -799,6 +806,12 @@ _PREDICATE_WORDS: dict[ProofPredicate, frozenset[str]] = {
             "cases",
             "caso",
             "casi",
+            "host",
+            "hosts",
+            "agent",
+            "agents",
+            "agente",
+            "agenti",
             "record",
             "records",
             "risultato",
@@ -857,6 +870,26 @@ _PREDICATE_WORDS: dict[ProofPredicate, frozenset[str]] = {
             "previous",
             "precedente",
             "records",
+            "risultato",
+        }
+    ),
+    ProofPredicate.ANALYTICAL_ENTITY_COMPARISON: frozenset(
+        {
+            "agent",
+            "agente",
+            "authorized",
+            "autorizzato",
+            "compare",
+            "comparison",
+            "confronto",
+            "host",
+            "incident",
+            "incidente",
+            "incidents",
+            "incidenti",
+            "records",
+            "registrati",
+            "result",
             "risultato",
         }
     ),

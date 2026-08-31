@@ -15,14 +15,18 @@
 - [Contextual AI Assistant UI](v0.8-ai-assistant-contextual-ui.md)
 - [AI Assistant Foundation](v0.8-ai-assistant-foundation.md)
 
-## AI Assistant V3 Intelligence Foundation
+## v0.8 Grounded AI Assistant Release Architecture
 
+- [Global Assistant Product Recovery (v0.8 production architecture)](v1.3-global-assistant-product-recovery.md)
 - [V3.2 Hybrid Semantic Grounding](v1.1-ai-assistant-v3-2-semantic-grounding.md)
 - [Part B Global Assistant and Authoritative Analytics](v1.2-ai-assistant-part-b-global.md)
 - [V3.1 Part A: Conversational Recovery](v1.0-ai-assistant-v3-1-part-a.md)
 - [Milestone C: Production Quality and Hardening](v0.9-ai-assistant-v3-milestone-c.md)
 - [Milestone B: Useful Grounded Analytical Assistant V3](v0.9-ai-assistant-v3-milestone-b.md)
 - [Milestone A: Grounded Analytical Assistant V3](v0.9-ai-assistant-v3-milestone-a.md)
+
+The `v0.9-*` milestone filenames above are retained historical architecture
+identifiers and do not identify the current product release.
 - [Milestone B validation](../validation/ai-assistant-v3-milestone-b.md)
 - [Milestone C evaluation pack](../validation/assistant-v3-eval-pack.md)
 - [Milestone A validation](../validation/ai-assistant-v3-milestone-a.md)

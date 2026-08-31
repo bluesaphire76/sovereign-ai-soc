@@ -28,6 +28,9 @@ qdrant_storage/
 data/
 # Models
 models/
+!services/assistant/analytics/models/
+services/assistant/analytics/models/*
+!services/assistant/analytics/models/joint_plan_ranker.safetensors
 # Secrets
 secrets/
 storage/config/ai_providers.json

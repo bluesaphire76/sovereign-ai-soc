@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from services.assistant.analytics.contracts import (
     AnalyticsQueryPlan,
     AnalyticsRegistryDefinition,
@@ -15,17 +13,6 @@ from services.assistant.v3.contracts import (
     AnalyticalOperation,
     AnalyticalResultKind,
 )
-
-
-@dataclass(frozen=True)
-class AnalyticsSemanticDescriptor:
-    definition_id: str
-    description: str
-    semantic_examples: tuple[str, ...]
-
-    @property
-    def prototype_texts(self) -> tuple[str, ...]:
-        return (self.description, *self.semantic_examples)
 
 
 ANALYTICS_REGISTRY = (
@@ -59,6 +46,22 @@ ANALYTICS_REGISTRY = (
         result_schema="scalar_count",
     ),
     AnalyticsRegistryDefinition(
+        definition_id="incident_distinct_agents",
+        operation=AnalyticalOperation.COUNT,
+        entity=AnalyticalEntity.AGENT,
+        measure=AnalyticalMeasure.RECORD_COUNT,
+        allowed_filters=[
+            AnalyticalFilterField.STATUS,
+            AnalyticalFilterField.AGENT,
+            AnalyticalFilterField.DETECTION_RULE,
+            AnalyticalFilterField.RECORDED_RISK,
+        ],
+        execution_strategy="SQL_AGGREGATE",
+        maximum_limit=1,
+        result_kind=AnalyticalResultKind.COUNT,
+        result_schema="scalar_distinct_count",
+    ),
+    AnalyticsRegistryDefinition(
         definition_id="incident_list",
         operation=AnalyticalOperation.LIST,
         entity=AnalyticalEntity.INCIDENT,
@@ -82,12 +85,16 @@ ANALYTICS_REGISTRY = (
         operation=AnalyticalOperation.TOP_K,
         entity=AnalyticalEntity.AGENT,
         measure=AnalyticalMeasure.INCIDENT_COUNT,
-        allowed_filters=[AnalyticalFilterField.STATUS],
+        allowed_filters=[
+            AnalyticalFilterField.STATUS,
+            AnalyticalFilterField.AGENT,
+            AnalyticalFilterField.DETECTION_RULE,
+            AnalyticalFilterField.RECORDED_RISK,
+        ],
         grouping_dimensions=[AnalyticalDimension.AGENT],
         execution_strategy="SQL_AGGREGATE",
         ordering="VALUE_DESC",
         maximum_limit=10,
-        requires_time_window=True,
         result_kind=AnalyticalResultKind.TOP_K,
         result_schema="ranked_dimension_counts",
     ),
@@ -96,12 +103,16 @@ ANALYTICS_REGISTRY = (
         operation=AnalyticalOperation.TOP_K,
         entity=AnalyticalEntity.DETECTION_RULE,
         measure=AnalyticalMeasure.INCIDENT_COUNT,
-        allowed_filters=[AnalyticalFilterField.STATUS, AnalyticalFilterField.AGENT],
+        allowed_filters=[
+            AnalyticalFilterField.STATUS,
+            AnalyticalFilterField.AGENT,
+            AnalyticalFilterField.DETECTION_RULE,
+            AnalyticalFilterField.RECORDED_RISK,
+        ],
         grouping_dimensions=[AnalyticalDimension.DETECTION_RULE],
         execution_strategy="SQL_AGGREGATE",
         ordering="VALUE_DESC",
         maximum_limit=10,
-        requires_time_window=True,
         result_kind=AnalyticalResultKind.TOP_K,
         result_schema="ranked_dimension_counts",
     ),
@@ -110,12 +121,16 @@ ANALYTICS_REGISTRY = (
         operation=AnalyticalOperation.DISTRIBUTION,
         entity=AnalyticalEntity.MITRE_TECHNIQUE,
         measure=AnalyticalMeasure.INCIDENT_COUNT,
-        allowed_filters=[AnalyticalFilterField.STATUS, AnalyticalFilterField.AGENT],
+        allowed_filters=[
+            AnalyticalFilterField.STATUS,
+            AnalyticalFilterField.AGENT,
+            AnalyticalFilterField.DETECTION_RULE,
+            AnalyticalFilterField.RECORDED_RISK,
+        ],
         grouping_dimensions=[AnalyticalDimension.MITRE_TECHNIQUE],
         execution_strategy="SQL_THEN_TYPED_DERIVATION",
         ordering="VALUE_DESC",
         maximum_limit=10,
-        requires_time_window=True,
         result_kind=AnalyticalResultKind.DISTRIBUTION,
         result_schema="ranked_dimension_counts",
     ),
@@ -133,6 +148,34 @@ ANALYTICS_REGISTRY = (
         result_schema="dimension_counts",
     ),
     AnalyticsRegistryDefinition(
+        definition_id="incident_risk_distribution",
+        operation=AnalyticalOperation.DISTRIBUTION,
+        entity=AnalyticalEntity.RECORDED_RISK,
+        measure=AnalyticalMeasure.INCIDENT_COUNT,
+        allowed_filters=[
+            AnalyticalFilterField.STATUS,
+            AnalyticalFilterField.AGENT,
+            AnalyticalFilterField.DETECTION_RULE,
+        ],
+        grouping_dimensions=[AnalyticalDimension.RECORDED_RISK],
+        execution_strategy="SQL_AGGREGATE",
+        ordering="VALUE_DESC",
+        maximum_limit=20,
+        result_kind=AnalyticalResultKind.DISTRIBUTION,
+        result_schema="dimension_counts",
+    ),
+    AnalyticsRegistryDefinition(
+        definition_id="mitre_reference_lookup",
+        operation=AnalyticalOperation.LIST,
+        entity=AnalyticalEntity.MITRE_TECHNIQUE,
+        measure=AnalyticalMeasure.RECORD_COUNT,
+        allowed_filters=[AnalyticalFilterField.MITRE_TECHNIQUE],
+        execution_strategy="REFERENCE_LOOKUP",
+        maximum_limit=1,
+        result_kind=AnalyticalResultKind.RESULT_SET,
+        result_schema="mitre_reference_result",
+    ),
+    AnalyticsRegistryDefinition(
         definition_id="incident_trend",
         operation=AnalyticalOperation.TREND,
         entity=AnalyticalEntity.TIME,
@@ -146,7 +189,6 @@ ANALYTICS_REGISTRY = (
         execution_strategy="SQL_THEN_TYPED_DERIVATION",
         ordering="TIME_ASC",
         maximum_limit=31,
-        requires_time_window=True,
         result_kind=AnalyticalResultKind.TREND,
         result_schema="daily_counts",
     ),
@@ -165,6 +207,43 @@ ANALYTICS_REGISTRY = (
         requires_time_window=True,
         result_kind=AnalyticalResultKind.COMPARISON,
         result_schema="period_comparison",
+    ),
+    AnalyticsRegistryDefinition(
+        definition_id="incident_compare_agent_periods",
+        operation=AnalyticalOperation.COMPARE_PERIODS,
+        entity=AnalyticalEntity.AGENT,
+        measure=AnalyticalMeasure.INCIDENT_COUNT,
+        allowed_filters=[
+            AnalyticalFilterField.STATUS,
+            AnalyticalFilterField.AGENT,
+            AnalyticalFilterField.DETECTION_RULE,
+            AnalyticalFilterField.RECORDED_RISK,
+        ],
+        grouping_dimensions=[AnalyticalDimension.AGENT],
+        execution_strategy="SQL_AGGREGATE",
+        ordering="VALUE_DESC",
+        maximum_limit=10,
+        requires_time_window=True,
+        result_kind=AnalyticalResultKind.COMPARISON,
+        result_schema="grouped_period_comparison",
+    ),
+    AnalyticsRegistryDefinition(
+        definition_id="incident_compare_agents",
+        operation=AnalyticalOperation.COMPARE_ENTITIES,
+        entity=AnalyticalEntity.AGENT,
+        measure=AnalyticalMeasure.INCIDENT_COUNT,
+        allowed_filters=[
+            AnalyticalFilterField.AGENT,
+            AnalyticalFilterField.STATUS,
+            AnalyticalFilterField.DETECTION_RULE,
+            AnalyticalFilterField.RECORDED_RISK,
+        ],
+        grouping_dimensions=[AnalyticalDimension.AGENT],
+        execution_strategy="SQL_AGGREGATE",
+        ordering="VALUE_DESC",
+        maximum_limit=10,
+        result_kind=AnalyticalResultKind.COMPARISON,
+        result_schema="entity_comparison",
     ),
     AnalyticsRegistryDefinition(
         definition_id="recorded_related_incidents",
@@ -252,137 +331,6 @@ ANALYTICS_REGISTRY = (
 )
 
 
-ANALYTICS_SEMANTIC_REGISTRY = (
-    AnalyticsSemanticDescriptor(
-        "incident_count",
-        "Count security incidents that satisfy explicit filters or a resolved time window.",
-        (
-            "How many HIGH incidents occurred this week?",
-            "Quanti incidenti HIGH abbiamo avuto questa settimana?",
-            "How many NEW incidents were recorded in the last 24 hours?",
-            "Quanti incidenti NEW ci sono stati nelle ultime 24 ore?",
-        ),
-    ),
-    AnalyticsSemanticDescriptor(
-        "incident_count_previous_result",
-        "Count a typed subset of incident IDs returned by the immediately preceding global analytics result.",
-        (
-            "Of the incidents returned before, how many are still NEW?",
-            "Di questi, quanti risultano ancora NEW?",
-            "Among those results, count the incidents with the selected status.",
-        ),
-    ),
-    AnalyticsSemanticDescriptor(
-        "incident_list",
-        "List authoritative incident records matching an agent, status, rule, identifier, or time window.",
-        (
-            "Show incidents from darkstar-windows in the last seven days.",
-            "Mostrami gli incidenti di darkstar-windows degli ultimi 7 giorni.",
-            "Find incidents matching these operational filters.",
-            "Elenca gli incidenti con questi filtri operativi.",
-        ),
-    ),
-    AnalyticsSemanticDescriptor(
-        "incident_top_agents",
-        "Rank hosts or monitoring agents by authoritative incident count.",
-        (
-            "Which hosts generated the most incidents in the last seven days?",
-            "Quali host hanno generato piu incidenti negli ultimi 7 giorni?",
-            "Rank agents by number of incidents.",
-        ),
-    ),
-    AnalyticsSemanticDescriptor(
-        "incident_top_detection_rules",
-        "Rank detection rules by authoritative incident count.",
-        (
-            "Which detection rules generated the most incidents in the last thirty days?",
-            "Quali regole di detection hanno generato piu incidenti negli ultimi 30 giorni?",
-            "Top detection rules by incident volume.",
-        ),
-    ),
-    AnalyticsSemanticDescriptor(
-        "incident_mitre_distribution",
-        "Compute the distribution of recorded MITRE techniques across incidents.",
-        (
-            "Which MITRE techniques are most frequent in incidents from last month?",
-            "Quali tecniche MITRE sono piu frequenti negli incidenti dell'ultimo mese?",
-            "Distribution of MITRE techniques in the selected period.",
-        ),
-    ),
-    AnalyticsSemanticDescriptor(
-        "incident_status_distribution",
-        "Compute an incident distribution grouped by recorded status.",
-        (
-            "How are incidents distributed by status?",
-            "Distribuzione degli incidenti per stato.",
-        ),
-    ),
-    AnalyticsSemanticDescriptor(
-        "incident_trend",
-        "Show the incident count trend over a resolved period.",
-        (
-            "Show the daily incident trend for the last month.",
-            "Mostra il trend giornaliero degli incidenti dell'ultimo mese.",
-        ),
-    ),
-    AnalyticsSemanticDescriptor(
-        "incident_compare_periods",
-        "Compare authoritative incident counts between adjacent equal time periods.",
-        (
-            "Compare the number of incidents in the last seven days with the previous seven days.",
-            "Confronta il numero di incidenti degli ultimi 7 giorni con i 7 giorni precedenti.",
-            "Compare this period with the previous period.",
-        ),
-    ),
-    AnalyticsSemanticDescriptor(
-        "recorded_related_incidents",
-        "Retrieve incidents explicitly recorded by the platform as correlated to an anchor incident.",
-        (
-            "Which incidents are recorded as correlated with incident 5333?",
-            "Quali incidenti risultano correlati al 5333?",
-            "Show platform-recorded incident relationships for this incident.",
-        ),
-    ),
-    AnalyticsSemanticDescriptor(
-        "semantic_similar_incidents",
-        "Discover semantically similar incident candidates and rehydrate them from SQL.",
-        (
-            "Which incidents are semantically similar to incident 5333?",
-            "Quali incidenti sono semanticamente simili al 5333?",
-            "Find similarity candidates for this incident without treating them as correlated.",
-            "Do the similar results belong to the same attack?",
-            "I risultati simili fanno parte dello stesso attacco?",
-        ),
-    ),
-    AnalyticsSemanticDescriptor(
-        "case_count",
-        "Count authoritative case records matching closed case filters.",
-        (
-            "How many open cases are there?",
-            "Quanti casi aperti ci sono?",
-        ),
-    ),
-    AnalyticsSemanticDescriptor(
-        "case_sla_breached_list",
-        "List authoritative non-closed cases whose recorded SLA due time has passed.",
-        (
-            "Which cases have exceeded their SLA?",
-            "Quali casi hanno superato lo SLA?",
-            "Show overdue open cases.",
-        ),
-    ),
-    AnalyticsSemanticDescriptor(
-        "case_list",
-        "List authoritative cases matching a recorded status, severity, agent, or identifier.",
-        (
-            "Show open cases assigned to this agent.",
-            "Elenca i casi aperti per questo agente.",
-            "List the matching case records.",
-        ),
-    ),
-)
-
-
 class AnalyticsRegistry:
     def __init__(
         self,
@@ -445,7 +393,16 @@ class AnalyticsRegistry:
             )
             if plan.previous_result_empty == has_id_filter:
                 raise ValueError("previous-result empty-set contract is inconsistent")
-        elif plan.previous_result_ref is not None or plan.previous_result_empty:
+        elif plan.previous_result_ref is not None:
+            if definition.definition_id != "incident_list":
+                raise ValueError("previous-result state is not registered for this operation")
+            has_id_filter = any(
+                item.field is AnalyticalFilterField.INCIDENT_ID
+                for item in plan.filters
+            )
+            if plan.previous_result_empty == has_id_filter:
+                raise ValueError("previous-result list empty-set contract is inconsistent")
+        elif plan.previous_result_empty:
             raise ValueError("previous-result state is not registered for this operation")
         return definition
 

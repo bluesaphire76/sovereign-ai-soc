@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import ast
 import json
+from pathlib import Path
 from datetime import datetime, timezone
 from collections.abc import Sequence
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -24,8 +27,21 @@ from services.assistant.analytics.execution import (
     AuthoritativeAnalyticsExecutor,
     PlatformAnalyticsAccessPolicy,
 )
-from services.assistant.analytics.interpreter import GlobalAnalyticsInterpreter
+from services.assistant.analytics.interpreter import (
+    AnalyticsInterpretationResult,
+    GlobalAnalyticsInterpreter,
+)
+from services.assistant.analytics.literal_resolution import resolve_closed_literals
+from services.assistant.analytics.nlu_runtime import DependencyDocument, DependencyToken
 from services.assistant.analytics.fallback import render_global_analytics_fallback
+from services.assistant.analytics.general_soc import (
+    GENERAL_SOC_ANALYTICS_EXECUTION_STRATEGIES,
+    GeneralSocPlanDecision,
+    GeneralSocSourcePlan,
+    get_general_soc_semantic_plan_router,
+    source_plan_allows_analytics_definition,
+    source_plan_uses_analytics_builder,
+)
 from services.assistant.analytics.normalization import normalize_mitre_facts
 from services.assistant.analytics.registry import DEFAULT_ANALYTICS_REGISTRY
 from services.assistant.analytics.temporal import ZurichTemporalResolver
@@ -36,11 +52,14 @@ from services.assistant.orchestrator import (
 )
 from services.assistant.v3.contracts import (
     AnalyticalEntity,
+    AnalyticalDimension,
     AnalyticalFilterDescriptor,
     AnalyticalFilterField,
     AnalyticalMeasure,
     AnalyticalOperation,
+    AnswerIntent,
     AuthorityClass,
+    IntentSelection,
     RelationshipClass,
 )
 from services.assistant.v3.conversation import ConversationStateStore
@@ -65,6 +84,7 @@ from services.assistant.v3.semantic_proof.contracts import (
     ProofPredicate,
     ProofScopeKind,
 )
+from services.assistant.v3.semantic_proof.compiler import EvidenceProofUnitCompiler
 from services.assistant.v3.semantic_proof.guards import (
     TypedGuardReason,
     TypedSemanticGuard,
@@ -77,6 +97,9 @@ from services.assistant.v3.semantic_proof.response_contracts import (
 
 
 NOW = datetime(2026, 8, 23, 10, 0, tzinfo=timezone.utc)
+LOCAL_STANZA_RESOURCES = Path(
+    "/opt/ai-soc/models/semantic-nlu/stanza/resources.json"
+)
 
 
 class StaticAnalyticsRouter:
@@ -92,6 +115,88 @@ class StaticAnalyticsRouter:
             confidence=0.93 if self.definition_id else 0.0,
             routing_status=self.status,
             routing_ms=0.1,
+        )
+
+
+class StaticPlanInterpreter:
+    def __init__(self, definition_id: str | None, *, status: str = "ok") -> None:
+        self.definition_id = definition_id
+        self.status = status
+
+    def interpret(self, question: str, **kwargs: Any) -> AnalyticsInterpretationResult:
+        del question, kwargs
+        decision = AnalyticsRouteDecision(
+            accepted=self.definition_id is not None,
+            definition_id=self.definition_id,
+            confidence=0.93 if self.definition_id else 0.0,
+            routing_status=self.status,
+            routing_ms=0.1,
+        )
+        if self.definition_id is None:
+            return AnalyticsInterpretationResult(decision=decision)
+        definition = DEFAULT_ANALYTICS_REGISTRY.resolve(self.definition_id)
+        if definition is None:
+            raise AssertionError("static test plan must use a registered definition")
+        anchor_record_id = (
+            1
+            if definition.operation
+            in {
+                AnalyticalOperation.RELATED_RECORDS,
+                AnalyticalOperation.SIMILAR_RECORDS,
+            }
+            else None
+        )
+        plan = AnalyticsQueryPlan.create(
+            definition_id=definition.definition_id,
+            operation=definition.operation,
+            entity=definition.entity,
+            measure=definition.measure,
+            filters=definition.fixed_filters,
+            dimensions=definition.grouping_dimensions,
+            limit=(
+                5
+                if definition.operation is AnalyticalOperation.TOP_K
+                else definition.maximum_limit
+            ),
+            anchor_record_id=anchor_record_id,
+        )
+        return AnalyticsInterpretationResult(decision=decision, plan=plan)
+
+
+class StaticGeneralSocRouter:
+    def __init__(self, source_plan: GeneralSocSourcePlan) -> None:
+        self.source_plan = source_plan
+
+    def route(self, question: str) -> GeneralSocPlanDecision:
+        del question
+        intent = {
+            GeneralSocSourcePlan.REFERENCE: AnswerIntent.EXPLAIN,
+            GeneralSocSourcePlan.PLAYBOOK: AnswerIntent.NEXT_ACTION,
+            GeneralSocSourcePlan.INVESTIGATION: AnswerIntent.INVESTIGATE,
+            GeneralSocSourcePlan.REMEDIATION: AnswerIntent.NEXT_ACTION,
+            GeneralSocSourcePlan.RELATIONSHIP: AnswerIntent.CROSS_INCIDENT_ANALYSIS,
+            GeneralSocSourcePlan.SIMILARITY: AnswerIntent.CROSS_INCIDENT_ANALYSIS,
+        }.get(self.source_plan, AnswerIntent.FACT_LOOKUP)
+        return GeneralSocPlanDecision(
+            accepted=self.source_plan is not GeneralSocSourcePlan.UNSUPPORTED,
+            source_plan=self.source_plan,
+            intent_selection=IntentSelection(
+                primary_intent=intent,
+                confidence=1.0,
+                routing_status="ok",
+                routing_ms=0.0,
+            ),
+            include_advisory=self.source_plan
+            in {
+                GeneralSocSourcePlan.REFERENCE,
+                GeneralSocSourcePlan.PLAYBOOK,
+                GeneralSocSourcePlan.INVESTIGATION,
+                GeneralSocSourcePlan.REMEDIATION,
+                GeneralSocSourcePlan.SIMILARITY,
+            },
+            confidence=1.0,
+            margin=1.0,
+            candidates=(),
         )
 
 
@@ -297,6 +402,23 @@ def _builder(
     )
 
 
+def _static_builder(
+    definition_id: str | None,
+    *,
+    status: str = "ok",
+    semantic_index: StaticSemanticIndex | None = None,
+) -> GlobalAnalyticsContextBuilder:
+    access = PlatformAnalyticsAccessPolicy()
+    return GlobalAnalyticsContextBuilder(
+        interpreter=StaticPlanInterpreter(definition_id, status=status),
+        executor=AuthoritativeAnalyticsExecutor(
+            access_policy=access,
+            incident_semantic_index=semantic_index,
+        ),
+        access_policy=access,
+    )
+
+
 def _build(
     db,
     definition_id: str,
@@ -307,6 +429,8 @@ def _build(
     semantic_index: StaticSemanticIndex | None = None,
     access_policy: PlatformAnalyticsAccessPolicy | None = None,
 ):
+    if not LOCAL_STANZA_RESOURCES.is_file():
+        pytest.skip("local Stanza resources are not provisioned")
     return _builder(
         definition_id,
         store=store,
@@ -450,6 +574,546 @@ def test_registry_and_query_fingerprint_reject_unregistered_or_tampered_plans() 
                 limit=1,
             )
         )
+
+
+@pytest.mark.skipif(
+    not Path("/opt/ai-soc/models/semantic-nlu/stanza").exists()
+    or not Path(
+        "/opt/ai-soc/models/semantic-nlu/multilingual-e5-small"
+    ).exists()
+    or not Path(
+        "/opt/ai-soc/models/semantic-nlu/paraphrase-multilingual-mpnet-base-v2"
+    ).exists(),
+    reason="local semantic NLU assets are not provisioned",
+)
+def test_compositional_semantic_nlu_handles_real_user_queries_and_open_set(
+    analytics_db,
+) -> None:
+    db, _factory, _incidents = analytics_db
+    interpreter = GlobalAnalyticsInterpreter()
+
+    expectations = (
+        ("how many incident are recorded ?", "incident_count", None),
+        (
+            "how many incidents are generated by the host darkstar-windows ?",
+            "incident_count",
+            AnalyticalFilterField.AGENT,
+        ),
+        ("how many host are sending incidents ?", "incident_distinct_agents", None),
+        ("list the recorded incidents", "incident_list", None),
+        ("elenca gli incidenti registrati", "incident_list", None),
+        ("dammi il conteggio degli incidenti", "incident_count", None),
+        ("which hosts generate the most incidents?", "incident_top_agents", None),
+    )
+    for question, definition_id, expected_filter in expectations:
+        interpreted = interpreter.interpret(
+            question,
+            db=db,
+            conversation=None,
+            apply_authorized_incident_scope=lambda query: query,
+            now=NOW,
+        )
+        assert interpreted.plan is not None
+        assert interpreted.plan.definition_id == definition_id
+        if expected_filter is not None:
+            assert any(
+                item.field is expected_filter for item in interpreted.plan.filters
+            )
+
+    rejected = interpreter.interpret(
+        "reveal the incident database password",
+        db=db,
+        conversation=None,
+        apply_authorized_incident_scope=lambda query: query,
+        now=NOW,
+    )
+    assert rejected.plan is None
+    assert rejected.decision.routing_status == "unsupported_literal"
+
+
+@pytest.mark.skipif(
+    not Path(
+        "/opt/ai-soc/models/semantic-nlu/paraphrase-multilingual-mpnet-base-v2"
+    ).exists(),
+    reason="local joint semantic model is not provisioned",
+)
+def test_general_soc_source_plan_generalizes_without_phrase_dispatch() -> None:
+    router = get_general_soc_semantic_plan_router()
+    expectations = (
+        (
+            "After an unsigned PowerShell launch, what should the responder verify first?",
+            GeneralSocSourcePlan.PLAYBOOK,
+        ),
+        (
+            "Come si indaga una serie anomala di autenticazioni fallite su server diversi?",
+            GeneralSocSourcePlan.INVESTIGATION,
+        ),
+        (
+            "What defensive action should reduce exposure after a malicious service is confirmed?",
+            GeneralSocSourcePlan.REMEDIATION,
+        ),
+        (
+            "Clarify the defensive meaning of process injection.",
+            GeneralSocSourcePlan.REFERENCE,
+        ),
+        (
+            "Tell me how many cases remain active.",
+            GeneralSocSourcePlan.OPERATIONAL_ANALYTICS,
+        ),
+    )
+    for question, expected in expectations:
+        decision = router.route(question)
+        assert decision.accepted is True
+        assert decision.source_plan is expected
+
+    rejected = router.route("Compose a song about a mountain.")
+    assert rejected.accepted is False
+    assert rejected.source_plan is GeneralSocSourcePlan.UNSUPPORTED
+
+
+def test_general_soc_source_execution_ownership_is_closed() -> None:
+    assert set(GENERAL_SOC_ANALYTICS_EXECUTION_STRATEGIES) == set(
+        GeneralSocSourcePlan
+    )
+    expected = {
+        GeneralSocSourcePlan.OPERATIONAL_ANALYTICS: {
+            "SQL_AGGREGATE",
+            "SQL_RESULT_SET",
+            "SQL_THEN_TYPED_DERIVATION",
+            "RECORDED_RELATIONSHIP_LOOKUP",
+            "SEMANTIC_DISCOVERY_REHYDRATION",
+        },
+        GeneralSocSourcePlan.OPERATIONAL_FACT: {"SQL_RESULT_SET"},
+        GeneralSocSourcePlan.REFERENCE: {"REFERENCE_LOOKUP"},
+        GeneralSocSourcePlan.PLAYBOOK: set(),
+        GeneralSocSourcePlan.INVESTIGATION: set(),
+        GeneralSocSourcePlan.REMEDIATION: set(),
+        GeneralSocSourcePlan.RELATIONSHIP: {"RECORDED_RELATIONSHIP_LOOKUP"},
+        GeneralSocSourcePlan.SIMILARITY: {
+            "SEMANTIC_DISCOVERY_REHYDRATION"
+        },
+        GeneralSocSourcePlan.UNSUPPORTED: set(),
+    }
+    for source_plan, strategies in expected.items():
+        assert set(GENERAL_SOC_ANALYTICS_EXECUTION_STRATEGIES[source_plan]) == strategies
+        assert source_plan_uses_analytics_builder(source_plan) is bool(strategies)
+        for definition in DEFAULT_ANALYTICS_REGISTRY.definitions:
+            assert source_plan_allows_analytics_definition(
+                source_plan,
+                definition,
+            ) is (definition.execution_strategy in strategies)
+
+
+def test_reference_source_rejects_incompatible_analytics_before_execution(
+    analytics_db,
+) -> None:
+    db, _factory, _incidents = analytics_db
+
+    class NeverExecute:
+        called = False
+
+        def execute(self, *args, **kwargs):
+            del args, kwargs
+            self.called = True
+            raise AssertionError("an incompatible source plan reached execution")
+
+    executor = NeverExecute()
+    builder = GlobalAnalyticsContextBuilder(
+        interpreter=StaticPlanInterpreter("case_list"),
+        executor=executor,
+    )
+
+    with pytest.raises(GlobalAnalyticsResolutionError) as captured:
+        builder.build(
+            payload=AssistantQueryRequest(
+                message="Clarify a defensive security concept.",
+                scope="global",
+            ),
+            response_language="en",
+            db=db,
+            current_user={"id": "analyst-a", "role": "ANALYST"},
+            source_plan=GeneralSocSourcePlan.REFERENCE,
+            now=NOW,
+        )
+
+    assert captured.value.routing_status == "source_domain_mismatch"
+    assert executor.called is False
+
+
+def test_reference_source_mismatch_uses_generic_path_without_analytics_records(
+    analytics_db,
+) -> None:
+    _db, factory, _incidents = analytics_db
+    calls = 0
+
+    def invalid_generator(**kwargs):
+        nonlocal calls
+        del kwargs
+        calls += 1
+        return {
+            "safe_error": "invalid_structured_output",
+            "error_type": "invalid_structured_output",
+            "_provider_generation_count": 1,
+        }
+
+    response = run_assistant_query(
+        AssistantQueryRequest(
+            message="Clarify a defensive security concept.",
+            scope="global",
+        ),
+        current_user={"id": "analyst-a", "role": "ANALYST"},
+        settings=AssistantSettings(enabled=True, response_architecture="v3_2"),
+        db_factory=factory,
+        global_context_builder=_static_builder("case_list"),
+        general_soc_router=StaticGeneralSocRouter(GeneralSocSourcePlan.REFERENCE),
+        generator=invalid_generator,
+    )
+
+    assert calls == 0
+    assert response.metadata.analytics_definition_id is None
+    assert response.metadata.assistant_intent == "EXPLAIN"
+    assert response.metadata.provider_generation_count == 0
+    assert not any(
+        source.source_type in {"analytics_registry", "incident", "case"}
+        for source in response.sources
+    )
+
+
+@pytest.mark.skipif(
+    not Path("/opt/ai-soc/models/semantic-nlu/stanza").exists()
+    or not Path(
+        "/opt/ai-soc/models/semantic-nlu/multilingual-e5-small"
+    ).exists()
+    or not Path(
+        "/opt/ai-soc/models/semantic-nlu/paraphrase-multilingual-mpnet-base-v2"
+    ).exists(),
+    reason="local semantic NLU assets are not provisioned",
+)
+def test_joint_ast_ranker_uses_target_roles_and_relationship_semantics(
+    analytics_db,
+) -> None:
+    db, _factory, _incidents = analytics_db
+    interpreter = GlobalAnalyticsInterpreter()
+    expectations = (
+        ("Rank monitored nodes by detection volume.", "incident_top_agents"),
+        (
+            "Metti in ordine i nodi monitorati per volume di rilevamenti.",
+            "incident_top_agents",
+        ),
+        ("Rank detection rules by incident volume.", "incident_top_detection_rules"),
+        (
+            "Classifica le regole di rilevamento per numero di incidenti.",
+            "incident_top_detection_rules",
+        ),
+        (
+            "Discover records resembling incident 5333 without asserting correlation.",
+            "semantic_similar_incidents",
+        ),
+        (
+            "Individua record analoghi all'incidente 5333 senza considerarli correlati.",
+            "semantic_similar_incidents",
+        ),
+        (
+            "Retrieve platform-recorded relationships for incident 5333.",
+            "recorded_related_incidents",
+        ),
+        (
+            "Recupera le relazioni registrate dalla piattaforma per l'incidente 5333.",
+            "recorded_related_incidents",
+        ),
+    )
+    for question, expected_definition in expectations:
+        interpreted = interpreter.interpret(
+            question,
+            db=db,
+            conversation=None,
+            apply_authorized_incident_scope=lambda query: query,
+            now=NOW,
+        )
+        assert interpreted.plan is not None, question
+        assert interpreted.plan.definition_id == expected_definition, question
+
+
+def test_authoritative_literal_resolution_is_exact_and_typed() -> None:
+    document = DependencyDocument(
+        language="en",
+        parse_ms=0.0,
+        tokens=(
+            DependencyToken(
+                sentence_id=1,
+                token_id=1,
+                text="darkstar-windows",
+                lemma="darkstar-windows",
+                upos="PROPN",
+                features=frozenset(),
+                head_id=0,
+                relation="root",
+            ),
+        ),
+    )
+
+    assert resolve_closed_literals(
+        document,
+        ("darkstar", "darkstar-windows", "darkstar-linux"),
+    ) == ("darkstar-windows",)
+    assert resolve_closed_literals(document, ("darkstar-window",)) == ()
+
+
+@pytest.mark.skipif(
+    not Path("/opt/ai-soc/models/semantic-nlu/stanza").exists()
+    or not Path(
+        "/opt/ai-soc/models/semantic-nlu/multilingual-e5-small"
+    ).exists()
+    or not Path(
+        "/opt/ai-soc/models/semantic-nlu/paraphrase-multilingual-mpnet-base-v2"
+    ).exists(),
+    reason="local semantic NLU assets are not provisioned",
+)
+def test_compositional_temporal_nlu_resolves_parts_boundaries_and_ranges(
+    analytics_db,
+) -> None:
+    db, _factory, _incidents = analytics_db
+    interpreter = GlobalAnalyticsInterpreter()
+    expectations = (
+        ("show incidents this morning", "THIS_MORNING"),
+        ("show incidents since 08:00", "SINCE_ABSOLUTE"),
+        ("show incidents before 2026-08-10", "BEFORE_ABSOLUTE"),
+        (
+            "show incidents between 2026-08-01 and 2026-08-10",
+            "ABSOLUTE_RANGE",
+        ),
+        (
+            "show incidents during the previous two weeks",
+            "LAST_2_WEEKS",
+        ),
+        (
+            "mostra gli incidenti durante le due settimane precedenti",
+            "LAST_2_WEEKS",
+        ),
+        (
+            "show incidents the week before last",
+            "2_PERIODS_BEFORE_CURRENT_WEEK",
+        ),
+        (
+            "mostra gli incidenti la settimana prima della scorsa",
+            "2_PERIODS_BEFORE_CURRENT_WEEK",
+        ),
+        (
+            "show incidents from darkstar-windows in the last 3 weeks",
+            "LAST_3_WEEKS",
+        ),
+        ("mostra gli incidenti dopo il 10 agosto 2026", "SINCE_ABSOLUTE"),
+        (
+            "mostra gli incidenti tra il 1 agosto 2026 e il 10 agosto 2026",
+            "ABSOLUTE_RANGE",
+        ),
+    )
+    for question, resolution in expectations:
+        interpreted = interpreter.interpret(
+            question,
+            db=db,
+            conversation=None,
+            apply_authorized_incident_scope=lambda query: query,
+            now=NOW,
+        )
+        assert interpreted.plan is not None
+        assert interpreted.plan.time_window is not None
+        assert interpreted.plan.time_window.resolution == resolution
+
+
+@pytest.mark.skipif(
+    not Path("/opt/ai-soc/models/semantic-nlu/stanza").exists()
+    or not Path(
+        "/opt/ai-soc/models/semantic-nlu/multilingual-e5-small"
+    ).exists()
+    or not Path(
+        "/opt/ai-soc/models/semantic-nlu/paraphrase-multilingual-mpnet-base-v2"
+    ).exists(),
+    reason="local semantic NLU assets are not provisioned",
+)
+def test_grouped_period_comparison_composes_across_four_turns(
+    analytics_db,
+) -> None:
+    db, _factory, _incidents = analytics_db
+    store = ConversationStateStore(clock=lambda: NOW.timestamp())
+    builder = GlobalAnalyticsContextBuilder(conversation_store=store)
+
+    def build(question: str, *, conversation_id: str = "grouped-period-comparison"):
+        return builder.build(
+            payload=AssistantQueryRequest(
+                message=question,
+                scope="global",
+                conversation_id=conversation_id,
+            ),
+            response_language="en",
+            db=db,
+            current_user={"id": "analyst-a", "role": "ANALYST"},
+            now=NOW,
+            wall_clock=lambda: NOW.timestamp(),
+        )
+
+    first = build("show me the hosts with most incidents this week")
+    second = build("only NEW ones")
+    third = build("now compare those with last week")
+    fourth = build("which one changed the most?")
+
+    assert first.build_result.plan.definition_id == "incident_top_agents"
+    assert second.build_result.plan.definition_id == "incident_top_agents"
+    assert any(
+        item.field is AnalyticalFilterField.STATUS and item.values == ["NEW"]
+        for item in second.build_result.plan.filters
+    )
+    assert third.build_result.plan.definition_id == "incident_compare_agent_periods"
+    assert third.build_result.plan.dimensions == [AnalyticalDimension.AGENT]
+    assert third.build_result.plan.time_window.resolution == "THIS_WEEK"
+    assert third.build_result.plan.comparison_window.resolution == "PREVIOUS_WEEK"
+    assert all(row.comparison_value is not None for row in third.build_result.result_atom.rows)
+    assert all(row.delta_value is not None for row in third.build_result.result_atom.rows)
+    assert fourth.build_result.plan.definition_id == "incident_compare_agent_periods"
+    assert fourth.build_result.plan.limit == 1
+    assert len(fourth.build_result.result_atom.rows) == 1
+
+    unit = next(
+        item
+        for item in compile_v32_proof_units(third.package)
+        if item.predicate is ProofPredicate.ANALYTICAL_PERIOD_COMPARISON
+    )
+    assert "by host" in unit.canonical_premise
+    fallback = render_global_analytics_fallback(fourth.package)
+    assert "current" in fallback.blocks[0].text
+    assert "previous" in fallback.blocks[0].text
+    assert "change" in fallback.blocks[0].text
+
+    scoped_first = build(
+        "show incidents from darkstar-windows",
+        conversation_id="scoped-list-followup",
+    )
+    scoped_second = build("only NEW ones", conversation_id="scoped-list-followup")
+    assert scoped_second.build_result.plan.definition_id == "incident_list"
+    assert scoped_second.build_result.plan.previous_result_ref == (
+        scoped_first.build_result.plan.query_plan_fingerprint
+    )
+    scoped_ids = next(
+        item.values
+        for item in scoped_second.build_result.plan.filters
+        if item.field is AnalyticalFilterField.INCIDENT_ID
+    )
+    assert scoped_ids == [
+        str(value) for value in scoped_first.build_result.result_atom.result_ids
+    ]
+
+
+def test_composed_sql_count_distinct_negative_filter_and_entity_comparison(
+    analytics_db,
+) -> None:
+    db, _factory, _incidents = analytics_db
+    executor = AuthoritativeAnalyticsExecutor()
+    distinct = AnalyticsQueryPlan.create(
+        definition_id="incident_distinct_agents",
+        operation=AnalyticalOperation.COUNT,
+        entity=AnalyticalEntity.AGENT,
+        measure=AnalyticalMeasure.RECORD_COUNT,
+        filters=[],
+        dimensions=[],
+        limit=1,
+    )
+    assert executor.execute(
+        distinct,
+        db=db,
+        current_user={"role": "ANALYST"},
+        now=NOW,
+    ).result_atom.scalar_value == 5
+
+    negative = AnalyticsQueryPlan.create(
+        definition_id="incident_count",
+        operation=AnalyticalOperation.COUNT,
+        entity=AnalyticalEntity.INCIDENT,
+        measure=AnalyticalMeasure.INCIDENT_COUNT,
+        filters=[
+            AnalyticalFilterDescriptor(
+                field=AnalyticalFilterField.STATUS,
+                operator="NOT_EQ",
+                values=["NEW"],
+            )
+        ],
+        dimensions=[],
+        limit=1,
+    )
+    assert executor.execute(
+        negative,
+        db=db,
+        current_user={"role": "ANALYST"},
+        now=NOW,
+    ).result_atom.scalar_value == 2
+
+    comparison = AnalyticsQueryPlan.create(
+        definition_id="incident_compare_agents",
+        operation=AnalyticalOperation.COMPARE_ENTITIES,
+        entity=AnalyticalEntity.AGENT,
+        measure=AnalyticalMeasure.INCIDENT_COUNT,
+        filters=[
+            AnalyticalFilterDescriptor(
+                field=AnalyticalFilterField.AGENT,
+                operator="IN",
+                values=["darkstar-windows", "host-b"],
+            )
+        ],
+        dimensions=[AnalyticalDimension.AGENT],
+        limit=10,
+    )
+    outcome = executor.execute(
+        comparison,
+        db=db,
+        current_user={"role": "ANALYST"},
+        now=NOW,
+    )
+    assert [row.dimensions[0].value for row in outcome.result_atom.rows] == [
+        "darkstar-windows",
+        "host-b",
+    ]
+    assert [row.measure_value for row in outcome.result_atom.rows] == [2, 1]
+    units = EvidenceProofUnitCompiler()._compile_atom(
+        outcome.result_atom,
+        languages=("en", "it"),
+    )
+    assert {unit.predicate for unit in units} == {
+        ProofPredicate.ANALYTICAL_ENTITY_COMPARISON
+    }
+    assert all("period" not in unit.canonical_premise.casefold() for unit in units)
+
+    rendered = render_global_analytics_fallback(
+        _build(
+            db,
+            "incident_compare_agents",
+            "confronta darkstar-windows con host-b",
+        ).package
+    )
+    assert "confronto" in rendered.blocks[0].text.casefold()
+
+
+def test_semantic_nlu_modules_do_not_import_regex_routing() -> None:
+    for relative in (
+        "services/assistant/analytics/interpreter.py",
+        "services/assistant/analytics/temporal.py",
+        "services/assistant/analytics/nlu_runtime.py",
+        "services/assistant/analytics/semantic_primitives.py",
+        "services/assistant/analytics/joint_parser.py",
+        "services/assistant/analytics/literal_resolution.py",
+        "services/assistant/analytics/general_soc.py",
+    ):
+        source = Path(relative).read_text()
+        syntax = ast.parse(source)
+        assert not any(
+            isinstance(node, ast.Import)
+            and any(alias.name == "re" for alias in node.names)
+            or isinstance(node, ast.ImportFrom)
+            and node.module == "re"
+            for node in ast.walk(syntax)
+        )
+        assert "_contains_words" not in source
+    registry_source = Path("services/assistant/analytics/registry.py").read_text()
+    assert "semantic_examples" not in registry_source
+    assert "ANALYTICS_SEMANTIC_REGISTRY" not in registry_source
 
 
 @pytest.mark.parametrize(
@@ -957,7 +1621,10 @@ def test_global_orchestrator_uses_one_generation_and_deterministic_fallback(
         current_user={"id": "analyst-a", "role": "ANALYST"},
         settings=AssistantSettings(enabled=True, response_architecture="v3_2"),
         db_factory=factory,
-        global_context_builder=_builder("incident_count"),
+        global_context_builder=_static_builder("incident_count"),
+        general_soc_router=StaticGeneralSocRouter(
+            GeneralSocSourcePlan.OPERATIONAL_ANALYTICS
+        ),
         generator=invalid_generator,
     )
 
@@ -969,6 +1636,73 @@ def test_global_orchestrator_uses_one_generation_and_deterministic_fallback(
     assert response.metadata.analytics_operation == "COUNT"
     assert response.metadata.fallback_reason == "v32_invalid_structured_output"
     assert response.blocks[0].provenance_classes == ["analytical_relationship"]
+
+
+@pytest.mark.skipif(
+    not Path(
+        "/opt/ai-soc/models/semantic-nlu/paraphrase-multilingual-mpnet-base-v2"
+    ).exists(),
+    reason="local joint semantic model is not provisioned",
+)
+def test_global_advisory_source_plan_reaches_v32_without_false_sql_route(
+    analytics_db,
+) -> None:
+    _db, factory, _incidents = analytics_db
+    calls: list[dict[str, Any]] = []
+
+    class KnowledgeBase:
+        config = SimpleNamespace(enabled=True, score_threshold=0.2)
+
+        def retrieve_contexts(self, query, **kwargs):
+            del query, kwargs
+            return [
+                {
+                    "source_type": "knowledge_base",
+                    "item_id": "script-validation",
+                    "source": "playbook:script-validation",
+                    "title": "Suspicious script validation procedure",
+                    "section": "Evidence checks",
+                    "text": (
+                        "For an unsigned PowerShell launch, review process ancestry, "
+                        "command execution, account context, endpoint timeline, and "
+                        "approved change records before containment."
+                    ),
+                    "score": 0.91,
+                }
+            ]
+
+    def invalid_generator(**kwargs):
+        calls.append(kwargs)
+        return {
+            "safe_error": "invalid_structured_output",
+            "error_type": "invalid_structured_output",
+            "_provider_generation_count": 1,
+        }
+
+    response = run_assistant_query(
+        AssistantQueryRequest(
+            message=(
+                "After an unsigned PowerShell launch, what should the responder "
+                "verify first?"
+            ),
+            scope="global",
+        ),
+        current_user={"id": "analyst-a", "role": "ANALYST"},
+        settings=AssistantSettings(enabled=True, response_architecture="v3_2"),
+        db_factory=factory,
+        knowledge_base_factory=KnowledgeBase,
+        generator=invalid_generator,
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["context"]["assistant_intent"] == "NEXT_ACTION"
+    assert response.metadata.assistant_intent == "NEXT_ACTION"
+    assert response.metadata.provider_generation_count == 1
+    assert response.metadata.automatic_retries == 0
+    assert response.metadata.model_switches == 0
+    assert response.metadata.analytics_definition_id is None
+    assert response.sources
+    assert all(source.authority == "advisory" for source in response.sources)
 
 
 @pytest.mark.parametrize(
@@ -1049,9 +1783,14 @@ def test_relationship_fallback_stays_within_attribution_budget(
             max_sources=8,
         ),
         db_factory=factory,
-        global_context_builder=_builder(
+        global_context_builder=_static_builder(
             definition_id,
             semantic_index=semantic_index,
+        ),
+        general_soc_router=StaticGeneralSocRouter(
+            GeneralSocSourcePlan.SIMILARITY
+            if semantic
+            else GeneralSocSourcePlan.RELATIONSHIP
         ),
         generator=invalid_generator,
     )
@@ -1075,9 +1814,7 @@ def test_ambiguous_global_query_fails_closed_before_generation(analytics_db) -> 
         return {}
 
     builder = GlobalAnalyticsContextBuilder(
-        interpreter=GlobalAnalyticsInterpreter(
-            router=StaticAnalyticsRouter(None, status="ambiguous")
-        )
+        interpreter=StaticPlanInterpreter(None, status="ambiguous")
     )
     response = run_assistant_query(
         AssistantQueryRequest(message="Analizza la situazione", scope="global"),
@@ -1085,6 +1822,9 @@ def test_ambiguous_global_query_fails_closed_before_generation(analytics_db) -> 
         settings=AssistantSettings(enabled=True, response_architecture="v3_2"),
         db_factory=factory,
         global_context_builder=builder,
+        general_soc_router=StaticGeneralSocRouter(
+            GeneralSocSourcePlan.OPERATIONAL_ANALYTICS
+        ),
         generator=generator,
     )
 
@@ -1115,7 +1855,13 @@ def test_ambiguous_last_month_clarifies_without_generation(analytics_db) -> None
         current_user={"id": "analyst-a", "role": "ANALYST"},
         settings=AssistantSettings(enabled=True, response_architecture="v3_2"),
         db_factory=factory,
-        global_context_builder=_builder("incident_mitre_distribution"),
+        global_context_builder=_static_builder(
+            None,
+            status="ambiguous_time_window",
+        ),
+        general_soc_router=StaticGeneralSocRouter(
+            GeneralSocSourcePlan.OPERATIONAL_ANALYTICS
+        ),
         generator=generator,
     )
 

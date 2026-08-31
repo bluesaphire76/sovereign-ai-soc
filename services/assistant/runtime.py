@@ -5,6 +5,7 @@ import os
 from typing import Any
 
 from qdrant_knowledge import start_embedding_prewarm, stop_embedding_prewarm
+from services.assistant.analytics.interpreter import start_semantic_nlu_prewarm
 from services.ai_execution.client import AiExecutionClient
 from services.ai_execution.errors import AiExecutionError
 from services.assistant.v3.semantic_proof.runtime import (
@@ -57,6 +58,7 @@ async def assistant_lifespan(app):
     if semantic_proof_prewarm_enabled():
         prewarm_semantic_proof_runtime()
     start_embedding_prewarm()
+    start_semantic_nlu_prewarm()
     try:
         yield
     finally:

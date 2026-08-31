@@ -44,21 +44,24 @@ def _window(atom: AnalyticalResultAtom, *, language: str) -> str:
 def _filters(atom: AnalyticalResultAtom, *, language: str) -> str:
     if not atom.filters:
         return ""
-    labels = {
+    labels_it = {
         "AGENT": "host",
         "RECORDED_RISK": "rischio registrato",
         "SLA_STATE": "stato SLA",
         "STATUS": "stato",
     }
+    labels_en = {
+        "AGENT": "host",
+        "RECORDED_RISK": "recorded risk",
+        "SLA_STATE": "SLA state",
+        "STATUS": "status",
+    }
     filters = ", ".join(
-        f"{labels.get(item.field.value, item.field.value.lower())} "
-        f"{', '.join(item.values)}"
-        if language == "it"
-        else f"{item.field.value.lower().replace('_', ' ')} "
+        f"{(labels_it if language == 'it' else labels_en).get(item.field.value, item.field.value.lower())} "
         f"{', '.join(item.values)}"
         for item in atom.filters
     )
-    return f" con filtri {filters}" if language == "it" else f" with filters {filters}"
+    return f" per {filters}" if language == "it" else f" for {filters}"
 
 
 def _entity_count(
@@ -69,6 +72,8 @@ def _entity_count(
 ) -> str:
     if atom.entity.value == "CASE":
         return "caso" if language == "it" and value == 1 else "casi" if language == "it" else "case" if value == 1 else "cases"
+    if atom.entity.value == "AGENT":
+        return "host" if value == 1 else "host" if language == "it" else "hosts"
     return "incidente" if language == "it" and value == 1 else "incidenti" if language == "it" else "incident" if value == 1 else "incidents"
 
 
@@ -118,12 +123,14 @@ def _ranking_intro(dimension: AnalyticalDimension | None, *, language: str) -> s
             AnalyticalDimension.DETECTION_RULE: "Le regole di detection con più incidenti sono",
             AnalyticalDimension.MITRE_TECHNIQUE: "Le tecniche MITRE più frequenti sono",
             AnalyticalDimension.STATUS: "La distribuzione per stato è",
+            AnalyticalDimension.RECORDED_RISK: "La distribuzione per rischio registrato è",
         }.get(dimension, "Il risultato analitico è")
     return {
         AnalyticalDimension.AGENT: "The hosts with the most incidents are",
         AnalyticalDimension.DETECTION_RULE: "The detection rules with the most incidents are",
         AnalyticalDimension.MITRE_TECHNIQUE: "The most frequent MITRE techniques are",
         AnalyticalDimension.STATUS: "The status distribution is",
+        AnalyticalDimension.RECORDED_RISK: "The recorded risk distribution is",
     }.get(dimension, "The analytical result is")
 
 
@@ -169,42 +176,100 @@ def render_global_analytics_fallback(
     source_refs = (atom.atom_id,)
     blocks: list[RenderedV3Block] = []
 
-    if atom.operation is AnalyticalOperation.COUNT:
+    if atom.registry_definition_id == "mitre_reference_lookup":
+        reference = next(iter(package.reference_atoms), None)
+        text = (
+            reference.bounded_content
+            if reference is not None
+            else (
+                "Nessuna definizione MITRE autorevole è disponibile nel catalogo locale."
+                if language == "it"
+                else "No authoritative MITRE definition is available in the local catalog."
+            )
+        )
+        refs = (reference.knowledge_id,) if reference is not None else source_refs
+        blocks.append(RenderedV3Block(AnswerSectionType.DIRECT_ANSWER, text, refs))
+    elif atom.operation is AnalyticalOperation.COUNT:
         value = _number(atom.scalar_value or 0)
         entity = _entity_count(
             atom,
             float(atom.scalar_value or 0),
             language=language,
         )
-        text = (
-            f"Il conteggio analitico è {value} {entity}"
-            f"{_filters(atom, language=language)}{_window(atom, language=language)}."
-            if language == "it"
-            else f"The analytical count is {value} {entity}"
-            f"{_filters(atom, language=language)}{_window(atom, language=language)}."
-        )
+        if atom.entity.value == "AGENT":
+            text = (
+                f"{value} host risultano associati a incidenti registrati"
+                f"{_filters(atom, language=language)}{_window(atom, language=language)}."
+                if language == "it"
+                else f"{value} {entity} are associated with recorded incidents"
+                f"{_filters(atom, language=language)}{_window(atom, language=language)}."
+            )
+        else:
+            text = (
+                f"Sono registrati {value} {entity}"
+                f"{_filters(atom, language=language)}{_window(atom, language=language)}."
+                if language == "it"
+                else f"There are {value} recorded {entity}"
+                f"{_filters(atom, language=language)}{_window(atom, language=language)}."
+            )
         blocks.append(
             RenderedV3Block(AnswerSectionType.DIRECT_ANSWER, text, source_refs)
         )
     elif atom.operation is AnalyticalOperation.COMPARE_PERIODS:
-        values = [row.measure_value for row in atom.rows[:2]]
-        current = _number(values[0] or 0) if values else "0"
-        previous = _number(values[1] or 0) if len(values) > 1 else "0"
-        difference = _number((values[0] or 0) - (values[1] or 0)) if len(values) > 1 else "0"
-        current_entity = _entity_count(atom, values[0] or 0, language=language)
-        previous_entity = _entity_count(
-            atom,
-            values[1] or 0 if len(values) > 1 else 0,
-            language=language,
+        grouped = bool(atom.rows and atom.rows[0].comparison_value is not None)
+        if grouped:
+            values = "; ".join(
+                (
+                    f"{_row_label(row, language=language)}: corrente "
+                    f"{_number(row.measure_value or 0)}, precedente "
+                    f"{_number(row.comparison_value or 0)}, variazione "
+                    f"{_number(row.delta_value or 0)}"
+                    if language == "it"
+                    else f"{_row_label(row, language=language)}: current "
+                    f"{_number(row.measure_value or 0)}, previous "
+                    f"{_number(row.comparison_value or 0)}, change "
+                    f"{_number(row.delta_value or 0)}"
+                )
+                for row in atom.rows[:10]
+            ) or ("nessun risultato" if language == "it" else "no results")
+            text = (
+                f"Il confronto per host è: {values}{_window(atom, language=language)}."
+                if language == "it"
+                else f"The comparison by host is: {values}{_window(atom, language=language)}."
+            )
+        else:
+            values = [row.measure_value for row in atom.rows[:2]]
+            current = _number(values[0] or 0) if values else "0"
+            previous = _number(values[1] or 0) if len(values) > 1 else "0"
+            difference = _number((values[0] or 0) - (values[1] or 0)) if len(values) > 1 else "0"
+            current_entity = _entity_count(atom, values[0] or 0, language=language)
+            previous_entity = _entity_count(
+                atom,
+                values[1] or 0 if len(values) > 1 else 0,
+                language=language,
+            )
+            text = (
+                f"Il periodo corrente registra {current} {current_entity}, quello precedente "
+                f"{previous} {previous_entity}; "
+                f"la differenza è {difference}{_window(atom, language=language)}."
+                if language == "it"
+                else f"The current period records {current} {current_entity} and the previous "
+                f"period {previous} {previous_entity}; "
+                f"the difference is {difference}{_window(atom, language=language)}."
+            )
+        blocks.append(
+            RenderedV3Block(AnswerSectionType.COMPARISON, text, source_refs)
+        )
+    elif atom.operation is AnalyticalOperation.COMPARE_ENTITIES:
+        ranked = _ranked_rows(atom.rows[:10], language=language) or (
+            "nessun risultato" if language == "it" else "no results"
         )
         text = (
-            f"Il periodo corrente registra {current} {current_entity}, quello precedente "
-            f"{previous} {previous_entity}; "
-            f"la differenza è {difference}{_window(atom, language=language)}."
+            f"Il confronto per numero di incidenti registrati è: {ranked}"
+            f"{_window(atom, language=language)}."
             if language == "it"
-            else f"The current period records {current} {current_entity} and the previous "
-            f"period {previous} {previous_entity}; "
-            f"the difference is {difference}{_window(atom, language=language)}."
+            else f"The comparison by recorded incident count is: {ranked}"
+            f"{_window(atom, language=language)}."
         )
         blocks.append(
             RenderedV3Block(AnswerSectionType.COMPARISON, text, source_refs)

@@ -157,6 +157,7 @@ class AnalyticalFilterField(str, Enum):
     RECORDED_RISK = "RECORDED_RISK"
     RECORDED_CORRELATION = "RECORDED_CORRELATION"
     SLA_STATE = "SLA_STATE"
+    MITRE_TECHNIQUE = "MITRE_TECHNIQUE"
 
 
 class AnalyticalResultKind(str, Enum):
@@ -177,7 +178,7 @@ class AnalyticalTimeWindow(ClosedModel):
 
 class AnalyticalFilterDescriptor(ClosedModel):
     field: AnalyticalFilterField
-    operator: Literal["EQ", "IN"]
+    operator: Literal["EQ", "IN", "NOT_EQ", "NOT_IN"]
     values: list[str] = Field(min_length=1, max_length=50)
 
     @model_validator(mode="after")
@@ -198,10 +199,24 @@ class AnalyticalResultRow(ClosedModel):
     row_id: str = Field(min_length=1, max_length=180)
     dimensions: list[AnalyticalDimensionValue] = Field(default_factory=list, max_length=8)
     measure_value: int | float | None = None
+    comparison_value: int | float | None = None
+    delta_value: int | float | None = None
     incident_id: int | None = Field(default=None, gt=0)
     case_id: int | None = Field(default=None, gt=0)
     timestamp: str | None = Field(default=None, max_length=80)
     status: str | None = Field(default=None, max_length=80)
+
+    @model_validator(mode="after")
+    def validate_comparison_values(self):
+        if self.comparison_value is None and self.delta_value is not None:
+            raise ValueError("analytical delta requires a comparison value")
+        if self.comparison_value is not None:
+            if self.measure_value is None or self.delta_value is None:
+                raise ValueError("analytical comparison requires current and delta values")
+            expected = float(self.measure_value) - float(self.comparison_value)
+            if abs(float(self.delta_value) - expected) > 1e-9:
+                raise ValueError("analytical comparison delta is inconsistent")
+        return self
 
 
 class IntentScore(ClosedModel):
@@ -671,9 +686,18 @@ class GlobalConversationQueryState(ClosedModel):
     measure: AnalyticalMeasure
     filters: list[AnalyticalFilterDescriptor] = Field(default_factory=list, max_length=12)
     time_window: AnalyticalTimeWindow | None = None
+    comparison_window: AnalyticalTimeWindow | None = None
     dimensions: list[AnalyticalDimension] = Field(default_factory=list, max_length=4)
+    distinct: bool = False
+    limit: int = Field(default=20, ge=1, le=50)
+    anchor_record_id: int | None = Field(default=None, gt=0)
+    detail_level: Literal["SUMMARY", "RECORDS", "EXPLANATION", "GUIDANCE"] = "SUMMARY"
     result_incident_ids: list[int] = Field(default_factory=list, max_length=50)
     result_case_ids: list[int] = Field(default_factory=list, max_length=50)
+    result_dimension_values: list[AnalyticalDimensionValue] = Field(
+        default_factory=list,
+        max_length=50,
+    )
     query_plan_fingerprint: str = Field(min_length=64, max_length=64)
 
 

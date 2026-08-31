@@ -23,24 +23,34 @@ The AI layer is designed around evidence-based support:
 
 ## 2. AI Runtime and Provider Routing
 
-The platform uses Ollama as the default local LLM runtime. v0.7.1 also includes
-an optional llama.cpp local provider path for router-managed GGUF profiles.
-Runtime configuration is controlled through `.env` values such as
-`OLLAMA_MODEL`, `OLLAMA_BASE_URL`, `AI_SOC_LLM_*`, and the `LLAMA_CPP_*`
-profile settings.
+The active v0.8 generation path uses the local llama.cpp standard profile
+through the single-owner inference gateway and its Unix socket. The gateway
+owns model readiness and serializes Assistant generation. Ollama and governed
+OpenAI-compatible providers remain configurable platform integrations but are
+not active generation paths while gateway mode is enabled.
 
-The routing policy selects a model profile by task, severity and whether the action is user-triggered. The intent is to load the appropriate model when needed, not to keep every configured model active at the same time.
-
-v0.7 also provides a governed provider registry. `LOCAL_OLLAMA` remains the
-default local provider. `LOCAL_LLAMA_CPP` is local and disabled by default
-through `LLAMA_CPP_ENABLED=false`. OpenRouter is available through the
-OpenAI-compatible external adapter, while external AI remains globally disabled
-by default. External requests require provider enablement, configuration,
-feature allowlisting and a compatible AI Data Control decision.
+External AI remains disabled by default. External requests require explicit
+provider enablement, feature allowlisting and a compatible AI Data Control
+decision. No external provider is required for the core product flow.
 
 The Health and AI Providers pages expose configured models, loaded Ollama
 models, llama.cpp router/profile state, provider state, last LLM profile/model
 and fallback metadata where available.
+
+## Grounded Global, Incident and Case Assistant
+
+The shared `/assistant/query` architecture provides Global, Incident and Case
+Assistant scopes. Global questions can use a closed compositional
+`SemanticQueryAST` and registered SQLAlchemy execution plans; contextual scopes
+build typed evidence from the authorized incident or case.
+
+SQL remains authoritative for operational facts and RBAC is applied before
+selection or aggregation. Registered analytical results retain analytical
+derivation provenance. Qdrant supplies discovery and supporting context only.
+Generated responses are published atomically only after V3.2 whole-response
+semantic proof; rejected or unavailable generation returns deterministic
+fail-closed output. The accepted architecture permits one maximum Qwen answer
+generation and no retry, repair-generation, critic or rewrite path.
 
 ## 3. AI Data Control
 

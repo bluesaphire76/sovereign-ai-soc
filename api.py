@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(
     title="Sovereign AI SOC API",
-    version="0.7.1",
+    version="0.8.0",
     lifespan=assistant_lifespan,
 )
 
