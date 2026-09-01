@@ -95,6 +95,18 @@ loki.source.journal "ai_soc_frontend" {
   forward_to = [loki.process.platform.receiver]
 }
 
+loki.source.journal "ai_soc_inference_gateway" {
+  matches    = "_SYSTEMD_UNIT=ai-soc-inference-gateway.service"
+  max_age    = "2h"
+  labels     = {
+    job     = "ai-soc-platform",
+    service = "ai-soc-inference-gateway",
+    source  = "journal",
+    host    = "darkstar",
+  }
+  forward_to = [loki.process.platform.receiver]
+}
+
 loki.source.journal "nginx" {
   matches    = "_SYSTEMD_UNIT=nginx.service"
   max_age    = "2h"
@@ -157,7 +169,7 @@ loki.process "platform" {
 
   // Keep AI SOC application logs only when operationally useful.
   stage.match {
-    selector = "{service=~\"ai-soc-api|ai-soc-worker|ai-soc-frontend\"} !~ \"(?i)(level=(error|warn)|\\b(error|warn|warning|exception|traceback|failed|failure|timeout|readtimeout|deadline|degraded|unhealthy|fallback|startup|shutdown|started|stopped)\\b)\""
+    selector = "{service=~\"ai-soc-api|ai-soc-worker|ai-soc-frontend|ai-soc-inference-gateway\"} !~ \"(?i)(level=(error|warn)|\\b(error|warn|warning|exception|traceback|failed|failure|timeout|readtimeout|deadline|degraded|unhealthy|fallback|startup|shutdown|started|stopped)\\b)\""
     action   = "drop"
 
     drop_counter_reason = "non_operational_app_log"

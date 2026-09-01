@@ -28,6 +28,7 @@ from services.ai_execution.priorities import priority_for_task
 
 DEFAULT_SOCKET = "/run/ai-soc/inference-gateway.sock"
 Sender = Callable[[str, dict[str, Any], float], dict[str, Any]]
+MetricsSender = Callable[[str, float], bytes | str]
 
 
 def _env_timeout() -> float:
@@ -57,12 +58,14 @@ class AiExecutionClient:
         *,
         socket_path: str | None = None,
         sender: Sender | None = None,
+        metrics_sender: MetricsSender | None = None,
     ) -> None:
         self.socket_path = socket_path or os.getenv(
             "AI_INFERENCE_GATEWAY_SOCKET",
             DEFAULT_SOCKET,
         )
         self._sender = sender
+        self._metrics_sender = metrics_sender
 
     def _request(
         self,
@@ -132,6 +135,40 @@ class AiExecutionClient:
 
     def health(self) -> dict[str, Any]:
         return self._request("GET", "/health")
+
+    def prometheus_metrics(self, *, timeout_seconds: float = 5.0) -> bytes:
+        timeout = min(max(float(timeout_seconds), 0.1), 10.0)
+        if self._metrics_sender is not None:
+            try:
+                content = self._metrics_sender("/metrics", timeout)
+            except AiExecutionError:
+                raise
+            except (OSError, TimeoutError, ValueError) as exc:
+                raise GatewayUnavailable() from exc
+            encoded = (
+                content.encode("utf-8")
+                if isinstance(content, str)
+                else content
+            )
+            if not isinstance(encoded, bytes) or not encoded:
+                raise GatewayMalformedResponse()
+            return encoded
+
+        transport = httpx.HTTPTransport(uds=self.socket_path)
+        try:
+            with httpx.Client(
+                transport=transport,
+                base_url="http://ai-soc-inference-gateway",
+                timeout=timeout,
+            ) as client:
+                response = client.request("GET", "/metrics")
+                response.raise_for_status()
+                content = response.content
+        except (httpx.HTTPError, OSError, ValueError) as exc:
+            raise GatewayUnavailable() from exc
+        if not content:
+            raise GatewayMalformedResponse()
+        return content
 
 
 def _messages_for_gateway(

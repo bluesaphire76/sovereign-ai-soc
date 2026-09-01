@@ -1,0 +1,698 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Assistant service overview",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 1 },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Gateway metrics target",
+      "description": "Prometheus can reach the read-only inference metrics bridge.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 0, "y": 1, "w": 4, "h": 4 },
+      "targets": [
+        { "expr": "up{job=\"ai-inference-gateway\"}", "legendFormat": "gateway scrape", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 } ] }
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Gateway runtime",
+      "description": "The standard-profile inference runtime is ready for generation.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 4, "y": 1, "w": 4, "h": 4 },
+      "targets": [
+        { "expr": "ai_execution_gateway_ready{job=\"ai-inference-gateway\"}", "legendFormat": "runtime", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "NOT READY", "color": "red" }, "1": { "text": "READY", "color": "green" } } }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 } ] }
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Queue utilization",
+      "description": "Current queued requests as a fraction of configured gateway capacity.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 8, "y": 1, "w": 4, "h": 4 },
+      "targets": [
+        { "expr": "ai_execution_queue_depth{job=\"ai-inference-gateway\"} / clamp_min(ai_execution_queue_capacity{job=\"ai-inference-gateway\"}, 1)", "legendFormat": "queue", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 0.5 }, { "color": "red", "value": 0.8 } ] }
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Assistant E2E p95",
+      "description": "HTTP latency from Assistant query receipt through atomic model publication or fallback.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 12, "y": 1, "w": 4, "h": 4 },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(ai_soc_http_request_duration_seconds_bucket{job=\"ai-soc-api\",method=\"POST\",path=\"/assistant/query\"}[$__rate_interval])) by (le))", "legendFormat": "p95", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "unit": "s",
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 20 }, { "color": "red", "value": 40 } ] }
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Proven model publish rate",
+      "description": "Share of V3 responses published from the model after validation/proof.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 16, "y": 1, "w": 4, "h": 4 },
+      "targets": [
+        { "expr": "sum(rate(assistant_v3_responses_total{job=\"ai-soc-api\",generation_kind=\"model\"}[$__rate_interval])) / clamp_min(sum(rate(assistant_v3_responses_total{job=\"ai-soc-api\"}[$__rate_interval])), 0.000001)", "legendFormat": "model", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "yellow", "value": 0.25 }, { "color": "green", "value": 0.6 } ] }
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Fail-closed response rate",
+      "description": "Share of V3 responses delivered as deterministic fallbacks.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 20, "y": 1, "w": 4, "h": 4 },
+      "targets": [
+        { "expr": "sum(rate(assistant_v3_responses_total{job=\"ai-soc-api\",generation_kind=\"deterministic_fallback\"}[$__rate_interval])) / clamp_min(sum(rate(assistant_v3_responses_total{job=\"ai-soc-api\"}[$__rate_interval])), 0.000001)", "legendFormat": "fallback", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 0.4 }, { "color": "red", "value": 0.8 } ] }
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true }
+    },
+    {
+      "id": 8,
+      "type": "row",
+      "title": "Inference gateway traffic, capacity and latency",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 5, "w": 24, "h": 1 },
+      "panels": []
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Gateway request outcomes",
+      "description": "Generation throughput split by bounded task and gateway status.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 0, "y": 6, "w": 8, "h": 8 },
+      "targets": [
+        { "expr": "sum by (task, status) (rate(ai_execution_requests_total{job=\"ai-inference-gateway\"}[$__rate_interval]))", "legendFormat": "{{task}} / {{status}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "reqps" }, "overrides": [] },
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Assistant inference latency percentiles",
+      "description": "Gateway execution time for the soc_assistant task, excluding queue wait.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 8, "y": 6, "w": 8, "h": 8 },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(ai_execution_request_duration_seconds_bucket{job=\"ai-inference-gateway\",task=\"soc_assistant\"}[$__rate_interval])) by (le))", "legendFormat": "p50", "refId": "A" },
+        { "expr": "histogram_quantile(0.95, sum(rate(ai_execution_request_duration_seconds_bucket{job=\"ai-inference-gateway\",task=\"soc_assistant\"}[$__rate_interval])) by (le))", "legendFormat": "p95", "refId": "B" },
+        { "expr": "histogram_quantile(0.99, sum(rate(ai_execution_request_duration_seconds_bucket{job=\"ai-inference-gateway\",task=\"soc_assistant\"}[$__rate_interval])) by (le))", "legendFormat": "p99", "refId": "C" }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "s" }, "overrides": [] },
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Queue and active generation",
+      "description": "Current queue depth, configured capacity and active single-owner generation.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 16, "y": 6, "w": 8, "h": 8 },
+      "targets": [
+        { "expr": "ai_execution_queue_depth{job=\"ai-inference-gateway\"}", "legendFormat": "queued", "refId": "A" },
+        { "expr": "ai_execution_queue_capacity{job=\"ai-inference-gateway\"}", "legendFormat": "capacity", "refId": "B" },
+        { "expr": "ai_execution_active_requests{job=\"ai-inference-gateway\"}", "legendFormat": "active", "refId": "C" }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short", "min": 0 }, "overrides": [] },
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Queue wait p95 by task",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 0, "y": 14, "w": 6, "h": 7 },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum by (le, task) (rate(ai_execution_queue_wait_seconds_bucket{job=\"ai-inference-gateway\"}[$__rate_interval])))", "legendFormat": "{{task}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "s" }, "overrides": [] },
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Provider generation p95 by task",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 6, "y": 14, "w": 6, "h": 7 },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum by (le, task) (rate(ai_execution_generation_duration_seconds_bucket{job=\"ai-inference-gateway\",status=\"success\"}[$__rate_interval])))", "legendFormat": "{{task}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "s" }, "overrides": [] },
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Assistant token throughput",
+      "description": "Prompt and completion tokens per second for Assistant inference.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 12, "y": 14, "w": 6, "h": 7 },
+      "targets": [
+        { "expr": "sum by (direction) (rate(ai_execution_tokens_total{job=\"ai-inference-gateway\",task=\"soc_assistant\"}[$__rate_interval]))", "legendFormat": "{{direction}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "ops" }, "overrides": [] },
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Gateway safety and failure signals",
+      "description": "Deadline, truncation and forbidden profile-switch activity.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 18, "y": 14, "w": 6, "h": 7 },
+      "targets": [
+        { "expr": "sum(rate(ai_execution_deadline_exceeded_total{job=\"ai-inference-gateway\",task=\"soc_assistant\"}[$__rate_interval]))", "legendFormat": "deadline exceeded", "refId": "A" },
+        { "expr": "sum(rate(ai_execution_truncated_total{job=\"ai-inference-gateway\",task=\"soc_assistant\"}[$__rate_interval]))", "legendFormat": "truncated", "refId": "B" },
+        { "expr": "sum(rate(ai_execution_profile_switch_total{job=\"ai-inference-gateway\"}[$__rate_interval]))", "legendFormat": "profile switch", "refId": "C" }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "ops" }, "overrides": [] },
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 16,
+      "type": "row",
+      "title": "Assistant request lifecycle",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 21, "w": 24, "h": 1 },
+      "panels": []
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Published response outcomes",
+      "description": "Atomic publication outcome after validation and proof.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 0, "y": 22, "w": 8, "h": 8 },
+      "targets": [
+        { "expr": "sum by (generation_kind, validation_status) (rate(assistant_v3_responses_total{job=\"ai-soc-api\"}[$__rate_interval]))", "legendFormat": "{{generation_kind}} / {{validation_status}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "reqps" }, "overrides": [] },
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "Deterministic fallback reasons",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 8, "y": 22, "w": 8, "h": 8 },
+      "targets": [
+        { "expr": "sum by (reason) (rate(ai_execution_fallback_total{job=\"ai-soc-api\"}[$__rate_interval]))", "legendFormat": "{{reason}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "reqps" }, "overrides": [] },
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 19,
+      "type": "timeseries",
+      "title": "Assistant API outcomes",
+      "description": "HTTP response rate for the user-visible Assistant query endpoint.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 16, "y": 22, "w": 8, "h": 8 },
+      "targets": [
+        { "expr": "sum by (status_code) (rate(ai_soc_http_requests_total{job=\"ai-soc-api\",method=\"POST\",path=\"/assistant/query\"}[$__rate_interval]))", "legendFormat": "HTTP {{status_code}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "reqps" }, "overrides": [] },
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "Assistant end-to-end latency",
+      "description": "Full API lifecycle including retrieval, one generation, proof and publication/fallback.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 0, "y": 30, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(ai_soc_http_request_duration_seconds_bucket{job=\"ai-soc-api\",method=\"POST\",path=\"/assistant/query\"}[$__rate_interval])) by (le))", "legendFormat": "p50", "refId": "A" },
+        { "expr": "histogram_quantile(0.95, sum(rate(ai_soc_http_request_duration_seconds_bucket{job=\"ai-soc-api\",method=\"POST\",path=\"/assistant/query\"}[$__rate_interval])) by (le))", "legendFormat": "p95", "refId": "B" },
+        { "expr": "histogram_quantile(0.99, sum(rate(ai_soc_http_request_duration_seconds_bucket{job=\"ai-soc-api\",method=\"POST\",path=\"/assistant/query\"}[$__rate_interval])) by (le))", "legendFormat": "p99", "refId": "C" }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "s" }, "overrides": [] },
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Analytical pipeline stage p95",
+      "description": "Bounded non-generative stage latency for routing, retrieval, rehydration and graph construction.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 12, "y": 30, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum by (le, stage) (rate(assistant_v3_stage_duration_seconds_bucket{job=\"ai-soc-api\",status=\"passed\"}[$__rate_interval])))", "legendFormat": "{{stage}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "s" }, "overrides": [] },
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 22,
+      "type": "row",
+      "title": "Semantic proof and grounding safety",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 38, "w": 24, "h": 1 },
+      "panels": []
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "Semantic proof executions",
+      "description": "Proof executions by passed, failed or unavailable status.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 0, "y": 39, "w": 8, "h": 8 },
+      "targets": [
+        { "expr": "sum by (status) (rate(assistant_v32_semantic_proof_seconds_count{job=\"ai-soc-api\"}[$__rate_interval]))", "legendFormat": "{{status}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "reqps" }, "overrides": [] },
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 24,
+      "type": "timeseries",
+      "title": "Proof decision reasons",
+      "description": "Closed hybrid proof reasons for every proposition decision.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 8, "y": 39, "w": 8, "h": 8 },
+      "targets": [
+        { "expr": "sum by (reason) (rate(assistant_v32_semantic_proof_decisions_total{job=\"ai-soc-api\"}[$__rate_interval]))", "legendFormat": "{{reason}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "ops" }, "overrides": [] },
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 25,
+      "type": "timeseries",
+      "title": "Grounding rejection reasons",
+      "description": "Fail-closed validation and semantic-proof rejection reasons.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 16, "y": 39, "w": 8, "h": 8 },
+      "targets": [
+        { "expr": "sum by (reason) (rate(ai_execution_grounding_rejections_total{job=\"ai-soc-api\"}[$__rate_interval]))", "legendFormat": "{{reason}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "ops" }, "overrides": [] },
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 26,
+      "type": "timeseries",
+      "title": "Semantic proof latency",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 0, "y": 47, "w": 8, "h": 8 },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(assistant_v32_semantic_proof_seconds_bucket{job=\"ai-soc-api\"}[$__rate_interval])) by (le))", "legendFormat": "p50", "refId": "A" },
+        { "expr": "histogram_quantile(0.95, sum(rate(assistant_v32_semantic_proof_seconds_bucket{job=\"ai-soc-api\"}[$__rate_interval])) by (le))", "legendFormat": "p95", "refId": "B" },
+        { "expr": "histogram_quantile(0.99, sum(rate(assistant_v32_semantic_proof_seconds_bucket{job=\"ai-soc-api\"}[$__rate_interval])) by (le))", "legendFormat": "p99", "refId": "C" }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "s" }, "overrides": [] },
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 27,
+      "type": "timeseries",
+      "title": "Proof obligations per response",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 8, "y": 47, "w": 8, "h": 8 },
+      "targets": [
+        { "expr": "sum(rate(assistant_v32_semantic_proof_pairs_sum{job=\"ai-soc-api\"}[$__rate_interval])) / clamp_min(sum(rate(assistant_v32_semantic_proof_pairs_count{job=\"ai-soc-api\"}[$__rate_interval])), 0.000001)", "legendFormat": "average", "refId": "A" },
+        { "expr": "histogram_quantile(0.95, sum(rate(assistant_v32_semantic_proof_pairs_bucket{job=\"ai-soc-api\"}[$__rate_interval])) by (le))", "legendFormat": "p95", "refId": "B" }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short", "min": 0 }, "overrides": [] },
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 28,
+      "type": "timeseries",
+      "title": "Structural fail-closed events",
+      "description": "Invalid structured output, schema-build failure and proof-runtime unavailability.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 16, "y": 47, "w": 8, "h": 8 },
+      "targets": [
+        { "expr": "sum by (reason) (rate(ai_execution_fallback_total{job=\"ai-soc-api\",reason=~\"v32_invalid_structured_output|v32_schema_build_failed|v32_semantic_proof_unavailable\"}[$__rate_interval]))", "legendFormat": "{{reason}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "ops" }, "overrides": [] },
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 29,
+      "type": "row",
+      "title": "Retrieval and analytical context",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 55, "w": 24, "h": 1 },
+      "panels": []
+    },
+    {
+      "id": 30,
+      "type": "timeseries",
+      "title": "Context build p95",
+      "description": "Analytical context construction latency by intent and scope.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 0, "y": 56, "w": 8, "h": 8 },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum by (le, intent, scope) (rate(assistant_v3_context_build_seconds_bucket{job=\"ai-soc-api\"}[$__rate_interval])))", "legendFormat": "{{scope}} / {{intent}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "s" }, "overrides": [] },
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 31,
+      "type": "timeseries",
+      "title": "Semantic index query p95",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 8, "y": 56, "w": 8, "h": 8 },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum by (le, status) (rate(assistant_v3_semantic_index_query_seconds_bucket{job=\"ai-soc-api\"}[$__rate_interval])))", "legendFormat": "{{status}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "s" }, "overrides": [] },
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 32,
+      "type": "timeseries",
+      "title": "Semantic retrieval degradation",
+      "description": "Discovery/support degradation; SQL operational authority remains independent.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 16, "y": 56, "w": 8, "h": 8 },
+      "targets": [
+        { "expr": "sum by (reason) (rate(assistant_semantic_degraded_total{job=\"ai-soc-api\"}[$__rate_interval]))", "legendFormat": "{{reason}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "ops" }, "overrides": [] },
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 33,
+      "type": "timeseries",
+      "title": "Context item volume",
+      "description": "Average bounded context items by closed item class.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 0, "y": 64, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "sum by (item_class) (rate(assistant_v3_context_items_sum{job=\"ai-soc-api\"}[$__rate_interval])) / clamp_min(sum by (item_class) (rate(assistant_v3_context_items_count{job=\"ai-soc-api\"}[$__rate_interval])), 0.000001)", "legendFormat": "{{item_class}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short", "min": 0 }, "overrides": [] },
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 34,
+      "type": "timeseries",
+      "title": "Context package throughput",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 12, "y": 64, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "sum by (intent, scope) (rate(assistant_v3_context_packages_total{job=\"ai-soc-api\"}[$__rate_interval]))", "legendFormat": "{{scope}} / {{intent}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "reqps" }, "overrides": [] },
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 35,
+      "type": "row",
+      "title": "Runtime resources and model contract",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 72, "w": 24, "h": 1 },
+      "panels": []
+    },
+    {
+      "id": 36,
+      "type": "timeseries",
+      "title": "GPU utilization and memory",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 0, "y": 73, "w": 8, "h": 8 },
+      "targets": [
+        { "expr": "ai_soc_gpu_utilization_percent{job=\"ai-soc-api\"}", "legendFormat": "GPU {{gpu}} utilization", "refId": "A" },
+        { "expr": "ai_soc_gpu_memory_utilization_percent{job=\"ai-soc-api\"}", "legendFormat": "GPU {{gpu}} memory", "refId": "B" }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "percent", "min": 0, "max": 100 }, "overrides": [] },
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 37,
+      "type": "timeseries",
+      "title": "GPU temperature and power",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 8, "y": 73, "w": 8, "h": 8 },
+      "targets": [
+        { "expr": "ai_soc_gpu_temperature_celsius{job=\"ai-soc-api\"}", "legendFormat": "GPU {{gpu}} temperature", "refId": "A" },
+        { "expr": "ai_soc_gpu_power_draw_watts{job=\"ai-soc-api\"}", "legendFormat": "GPU {{gpu}} power", "refId": "B" }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 38,
+      "type": "stat",
+      "title": "Standard model contract",
+      "description": "Current gateway state/profile/model plus router and loaded model readiness.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 16, "y": 73, "w": 8, "h": 8 },
+      "targets": [
+        { "expr": "ai_execution_gateway_info{job=\"ai-inference-gateway\"}", "legendFormat": "{{state}} / {{profile}} / {{model}}", "refId": "A" },
+        { "expr": "ai_soc_llama_cpp_router_up{job=\"ai-soc-api\"}", "legendFormat": "llama.cpp router", "refId": "B" },
+        { "expr": "ai_soc_llama_cpp_model_loaded{job=\"ai-soc-api\",model_id=\"ai-soc-standard\"}", "legendFormat": "ai-soc-standard loaded", "refId": "C" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [ { "type": "value", "options": { "0": { "text": "NO", "color": "red" }, "1": { "text": "YES", "color": "green" } } } ],
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 } ] }
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "horizontal", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true }
+    },
+    {
+      "id": 39,
+      "type": "row",
+      "title": "Operational diagnostics",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 81, "w": 24, "h": 1 },
+      "panels": []
+    },
+    {
+      "id": 41,
+      "type": "stat",
+      "title": "Generations per Assistant response",
+      "description": "Gateway soc_assistant generations divided by published Assistant responses. The one-generation invariant requires this value to remain at or below one.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 0, "y": 82, "w": 6, "h": 4 },
+      "targets": [
+        { "expr": "sum(rate(ai_execution_generations_total{job=\"ai-inference-gateway\",task=\"soc_assistant\"}[$__rate_interval])) / clamp_min(sum(rate(assistant_v3_responses_total{job=\"ai-soc-api\"}[$__rate_interval])), 0.000001)", "legendFormat": "generation / response", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "decimals": 2,
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1.01 } ] }
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true }
+    },
+    {
+      "id": 42,
+      "type": "stat",
+      "title": "Profile switches",
+      "description": "Gateway profile switches over the selected range. The expected value is always zero.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 6, "y": 82, "w": 6, "h": 4 },
+      "targets": [
+        { "expr": "sum(increase(ai_execution_profile_switch_total{job=\"ai-inference-gateway\"}[$__range]))", "legendFormat": "switches", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "decimals": 0,
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] }
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true }
+    },
+    {
+      "id": 43,
+      "type": "stat",
+      "title": "Assistant deadlines",
+      "description": "Assistant gateway deadline failures over the selected range.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 12, "y": 82, "w": 6, "h": 4 },
+      "targets": [
+        { "expr": "sum(increase(ai_execution_deadline_exceeded_total{job=\"ai-inference-gateway\",task=\"soc_assistant\"}[$__range]))", "legendFormat": "deadlines", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "decimals": 0,
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] }
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true }
+    },
+    {
+      "id": 44,
+      "type": "stat",
+      "title": "Structural fallbacks",
+      "description": "Invalid structured output, schema or proof-runtime fallbacks over the selected range.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 18, "y": 82, "w": 6, "h": 4 },
+      "targets": [
+        { "expr": "sum(increase(ai_execution_fallback_total{job=\"ai-soc-api\",reason=~\"v32_invalid_structured_output|v32_schema_build_failed|v32_semantic_proof_unavailable\"}[$__range]))", "legendFormat": "fallbacks", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "decimals": 0,
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 1 }, { "color": "red", "value": 3 } ] }
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true }
+    },
+    {
+      "id": 40,
+      "type": "logs",
+      "title": "Assistant and inference gateway warnings/errors",
+      "description": "Operational logs only. Alloy excludes prompts, responses, incident/case identifiers and security telemetry.",
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "gridPos": { "x": 0, "y": 86, "w": 24, "h": 10 },
+      "targets": [
+        { "expr": "{job=\"ai-soc-platform\",service=~\"ai-soc-api|ai-soc-inference-gateway\"} |~ \"(?i)(level=(error|warn)|\\\\b(error|warn|warning|failed|failure|exception|timeout|deadline|fallback|unavailable|rejected)\\\\b)\"", "queryType": "range", "refId": "A" }
+      ],
+      "options": { "dedupStrategy": "none", "enableLogDetails": true, "prettifyLogMessage": false, "showCommonLabels": false, "showLabels": false, "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true }
+    }
+  ],
+  "refresh": "15s",
+  "schemaVersion": 39,
+  "tags": [
+    "ai-assistant",
+    "ai-observability",
+    "ai-soc",
+    "inference",
+    "semantic-proof",
+    "v0.8.0"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "label": "Prometheus",
+        "multi": false,
+        "name": "DS_PROMETHEUS",
+        "options": [],
+        "query": "prometheus",
+        "refresh": 1,
+        "regex": "",
+        "type": "datasource"
+      },
+      {
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "label": "Loki",
+        "multi": false,
+        "name": "DS_LOKI",
+        "options": [],
+        "query": "loki",
+        "refresh": 1,
+        "regex": "",
+        "type": "datasource"
+      }
+    ]
+  },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": { "refresh_intervals": ["5s", "15s", "30s", "1m", "5m", "15m", "30m", "1h"] },
+  "timezone": "browser",
+  "title": "AI SOC Assistant - End-to-End Observability",
+  "uid": "ai-soc-assistant-observability",
+  "version": 1,
+  "weekStart": ""
+}

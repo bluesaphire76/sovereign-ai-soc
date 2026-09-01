@@ -1,0 +1,101 @@
+groups:
+  - name: ai-soc-assistant-observability
+    rules:
+      - alert: AiSocInferenceGatewayMetricsDown
+        expr: up{job="ai-inference-gateway"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: ai-soc-inference-gateway
+          domain: ai-assistant
+        annotations:
+          summary: "AI inference gateway metrics are unavailable"
+          description: "Prometheus cannot reach the inference gateway metrics bridge for more than two minutes."
+
+      - alert: AiSocInferenceGatewayNotReady
+        expr: ai_execution_gateway_ready{job="ai-inference-gateway"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          service: ai-soc-inference-gateway
+          domain: ai-assistant
+        annotations:
+          summary: "AI inference gateway is not ready"
+          description: "The gateway is reachable but its standard inference runtime has not been ready for five minutes."
+
+      - alert: AiSocInferenceQueueSaturation
+        expr: ai_execution_queue_depth{job="ai-inference-gateway"} / clamp_min(ai_execution_queue_capacity{job="ai-inference-gateway"}, 1) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          service: ai-soc-inference-gateway
+          domain: ai-assistant
+        annotations:
+          summary: "AI inference queue is near capacity"
+          description: "The inference queue has remained above 80 percent of configured capacity for five minutes."
+
+      - alert: AiSocAssistantDeadlineExceeded
+        expr: increase(ai_execution_deadline_exceeded_total{job="ai-inference-gateway",task="soc_assistant"}[10m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+          service: ai-soc-inference-gateway
+          domain: ai-assistant
+        annotations:
+          summary: "AI SOC Assistant exceeded its inference deadline"
+          description: "At least one Assistant generation exceeded the gateway deadline in the last ten minutes."
+
+      - alert: AiSocAssistantInferenceLatencyHigh
+        expr: histogram_quantile(0.95, sum by (le) (rate(ai_execution_request_duration_seconds_bucket{job="ai-inference-gateway",task="soc_assistant"}[10m]))) > 35
+        for: 10m
+        labels:
+          severity: warning
+          service: ai-soc-inference-gateway
+          domain: ai-assistant
+        annotations:
+          summary: "AI SOC Assistant inference latency is high"
+          description: "Assistant inference p95 latency has exceeded 35 seconds for ten minutes."
+
+      - alert: AiSocAssistantProfileSwitchInvariantBroken
+        expr: increase(ai_execution_profile_switch_total{job="ai-inference-gateway"}[10m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          service: ai-soc-inference-gateway
+          domain: ai-assistant
+        annotations:
+          summary: "AI inference profile switch invariant was broken"
+          description: "The single standard-profile gateway initiated a profile switch in the last ten minutes."
+
+      - alert: AiSocAssistantProofRuntimeUnavailable
+        expr: increase(assistant_v32_semantic_proof_seconds_count{job="ai-soc-api",status="unavailable"}[10m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          service: ai-soc-api
+          domain: ai-assistant
+        annotations:
+          summary: "AI SOC Assistant semantic proof runtime is unavailable"
+          description: "At least one generated response could not run semantic proof in the last ten minutes."
+
+      - alert: AiSocAssistantStructuralFallback
+        expr: sum(increase(ai_execution_fallback_total{job="ai-soc-api",reason=~"v32_invalid_structured_output|v32_schema_build_failed|v32_semantic_proof_unavailable"}[10m])) > 0
+        for: 1m
+        labels:
+          severity: warning
+          service: ai-soc-api
+          domain: ai-assistant
+        annotations:
+          summary: "AI SOC Assistant used a structural fail-closed fallback"
+          description: "A structured-output, schema-build, or proof-runtime failure forced a deterministic fallback in the last ten minutes."
+
+      - alert: AiSocAssistantApiError
+        expr: sum(increase(ai_soc_http_requests_total{job="ai-soc-api",path="/assistant/query",status_code=~"5.."}[10m])) > 0
+        for: 1m
+        labels:
+          severity: warning
+          service: ai-soc-api
+          domain: ai-assistant
+        annotations:
+          summary: "AI SOC Assistant API returned a server error"
+          description: "The Assistant query endpoint returned at least one HTTP 5xx response in the last ten minutes."

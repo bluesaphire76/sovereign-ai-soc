@@ -14,6 +14,7 @@ PUBLIC_AUTH_PATHS = {
     "/auth/login",
     "/health",
     "/metrics",
+    "/metrics/ai-inference",
     "/docs",
     "/docs/oauth2-redirect",
     "/openapi.json",

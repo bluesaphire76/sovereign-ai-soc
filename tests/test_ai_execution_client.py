@@ -17,6 +17,7 @@ from services.ai_execution.errors import (
     GatewayInvalidRequest,
     GatewayMalformedResponse,
     GatewayQueueFull,
+    GatewayUnavailable,
 )
 
 
@@ -365,6 +366,34 @@ def test_client_rejects_malformed_response_without_provider_fallback() -> None:
     )
     with pytest.raises(GatewayMalformedResponse):
         client.generate(request)
+
+
+def test_client_reads_prometheus_metrics_over_dedicated_raw_transport() -> None:
+    calls = []
+
+    def metrics_sender(path, timeout):
+        calls.append((path, timeout))
+        return "# TYPE ai_execution_gateway_ready gauge\nai_execution_gateway_ready 1\n"
+
+    content = AiExecutionClient(
+        metrics_sender=metrics_sender
+    ).prometheus_metrics(timeout_seconds=3)
+
+    assert calls == [("/metrics", 3)]
+    assert content.startswith(b"# TYPE ai_execution_gateway_ready")
+
+
+def test_client_metrics_transport_fails_closed() -> None:
+    with pytest.raises(GatewayMalformedResponse):
+        AiExecutionClient(metrics_sender=lambda *args: b"").prometheus_metrics()
+
+    def unavailable(path, timeout):
+        raise OSError("socket missing")
+
+    with pytest.raises(GatewayUnavailable):
+        AiExecutionClient(
+            metrics_sender=unavailable
+        ).prometheus_metrics()
 
 
 def test_nonstandard_profile_is_rejected_before_transport() -> None:

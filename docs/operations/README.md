@@ -4,6 +4,7 @@
 
 - [Admin guide](admin-guide.md)
 - [AI Inference Gateway](ai-inference-gateway.md)
+- [AI SOC Assistant observability](ai-assistant-observability.md)
 - [Deployment guide](deployment-guide.md)
 - [Ports and components](ports-and-components.md)
 - [Troubleshooting](troubleshooting.md)

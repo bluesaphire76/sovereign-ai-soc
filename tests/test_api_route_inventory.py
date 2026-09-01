@@ -16,6 +16,7 @@ CRITICAL_ROUTE_METHODS = {
     "/cases/{case_id}": {"GET"},
     "/platform/health": {"GET"},
     "/metrics": {"GET"},
+    "/metrics/ai-inference": {"GET"},
     "/reports/incidents/{incident_id}": {"GET"},
     "/reports/cases/{case_id}": {"GET"},
     "/semantic-memory/capabilities": {"GET"},

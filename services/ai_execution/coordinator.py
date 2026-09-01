@@ -20,11 +20,16 @@ from services.ai_execution.errors import (
 from services.ai_execution.metrics import (
     ACTIVE_REQUESTS,
     DEADLINE_EXCEEDED,
+    GENERATION_DURATION,
+    GENERATIONS_TOTAL,
     PROFILE_SWITCH_TOTAL,
+    QUEUE_CAPACITY,
     QUEUE_DEPTH,
     QUEUE_WAIT,
     REQUEST_DURATION,
     REQUESTS_TOTAL,
+    TOKENS_TOTAL,
+    TRUNCATED_TOTAL,
 )
 from services.ai_execution.priorities import priority_value
 
@@ -68,6 +73,7 @@ class AiExecutionCoordinator:
         self._worker: asyncio.Task[None] | None = None
         self._closing = False
         self._active_requests = 0
+        QUEUE_CAPACITY.set(self._max_queue)
 
     @property
     def queue_depth(self) -> int:
@@ -208,6 +214,7 @@ class AiExecutionCoordinator:
         started = self._clock()
         self._active_requests = 1
         ACTIVE_REQUESTS.set(1)
+        GENERATIONS_TOTAL.labels(item.request.task).inc()
         execution_task = asyncio.create_task(
             self._invoke(item.request, item.deadline_at)
         )
@@ -243,6 +250,23 @@ class AiExecutionCoordinator:
             switch_count = max(0, int(response.profile_switch_count))
             if switch_count:
                 PROFILE_SWITCH_TOTAL.inc(switch_count)
+            GENERATION_DURATION.labels(
+                item.request.task,
+                response.status,
+            ).observe(max(0, response.generation_ms) / 1000)
+            TOKENS_TOTAL.labels(item.request.task, "prompt").inc(
+                max(0, response.prompt_tokens)
+            )
+            TOKENS_TOTAL.labels(item.request.task, "completion").inc(
+                max(0, response.completion_tokens)
+            )
+            if str(response.finish_reason or "").strip().lower() in {
+                "length",
+                "max_length",
+                "max_tokens",
+                "token_limit",
+            }:
+                TRUNCATED_TOTAL.labels(item.request.task).inc()
             REQUESTS_TOTAL.labels(item.request.task, response.status).inc()
             if not item.future.done():
                 item.future.set_result(response)

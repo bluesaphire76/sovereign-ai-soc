@@ -11,6 +11,8 @@ from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, ge
 from platform_health import get_platform_health
 from active_users import get_active_users_snapshot
 from ai_triage_hardening import get_last_llm_call_metadata
+from services.ai_execution.client import AiExecutionClient
+from services.ai_execution.errors import AiExecutionError
 
 
 metrics_router = APIRouter(tags=["metrics"])
@@ -43,7 +45,25 @@ HTTP_REQUEST_DURATION_SECONDS = Histogram(
     "ai_soc_http_request_duration_seconds",
     "HTTP request latency in seconds for the AI SOC API.",
     ["method", "path"],
-    buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10),
+    buckets=(
+        0.005,
+        0.01,
+        0.025,
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1,
+        2.5,
+        5,
+        10,
+        15,
+        20,
+        30,
+        45,
+        60,
+        90,
+    ),
 )
 
 PLATFORM_HEALTH_COLLECTION_SUCCESS = Gauge(
@@ -726,7 +746,7 @@ async def prometheus_metrics_middleware(
     request: Request,
     call_next: Callable[[Request], Awaitable[Response]],
 ) -> Response:
-    if request.url.path == "/metrics":
+    if request.url.path in {"/metrics", "/metrics/ai-inference"}:
         return await call_next(request)
 
     method = request.method
@@ -763,3 +783,16 @@ def metrics() -> Response:
         content=generate_latest(),
         media_type=CONTENT_TYPE_LATEST,
     )
+
+
+@metrics_router.get("/metrics/ai-inference", include_in_schema=False)
+def ai_inference_metrics() -> Response:
+    try:
+        content = AiExecutionClient().prometheus_metrics(timeout_seconds=5.0)
+    except AiExecutionError:
+        return Response(
+            content="# AI inference gateway metrics unavailable\n",
+            status_code=503,
+            media_type=CONTENT_TYPE_LATEST,
+        )
+    return Response(content=content, media_type=CONTENT_TYPE_LATEST)

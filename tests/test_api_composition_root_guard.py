@@ -26,4 +26,4 @@ def test_api_py_still_includes_routers() -> None:
 
 def test_api_app_still_registers_routes() -> None:
     assert isinstance(app, FastAPI)
-    assert len(build_route_inventory()) == 176
+    assert len(build_route_inventory()) == 177

@@ -18,6 +18,13 @@ from services.ai_execution.errors import (
     GatewayQueueFull,
     GatewayShuttingDown,
 )
+from services.ai_execution.metrics import (
+    ACTIVE_REQUESTS,
+    GATEWAY_INFO,
+    GATEWAY_READY,
+    QUEUE_CAPACITY,
+    QUEUE_DEPTH,
+)
 from services.ai_execution.runtime import GatewayModelRuntime
 
 
@@ -130,6 +137,17 @@ def create_gateway_app(
 
     @application.get("/metrics")
     async def metrics():
+        gateway_status = status_payload()
+        GATEWAY_READY.set(1 if gateway_status.state == "ready" else 0)
+        GATEWAY_INFO.clear()
+        GATEWAY_INFO.labels(
+            state=gateway_status.state,
+            profile=gateway_status.profile,
+            model=gateway_status.model,
+        ).set(1)
+        QUEUE_DEPTH.set(gateway_status.queue_depth)
+        QUEUE_CAPACITY.set(gateway_status.max_queue)
+        ACTIVE_REQUESTS.set(gateway_status.active_requests)
         return Response(
             content=generate_latest(),
             media_type=CONTENT_TYPE_LATEST,

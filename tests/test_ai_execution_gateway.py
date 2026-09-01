@@ -19,7 +19,14 @@ from services.ai_execution.errors import (
     GatewayDeadlineExceeded,
     GatewayQueueFull,
 )
-from services.ai_execution.metrics import PROFILE_SWITCH_TOTAL
+from services.ai_execution.metrics import (
+    GENERATION_DURATION,
+    GENERATIONS_TOTAL,
+    PROFILE_SWITCH_TOTAL,
+    QUEUE_CAPACITY,
+    TOKENS_TOTAL,
+    TRUNCATED_TOTAL,
+)
 from services.ai_execution.validation import normalize_gateway_output
 
 
@@ -273,16 +280,64 @@ def test_required_metrics_exist_and_profile_switch_invariant_is_zero() -> None:
     metrics = generate_latest().decode("utf-8")
     for name in (
         "ai_execution_queue_depth",
+        "ai_execution_queue_capacity",
         "ai_execution_queue_wait_seconds",
         "ai_execution_request_duration_seconds",
         "ai_execution_active_requests",
+        "ai_execution_gateway_ready",
+        "ai_execution_gateway_info",
         "ai_execution_requests_total",
+        "ai_execution_generations_total",
         "ai_execution_deadline_exceeded_total",
         "ai_execution_grounding_rejections_total",
         "ai_execution_fallback_total",
         "ai_execution_profile_switch_total",
+        "ai_execution_generation_duration_seconds",
+        "ai_execution_tokens_total",
+        "ai_execution_truncated_total",
         "assistant_semantic_duration_seconds",
         "assistant_semantic_degraded_total",
     ):
         assert name in metrics
     assert PROFILE_SWITCH_TOTAL._value.get() == 0
+
+
+def test_gateway_records_generation_tokens_truncation_and_capacity() -> None:
+    task = "observability_probe"
+    generation = GENERATION_DURATION.labels(task, "success")
+    generation_count = GENERATIONS_TOTAL.labels(task)
+    prompt_tokens = TOKENS_TOTAL.labels(task, "prompt")
+    completion_tokens = TOKENS_TOTAL.labels(task, "completion")
+    truncations = TRUNCATED_TOTAL.labels(task)
+    before = {
+        "generation_sum": generation._sum.get(),
+        "generation_count": generation_count._value.get(),
+        "prompt_tokens": prompt_tokens._value.get(),
+        "completion_tokens": completion_tokens._value.get(),
+        "truncations": truncations._value.get(),
+    }
+
+    async def exercise() -> None:
+        async def executor(request, deadline):
+            return AiExecutionResponse(
+                status="success",
+                task=request.task,
+                output="bounded",
+                finish_reason="max_tokens",
+                generation_ms=250,
+                prompt_tokens=120,
+                completion_tokens=32,
+            )
+
+        coordinator = AiExecutionCoordinator(executor, max_queue=7)
+        await coordinator.execute(_request(task, "interactive"))
+        await coordinator.shutdown()
+
+    asyncio.run(exercise())
+
+    assert QUEUE_CAPACITY._value.get() == 7
+    assert generation._sum.get() - before["generation_sum"] == pytest.approx(0.25)
+    assert generation_count._value.get() - before["generation_count"] == 1
+    assert prompt_tokens._value.get() - before["prompt_tokens"] == 120
+    assert completion_tokens._value.get() - before["completion_tokens"] == 32
+    assert truncations._value.get() - before["truncations"] == 1

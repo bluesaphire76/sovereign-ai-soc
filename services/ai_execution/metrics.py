@@ -7,24 +7,44 @@ QUEUE_DEPTH = Gauge(
     "ai_execution_queue_depth",
     "Number of queued AI execution requests.",
 )
+QUEUE_CAPACITY = Gauge(
+    "ai_execution_queue_capacity",
+    "Maximum number of queued AI execution requests.",
+)
 QUEUE_WAIT = Histogram(
     "ai_execution_queue_wait_seconds",
     "Time spent waiting in the AI execution queue.",
     labelnames=("task",),
+    buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 20, 30, 45, 60),
 )
 REQUEST_DURATION = Histogram(
     "ai_execution_request_duration_seconds",
-    "End-to-end AI execution duration.",
+    "AI execution duration after queue admission.",
     labelnames=("task",),
+    buckets=(0.1, 0.25, 0.5, 1, 2.5, 5, 10, 15, 20, 30, 45, 60, 90, 120),
 )
 ACTIVE_REQUESTS = Gauge(
     "ai_execution_active_requests",
     "Number of active model generations.",
 )
+GATEWAY_READY = Gauge(
+    "ai_execution_gateway_ready",
+    "Whether the inference gateway runtime is ready to accept generation requests.",
+)
+GATEWAY_INFO = Gauge(
+    "ai_execution_gateway_info",
+    "Current bounded inference gateway runtime identity and state.",
+    labelnames=("state", "profile", "model"),
+)
 REQUESTS_TOTAL = Counter(
     "ai_execution_requests_total",
     "AI execution requests by task and safe status.",
     labelnames=("task", "status"),
+)
+GENERATIONS_TOTAL = Counter(
+    "ai_execution_generations_total",
+    "Inference runtime invocations by bounded task.",
+    labelnames=("task",),
 )
 DEADLINE_EXCEEDED = Counter(
     "ai_execution_deadline_exceeded_total",
@@ -44,6 +64,22 @@ FALLBACK_TOTAL = Counter(
 PROFILE_SWITCH_TOTAL = Counter(
     "ai_execution_profile_switch_total",
     "llama.cpp profile actions initiated by the gateway.",
+)
+GENERATION_DURATION = Histogram(
+    "ai_execution_generation_duration_seconds",
+    "Provider generation duration reported by the inference runtime.",
+    labelnames=("task", "status"),
+    buckets=(0.1, 0.25, 0.5, 1, 2.5, 5, 10, 15, 20, 30, 45, 60, 90, 120),
+)
+TOKENS_TOTAL = Counter(
+    "ai_execution_tokens_total",
+    "Inference tokens processed by task and bounded direction.",
+    labelnames=("task", "direction"),
+)
+TRUNCATED_TOTAL = Counter(
+    "ai_execution_truncated_total",
+    "Inference responses terminated by a provider token or length limit.",
+    labelnames=("task",),
 )
 ASSISTANT_SEMANTIC_DURATION = Histogram(
     "assistant_semantic_duration_seconds",

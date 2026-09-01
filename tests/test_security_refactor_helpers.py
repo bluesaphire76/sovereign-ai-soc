@@ -79,4 +79,10 @@ def test_rbac_allows_assistant_only_for_operator_roles() -> None:
 
 
 def test_public_auth_paths_include_existing_public_endpoints() -> None:
-    assert {"/auth/login", "/health", "/metrics", "/openapi.json"} <= PUBLIC_AUTH_PATHS
+    assert {
+        "/auth/login",
+        "/health",
+        "/metrics",
+        "/metrics/ai-inference",
+        "/openapi.json",
+    } <= PUBLIC_AUTH_PATHS
