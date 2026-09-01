@@ -17,7 +17,7 @@ rich
 # Semantic memory and knowledge indexing
 qdrant-client
 sentence-transformers
-stanza==1.11.0
+stanza==1.12.2
 dateparser==1.2.2
 text2num==3.0.2
 python-dateutil>=2.9,<3

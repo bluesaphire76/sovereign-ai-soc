@@ -149,6 +149,40 @@ def test_provider_selection_persistence_includes_llama_cpp(monkeypatch):
     assert registry.default_provider == "local_ollama"
 
 
+def test_provider_persistence_never_writes_api_key_values_from_metadata(monkeypatch):
+    runtime_secret = "runtime-secret-key-value"
+    injected_secret = "injected-secret-key-value"
+    monkeypatch.setenv("AI_OPENROUTER_API_KEY", runtime_secret)
+    path = os.environ["AI_PROVIDER_CONFIG_PATH"]
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(
+            {
+                "providers": [
+                    {
+                        "key": "openrouter",
+                        "type": "OPENAI_COMPATIBLE",
+                        "api_key_env": "AI_OPENROUTER_API_KEY",
+                        "metadata": {
+                            "api_key_env": injected_secret,
+                            "display_hint": "retained",
+                        },
+                    }
+                ]
+            },
+            handle,
+        )
+
+    save_registry_settings()
+    saved_text = open(path, encoding="utf-8").read()
+    saved = json.loads(saved_text)
+    openrouter = next(item for item in saved["providers"] if item["key"] == "openrouter")
+
+    assert runtime_secret not in saved_text
+    assert injected_secret not in saved_text
+    assert openrouter["api_key_env"] == "AI_OPENROUTER_API_KEY"
+    assert openrouter["metadata"]["display_hint"] == "retained"
+
+
 def test_public_provider_dict_never_returns_raw_api_key(monkeypatch):
     monkeypatch.setenv("AI_OPENAI_COMPATIBLE_API_KEY", "secret-key-value")
 

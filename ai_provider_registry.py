@@ -48,6 +48,15 @@ PROVIDER_DISPLAY_NAMES = {
     "custom_http_compatible": "Custom HTTP",
 }
 
+PROVIDER_ENV_REFERENCES = {
+    "local_llama_cpp": "LLAMA_CPP_API_KEY",
+    "openrouter": "AI_OPENROUTER_API_KEY",
+    "openai_compatible": "AI_OPENAI_COMPATIBLE_API_KEY",
+    "azure_openai_compatible": "AI_AZURE_OPENAI_COMPATIBLE_API_KEY",
+    "anthropic_compatible": "AI_ANTHROPIC_COMPATIBLE_API_KEY",
+    "custom_http_compatible": "AI_CUSTOM_HTTP_COMPATIBLE_API_KEY",
+}
+
 LOCAL_FEATURE_ALLOWLIST = [
     "incident_triage",
     "incident_analysis",
@@ -278,7 +287,6 @@ def _external_provider_from_env(
             "enabled_env": f"{prefix}_ENABLED",
             "base_url_env": f"{prefix}_BASE_URL",
             "model_env": f"{prefix}_MODEL",
-            "api_key_env": f"{prefix}_API_KEY",
             "timeout_seconds_env": f"{prefix}_TIMEOUT_SECONDS",
             "max_tokens_env": f"{prefix}_MAX_TOKENS",
             "feature_allowlist_env": f"{prefix}_FEATURE_ALLOWLIST",
@@ -328,7 +336,6 @@ def _providers_from_env() -> dict[str, ProviderConfig]:
             "router_enabled_env": "LLAMA_CPP_ROUTER_ENABLED",
             "base_url_env": "LLAMA_CPP_BASE_URL",
             "api_base_url_env": "LLAMA_CPP_API_BASE_URL",
-            "api_key_env": "LLAMA_CPP_API_KEY",
             "timeout_seconds_env": "LLAMA_CPP_TIMEOUT_SECONDS",
             "fast_model_env": "LLAMA_CPP_FAST_MODEL",
             "standard_model_env": "LLAMA_CPP_STANDARD_MODEL",
@@ -422,6 +429,11 @@ def _apply_file_config(
         api_key_value = _env_str(api_key_env) or (existing.api_key if existing else None)
         if local_provider:
             api_key_value = _optional_api_key_value(api_key_value)
+        persisted_metadata = {
+            str(metadata_key): metadata_value
+            for metadata_key, metadata_value in dict(item.get("metadata") or {}).items()
+            if not _is_sensitive_metadata_key(str(metadata_key))
+        }
 
         configured[key] = replace(
             existing
@@ -449,7 +461,7 @@ def _apply_file_config(
                 str(item.get("redaction_mode") or ""),
                 existing.redaction_mode if existing else REDACTION_BLOCK_EXTERNAL,
             ),
-            metadata={**(existing.metadata if existing else {}), **dict(item.get("metadata") or {})},
+            metadata={**(existing.metadata if existing else {}), **persisted_metadata},
         )
 
     return configured
@@ -555,9 +567,9 @@ def _provider_file_item(config: ProviderConfig) -> dict[str, Any]:
         "redaction_mode": config.redaction_mode,
         "metadata": sanitized_metadata,
     }
-    api_key_env = config.metadata.get("api_key_env")
-    if api_key_env:
-        item["api_key_env"] = api_key_env
+    env_reference = PROVIDER_ENV_REFERENCES.get(config.key)
+    if env_reference:
+        item["api_key_env"] = env_reference
     return item
 
 
