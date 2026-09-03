@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { SOC_CONTROL_CLASSES, SOC_TEXT_CLASSES, cx } from "@/lib/semantic-styles";
 
 type EnterprisePanelProps = {
-  title?: string;
+  title?: ReactNode;
   description?: string;
   actions?: ReactNode;
   children: ReactNode;

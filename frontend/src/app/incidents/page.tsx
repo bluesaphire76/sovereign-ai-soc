@@ -3,30 +3,34 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  AlertTriangle,
-  ChevronRight,
   RefreshCw,
-  Search,
   ShieldAlert,
-  SlidersHorizontal,
   Trash2,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
+import IncidentRiskScore from "@/components/incidents/IncidentRiskScore";
+import {
+  EnterpriseBadge,
+  EnterpriseBreadcrumbs,
+  EnterpriseButton,
+  EnterpriseEmptyState,
+  EnterpriseErrorState,
+  EnterpriseIconButton,
+  EnterpriseMetricCard,
+  EnterpriseMetricStrip,
+  EnterprisePageHeader,
+  EnterprisePanel,
+  EnterpriseSearchInput,
+  EnterpriseSelect,
+  EnterpriseSkeleton,
+  EnterpriseStatusBadge,
+} from "@/components/enterprise";
 import {
   authFetch,
   fetchCurrentUser,
   getStoredUser,
   type AuthUser,
 } from "../../lib/auth";
-import {
-  SOC_TONE_CLASSES,
-  riskBand as semanticRiskBand,
-  riskScoreTone,
-  severityIndicatorClasses,
-  severityTextClasses,
-  type SocSeverity,
-  type SocTone,
-} from "@/lib/semantic-styles";
 
 type Incident = {
   id: number;
@@ -52,9 +56,6 @@ type IncidentsResponse = {
   total: number;
   total_pages: number;
 };
-
-type Tone = SocTone;
-type SeverityBand = SocSeverity;
 
 const STATUS_OPTIONS = [
   "ALL",
@@ -82,84 +83,8 @@ function formatTimestamp(value: string | null | undefined) {
   }
 }
 
-function riskBand(score: number | null | undefined): SeverityBand {
-  return semanticRiskBand(score);
-}
-
-function riskTone(score: number | null | undefined): Tone {
-  return riskScoreTone(score);
-}
-
-function statusTone(status: string | null | undefined): Tone {
-  const value = (status ?? "NEW").toUpperCase();
-
-  if (value === "ESCALATED") return "danger";
-  if (value === "TRIAGED" || value === "INVESTIGATING") return "primary";
-  if (value === "CONTAINED") return "warning";
-  if (value === "RESOLVED" || value === "CLOSED" || value === "FALSE_POSITIVE") return "success";
-  return "warning";
-}
-
 function isDemoIncident(incident: Incident) {
   return Boolean(incident.is_demo);
-}
-
-function badgeClass(tone: Tone) {
-  return SOC_TONE_CLASSES[tone].badge;
-}
-
-function severityDotClass(score: number | null | undefined) {
-  return severityIndicatorClasses(riskBand(score));
-}
-
-function severityTextClass(score: number | null | undefined) {
-  return severityTextClasses(riskBand(score));
-}
-
-function TinyBadge({
-  children,
-  tone = "neutral",
-}: {
-  children: React.ReactNode;
-  tone?: Tone;
-}) {
-  return (
-    <span
-      className={`inline-flex h-[18px] min-w-[58px] max-w-[104px] items-center justify-center whitespace-nowrap border px-1.5 text-center text-[10px] font-semibold uppercase leading-none tracking-wide ${badgeClass(tone)}`}
-    >
-      {children}
-    </span>
-  );
-}
-
-function Counter({
-  label,
-  value,
-  helper,
-  tone = "neutral",
-}: {
-  label: string;
-  value: number | string;
-  helper: string;
-  tone?: Tone;
-}) {
-  return (
-    <div
-      className={`flex min-h-[58px] items-center justify-between gap-3 rounded-sm border px-2.5 py-2 shadow-sm ${SOC_TONE_CLASSES[tone].card}`}
-    >
-      <div className="min-w-0">
-        <div className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
-          {label}
-        </div>
-        <div className="mt-0.5 flex min-w-0 items-baseline gap-2">
-          <span className="text-xl font-semibold leading-6">{value}</span>
-          <span className="min-w-0 truncate text-[11px] leading-4 text-slate-500">
-            {helper}
-          </span>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 function Field({
@@ -419,146 +344,149 @@ export default function IncidentsPage() {
 
   return (
     <AppShell width="dense">
+      <EnterprisePageHeader
+        breadcrumbs={
+          <EnterpriseBreadcrumbs
+            items={[
+              { label: "Dashboard", href: "/" },
+              { label: "Incidents" },
+            ]}
+          />
+        }
+        eyebrow="Investigation"
+        title="Incidents"
+        description="Dense incident queue for triage, correlation review and response handoff."
+        icon={<ShieldAlert aria-hidden="true" className="h-3.5 w-3.5" />}
+        status={demoMode ? <EnterpriseBadge tone="primary">Demo view</EnterpriseBadge> : null}
+        density="compact"
+        secondaryActions={
+          <>
+            <EnterpriseButton
+              onClick={demoMode ? exitDemoMode : enableDemoMode}
+              tone={demoMode ? "primary" : "secondary"}
+              size="xs"
+            >
+              {demoMode ? "Exit current demo" : "Current demo"}
+            </EnterpriseButton>
+            <EnterpriseButton
+              onClick={loadIncidents}
+              disabled={refreshing}
+              tone="secondary"
+              size="xs"
+              icon={
+                <RefreshCw
+                  aria-hidden="true"
+                  className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`}
+                />
+              }
+            >
+              Refresh
+            </EnterpriseButton>
+          </>
+        }
+      />
 
-        <div className="border border-slate-800 bg-slate-950">
-          <header className="border-b border-slate-800 bg-slate-950 px-4 py-3">
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-              <div className="min-w-0">
-                <Link
-                  href="/"
-                  className="mb-1 inline-flex text-[11px] font-medium uppercase tracking-wide text-slate-500 hover:text-cyan-300"
-                >
-                  ← Dashboard
-                </Link>
+      <div className="space-y-3">
+        <EnterpriseMetricStrip className="lg:grid-cols-5">
+          <EnterpriseMetricCard
+            title="Visible incidents"
+            value={total}
+            subtitle="Matching current filters"
+            tone="primary"
+          />
+          <EnterpriseMetricCard
+            title="High attention"
+            value={highRiskCount}
+            subtitle="Risk score 60+ on this page"
+            tone={highRiskCount > 0 ? "warning" : "success"}
+          />
+          <EnterpriseMetricCard
+            title="Active lifecycle"
+            value={activeLifecycleCount}
+            subtitle="Investigating, contained or escalated"
+            tone={activeLifecycleCount > 0 ? "warning" : "success"}
+          />
+          <EnterpriseMetricCard
+            title="Correlated"
+            value={correlatedCount}
+            subtitle="Linked to patterns"
+            tone="primary"
+          />
+          <EnterpriseMetricCard
+            title="Demo scenarios"
+            value={demoIncidentCount}
+            subtitle={demoMode ? "Stable seed only" : "Visible on this page"}
+            tone={demoMode ? "primary" : "neutral"}
+          />
+        </EnterpriseMetricStrip>
 
-                <div className="flex items-center gap-2">
-                  <ShieldAlert className="h-4 w-4 text-cyan-300" strokeWidth={1.75} />
-                  <h1 className="text-xl font-semibold tracking-tight text-slate-100">
-                    Incidents
-                  </h1>
-                  <span className="text-xs text-slate-500">
-                    Enterprise incident queue
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  onClick={demoMode ? exitDemoMode : enableDemoMode}
-                  className={`h-8 border px-3 text-xs font-medium ${
-                    demoMode
-                      ? "border-cyan-500 bg-cyan-500 text-slate-950 hover:bg-cyan-400"
-                      : "border-slate-700 bg-slate-950 text-slate-300 hover:border-slate-600 hover:bg-slate-900"
-                  }`}
-                >
-                  {demoMode ? "Exit current demo" : "Current demo"}
-                </button>
-
-                <button
-                  onClick={loadIncidents}
-                  className="inline-flex h-8 items-center gap-1.5 border border-slate-700 bg-slate-950 px-3 text-xs font-medium text-slate-300 hover:bg-slate-900"
-                >
-                  <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} strokeWidth={1.75} />
-                  Refresh
-                </button>
-              </div>
-            </div>
-          </header>
-
-          <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-5">
-            <Counter label="Visible incidents" value={total} helper="Matching current filters" tone="primary" />
-            <Counter label="High attention" value={highRiskCount} helper="Risk score 60+ on this page" tone={highRiskCount > 0 ? "warning" : "success"} />
-            <Counter label="Active lifecycle" value={activeLifecycleCount} helper="Investigating, contained or legacy escalated" tone={activeLifecycleCount > 0 ? "warning" : "success"} />
-            <Counter label="Correlated" value={correlatedCount} helper="Incidents linked to patterns" tone="primary" />
-            <Counter label="Demo scenarios" value={demoIncidentCount} helper={demoMode ? "Stable seed only" : "Visible on this page"} tone={demoMode ? "primary" : "neutral"} />
-          </section>
-
-          <section className="border-b border-slate-800 bg-slate-950 px-3 py-2">
-            <div className="grid gap-2 xl:grid-cols-[auto_150px_150px_180px_minmax(320px,1fr)_auto_auto] xl:items-center">
-              <div className="hidden items-center gap-2 pr-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 xl:flex">
-                <SlidersHorizontal className="h-3.5 w-3.5 text-cyan-300" strokeWidth={1.75} />
-                Filter
-              </div>
-
-              <select
-                value={statusFilter}
-                onChange={(event) => {
-                  setStatusFilter(event.target.value);
-                  setPage(1);
-                }}
-                className="h-8 border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500"
-                aria-label="Status filter"
-              >
-                {STATUS_OPTIONS.map((item) => (
-                  <option key={item} value={item}>
-                    Status: {item}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                value={riskFilter}
-                onChange={(event) => {
-                  setRiskFilter(event.target.value);
-                  setPage(1);
-                }}
-                className="h-8 border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500"
-                aria-label="Risk filter"
-              >
-                {RISK_OPTIONS.map((item) => (
-                  <option key={item} value={item}>
-                    Risk: {item}
-                  </option>
-                ))}
-              </select>
-
+        <EnterprisePanel
+          title="Filters"
+          description="Narrow the queue without changing the underlying incident records."
+          actions={
+            <EnterpriseButton onClick={resetFilters} tone="ghost" size="xs">
+              Reset
+            </EnterpriseButton>
+          }
+        >
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-[150px_150px_180px_minmax(320px,1fr)] xl:items-end">
+            <EnterpriseSelect
+              label="Status"
+              value={statusFilter}
+              options={STATUS_OPTIONS.map((item) => ({ label: item, value: item }))}
+              onChange={(value) => {
+                setStatusFilter(value);
+                setPage(1);
+              }}
+            />
+            <EnterpriseSelect
+              label="Risk"
+              value={riskFilter}
+              options={RISK_OPTIONS.map((item) => ({ label: item, value: item }))}
+              onChange={(value) => {
+                setRiskFilter(value);
+                setPage(1);
+              }}
+            />
+            <label className="block">
+              <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                Host
+              </span>
               <input
                 value={hostFilter}
                 onChange={(event) => {
                   setHostFilter(event.target.value);
                   setPage(1);
                 }}
-                placeholder="Host"
-                className="h-8 border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500"
+                placeholder="Filter by host"
+                className="h-8 w-full rounded-sm border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500 focus-visible:ring-2 focus-visible:ring-cyan-400/30"
               />
+            </label>
+            <EnterpriseSearchInput
+              label="Search incidents"
+              value={searchFilter}
+              onChange={(value) => {
+                setSearchFilter(value);
+                setPage(1);
+              }}
+              onClear={() => {
+                setSearchFilter("");
+                setPage(1);
+              }}
+              placeholder="Search rule, AI text, MITRE, raw alert..."
+            />
+          </div>
+        </EnterprisePanel>
 
-              <div className="flex h-8 items-center gap-2 border border-slate-700 bg-slate-950 px-2 focus-within:border-cyan-500">
-                <Search className="h-3.5 w-3.5 shrink-0 text-slate-500" strokeWidth={1.75} />
-                <input
-                  value={searchFilter}
-                  onChange={(event) => {
-                    setSearchFilter(event.target.value);
-                    setPage(1);
-                  }}
-                  placeholder="Search rule, AI text, MITRE, raw alert..."
-                  className="h-full w-full bg-transparent text-xs text-slate-100 outline-none"
-                />
-              </div>
+        {error && (
+          <EnterpriseErrorState
+            title="Unable to load incidents"
+            message={error}
+            onRetry={loadIncidents}
+          />
+        )}
 
-              <button
-                onClick={demoMode ? exitDemoMode : enableDemoMode}
-                className="h-8 border border-cyan-800 bg-cyan-950 px-3 text-xs font-medium text-cyan-100 hover:bg-cyan-900"
-              >
-                {demoMode ? "Exit demo" : "Demo"}
-              </button>
-
-              <button
-                onClick={resetFilters}
-                className="h-8 border border-slate-700 bg-slate-950 px-3 text-xs font-medium text-slate-300 hover:bg-slate-900"
-              >
-                Reset
-              </button>
-            </div>
-          </section>
-
-          {error && (
-            <div className="m-3 flex items-center gap-2 border border-red-800 bg-red-950/40 px-3 py-2 text-xs text-red-200">
-              <AlertTriangle className="h-3.5 w-3.5" strokeWidth={1.75} />
-              {error}
-            </div>
-          )}
-
-          <section className="grid min-h-[660px] xl:grid-cols-[minmax(0,1fr)_420px]">
+        <section className="grid min-h-[660px] overflow-hidden rounded-sm border border-slate-800 bg-slate-950 xl:grid-cols-[minmax(0,1fr)_420px]">
             <div className="min-w-0 border-r border-slate-800">
               <div className="flex items-center justify-between border-b border-slate-800 bg-slate-950 px-3 py-2">
                 <div>
@@ -576,30 +504,29 @@ export default function IncidentsPage() {
               </div>
 
               {loading ? (
-                <div className="p-4 text-xs text-slate-500">Loading incidents...</div>
+                <div className="p-4">
+                  <EnterpriseSkeleton label="Loading incidents" rows={8} />
+                </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[1120px] table-fixed border-collapse text-left text-[12px]">
+                  <table className="w-full min-w-[1080px] table-fixed border-collapse text-left text-[12px]">
                     <thead className="border-b border-slate-800 bg-slate-950 text-[10px] uppercase tracking-[0.16em] text-slate-500">
                       <tr>
-                        <th className="w-[92px] px-2 py-2 text-right font-semibold">Actions</th>
-                        <th className="w-3 px-0 py-2"></th>
-                        <th className="w-[76px] px-2 py-2 font-semibold">ID</th>
-                        <th className="w-[116px] px-2 py-2 font-semibold">Severity</th>
-                        <th className="w-[112px] px-2 py-2 font-semibold">Status</th>
+                        <th className="w-[48px] px-2 py-2 text-center font-semibold">Select</th>
+                        <th className="w-[150px] px-2 py-2 font-semibold">Severity / risk</th>
                         <th className="w-[330px] px-2 py-2 font-semibold">Signal</th>
+                        <th className="w-[112px] px-2 py-2 font-semibold">Status</th>
                         <th className="w-[130px] px-2 py-2 font-semibold">Host</th>
                         <th className="w-[92px] px-2 py-2 font-semibold">Pattern</th>
                         <th className="w-[130px] px-2 py-2 font-semibold">Created</th>
-                        <th className="w-8 px-2 py-2"></th>
+                        <th className="w-[76px] px-2 py-2 font-semibold">ID</th>
+                        <th className="w-[48px] px-2 py-2 text-right font-semibold">Actions</th>
                       </tr>
                     </thead>
 
                     <tbody className="divide-y divide-slate-900">
                       {incidents.map((incident) => {
                         const selected = selectedIncident?.id === incident.id;
-                        const band = riskBand(incident.risk_score);
-                        const score = incident.risk_score ?? 0;
 
                         return (
                           <tr
@@ -613,9 +540,10 @@ export default function IncidentsPage() {
                                   : "hover:bg-slate-900/70"
                             }`}
                           >
-                            <td className="px-2 py-1.5 align-middle">
+                            <td className="px-2 py-1.5 text-center align-middle">
                               <input
-                                type="checkbox"
+                                type="radio"
+                                name="selected-incident"
                                 checked={selected}
                                 onChange={() => setSelectedIncidentId(incident.id)}
                                 aria-label={`Select incident ${incident.id}`}
@@ -623,57 +551,44 @@ export default function IncidentsPage() {
                               />
                             </td>
 
-                            <td className="px-0 py-1.5 align-middle">
-                              <span className={`block h-7 w-1 ${severityDotClass(incident.risk_score)}`} />
-                            </td>
-
                             <td className="px-2 py-1.5 align-top">
-                              <Link
-                                href={`/incidents/${incident.id}`}
-                                onClick={(event) => event.stopPropagation()}
-                                className="font-mono text-[12px] font-semibold tabular-nums text-cyan-300 hover:text-cyan-200"
-                              >
-                                #{incident.id}
-                              </Link>
-                            </td>
-
-                            <td className="px-2 py-1.5 align-top">
-                              <div className="flex items-center gap-1.5">
-                                <span className={`h-2 w-2 ${severityDotClass(incident.risk_score)}`} />
-                                <span className={`text-[11px] font-semibold uppercase ${severityTextClass(incident.risk_score)}`}>
-                                  {band}
-                                </span>
-                                <span className="border border-slate-600 bg-slate-800 px-1 font-mono text-[10px] font-semibold text-white">
-                                  {score}
-                                </span>
-                              </div>
-                            </td>
-
-                            <td className="px-2 py-1.5 align-top">
-                              <TinyBadge tone={statusTone(incident.status)}>
-                                {incident.status ?? "NEW"}
-                              </TinyBadge>
+                              <IncidentRiskScore score={incident.risk_score} />
                             </td>
 
                             <td className="w-[330px] px-2 py-1.5 align-top">
                               <div className="flex min-w-0 items-start gap-2">
                                 <div className="min-w-0">
-                                  <div className="line-clamp-1 max-w-[310px] text-[12px] leading-5 text-slate-200">
+                                  <Link
+                                    href={`/incidents/${incident.id}`}
+                                    onClick={(event) => event.stopPropagation()}
+                                    className="line-clamp-1 max-w-[310px] text-[12px] font-medium leading-5 text-cyan-200 hover:text-cyan-100"
+                                  >
                                     {incident.rule ?? "-"}
-                                  </div>
+                                  </Link>
                                   <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
                                     <span className="font-mono text-[10px] uppercase tracking-wide text-slate-600">
                                       Level {incident.level ?? 0}
                                     </span>
-                                    {isDemoIncident(incident) && <TinyBadge tone="primary">Demo</TinyBadge>}
+                                    {isDemoIncident(incident) && (
+                                      <EnterpriseBadge tone="primary" size="compact">
+                                        Demo
+                                      </EnterpriseBadge>
+                                    )}
                                     {incident.correlated && (
-                                      <span className="text-[10px] uppercase tracking-wide text-cyan-400">
-                                        correlated
-                                      </span>
+                                      <EnterpriseBadge tone="executive" size="compact">
+                                        Correlated
+                                      </EnterpriseBadge>
                                     )}
                                   </div>
                                 </div>
                               </div>
+                            </td>
+
+                            <td className="px-2 py-1.5 align-top">
+                              <EnterpriseStatusBadge
+                                value={incident.status ?? "NEW"}
+                                size="compact"
+                              />
                             </td>
 
                             <td className="px-2 py-1.5 align-top font-mono text-[11px] text-slate-300">
@@ -690,24 +605,26 @@ export default function IncidentsPage() {
                               {incident.timestamp_local ?? formatTimestamp(incident.timestamp)}
                             </td>
 
+                            <td className="px-2 py-1.5 align-top font-mono text-[11px] font-semibold tabular-nums text-slate-300">
+                              #{incident.id}
+                            </td>
+
                             <td className="px-2 py-1.5 align-middle text-right">
                               <div className="flex items-center justify-end gap-1">
                                 {incident.demo_origin && canManageDemo && (
-                                  <button
-                                    type="button"
+                                  <EnterpriseIconButton
+                                    icon={<Trash2 aria-hidden="true" className="h-3 w-3" />}
+                                    label={`Delete demo incident ${incident.id}`}
+                                    tooltip="Delete this synthetic incident and its demo-owned workflow data"
+                                    tone="danger"
+                                    size="xs"
                                     onClick={(event) => {
                                       event.stopPropagation();
                                       void deleteDemoIncident(incident);
                                     }}
                                     disabled={deletingIncidentId === incident.id}
-                                    className="inline-flex h-7 items-center gap-1 border border-red-800 bg-red-950/40 px-2 text-[10px] font-medium text-red-200 hover:bg-red-950/70 disabled:cursor-not-allowed disabled:opacity-50"
-                                    title="Delete this synthetic incident and its demo-owned workflow data"
-                                  >
-                                    <Trash2 className="h-3 w-3" />
-                                    {deletingIncidentId === incident.id ? "Deleting" : "Delete"}
-                                  </button>
+                                  />
                                 )}
-                                <ChevronRight className="h-3.5 w-3.5 text-slate-600" strokeWidth={1.75} />
                               </div>
                             </td>
                           </tr>
@@ -716,8 +633,16 @@ export default function IncidentsPage() {
 
                       {incidents.length === 0 && (
                         <tr>
-                          <td colSpan={10} className="px-3 py-10 text-center text-xs text-slate-500">
-                            No incidents found with current filters.
+                          <td colSpan={9} className="px-3 py-4">
+                            <EnterpriseEmptyState
+                              title="No incidents found"
+                              description="No incidents match the current filters."
+                              action={
+                                <EnterpriseButton onClick={resetFilters} tone="ghost" size="xs">
+                                  Reset filters
+                                </EnterpriseButton>
+                              }
+                            />
                           </td>
                         </tr>
                       )}
@@ -732,13 +657,14 @@ export default function IncidentsPage() {
                 </div>
 
                 <nav className="flex items-center gap-1" aria-label="Incident pagination">
-                  <button
+                  <EnterpriseButton
                     onClick={() => setPage((current) => Math.max(1, current - 1))}
                     disabled={page <= 1}
-                    className="h-7 border border-slate-700 bg-slate-950 px-2.5 text-[11px] font-medium uppercase tracking-wide text-slate-300 hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-40"
+                    tone="ghost"
+                    size="xs"
                   >
                     Previous
-                  </button>
+                  </EnterpriseButton>
 
                   <div className="flex items-center gap-1 px-1">
                     {paginationWindow(data?.page ?? page, totalPages).map((pageNumber) => {
@@ -761,13 +687,14 @@ export default function IncidentsPage() {
                     })}
                   </div>
 
-                  <button
+                  <EnterpriseButton
                     onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
                     disabled={page >= totalPages}
-                    className="h-7 border border-slate-700 bg-slate-950 px-2.5 text-[11px] font-medium uppercase tracking-wide text-slate-300 hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-40"
+                    tone="ghost"
+                    size="xs"
                   >
                     Next
-                  </button>
+                  </EnterpriseButton>
                 </nav>
               </div>
             </div>
@@ -788,12 +715,11 @@ export default function IncidentsPage() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <TinyBadge tone={riskTone(selectedIncident.risk_score)}>
-                            {riskBand(selectedIncident.risk_score)}
-                          </TinyBadge>
-                          <TinyBadge tone={statusTone(selectedIncident.status)}>
-                            {selectedIncident.status ?? "NEW"}
-                          </TinyBadge>
+                          <IncidentRiskScore score={selectedIncident.risk_score} />
+                          <EnterpriseStatusBadge
+                            value={selectedIncident.status ?? "NEW"}
+                            size="compact"
+                          />
                         </div>
 
                         <div className="mt-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
@@ -805,25 +731,27 @@ export default function IncidentsPage() {
                         </div>
                       </div>
 
-                      <Link
+                      <EnterpriseButton
                         href={`/incidents/${selectedIncident.id}`}
-                        className="shrink-0 border border-cyan-800 bg-cyan-950 px-2 py-1 text-[11px] font-medium text-cyan-100 hover:bg-cyan-900"
+                        tone="primary"
+                        size="xs"
                       >
                         Open detail
-                      </Link>
+                      </EnterpriseButton>
                     </div>
                     {selectedIncident.demo_origin && canManageDemo && (
-                      <button
-                        type="button"
+                      <EnterpriseButton
                         onClick={() => void deleteDemoIncident(selectedIncident)}
                         disabled={deletingIncidentId === selectedIncident.id}
-                        className="mt-3 inline-flex h-8 items-center gap-1.5 border border-red-800 bg-red-950/40 px-2.5 text-[11px] font-medium text-red-200 hover:bg-red-950/70 disabled:cursor-not-allowed disabled:opacity-50"
+                        tone="danger"
+                        size="xs"
+                        className="mt-3"
+                        icon={<Trash2 aria-hidden="true" className="h-3.5 w-3.5" />}
                       >
-                        <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
                         {deletingIncidentId === selectedIncident.id
                           ? "Deleting..."
                           : "Delete demo incident"}
-                      </button>
+                      </EnterpriseButton>
                     )}
                   </div>
 
@@ -901,8 +829,11 @@ export default function IncidentsPage() {
                   </div>
                 </div>
               ) : (
-                <div className="p-4 text-xs text-slate-500">
-                  Select an incident from the grid.
+                <div className="p-4">
+                  <EnterpriseEmptyState
+                    title="No incident selected"
+                    description="Select an incident from the grid to review its triage summary."
+                  />
                 </div>
               )}
             </aside>
