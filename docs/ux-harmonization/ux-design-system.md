@@ -64,9 +64,9 @@ Recommended groups:
 | Group | Routes |
 |---|---|
 | Overview | `/`, `/executive` |
-| Investigation | `/incidents`, `/cases`, `/cases/kanban`, `/network-events`, `/dns-telemetry` |
+| Investigation | `/incidents`, `/cases`, `/cases/kanban` |
 | Detection | `/detection-quality`, `/settings/detection-control` |
-| Operations | `/health`, `/system-information/operation-history`, external Observability |
+| Operations / Telemetry | `/health`, `/network-events`, `/dns-telemetry`, `/system-information/operation-history`, external Observability |
 | Governance | `/admin/users`, `/system-information/security-audit`, `/settings/ai-providers`, `/settings/ai-data-control`, `/settings/semantic-memory` |
 | AI | `/assistant` where permitted |
 
@@ -172,10 +172,12 @@ Initial target mapping:
 | `CRITICAL` | critical / red |
 | `HIGH` | high / orange-red |
 | `MEDIUM` | medium / amber |
-| `LOW` | low / green or neutral-success |
+| `LOW` | low / blue or slate-blue informational |
 | unknown/null | neutral |
 
 If a page currently derives severity from numeric risk, the component should make that derivation explicit through props or copy.
+
+Green/success semantics are reserved primarily for healthy, successful, resolved, completed or equivalent positive states. Severity presentation must not imply that a `LOW` severity event is healthy or resolved.
 
 ## StatusBadge
 
