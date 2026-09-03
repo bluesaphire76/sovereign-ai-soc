@@ -17,7 +17,10 @@ import AppNavigation from "../../components/AppNavigation";
 import {
   EnterpriseBadge,
   EnterpriseButton,
+  EnterpriseConfirmationDialog,
   EnterpriseSection,
+  EnterpriseSeverityBadge,
+  EnterpriseStatusBadge,
 } from "../../components/enterprise";
 import {
   AlertTriangle,
@@ -255,6 +258,7 @@ export default function CasesPage() {
   const [demoMode, setDemoMode] = useState(false);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [deletingCaseId, setDeletingCaseId] = useState<number | null>(null);
+  const [pendingDeleteCase, setPendingDeleteCase] = useState<IncidentCase | null>(null);
 
   const [searchText, setSearchText] = useState("");
   const [statusFilter, setStatusFilter] = useState("ACTIVE");
@@ -515,11 +519,6 @@ export default function CasesPage() {
 
   async function deleteDemoCase(item: IncidentCase) {
     if (!canManageDemo || item.demo_origin !== "seed") return;
-
-    const confirmed = window.confirm(
-      `Delete synthetic case #${item.id}? Its demo-only links, actions, analysis, audit and closure workflow will be removed. Linked incidents will remain available.`
-    );
-    if (!confirmed) return;
 
     try {
       setDeletingCaseId(item.id);
@@ -851,15 +850,16 @@ export default function CasesPage() {
                             </td>
 
                             <td className="py-1.5 pr-2">
-                              <span className={`${CASE_TABLE_BADGE_BASE} ${statusClass(item.status)}`}>
-                                {item.status ?? "OPEN"}
-                              </span>
+                              <EnterpriseStatusBadge
+                                value={item.status ?? "OPEN"}
+                                size="compact"
+                              />
                             </td>
 
                             <td className="min-w-28 whitespace-nowrap py-2 pr-3">
-                              <span className={`${CASE_TABLE_BADGE_BASE} ${severityClass(severity)}`}>
+                              <EnterpriseSeverityBadge value={severity ?? "LOW"} size="compact">
                                 {severity ?? "LOW"} · {item.risk_score ?? 0}
-                              </span>
+                              </EnterpriseSeverityBadge>
                             </td>
 
                             <td className="py-2 pr-3 text-slate-300">
@@ -932,15 +932,16 @@ export default function CasesPage() {
                             </td>
                             <td className="py-2 text-right">
                               {item.demo_origin === "seed" && canManageDemo ? (
-                                <button
-                                  type="button"
-                                  onClick={() => void deleteDemoCase(item)}
+                                <EnterpriseButton
+                                  onClick={() => setPendingDeleteCase(item)}
                                   disabled={deletingCaseId === item.id}
-                                  className="inline-flex h-7 items-center gap-1 border border-red-800 bg-red-950/40 px-2 text-[10px] font-medium text-red-200 hover:bg-red-950/70 disabled:cursor-not-allowed disabled:opacity-50"
+                                  tone="danger"
+                                  size="xs"
+                                  icon={<Trash2 className="h-3 w-3" />}
+                                  className="h-7 text-[10px]"
                                 >
-                                  <Trash2 className="h-3 w-3" />
                                   {deletingCaseId === item.id ? "Deleting" : "Delete"}
-                                </button>
+                                </EnterpriseButton>
                               ) : (
                                 <span className="text-[10px] text-slate-700">—</span>
                               )}
@@ -956,6 +957,26 @@ export default function CasesPage() {
           </div>
         )}
       </div>
+
+      <EnterpriseConfirmationDialog
+        open={pendingDeleteCase !== null}
+        title={
+          pendingDeleteCase
+            ? `Delete synthetic case #${pendingDeleteCase.id}?`
+            : "Delete synthetic case?"
+        }
+        description="This removes its demo-only links, actions, analysis, audit and closure workflow. Linked incidents remain available."
+        confirmLabel="Delete case"
+        busy={
+          pendingDeleteCase !== null && deletingCaseId === pendingDeleteCase.id
+        }
+        onCancel={() => setPendingDeleteCase(null)}
+        onConfirm={async () => {
+          if (!pendingDeleteCase) return;
+          await deleteDemoCase(pendingDeleteCase);
+          setPendingDeleteCase(null);
+        }}
+      />
     </main>
   );
 }

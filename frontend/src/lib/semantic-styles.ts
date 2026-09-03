@@ -203,7 +203,8 @@ export function statusTone(value: string | null | undefined): SocTone {
     status === "BLOCKED" ||
     status === "BREACHED" ||
     status === "DENIED" ||
-    status === "ESCALATED"
+    status === "ESCALATED" ||
+    status === "UNSUPPORTED"
   ) {
     return "danger";
   }

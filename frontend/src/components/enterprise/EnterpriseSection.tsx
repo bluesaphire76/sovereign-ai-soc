@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { SOC_CONTROL_CLASSES, cx } from "@/lib/semantic-styles";
 
 type EnterpriseSectionProps = {
   title?: string;
@@ -8,10 +9,6 @@ type EnterpriseSectionProps = {
   dense?: boolean;
   className?: string;
 };
-
-function cx(...classes: Array<string | false | null | undefined>) {
-  return classes.filter(Boolean).join(" ");
-}
 
 export default function EnterpriseSection({
   title,
@@ -24,7 +21,7 @@ export default function EnterpriseSection({
   return (
     <section
       className={cx(
-        "rounded-sm border border-slate-800 bg-slate-900/95 shadow-sm",
+        SOC_CONTROL_CLASSES.section,
         dense ? "p-4" : "p-5",
         className
       )}
