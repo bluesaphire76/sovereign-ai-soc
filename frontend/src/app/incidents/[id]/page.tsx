@@ -6,7 +6,7 @@ import { authFetch, fetchCurrentUser, getStoredUser, type AuthUser } from "@/lib
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import AppNavigation from "../../../components/AppNavigation";
+import AppShell from "@/components/AppShell";
 import ContextualAssistantPanel from "../../../components/assistant/ContextualAssistantPanel";
 import IncidentTimeline from "../../../components/incidents/IncidentTimeline";
 import InvestigationGraph from "../../../components/investigation-graph/InvestigationGraph";
@@ -4321,9 +4321,7 @@ function IncidentDetailPageContent({ incidentId }: { incidentId: string }) {
     parsedCorrelationSummary?.related_event_details ?? [];
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto max-w-[1600px] px-4 py-3">
-        <AppNavigation />
+    <AppShell padding="compact">
 
         <header className="mb-3 flex flex-col gap-3 border-b border-slate-900 pb-3 md:flex-row md:items-start md:justify-between">
           <div>
@@ -4460,7 +4458,6 @@ function IncidentDetailPageContent({ incidentId }: { incidentId: string }) {
             onGovernedRemediationChanged={loadIncident}
           />
         )}
-      </div>
-    </main>
+    </AppShell>
   );
 }

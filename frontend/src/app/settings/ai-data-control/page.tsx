@@ -19,7 +19,7 @@ import {
   Wand2,
 } from "lucide-react";
 import { authFetch, fetchCurrentUser, type AuthUser } from "@/lib/auth";
-import AppNavigation from "../../../components/AppNavigation";
+import AppShell from "@/components/AppShell";
 
 type FeaturePolicy = {
   feature_key: string;
@@ -607,9 +607,7 @@ export default function AiDataControlPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto max-w-[1600px] px-4 py-4">
-        <AppNavigation />
+    <AppShell>
 
         <header className="mb-4 flex flex-col gap-3 border-b border-slate-800 pb-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
@@ -1048,7 +1046,6 @@ export default function AiDataControlPage() {
             )}
           </div>
         </section>
-      </div>
-    </main>
+    </AppShell>
   );
 }

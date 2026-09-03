@@ -11,7 +11,7 @@ import {
   SlidersHorizontal,
   Trash2,
 } from "lucide-react";
-import AppNavigation from "../../components/AppNavigation";
+import AppShell from "@/components/AppShell";
 import {
   authFetch,
   fetchCurrentUser,
@@ -418,9 +418,7 @@ export default function IncidentsPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto max-w-[1900px] px-4 py-4">
-        <AppNavigation />
+    <AppShell width="dense">
 
         <div className="border border-slate-800 bg-slate-950">
           <header className="border-b border-slate-800 bg-slate-950 px-4 py-3">
@@ -910,7 +908,6 @@ export default function IncidentsPage() {
             </aside>
           </section>
         </div>
-      </div>
-    </main>
+    </AppShell>
   );
 }

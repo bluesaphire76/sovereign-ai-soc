@@ -9,7 +9,7 @@ import {
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import AppNavigation from "../../../components/AppNavigation";
+import AppShell from "@/components/AppShell";
 import {
   AlertTriangle,
   Bot,
@@ -369,9 +369,7 @@ export default function CaseKanbanPage() {
   }, []);
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto max-w-[1800px] px-4 py-4">
-        <AppNavigation />
+    <AppShell width="wide">
 
         <header className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div>
@@ -513,8 +511,7 @@ export default function CaseKanbanPage() {
             </section>
           </div>
         )}
-      </div>
-    </main>
+    </AppShell>
   );
 }
 

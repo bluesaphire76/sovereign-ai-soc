@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -8,192 +8,99 @@ import {
   BarChart3,
   Bot,
   Briefcase,
-  ChevronDown,
   Columns3,
   Cpu,
   Database,
+  ExternalLink,
   Globe2,
   HeartPulse,
   History,
-  Info,
   LayoutDashboard,
   LogOut,
+  Menu,
   Network,
   Shield,
   ShieldAlert,
   ShieldCheck,
-  SlidersHorizontal,
   Users,
+  X,
+  type LucideIcon,
 } from "lucide-react";
+import {
+  getNavigationGroups,
+  isNavigationItemActive,
+  type NavigationIcon,
+  type NavigationItem,
+} from "@/lib/navigation";
+import { SOC_CONTROL_CLASSES, cx } from "@/lib/semantic-styles";
 import {
   clearAuthSession,
   fetchCurrentUser,
   getStoredUser,
   type AuthUser,
-} from "../lib/auth";
+} from "@/lib/auth";
+import { EnterpriseIconButton } from "./enterprise";
 
 const GRAFANA_URL =
   process.env.NEXT_PUBLIC_GRAFANA_URL ||
   "https://grafana.varqon.net/grafana/d/ai-soc-platform-health/ai-soc-platform-health?orgId=1&refresh=30s";
 
-type NavItem = {
-  href: string;
-  label: string;
-  icon: React.ReactNode;
-  match: "exact" | "prefix" | "cases";
-  external?: boolean;
+const NAVIGATION_ICONS: Record<NavigationIcon, LucideIcon> = {
+  activity: Activity,
+  bot: Bot,
+  briefcase: Briefcase,
+  chart: BarChart3,
+  columns: Columns3,
+  cpu: Cpu,
+  database: Database,
+  dashboard: LayoutDashboard,
+  globe: Globe2,
+  health: HeartPulse,
+  history: History,
+  network: Network,
+  shield: Shield,
+  "shield-alert": ShieldAlert,
+  "shield-check": ShieldCheck,
+  users: Users,
 };
 
-const NAV_ITEMS: NavItem[] = [
-  {
-    href: "/",
-    label: "Dashboard",
-    icon: <LayoutDashboard className="h-3.5 w-3.5" strokeWidth={1.75} />,
-    match: "exact",
-  },
-  {
-    href: "/incidents",
-    label: "Incidents",
-    icon: <ShieldAlert className="h-3.5 w-3.5" strokeWidth={1.75} />,
-    match: "prefix",
-  },
-  {
-    href: "/cases",
-    label: "Case Queue",
-    icon: <Briefcase className="h-3.5 w-3.5" strokeWidth={1.75} />,
-    match: "cases",
-  },
-  {
-    href: "/cases/kanban",
-    label: "Kanban",
-    icon: <Columns3 className="h-3.5 w-3.5" strokeWidth={1.75} />,
-    match: "prefix",
-  },
-  {
-    href: "/executive",
-    label: "Executive",
-    icon: <BarChart3 className="h-3.5 w-3.5" strokeWidth={1.75} />,
-    match: "prefix",
-  },
-  {
-    href: "/detection-quality",
-    label: "Detection Quality",
-    icon: <Shield className="h-3.5 w-3.5" strokeWidth={1.75} />,
-    match: "prefix",
-  },
-  {
-    href: "/network-events",
-    label: "Network Activity",
-    icon: <Network className="h-3.5 w-3.5" strokeWidth={1.75} />,
-    match: "prefix",
-  },
-  {
-    href: "/dns-telemetry",
-    label: "DNS Telemetry",
-    icon: <Globe2 className="h-3.5 w-3.5" strokeWidth={1.75} />,
-    match: "exact",
-  },
-  {
-    href: "/health",
-    label: "Health",
-    icon: <HeartPulse className="h-3.5 w-3.5" strokeWidth={1.75} />,
-    match: "prefix",
-  },
-];
-
-const SETTINGS_ITEMS: NavItem[] = [
-  {
-    href: "/settings/detection-control",
-    label: "Detection Control Plane",
-    icon: <ShieldCheck className="h-3.5 w-3.5" strokeWidth={1.75} />,
-    match: "prefix",
-  },
-  {
-    href: "/settings/ai-providers",
-    label: "AI Providers",
-    icon: <Cpu className="h-3.5 w-3.5" strokeWidth={1.75} />,
-    match: "prefix",
-  },
-  {
-    href: "/settings/ai-data-control",
-    label: "AI Data Control",
-    icon: <Shield className="h-3.5 w-3.5" strokeWidth={1.75} />,
-    match: "prefix",
-  },
-];
-
-const SETTINGS_OPERATOR_ITEMS: NavItem[] = [
-  {
-    href: "/settings/semantic-memory",
-    label: "Semantic Memory",
-    icon: <Database className="h-3.5 w-3.5" strokeWidth={1.75} />,
-    match: "prefix",
-  },
-];
-
-const SYSTEM_INFORMATION_ITEMS: NavItem[] = [
-  {
-    href: "/system-information/operation-history",
-    label: "Operation History",
-    icon: <History className="h-3.5 w-3.5" strokeWidth={1.75} />,
-    match: "prefix",
-  },
-];
-
-const SYSTEM_INFORMATION_ADMIN_ITEMS: NavItem[] = [
-  {
-    href: "/system-information/security-audit",
-    label: "Security Audit",
-    icon: <ShieldCheck className="h-3.5 w-3.5" strokeWidth={1.75} />,
-    match: "prefix",
-  },
-];
-
-function isActive(pathname: string, item: NavItem) {
-  if (item.external) {
-    return false;
-  }
-
-  if (item.match === "exact") {
-    return pathname === item.href;
-  }
-
-  if (item.match === "cases") {
-    return (
-      pathname === "/cases" ||
-      (pathname.startsWith("/cases/") && !pathname.startsWith("/cases/kanban"))
-    );
-  }
-
-  return pathname === item.href || pathname.startsWith(`${item.href}/`);
-}
-
-function NavLink({
+function NavigationLink({
   item,
   pathname,
-  nested = false,
+  onNavigate,
 }: {
-  item: NavItem;
+  item: NavigationItem;
   pathname: string;
-  nested?: boolean;
+  onNavigate: () => void;
 }) {
-  const active = isActive(pathname, item);
+  const active = isNavigationItemActive(pathname, item);
+  const Icon = NAVIGATION_ICONS[item.icon];
+  const href = item.external ? GRAFANA_URL : item.href;
 
   return (
     <Link
-      href={item.href}
+      href={href}
       target={item.external ? "_blank" : undefined}
       rel={item.external ? "noreferrer" : undefined}
-      className={`flex h-8 min-w-0 items-center gap-1.5 rounded-sm border text-xs font-medium transition ${
-        nested ? "w-full px-2 py-1 pl-3 text-[11px]" : "w-full px-2.5"
-      } ${
+      aria-current={active ? "page" : undefined}
+      onClick={onNavigate}
+      className={cx(
+        "flex h-8 min-w-0 items-center gap-2 rounded-sm border px-2 text-xs font-medium transition",
+        SOC_CONTROL_CLASSES.focus,
         active
-          ? "border-cyan-500 bg-cyan-500 text-slate-950"
-          : "border-transparent bg-transparent text-slate-300 hover:border-slate-700 hover:bg-slate-900 hover:text-cyan-200"
-      }`}
+          ? "border-cyan-700 bg-cyan-950/70 text-cyan-100"
+          : "border-transparent text-slate-300 hover:border-slate-700 hover:bg-slate-900 hover:text-cyan-100"
+      )}
     >
-      <span className="shrink-0">{item.icon}</span>
-      <span className="min-w-0 truncate">{item.label}</span>
+      <Icon aria-hidden="true" className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+      <span className="min-w-0 flex-1 truncate">{item.label}</span>
+      {item.external && (
+        <ExternalLink
+          aria-label="Opens in a new tab"
+          className="h-3 w-3 shrink-0 text-slate-500"
+          strokeWidth={1.75}
+        />
+      )}
     </Link>
   );
 }
@@ -201,10 +108,8 @@ function NavLink({
 export default function AppNavigation() {
   const pathname = usePathname();
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(pathname.startsWith("/settings"));
-  const [systemInfoOpen, setSystemInfoOpen] = useState(
-    pathname.startsWith("/system-information")
-  );
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const groups = useMemo(() => getNavigationGroups(user?.role ?? null), [user?.role]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -213,7 +118,7 @@ export default function AppNavigation() {
       fetchCurrentUser()
         .then((current) => setUser(current))
         .catch(() => {
-          // authFetch handles expired/invalid sessions globally.
+          // authFetch handles expired or invalid sessions globally.
         });
     }, 0);
 
@@ -221,16 +126,7 @@ export default function AppNavigation() {
   }, []);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      if (pathname.startsWith("/settings")) {
-        setSettingsOpen(true);
-      }
-
-      if (pathname.startsWith("/system-information")) {
-        setSystemInfoOpen(true);
-      }
-    }, 0);
-
+    const timer = window.setTimeout(() => setMobileOpen(false), 0);
     return () => window.clearTimeout(timer);
   }, [pathname]);
 
@@ -239,171 +135,92 @@ export default function AppNavigation() {
     window.location.href = "/login";
   }
 
-  const canUseSettings =
-    user?.role === "ADMIN" || user?.role === "ANALYST" || user?.role === "VIEWER";
-  const settingsActive = pathname.startsWith("/settings");
-  const canUseSystemInformation =
-    user?.role === "ADMIN" || user?.role === "ANALYST" || user?.role === "VIEWER";
-  const systemInfoActive = pathname.startsWith("/system-information");
-  const systemInformationItems = [
-    ...(user?.role === "ADMIN" ? SYSTEM_INFORMATION_ADMIN_ITEMS : []),
-    ...SYSTEM_INFORMATION_ITEMS,
-  ];
-  const settingsItems = [
-    ...SETTINGS_ITEMS,
-    ...(user?.role === "ADMIN" || user?.role === "ANALYST"
-      ? SETTINGS_OPERATOR_ITEMS
-      : []),
-  ];
-
-  const navItems: NavItem[] = user
-    ? [
-        NAV_ITEMS[0],
-        ...(user.role === "ADMIN" || user.role === "ANALYST"
-          ? [
-              {
-                href: "/assistant",
-                label: "AI SOC Assistant",
-                icon: <Bot className="h-3.5 w-3.5" strokeWidth={1.75} />,
-                match: "prefix" as const,
-              },
-            ]
-          : []),
-        ...NAV_ITEMS.slice(1),
-        ...(user.role === "ADMIN" || user.role === "ANALYST"
-          ? [
-              {
-                href: GRAFANA_URL,
-                label: "Observability",
-                icon: <Activity className="h-3.5 w-3.5" strokeWidth={1.75} />,
-                match: "exact" as const,
-                external: true,
-              },
-            ]
-          : []),
-        {
-          href: "/admin/users",
-          label: "Users",
-          icon: <Users className="h-3.5 w-3.5" strokeWidth={1.75} />,
-          match: "prefix",
-        },
-      ]
-    : NAV_ITEMS;
-
   return (
-    <nav className="ai-soc-sidebar mb-5 overflow-hidden rounded-sm border border-slate-800 bg-slate-950/95 px-2.5 py-2 shadow-sm xl:fixed xl:bottom-4 xl:left-4 xl:top-4 xl:z-40 xl:mb-0 xl:w-64 xl:px-2.5 xl:py-3">
-      <div className="flex min-w-0 flex-col gap-3 xl:h-full">
-        <div className="flex min-w-0 items-center gap-2 border-slate-800 xl:border-b xl:pb-3">
+    <nav
+      aria-label="Primary navigation"
+      className="ai-soc-sidebar mx-4 mt-4 overflow-hidden rounded-sm border border-slate-800 bg-slate-950/95 shadow-sm xl:fixed xl:bottom-4 xl:left-4 xl:top-4 xl:z-40 xl:m-0 xl:w-64"
+    >
+      <div className="flex min-w-0 flex-col xl:h-full">
+        <div className="flex min-w-0 items-center gap-2 px-2.5 py-2.5 xl:border-b xl:border-slate-800 xl:py-3">
           <div className="shrink-0 rounded-sm border border-cyan-900/80 bg-slate-950 p-1.5 text-cyan-300">
-            <Shield className="h-3.5 w-3.5" strokeWidth={1.75} />
+            <Shield aria-hidden="true" className="h-4 w-4" strokeWidth={1.75} />
           </div>
 
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <div className="truncate text-xs font-semibold uppercase tracking-wide text-slate-100">
               Sovereign AI SOC
             </div>
-            <div className="truncate text-[11px] text-slate-500">
-              Local-first SOC case management
-            </div>
+            <div className="truncate text-[11px] text-slate-500">Local-first operations</div>
           </div>
+
+          <EnterpriseIconButton
+            icon={mobileOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+            label={mobileOpen ? "Close navigation" : "Open navigation"}
+            aria-expanded={mobileOpen}
+            aria-controls="ai-soc-navigation-menu"
+            onClick={() => setMobileOpen((value) => !value)}
+            tone="ghost"
+            size="sm"
+            className="xl:hidden"
+          />
         </div>
 
-        <div className="flex min-w-0 flex-wrap items-center gap-1.5 xl:flex-1 xl:flex-col xl:items-stretch xl:gap-1.5">
-          {navItems.map((item) => (
-            <NavLink key={item.href} item={item} pathname={pathname} />
-          ))}
+        <div
+          id="ai-soc-navigation-menu"
+          className={cx(
+            "min-h-0 flex-col border-t border-slate-800 xl:flex xl:flex-1 xl:border-t-0",
+            mobileOpen ? "flex" : "hidden"
+          )}
+        >
+          <div className="min-h-0 space-y-3 overflow-y-auto px-2.5 py-3 xl:flex-1">
+            {groups.map((group) => {
+              const groupId = `nav-${group.label.replaceAll(/[^a-z]+/gi, "-").toLowerCase()}`;
 
-          {canUseSettings && (
-            <div className="flex w-full min-w-0 flex-col gap-1">
-              <button
-                type="button"
-                onClick={() => setSettingsOpen((value) => !value)}
-                className={`flex h-8 w-full min-w-0 items-center gap-1.5 rounded-sm border px-2.5 text-xs font-medium transition ${
-                  settingsActive
-                    ? "border-slate-700 bg-slate-900 text-cyan-200"
-                    : "border-transparent bg-transparent text-slate-300 hover:border-slate-700 hover:bg-slate-900 hover:text-cyan-200"
-                }`}
-              >
-                <SlidersHorizontal className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
-                <span className="min-w-0 truncate">Settings</span>
-                <ChevronDown
-                  className={`ml-auto h-3.5 w-3.5 shrink-0 transition ${
-                    settingsOpen ? "rotate-180" : ""
-                  }`}
-                  strokeWidth={1.75}
-                />
-              </button>
-
-              {settingsOpen && (
-                <div className="w-full min-w-0 border-l border-slate-800 pl-2">
-                  <div className="flex w-full min-w-0 flex-col gap-1">
-                    {settingsItems.map((item) => (
-                      <NavLink
+              return (
+                <section key={group.label} aria-labelledby={groupId}>
+                  <h2
+                    id={groupId}
+                    className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-wide text-slate-600"
+                  >
+                    {group.label}
+                  </h2>
+                  <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-1">
+                    {group.items.map((item) => (
+                      <NavigationLink
                         key={item.href}
                         item={item}
                         pathname={pathname}
-                        nested
+                        onNavigate={() => setMobileOpen(false)}
                       />
                     ))}
                   </div>
+                </section>
+              );
+            })}
+          </div>
+
+          <div className="flex min-w-0 items-center gap-2 border-t border-slate-800 px-2.5 py-2.5 xl:block">
+            {user && (
+              <div className="min-w-0 flex-1 px-2 xl:mb-1">
+                <div className="truncate text-[11px] text-slate-400">
+                  {user.display_name || user.username}
                 </div>
+                <div className="text-[10px] uppercase tracking-wide text-slate-600">{user.role}</div>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={handleLogout}
+              className={cx(
+                "flex h-8 min-w-0 items-center gap-2 rounded-sm border border-transparent px-2 text-xs font-medium text-slate-300 transition hover:border-slate-700 hover:bg-slate-900 hover:text-slate-100 xl:w-full",
+                SOC_CONTROL_CLASSES.focus
               )}
-            </div>
-          )}
-
-          {canUseSystemInformation && (
-            <div className="flex w-full min-w-0 flex-col gap-1">
-              <button
-                type="button"
-                onClick={() => setSystemInfoOpen((value) => !value)}
-                className={`flex h-8 w-full min-w-0 items-center gap-1.5 rounded-sm border px-2.5 text-xs font-medium transition ${
-                  systemInfoActive
-                    ? "border-slate-700 bg-slate-900 text-cyan-200"
-                    : "border-transparent bg-transparent text-slate-300 hover:border-slate-700 hover:bg-slate-900 hover:text-cyan-200"
-                }`}
-              >
-                <Info className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
-                <span className="min-w-0 truncate">System Information</span>
-                <ChevronDown
-                  className={`ml-auto h-3.5 w-3.5 shrink-0 transition ${
-                    systemInfoOpen ? "rotate-180" : ""
-                  }`}
-                  strokeWidth={1.75}
-                />
-              </button>
-
-              {systemInfoOpen && (
-                <div className="w-full min-w-0 border-l border-slate-800 pl-2">
-                  <div className="flex w-full min-w-0 flex-col gap-1">
-                    {systemInformationItems.map((item) => (
-                      <NavLink
-                        key={item.href}
-                        item={item}
-                        pathname={pathname}
-                        nested
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        <div className="flex min-w-0 flex-wrap items-center gap-1.5 border-slate-800 xl:flex-col xl:items-stretch xl:border-t xl:pt-3">
-          {user && (
-            <div className="max-w-full truncate px-2 text-[11px] text-slate-500">
-              {user.display_name || user.username}
-            </div>
-          )}
-
-          <button
-            onClick={handleLogout}
-            className="flex h-8 w-full min-w-0 items-center gap-1.5 rounded-sm border border-transparent bg-transparent px-2.5 text-xs font-medium text-slate-300 transition hover:border-slate-700 hover:bg-slate-900 hover:text-slate-100"
-          >
-            <LogOut className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
-            <span className="min-w-0 truncate">Logout</span>
-          </button>
+            >
+              <LogOut aria-hidden="true" className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+              <span className="min-w-0 truncate">Logout</span>
+            </button>
+          </div>
         </div>
       </div>
     </nav>

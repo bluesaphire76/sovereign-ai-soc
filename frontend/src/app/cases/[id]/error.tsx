@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect } from "react";
+import AppShell from "@/components/AppShell";
 
 export default function CaseDetailError({
   error,
@@ -15,7 +16,7 @@ export default function CaseDetailError({
   }, [error]);
 
   return (
-    <main className="min-h-screen bg-slate-950 px-6 py-10 text-slate-100">
+    <AppShell contentClassName="py-10">
       <div className="mx-auto max-w-3xl rounded-xl border border-slate-800 bg-slate-900 p-6 shadow-xl">
         <div className="text-xs font-semibold uppercase tracking-[0.2em] text-orange-300">
           Case detail unavailable
@@ -42,6 +43,6 @@ export default function CaseDetailError({
           </Link>
         </div>
       </div>
-    </main>
+    </AppShell>
   );
 }

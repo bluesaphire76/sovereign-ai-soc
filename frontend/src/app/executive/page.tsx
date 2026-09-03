@@ -4,7 +4,7 @@ import { authFetch } from "@/lib/auth";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import AppNavigation from "../../components/AppNavigation";
+import AppShell from "@/components/AppShell";
 import {
   AlertTriangle,
   BarChart3,
@@ -384,9 +384,7 @@ export default function ExecutivePage() {
     : 0;
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto max-w-[1600px] px-4 py-4">
-        <AppNavigation />
+    <AppShell>
 
         <header className="mb-3 flex flex-col gap-3 border-b border-slate-800 pb-3 md:flex-row md:items-start md:justify-between">
           <div>
@@ -483,8 +481,7 @@ export default function ExecutivePage() {
             </section>
           </div>
         ) : null}
-      </div>
-    </main>
+    </AppShell>
   );
 }
 

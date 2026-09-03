@@ -9,7 +9,7 @@ import {
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import AppNavigation from "../../components/AppNavigation";
+import AppShell from "@/components/AppShell";
 import {
   AlertTriangle,
   Brain,
@@ -975,9 +975,7 @@ export default function DetectionQualityPage() {
   ]);
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto max-w-[1600px] px-4 py-4">
-        <AppNavigation />
+    <AppShell>
 
         <header className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div>
@@ -1464,8 +1462,7 @@ export default function DetectionQualityPage() {
             </section>
           </div>
         )}
-      </div>
-    </main>
+    </AppShell>
   );
 }
 

@@ -45,12 +45,10 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
-/* AI SOC desktop shell: keep page content clear of the fixed left sidebar. */
+/* Shared authenticated shell: fixed desktop sidebar, flow-based mobile navigation. */
 @media (min-width: 1280px) {
-  main:has(.ai-soc-sidebar) > div {
-    max-width: calc(100vw - 18rem);
-    margin-left: 17rem;
-    margin-right: 1rem;
+  .ai-soc-shell-workspace {
+    padding-left: 17rem;
   }
 }
 

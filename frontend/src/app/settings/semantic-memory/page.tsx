@@ -17,7 +17,7 @@ import {
   Terminal,
   Trash2,
 } from "lucide-react";
-import AppNavigation from "../../../components/AppNavigation";
+import AppShell from "@/components/AppShell";
 
 type SourceTypeCounts = Record<string, number>;
 
@@ -953,13 +953,8 @@ export default function SemanticMemoryPage() {
   const knowledgeDocuments = documentsByType.get("knowledge_base") ?? [];
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-4 px-3 py-3 xl:flex-row xl:py-4">
-        <aside className="xl:w-72 xl:shrink-0">
-          <AppNavigation />
-        </aside>
-
-        <main className="min-w-0 flex-1 xl:ml-0">
+    <AppShell width="wide" gutter="compact" padding="compact" contentClassName="xl:py-4">
+      <div className="min-w-0">
           <header className="mb-4 flex flex-col gap-3 border-b border-slate-800 pb-4 lg:flex-row lg:items-end lg:justify-between">
             <div className="min-w-0">
               <Link
@@ -1275,9 +1270,8 @@ export default function SemanticMemoryPage() {
               </div>
             </section>
           )}
-        </main>
       </div>
-    </div>
+    </AppShell>
   );
 }
 

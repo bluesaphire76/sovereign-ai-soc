@@ -13,7 +13,7 @@ import {
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import AppNavigation from "../../components/AppNavigation";
+import AppShell from "@/components/AppShell";
 import {
   EnterpriseBadge,
   EnterpriseButton,
@@ -558,9 +558,7 @@ export default function CasesPage() {
   }, [loadCases]);
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto max-w-[1600px] px-4 py-4">
-        <AppNavigation />
+    <AppShell>
         <header className="mb-2 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
             <Link
@@ -956,8 +954,6 @@ export default function CasesPage() {
             </EnterpriseSection>
           </div>
         )}
-      </div>
-
       <EnterpriseConfirmationDialog
         open={pendingDeleteCase !== null}
         title={
@@ -977,7 +973,7 @@ export default function CasesPage() {
           setPendingDeleteCase(null);
         }}
       />
-    </main>
+    </AppShell>
   );
 }
 

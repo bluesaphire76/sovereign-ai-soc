@@ -6,7 +6,7 @@ import { severityBadgeClasses } from "@/lib/semantic-styles";
 
 import { Component, useCallback, useEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from "react";
 import Link from "next/link";
-import AppNavigation from "../../../components/AppNavigation";
+import AppShell from "@/components/AppShell";
 import ContextualAssistantPanel from "../../../components/assistant/ContextualAssistantPanel";
 import InvestigationGraph from "../../../components/investigation-graph/InvestigationGraph";
 import GovernedRemediationPanel, {
@@ -2467,9 +2467,7 @@ function CaseDetailPageContent({ caseId }: { caseId: string }) {
   ].filter((item) => item.title);
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto max-w-[1600px] px-4 py-4">
-        <AppNavigation />
+    <AppShell>
         <header className="mb-2">
           <Link
             href="/cases"
@@ -4046,8 +4044,7 @@ function CaseDetailPageContent({ caseId }: { caseId: string }) {
 
           </div>
         )}
-      </div>
-    </main>
+    </AppShell>
   );
 }
 

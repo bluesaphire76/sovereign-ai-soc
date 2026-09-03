@@ -30,7 +30,7 @@ import {
   YAxis,
 } from "recharts";
 
-import AppNavigation from "../components/AppNavigation";
+import AppShell from "@/components/AppShell";
 import {
   EnterpriseBadge,
   EnterpriseButton,
@@ -839,9 +839,7 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto max-w-[1600px] px-4 py-4">
-        <AppNavigation />
+    <AppShell>
 
         <EnterprisePageHeader
           eyebrow="SOC Operations Console"
@@ -1394,8 +1392,7 @@ export default function Home() {
             </EnterpriseSection>
           </div>
         )}
-      </div>
-    </main>
+    </AppShell>
   );
 }
 

@@ -10,7 +10,7 @@ import {
   Search,
   ShieldCheck,
 } from "lucide-react";
-import AppNavigation from "../../../components/AppNavigation";
+import AppShell from "@/components/AppShell";
 import { authFetch, fetchCurrentUser, type AuthUser } from "../../../lib/auth";
 
 type SecurityAuditEvent = {
@@ -233,9 +233,7 @@ export default function AdminSecurityAuditPage() {
   const rbacDenied = items.filter((item) => item.event_type === "RBAC_DENIED").length;
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto max-w-[1600px] px-4 py-4">
-        <AppNavigation />
+    <AppShell>
 
         <header className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div>
@@ -548,8 +546,7 @@ export default function AdminSecurityAuditPage() {
             </section>
           </div>
         )}
-      </div>
-    </main>
+    </AppShell>
   );
 }
 
