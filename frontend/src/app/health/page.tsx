@@ -3,8 +3,18 @@
 import { authFetch } from "@/lib/auth";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import Link from "next/link";
 import AppShell from "@/components/AppShell";
+import {
+  EnterpriseBadge,
+  EnterpriseBreadcrumbs,
+  EnterpriseButton,
+  EnterpriseErrorState,
+  EnterpriseMetricStrip,
+  EnterprisePageHeader,
+  EnterprisePanel,
+  EnterpriseSection,
+  EnterpriseSkeleton,
+} from "@/components/enterprise";
 import {
   Activity,
   AlertTriangle,
@@ -407,55 +417,52 @@ export default function HealthPage() {
 
   return (
     <AppShell>
-
-        <header className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div>
-            <Link
-              href="/"
-              className="mb-2 inline-flex items-center gap-1.5 text-xs text-cyan-300 hover:text-cyan-200"
-            >
-              ← Dashboard
-            </Link>
-
-            <div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-cyan-300">
-              <HeartPulse className="h-3.5 w-3.5" />
-              Platform Health
-            </div>
-
-            <h1 className="text-xl font-semibold tracking-tight">
-              Health Dashboard
-            </h1>
-
-            <p className="mt-1 max-w-4xl text-xs leading-5 text-slate-500">
-              Operational status for the local AI SOC stack: API, database,
-              Wazuh, Ollama, Qdrant and worker heartbeat.
-            </p>
-          </div>
-
-          <button
+      <EnterprisePageHeader
+        breadcrumbs={
+          <EnterpriseBreadcrumbs
+            items={[
+              { label: "Dashboard", href: "/" },
+              { label: "Health" },
+            ]}
+          />
+        }
+        eyebrow="Operations / Telemetry"
+        title="Health Dashboard"
+        description="Operational status for the local AI SOC stack: API, database, Wazuh, Ollama, Qdrant and worker heartbeat."
+        icon={<HeartPulse aria-hidden="true" className="h-3.5 w-3.5" />}
+        density="compact"
+        secondaryActions={
+          <EnterpriseButton
             onClick={loadHealth}
-            className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 text-xs text-slate-200 shadow-sm hover:bg-slate-800"
+            tone="secondary"
+            size="xs"
+            icon={
+              <RefreshCw
+                className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`}
+              />
+            }
           >
-            <RefreshCw
-              className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`}
-            />
             Refresh
-          </button>
-        </header>
+          </EnterpriseButton>
+        }
+      />
 
+      <div className="space-y-3">
         {error && (
-          <div className="mb-3 rounded-lg border border-red-800 bg-red-950/60 p-3 text-xs text-red-200">
-            API error: {error}
-          </div>
+          <EnterpriseErrorState
+            title="Unable to load platform health"
+            message={`API error: ${error}`}
+            onRetry={loadHealth}
+          />
         )}
 
         {loading ? (
-          <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 text-xs text-slate-300">
-            Loading platform health...
-          </section>
+          <EnterprisePanel>
+            <EnterpriseSkeleton label="Loading platform health" rows={4} />
+          </EnterprisePanel>
         ) : (
-          <div className="space-y-3">
-            <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-7">
+          <>
+            <EnterpriseMetricStrip className="lg:grid-cols-7">
               <StatusTile
                 title="Overall"
                 value={overallStatus}
@@ -512,20 +519,21 @@ export default function HealthPage() {
                 icon={<AlertTriangle className="h-3.5 w-3.5" />}
                 tone={(health?.latest_incident?.risk_score ?? 0) >= 80 ? "ERROR" : (health?.latest_incident?.risk_score ?? 0) >= 60 ? "WARN" : "OK"}
               />
-            </section>
+            </EnterpriseMetricStrip>
 
             {health?.latest_incident && (
-              <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <h2 className="text-sm font-semibold">Latest processed incident</h2>
-                  <Link
+              <EnterprisePanel
+                title="Latest processed incident"
+                actions={
+                  <EnterpriseButton
                     href={`/incidents/${health.latest_incident.id}`}
-                    className="rounded-md border border-cyan-800 bg-cyan-950 px-2 py-1 text-[11px] text-cyan-200 hover:bg-cyan-900"
+                    tone="ghost"
+                    size="xs"
                   >
                     Open incident
-                  </Link>
-                </div>
-
+                  </EnterpriseButton>
+                }
+              >
                 <div className="grid gap-2 lg:grid-cols-[90px_170px_180px_90px_1fr]">
                   <CompactField label="ID" value={`#${health.latest_incident.id}`} />
                   <CompactField
@@ -553,34 +561,26 @@ export default function HealthPage() {
                     </div>
                   </div>
                 </div>
-              </section>
+              </EnterprisePanel>
             )}
 
             <WorkerIngestMetricsPanel components={sortedComponents} />
             <AiProviderRuntimePanel components={sortedComponents} />
 
-            <section className="rounded-sm border border-slate-800 bg-slate-900 p-3 shadow-sm">
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-sm font-semibold">Components</h2>
-                  <p className="mt-0.5 text-[11px] text-slate-500">
-                    Compact service status tiles. Details are collapsed by default.
-                  </p>
-                </div>
-
-                <span className="rounded-sm border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-400">
-                  Auto refresh 30s
-                </span>
-              </div>
-
+            <EnterpriseSection
+              title="Components"
+              description="Compact service status tiles. Details are collapsed by default."
+              actions={<EnterpriseBadge tone="muted">Auto refresh 30s</EnterpriseBadge>}
+            >
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-6">
                 {sortedComponents.map((item) => (
                   <ComponentTile key={item.component} item={item} />
                 ))}
               </div>
-            </section>
-          </div>
+            </EnterpriseSection>
+          </>
         )}
+      </div>
     </AppShell>
   );
 }

@@ -42,7 +42,13 @@ export default function EnterpriseMetricCard({
           {title}
         </div>
         <div className={cx("min-w-0", compact && "mt-0.5 flex items-baseline gap-2")}>
-          <span className={compact ? "text-xl font-semibold leading-6" : "text-3xl font-semibold"}>
+          <span
+            className={
+              compact
+                ? "min-w-0 truncate text-xl font-semibold leading-6"
+                : "text-3xl font-semibold"
+            }
+          >
             {value}
           </span>
           {subtitle && (

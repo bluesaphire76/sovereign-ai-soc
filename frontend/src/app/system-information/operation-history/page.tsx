@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import {
   AlertTriangle,
   ChevronLeft,
@@ -13,10 +12,13 @@ import {
 import AppShell from "@/components/AppShell";
 import {
   EnterpriseBadge,
+  EnterpriseBreadcrumbs,
   EnterpriseButton,
   EnterpriseEmptyState,
   EnterpriseErrorState,
   EnterpriseMetricCard,
+  EnterpriseMetricStrip,
+  EnterprisePageHeader,
   EnterprisePanel,
   EnterpriseSearchInput,
   EnterpriseSelect,
@@ -214,30 +216,21 @@ export default function OperationHistoryPage() {
 
   return (
     <AppShell>
-
-        <header className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div>
-            <Link
-              href="/"
-              className="mb-2 inline-flex items-center gap-1.5 text-xs text-cyan-300 hover:text-cyan-200"
-            >
-              Back to Dashboard
-            </Link>
-
-            <div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-cyan-300">
-              <History className="h-3.5 w-3.5" />
-              System Information
-            </div>
-
-            <h1 className="text-xl font-semibold tracking-tight">
-              Operation History
-            </h1>
-
-            <p className="mt-1 max-w-4xl text-xs leading-5 text-slate-500">
-              Review governed service status checks, restart previews and restart executions.
-            </p>
-          </div>
-
+      <EnterprisePageHeader
+        breadcrumbs={
+          <EnterpriseBreadcrumbs
+            items={[
+              { label: "Dashboard", href: "/" },
+              { label: "Operation History" },
+            ]}
+          />
+        }
+        eyebrow="Operations / Telemetry"
+        title="Operation History"
+        description="Review governed service status checks, restart previews and restart executions."
+        icon={<History aria-hidden="true" className="h-3.5 w-3.5" />}
+        density="compact"
+        secondaryActions={
           <EnterpriseButton
             onClick={loadData}
             disabled={refreshing}
@@ -247,20 +240,21 @@ export default function OperationHistoryPage() {
           >
             Refresh
           </EnterpriseButton>
-        </header>
+        }
+      />
 
+      <div className="space-y-3">
         {error && (
           <EnterpriseErrorState
             title="Unable to load operation history"
             message={error}
             onRetry={loadData}
-            className="mb-3"
           />
         )}
 
         {canView && (
-          <div className="space-y-3">
-            <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
+          <>
+            <EnterpriseMetricStrip>
               <EnterpriseMetricCard title="Operations" value={total} subtitle="Matching filters" />
               <EnterpriseMetricCard title="Restarts" value={restarts} subtitle="Visible on page" />
               <EnterpriseMetricCard
@@ -275,9 +269,9 @@ export default function OperationHistoryPage() {
                 subtitle="Visible on page"
                 tone={denied > 0 ? "warning" : "neutral"}
               />
-            </section>
+            </EnterpriseMetricStrip>
 
-            <EnterprisePanel>
+            <EnterprisePanel title="Filters">
               <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-5">
                 <EnterpriseSelect
                   label="Service"
@@ -438,8 +432,9 @@ export default function OperationHistoryPage() {
                 </EnterpriseButton>
               </div>
             </EnterprisePanel>
-          </div>
+          </>
         )}
+      </div>
     </AppShell>
   );
 }
