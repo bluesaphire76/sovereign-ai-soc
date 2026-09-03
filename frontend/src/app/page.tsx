@@ -38,6 +38,13 @@ import {
   EnterprisePageHeader,
   EnterpriseSection,
 } from "../components/enterprise";
+import {
+  SOC_TONE_CLASSES,
+  riskScoreTone,
+  severityTone as semanticSeverityTone,
+  slaTone as semanticSlaTone,
+  type SocTone,
+} from "@/lib/semantic-styles";
 
 type Incident = {
   id: number;
@@ -158,13 +165,7 @@ type ChartRow = {
   color: string;
 };
 
-type EnterpriseTone =
-  | "neutral"
-  | "primary"
-  | "success"
-  | "warning"
-  | "danger"
-  | "executive";
+type EnterpriseTone = SocTone;
 
 const STATUS_OPTIONS = [
   "ALL",
@@ -197,7 +198,8 @@ const CHART_COLORS = {
   critical: "#dc2626",
   high: "#b45309",
   medium: "#ca8a04",
-  low: "#047857",
+  low: "#2563eb",
+  success: "#16a34a",
   primary: "#2563eb",
   secondary: "#0f766e",
   ai: "#6d28d9",
@@ -217,7 +219,7 @@ const STATUS_CHART_COLORS: Record<string, string> = {
   TRIAGED: CHART_COLORS.secondary,
   INVESTIGATING: CHART_COLORS.secondary,
   ESCALATED: CHART_COLORS.critical,
-  CLOSED: CHART_COLORS.low,
+  CLOSED: CHART_COLORS.success,
   FALSE_POSITIVE: CHART_COLORS.muted,
 };
 
@@ -231,12 +233,7 @@ function riskLabel(score: number | null | undefined) {
 }
 
 function riskTone(score: number | null | undefined): EnterpriseTone {
-  const value = score ?? 0;
-
-  if (value >= 80) return "danger";
-  if (value >= 60) return "warning";
-  if (value >= 40) return "warning";
-  return "success";
+  return riskScoreTone(score);
 }
 
 function statusTone(status: string | null | undefined): EnterpriseTone {
@@ -252,25 +249,11 @@ function statusTone(status: string | null | undefined): EnterpriseTone {
 }
 
 function severityTone(severity: string | null | undefined): EnterpriseTone {
-  const value = (severity ?? "LOW").toUpperCase();
-
-  if (value === "CRITICAL") return "danger";
-  if (value === "HIGH") return "warning";
-  if (value === "MEDIUM") return "warning";
-
-  return "success";
+  return semanticSeverityTone(severity);
 }
 
 function slaTone(slaStatus: string | null | undefined): EnterpriseTone {
-  const value = (slaStatus ?? "UNKNOWN").toUpperCase();
-
-  if (value === "BREACHED") return "danger";
-  if (value === "AT_RISK") return "warning";
-  if (value === "OK" || value === "WITHIN_SLA" || value === "COMPLETED") {
-    return "success";
-  }
-
-  return "neutral";
+  return semanticSlaTone(slaStatus);
 }
 
 function formatTimestamp(value: string | null | undefined) {
@@ -756,7 +739,7 @@ export default function Home() {
       {
         name: "Ready",
         value: caseMetrics.readyToClose,
-        color: CHART_COLORS.low,
+        color: CHART_COLORS.success,
       },
     ];
   }, [caseMetrics]);
@@ -1416,24 +1399,6 @@ export default function Home() {
   );
 }
 
-const dashboardKpiToneClasses: Record<EnterpriseTone, string> = {
-  neutral: "border-slate-800 bg-slate-900 text-slate-100",
-  primary: "border-cyan-900 bg-cyan-950/30 text-cyan-100",
-  success: "border-emerald-900 bg-emerald-950/30 text-emerald-100",
-  warning: "border-orange-900 bg-orange-950/30 text-orange-100",
-  danger: "border-red-900 bg-red-950/30 text-red-100",
-  executive: "border-violet-900 bg-violet-950/30 text-violet-100",
-};
-
-const dashboardKpiIconClasses: Record<EnterpriseTone, string> = {
-  neutral: "bg-slate-950 text-slate-400",
-  primary: "bg-cyan-950 text-cyan-300",
-  success: "bg-emerald-950 text-emerald-300",
-  warning: "bg-orange-950 text-orange-300",
-  danger: "bg-red-950 text-red-300",
-  executive: "bg-violet-950 text-violet-300",
-};
-
 function DashboardKpi({
   title,
   value,
@@ -1447,9 +1412,11 @@ function DashboardKpi({
   tone?: EnterpriseTone;
   icon: ReactNode;
 }) {
+  const classes = SOC_TONE_CLASSES[tone];
+
   return (
     <div
-      className={`flex min-h-[58px] items-center justify-between gap-3 rounded-sm border px-2.5 py-2 shadow-sm ${dashboardKpiToneClasses[tone]}`}
+      className={`flex min-h-[58px] items-center justify-between gap-3 rounded-sm border px-2.5 py-2 shadow-sm ${classes.card}`}
     >
       <div className="min-w-0">
         <div className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
@@ -1464,7 +1431,7 @@ function DashboardKpi({
           )}
         </div>
       </div>
-      <div className={`shrink-0 rounded-sm p-1.5 ${dashboardKpiIconClasses[tone]}`}>
+      <div className={`shrink-0 rounded-sm p-1.5 ${classes.icon}`}>
         {icon}
       </div>
     </div>

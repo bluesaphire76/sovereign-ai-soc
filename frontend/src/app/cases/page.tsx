@@ -6,6 +6,10 @@ import {
   getStoredUser,
   type AuthUser,
 } from "@/lib/auth";
+import {
+  SOC_TONE_CLASSES,
+  severityBadgeClasses,
+} from "@/lib/semantic-styles";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
@@ -100,13 +104,7 @@ function shortText(value: string | null | undefined, maxLength = 96) {
 }
 
 function severityClass(value: string | null | undefined) {
-  const severity = (value ?? "LOW").toUpperCase();
-
-  if (severity === "CRITICAL") return "border-red-800 bg-red-950/70 text-red-200";
-  if (severity === "HIGH") return "border-orange-800 bg-orange-950/70 text-orange-200";
-  if (severity === "MEDIUM") return "border-amber-800 bg-amber-950/70 text-amber-200";
-
-  return "border-emerald-800 bg-emerald-950/60 text-emerald-200";
+  return severityBadgeClasses(value);
 }
 
 function statusClass(value: string | null | undefined) {
@@ -169,18 +167,17 @@ function slaRiskClass(value: string | null | undefined) {
   const risk = (value ?? "UNKNOWN").toUpperCase();
 
   if (risk === "BREACHED" || risk === "HIGH") {
-    return "border-red-800 bg-red-950/70 text-red-200";
+    return SOC_TONE_CLASSES.danger.badge;
   }
 
   if (risk === "MEDIUM") {
-    return "border-orange-800 bg-orange-950/70 text-orange-200";
+    return SOC_TONE_CLASSES.medium.badge;
   }
 
-  if (risk === "LOW" || risk === "NONE") {
-    return "border-emerald-800 bg-emerald-950/60 text-emerald-200";
-  }
+  if (risk === "LOW") return SOC_TONE_CLASSES.low.badge;
+  if (risk === "NONE") return SOC_TONE_CLASSES.success.badge;
 
-  return "border-slate-700 bg-slate-950 text-slate-400";
+  return SOC_TONE_CLASSES.neutral.badge;
 }
 
 function formatTimestamp(value: string | null | undefined) {

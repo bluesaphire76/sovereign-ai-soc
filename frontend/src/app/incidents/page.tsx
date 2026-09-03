@@ -18,6 +18,15 @@ import {
   getStoredUser,
   type AuthUser,
 } from "../../lib/auth";
+import {
+  SOC_TONE_CLASSES,
+  riskBand as semanticRiskBand,
+  riskScoreTone,
+  severityIndicatorClasses,
+  severityTextClasses,
+  type SocSeverity,
+  type SocTone,
+} from "@/lib/semantic-styles";
 
 type Incident = {
   id: number;
@@ -44,8 +53,8 @@ type IncidentsResponse = {
   total_pages: number;
 };
 
-type Tone = "neutral" | "success" | "warning" | "danger" | "cyan";
-type SeverityBand = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
+type Tone = SocTone;
+type SeverityBand = SocSeverity;
 
 const STATUS_OPTIONS = [
   "ALL",
@@ -74,28 +83,18 @@ function formatTimestamp(value: string | null | undefined) {
 }
 
 function riskBand(score: number | null | undefined): SeverityBand {
-  const value = score ?? 0;
-
-  if (value >= 80) return "CRITICAL";
-  if (value >= 60) return "HIGH";
-  if (value >= 40) return "MEDIUM";
-  return "LOW";
+  return semanticRiskBand(score);
 }
 
 function riskTone(score: number | null | undefined): Tone {
-  const band = riskBand(score);
-
-  if (band === "CRITICAL") return "danger";
-  if (band === "HIGH") return "warning";
-  if (band === "MEDIUM") return "cyan";
-  return "success";
+  return riskScoreTone(score);
 }
 
 function statusTone(status: string | null | undefined): Tone {
   const value = (status ?? "NEW").toUpperCase();
 
   if (value === "ESCALATED") return "danger";
-  if (value === "TRIAGED" || value === "INVESTIGATING") return "cyan";
+  if (value === "TRIAGED" || value === "INVESTIGATING") return "primary";
   if (value === "CONTAINED") return "warning";
   if (value === "RESOLVED" || value === "CLOSED" || value === "FALSE_POSITIVE") return "success";
   return "warning";
@@ -106,33 +105,15 @@ function isDemoIncident(incident: Incident) {
 }
 
 function badgeClass(tone: Tone) {
-  const classes: Record<Tone, string> = {
-    neutral: "border-slate-700 bg-slate-950 text-slate-300",
-    success: "border-emerald-800 bg-emerald-950/50 text-emerald-300",
-    warning: "border-orange-800 bg-orange-950/50 text-orange-300",
-    danger: "border-red-800 bg-red-950/50 text-red-300",
-    cyan: "border-cyan-800 bg-cyan-950/50 text-cyan-300",
-  };
-
-  return classes[tone];
+  return SOC_TONE_CLASSES[tone].badge;
 }
 
 function severityDotClass(score: number | null | undefined) {
-  const band = riskBand(score);
-
-  if (band === "CRITICAL") return "bg-red-500";
-  if (band === "HIGH") return "bg-orange-500";
-  if (band === "MEDIUM") return "bg-cyan-500";
-  return "bg-emerald-500";
+  return severityIndicatorClasses(riskBand(score));
 }
 
 function severityTextClass(score: number | null | undefined) {
-  const band = riskBand(score);
-
-  if (band === "CRITICAL") return "text-red-300";
-  if (band === "HIGH") return "text-orange-300";
-  if (band === "MEDIUM") return "text-cyan-300";
-  return "text-emerald-300";
+  return severityTextClasses(riskBand(score));
 }
 
 function TinyBadge({
@@ -162,17 +143,9 @@ function Counter({
   helper: string;
   tone?: Tone;
 }) {
-  const cardClass: Record<Tone, string> = {
-    neutral: "border-slate-800 bg-slate-900 text-slate-100",
-    success: "border-emerald-900 bg-emerald-950/30 text-emerald-100",
-    warning: "border-orange-900 bg-orange-950/30 text-orange-100",
-    danger: "border-red-900 bg-red-950/30 text-red-100",
-    cyan: "border-cyan-900 bg-cyan-950/30 text-cyan-100",
-  };
-
   return (
     <div
-      className={`flex min-h-[58px] items-center justify-between gap-3 rounded-sm border px-2.5 py-2 shadow-sm ${cardClass[tone]}`}
+      className={`flex min-h-[58px] items-center justify-between gap-3 rounded-sm border px-2.5 py-2 shadow-sm ${SOC_TONE_CLASSES[tone].card}`}
     >
       <div className="min-w-0">
         <div className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
@@ -495,11 +468,11 @@ export default function IncidentsPage() {
           </header>
 
           <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-5">
-            <Counter label="Visible incidents" value={total} helper="Matching current filters" tone="cyan" />
+            <Counter label="Visible incidents" value={total} helper="Matching current filters" tone="primary" />
             <Counter label="High attention" value={highRiskCount} helper="Risk score 60+ on this page" tone={highRiskCount > 0 ? "warning" : "success"} />
             <Counter label="Active lifecycle" value={activeLifecycleCount} helper="Investigating, contained or legacy escalated" tone={activeLifecycleCount > 0 ? "warning" : "success"} />
-            <Counter label="Correlated" value={correlatedCount} helper="Incidents linked to patterns" tone="cyan" />
-            <Counter label="Demo scenarios" value={demoIncidentCount} helper={demoMode ? "Stable seed only" : "Visible on this page"} tone={demoMode ? "cyan" : "neutral"} />
+            <Counter label="Correlated" value={correlatedCount} helper="Incidents linked to patterns" tone="primary" />
+            <Counter label="Demo scenarios" value={demoIncidentCount} helper={demoMode ? "Stable seed only" : "Visible on this page"} tone={demoMode ? "primary" : "neutral"} />
           </section>
 
           <section className="border-b border-slate-800 bg-slate-950 px-3 py-2">
@@ -694,7 +667,7 @@ export default function IncidentsPage() {
                                     <span className="font-mono text-[10px] uppercase tracking-wide text-slate-600">
                                       Level {incident.level ?? 0}
                                     </span>
-                                    {isDemoIncident(incident) && <TinyBadge tone="cyan">Demo</TinyBadge>}
+                                    {isDemoIncident(incident) && <TinyBadge tone="primary">Demo</TinyBadge>}
                                     {incident.correlated && (
                                       <span className="text-[10px] uppercase tracking-wide text-cyan-400">
                                         correlated

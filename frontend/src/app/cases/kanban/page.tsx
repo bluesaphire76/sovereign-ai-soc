@@ -1,6 +1,11 @@
 "use client";
 
 import { authFetch } from "@/lib/auth";
+import {
+  SOC_TONE_CLASSES,
+  severityTone as semanticSeverityTone,
+  type SocTone,
+} from "@/lib/semantic-styles";
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -76,7 +81,7 @@ type KanbanColumn = {
   description: string;
 };
 
-type Tone = "success" | "warning" | "danger" | "primary" | "neutral" | "executive";
+type Tone = SocTone;
 
 const TERMINAL_STATUSES = new Set(["CLOSED", "FALSE_POSITIVE"]);
 
@@ -119,50 +124,11 @@ const COLUMNS: KanbanColumn[] = [
 ];
 
 function toneClasses(tone: Tone) {
-  const classes: Record<Tone, { card: string; badge: string; text: string }> = {
-    success: {
-      card: "border-emerald-900/70 bg-emerald-950/20",
-      badge: "border-emerald-700 bg-emerald-950 text-emerald-200",
-      text: "text-emerald-300",
-    },
-    warning: {
-      card: "border-orange-900/70 bg-orange-950/20",
-      badge: "border-orange-700 bg-orange-950 text-orange-200",
-      text: "text-orange-300",
-    },
-    danger: {
-      card: "border-red-900/70 bg-red-950/25",
-      badge: "border-red-800 bg-red-950 text-red-200",
-      text: "text-red-300",
-    },
-    primary: {
-      card: "border-cyan-900/70 bg-cyan-950/20",
-      badge: "border-cyan-700 bg-cyan-950 text-cyan-200",
-      text: "text-cyan-300",
-    },
-    neutral: {
-      card: "border-slate-800 bg-slate-900",
-      badge: "border-slate-700 bg-slate-950 text-slate-300",
-      text: "text-slate-300",
-    },
-    executive: {
-      card: "border-violet-900/70 bg-violet-950/20",
-      badge: "border-violet-700 bg-violet-950 text-violet-200",
-      text: "text-violet-300",
-    },
-  };
-
-  return classes[tone];
+  return SOC_TONE_CLASSES[tone];
 }
 
 function severityTone(value: string | null | undefined): Tone {
-  const severity = value ?? "LOW";
-
-  if (severity === "CRITICAL") return "danger";
-  if (severity === "HIGH") return "warning";
-  if (severity === "MEDIUM") return "primary";
-
-  return "success";
+  return semanticSeverityTone(value);
 }
 
 function statusTone(value: string | null | undefined): Tone {
@@ -213,7 +179,8 @@ function slaRiskTone(value: string | null | undefined): Tone {
 
   if (risk === "BREACHED" || risk === "HIGH") return "danger";
   if (risk === "MEDIUM") return "warning";
-  if (risk === "LOW" || risk === "NONE") return "success";
+  if (risk === "LOW") return "low";
+  if (risk === "NONE") return "success";
 
   return "neutral";
 }

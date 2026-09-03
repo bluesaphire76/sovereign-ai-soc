@@ -2,6 +2,7 @@
 
 import { downloadBackendFile } from "@/lib/download";
 import { authFetch } from "@/lib/auth";
+import { severityBadgeClasses } from "@/lib/semantic-styles";
 
 import { Component, useCallback, useEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from "react";
 import Link from "next/link";
@@ -273,13 +274,7 @@ type ActionForm = {
 };
 
 function severityClass(value: string | null | undefined) {
-  const severity = value ?? "LOW";
-
-  if (severity === "CRITICAL") return "bg-red-100 text-red-800 border-red-200";
-  if (severity === "HIGH") return "bg-orange-100 text-orange-800 border-orange-200";
-  if (severity === "MEDIUM") return "bg-yellow-100 text-yellow-800 border-yellow-200";
-
-  return "bg-emerald-100 text-emerald-800 border-emerald-200";
+  return severityBadgeClasses(value);
 }
 
 function statusClass(value: string | null | undefined) {

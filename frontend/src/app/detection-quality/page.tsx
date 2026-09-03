@@ -1,6 +1,11 @@
 "use client";
 
 import { authFetch, fetchCurrentUser, getStoredUser, type AuthUser } from "@/lib/auth";
+import {
+  SOC_TONE_CLASSES,
+  severityTone as semanticSeverityTone,
+  type SocTone,
+} from "@/lib/semantic-styles";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
@@ -62,7 +67,7 @@ type ScenarioSummary = {
   avg_risk: number;
 };
 
-type Tone = "success" | "warning" | "danger" | "primary" | "neutral";
+type Tone = SocTone;
 
 type BriefItem = {
   label: string;
@@ -504,13 +509,7 @@ function priorityMatchesSyntheticExpectation(incident: Incident): boolean {
 }
 
 function toneForPriority(priority: string | null | undefined): Tone {
-  const value = (priority ?? "").toUpperCase();
-
-  if (value === "CRITICAL") return "danger";
-  if (value === "HIGH") return "warning";
-  if (value === "MEDIUM") return "primary";
-  if (value === "LOW") return "success";
-  return "neutral";
+  return semanticSeverityTone(priority);
 }
 
 function pct(value: number, total: number): number {
@@ -520,9 +519,9 @@ function pct(value: number, total: number): number {
 
 function toneForScore(score: number): Tone {
   if (score >= 81) return "danger";
-  if (score >= 61) return "warning";
-  if (score >= 31) return "primary";
-  return "success";
+  if (score >= 61) return "high";
+  if (score >= 31) return "medium";
+  return "low";
 }
 
 function toneForCoverage(percent: number, hasData: boolean): Tone {
@@ -553,47 +552,11 @@ function scenarioGapCount(row: ScenarioSummary) {
 }
 
 function toneClasses(tone: Tone) {
-  const classes: Record<Tone, { card: string; badge: string; text: string }> = {
-    success: {
-      card: "border-emerald-900/70 bg-emerald-950/20",
-      badge: "border-emerald-700 bg-emerald-950 text-emerald-200",
-      text: "text-emerald-300",
-    },
-    warning: {
-      card: "border-orange-900/70 bg-orange-950/20",
-      badge: "border-orange-700 bg-orange-950 text-orange-200",
-      text: "text-orange-300",
-    },
-    danger: {
-      card: "border-red-900/70 bg-red-950/25",
-      badge: "border-red-800 bg-red-950 text-red-200",
-      text: "text-red-300",
-    },
-    primary: {
-      card: "border-cyan-900/70 bg-cyan-950/20",
-      badge: "border-cyan-700 bg-cyan-950 text-cyan-200",
-      text: "text-cyan-300",
-    },
-    neutral: {
-      card: "border-slate-800 bg-slate-900",
-      badge: "border-slate-700 bg-slate-950 text-slate-300",
-      text: "text-slate-300",
-    },
-  };
-
-  return classes[tone];
+  return SOC_TONE_CLASSES[tone];
 }
 
 function toneDotClass(tone: Tone) {
-  const classes: Record<Tone, string> = {
-    success: "bg-emerald-400",
-    warning: "bg-orange-400",
-    danger: "bg-red-400",
-    primary: "bg-cyan-400",
-    neutral: "bg-slate-500",
-  };
-
-  return classes[tone];
+  return SOC_TONE_CLASSES[tone].dot;
 }
 
 function shortText(value: string | null | undefined, max = 96) {
