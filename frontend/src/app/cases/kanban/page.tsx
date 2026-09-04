@@ -3,13 +3,27 @@
 import { authFetch } from "@/lib/auth";
 import {
   SOC_TONE_CLASSES,
-  severityTone as semanticSeverityTone,
   type SocTone,
 } from "@/lib/semantic-styles";
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
+import CaseSeverityRisk from "@/components/cases/CaseSeverityRisk";
+import {
+  EnterpriseBadge,
+  EnterpriseBreadcrumbs,
+  EnterpriseButton,
+  EnterpriseEmptyState,
+  EnterpriseErrorState,
+  EnterpriseMetricCard,
+  EnterpriseMetricStrip,
+  EnterprisePageHeader,
+  EnterprisePanel,
+  EnterpriseSearchInput,
+  EnterpriseSkeleton,
+  EnterpriseStatusBadge,
+} from "@/components/enterprise";
 import {
   AlertTriangle,
   Bot,
@@ -17,7 +31,6 @@ import {
   CheckCircle2,
   CircleDashed,
   RefreshCw,
-  Search,
 } from "lucide-react";
 
 type IncidentCase = {
@@ -125,32 +138,6 @@ const COLUMNS: KanbanColumn[] = [
 
 function toneClasses(tone: Tone) {
   return SOC_TONE_CLASSES[tone];
-}
-
-function severityTone(value: string | null | undefined): Tone {
-  return semanticSeverityTone(value);
-}
-
-function statusTone(value: string | null | undefined): Tone {
-  const status = value ?? "OPEN";
-
-  if (status === "ESCALATED") return "danger";
-  if (status === "INVESTIGATING") return "executive";
-  if (status === "TRIAGED") return "primary";
-  if (status === "CLOSED") return "neutral";
-  if (status === "FALSE_POSITIVE") return "executive";
-
-  return "primary";
-}
-
-function slaTone(value: string | null | undefined): Tone {
-  const status = value ?? "NOT_SET";
-
-  if (status === "BREACHED") return "danger";
-  if (status === "WITHIN_SLA") return "success";
-  if (status === "COMPLETED") return "neutral";
-
-  return "neutral";
 }
 
 function columnTone(columnId: string): Tone {
@@ -370,134 +357,122 @@ export default function CaseKanbanPage() {
 
   return (
     <AppShell width="wide">
-
-        <header className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div>
-            <Link
-              href="/cases"
-              className="mb-2 inline-flex items-center gap-1.5 text-xs text-cyan-300 hover:text-cyan-200"
-            >
-              ← Case Queue
-            </Link>
-
-            <div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-cyan-300">
-              <Briefcase className="h-3.5 w-3.5" />
-              Investigation Cases
-            </div>
-
-            <h1 className="text-xl font-semibold tracking-tight">
-              Case Kanban Board
-            </h1>
-
-            <p className="mt-1 max-w-4xl text-xs leading-5 text-slate-500">
-              Compact visual SOC backlog grouped by investigation state and closure readiness.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <Link
-              href="/cases"
-              className="flex h-8 items-center rounded-lg border border-slate-700 bg-slate-900 px-3 text-xs text-slate-200 shadow-sm hover:bg-slate-800"
-            >
+      <EnterprisePageHeader
+        breadcrumbs={
+          <EnterpriseBreadcrumbs
+            items={[
+              { label: "Dashboard", href: "/" },
+              { label: "Cases", href: "/cases" },
+              { label: "Kanban" },
+            ]}
+          />
+        }
+        eyebrow="Investigation cases"
+        title="Case Kanban"
+        description="Compact operational backlog grouped by investigation state and closure readiness."
+        icon={<Briefcase aria-hidden="true" className="h-3.5 w-3.5" />}
+        density="compact"
+        secondaryActions={
+          <>
+            <EnterpriseButton href="/cases" tone="secondary" size="xs">
               Queue view
-            </Link>
-
-            <button
+            </EnterpriseButton>
+            <EnterpriseButton
               onClick={loadCases}
-              className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 text-xs text-slate-200 shadow-sm hover:bg-slate-800"
+              disabled={refreshing}
+              tone="secondary"
+              size="xs"
+              icon={
+                <RefreshCw
+                  aria-hidden="true"
+                  className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`}
+                />
+              }
             >
-              <RefreshCw
-                className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`}
-              />
               Refresh
-            </button>
-          </div>
-        </header>
+            </EnterpriseButton>
+          </>
+        }
+      />
 
-        {error && (
-          <div className="mb-3 rounded-lg border border-red-800 bg-red-950/60 p-3 text-xs text-red-200">
-            API error: {error}
-          </div>
-        )}
+      {error && (
+        <EnterpriseErrorState
+          title="Unable to load the case board"
+          message={error}
+          onRetry={loadCases}
+          className="mb-3"
+        />
+      )}
 
-        {loading ? (
-          <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 text-xs text-slate-300">
-            Loading case board...
-          </section>
-        ) : (
-          <div className="space-y-3">
-            <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-5">
-              <MetricTile title="Visible cases" value={metrics.total} tone="primary" />
-              <MetricTile
+      {loading ? (
+        <EnterprisePanel>
+          <EnterpriseSkeleton label="Loading case board" rows={7} />
+        </EnterprisePanel>
+      ) : (
+        <div className="space-y-3">
+            <EnterpriseMetricStrip className="lg:grid-cols-5">
+              <EnterpriseMetricCard title="Visible cases" value={metrics.total} tone="primary" />
+              <EnterpriseMetricCard
                 title="SLA breached"
                 value={metrics.slaBreached}
                 tone={metrics.slaBreached > 0 ? "danger" : "success"}
               />
-              <MetricTile
+              <EnterpriseMetricCard
                 title="Ready to close"
                 value={metrics.readyToClose}
                 tone={metrics.readyToClose > 0 ? "success" : "neutral"}
               />
-              <MetricTile
+              <EnterpriseMetricCard
                 title="Open actions"
                 value={metrics.openActions}
                 tone={metrics.openActions > 0 ? "warning" : "success"}
               />
-              <MetricTile
+              <EnterpriseMetricCard
                 title="Needs AI"
                 value={metrics.needsAi}
                 tone={metrics.needsAi > 0 ? "warning" : "success"}
               />
-            </section>
+            </EnterpriseMetricStrip>
 
-            <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
+            <EnterprisePanel title="Board controls">
               <div className="grid gap-2 lg:grid-cols-[1fr_150px_150px]">
-                <label>
-                  <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-slate-500">
-                    Search board
-                  </span>
-                  <div className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-950 px-2">
-                    <Search className="h-3.5 w-3.5 text-slate-500" />
-                    <input
-                      value={searchText}
-                      onChange={(event) => setSearchText(event.target.value)}
-                      placeholder="Case, host, owner, status, severity, flags..."
-                      className="w-full bg-transparent text-xs text-slate-100 outline-none placeholder:text-slate-600"
-                    />
-                  </div>
-                </label>
+                <EnterpriseSearchInput
+                  label="Search board"
+                  value={searchText}
+                  onChange={setSearchText}
+                  onClear={() => setSearchText("")}
+                  placeholder="Case, host, owner, status, severity, flags..."
+                />
 
                 <div className="flex items-end">
-                  <button
+                  <EnterpriseButton
                     type="button"
                     onClick={() => setHideClosed((current) => !current)}
-                    className={`h-8 w-full rounded-lg border px-2 text-xs ${
-                      hideClosed
-                        ? "border-cyan-500 bg-cyan-500 text-slate-950"
-                        : "border-slate-700 bg-slate-950 text-slate-300 hover:bg-slate-800"
-                    }`}
+                    tone={hideClosed ? "primary" : "secondary"}
+                    size="xs"
+                    className="w-full"
+                    ariaPressed={hideClosed}
                   >
                     {hideClosed ? "Closed hidden" : "All statuses"}
-                  </button>
+                  </EnterpriseButton>
                 </div>
 
                 <div className="flex items-end">
-                  <button
+                  <EnterpriseButton
                     type="button"
                     onClick={() => setCompactCards((current) => !current)}
-                    className={`h-8 w-full rounded-lg border px-2 text-xs ${
-                      compactCards
-                        ? "border-emerald-500 bg-emerald-500 text-slate-950"
-                        : "border-slate-700 bg-slate-950 text-slate-300 hover:bg-slate-800"
-                    }`}
+                    tone={compactCards ? "primary" : "secondary"}
+                    size="xs"
+                    className="w-full"
+                    ariaPressed={compactCards}
                   >
                     {compactCards ? "Compact cards" : "Detailed cards"}
-                  </button>
+                  </EnterpriseButton>
                 </div>
               </div>
-            </section>
+            </EnterprisePanel>
 
-            <section className="overflow-x-auto rounded-lg border border-slate-800 bg-slate-950/40 p-2.5">
+            <EnterprisePanel className="overflow-x-auto bg-slate-950/40 p-2.5">
               <div className="flex min-w-max gap-2.5">
                 {COLUMNS.map((column) => (
                   <KanbanColumn
@@ -508,35 +483,10 @@ export default function CaseKanbanPage() {
                   />
                 ))}
               </div>
-            </section>
+            </EnterprisePanel>
           </div>
         )}
     </AppShell>
-  );
-}
-
-function MetricTile({
-  title,
-  value,
-  tone,
-}: {
-  title: string;
-  value: number;
-  tone: Tone;
-}) {
-  const classes = toneClasses(tone);
-
-  return (
-    <div
-      className={`flex min-h-[58px] items-center justify-between gap-3 rounded-sm border px-2.5 py-2 shadow-sm ${classes.card}`}
-    >
-      <div className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
-        {title}
-      </div>
-      <div className="text-xl font-semibold leading-6 text-slate-100">
-        {value}
-      </div>
-    </div>
   );
 }
 
@@ -564,15 +514,17 @@ function KanbanColumn({
           </p>
         </div>
 
-        <span className={`shrink-0 rounded-md border px-2 py-0.5 text-[11px] ${classes.badge}`}>
+        <EnterpriseBadge tone={tone} size="compact">
           {items.length}
-        </span>
+        </EnterpriseBadge>
       </div>
 
       {items.length === 0 ? (
-        <div className="rounded-md border border-slate-800 bg-slate-950 p-2 text-[11px] text-slate-500">
-          No cases.
-        </div>
+        <EnterpriseEmptyState
+          title="No cases"
+          description={`No cases are currently in ${column.title.toLowerCase()}.`}
+          className="py-4"
+        />
       ) : (
         <div className="space-y-2">
           {items.map((item) => (
@@ -591,7 +543,7 @@ function CaseCard({
   item: IncidentCase;
   compact: boolean;
 }) {
-  const severity = item.severity_review ?? item.final_severity ?? item.severity ?? "LOW";
+  const severity = item.severity_review ?? item.final_severity ?? item.severity;
   const openActions = item.open_action_count ?? 0;
   const totalActions = item.action_count ?? 0;
   const completedActions = Math.max(totalActions - openActions, 0);
@@ -608,7 +560,7 @@ function CaseCard({
             #{item.id} {item.title}
           </Link>
 
-          <Badge tone={severityTone(severity)}>{severity}</Badge>
+          <CaseSeverityRisk severity={severity} score={item.risk_score} />
         </div>
 
         <div className="mb-2 flex flex-wrap items-center gap-1">
@@ -680,9 +632,8 @@ function CaseCard({
           <CompactMetric label="Actions" value={`${completedActions}/${totalActions}`} />
         </div>
 
-        <div className="mt-2 flex items-center justify-between gap-2 border-t border-slate-800 pt-2 text-[10px] text-slate-500">
+        <div className="mt-2 truncate border-t border-slate-800 pt-2 text-[10px] text-slate-500">
           <span className="truncate">{item.correlation_type ?? "No correlation"}</span>
-          <span className="shrink-0">Risk {item.risk_score ?? 0}</span>
         </div>
       </article>
     );
@@ -699,15 +650,17 @@ function CaseCard({
           #{item.id} {item.title}
         </Link>
 
-        <Badge tone={severityTone(severity)}>{severity}</Badge>
+        <CaseSeverityRisk severity={severity} score={item.risk_score} />
       </div>
 
       <div className="mb-2 flex flex-wrap items-center gap-1">
-        <Badge tone={statusTone(item.status)}>{item.status ?? "OPEN"}</Badge>
-        <Badge tone={slaTone(item.sla_status)}>{slaLabel(item.sla_status)}</Badge>
-        <Badge tone={slaRiskTone(item.sla_breach_risk)}>
+        <EnterpriseStatusBadge value={item.status ?? "OPEN"} size="compact" />
+        <EnterpriseStatusBadge value={item.sla_status ?? "NOT_SET"} size="compact">
+          {slaLabel(item.sla_status)}
+        </EnterpriseStatusBadge>
+        <EnterpriseBadge tone={slaRiskTone(item.sla_breach_risk)} size="compact">
           Risk {slaRiskLabel(item.sla_breach_risk)}
-        </Badge>
+        </EnterpriseBadge>
       </div>
 
       <div className="grid grid-cols-2 gap-1.5">
@@ -782,14 +735,6 @@ function CompactMetric({
   );
 }
 
-function Badge({ tone, children }: { tone: Tone; children: React.ReactNode }) {
-  return (
-    <span className={`shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] ${toneClasses(tone).badge}`}>
-      {children}
-    </span>
-  );
-}
-
 function MiniFlag({
   tone,
   icon,
@@ -800,10 +745,9 @@ function MiniFlag({
   children: React.ReactNode;
 }) {
   return (
-    <span className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] ${toneClasses(tone).badge}`}>
-      {icon}
+    <EnterpriseBadge tone={tone} size="compact" icon={icon}>
       {children}
-    </span>
+    </EnterpriseBadge>
   );
 }
 

@@ -11,27 +11,34 @@ import {
   severityBadgeClasses,
 } from "@/lib/semantic-styles";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
+import CaseSeverityRisk from "@/components/cases/CaseSeverityRisk";
 import {
   EnterpriseBadge,
+  EnterpriseBreadcrumbs,
   EnterpriseButton,
   EnterpriseConfirmationDialog,
-  EnterpriseSection,
-  EnterpriseSeverityBadge,
+  EnterpriseEmptyState,
+  EnterpriseErrorState,
+  EnterpriseMetricCard,
+  EnterpriseMetricStrip,
+  EnterprisePageHeader,
+  EnterprisePanel,
+  EnterpriseSearchInput,
+  EnterpriseSelect,
+  EnterpriseSkeleton,
   EnterpriseStatusBadge,
-} from "../../components/enterprise";
+} from "@/components/enterprise";
 import {
   AlertTriangle,
-  ArrowLeft,
   Bot,
   Briefcase,
   CheckCircle2,
   CircleDashed,
   Filter,
   RefreshCw,
-  Search,
   ShieldAlert,
   Trash2,
 } from "lucide-react";
@@ -559,113 +566,110 @@ export default function CasesPage() {
 
   return (
     <AppShell>
-        <header className="mb-2 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div>
-            <Link
-              href="/"
-              className="mb-3 inline-flex items-center gap-2 text-sm text-cyan-300 hover:text-cyan-200"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              Back to dashboard
-            </Link>
-
-            <div className="mb-2 flex items-center gap-2 text-sm text-cyan-300">
-              <Briefcase className="h-4 w-4" />
-              Investigation cases
-            </div>
-
-            <h1 className="text-xl font-semibold tracking-tight">
-              SOC Case Queue
-            </h1>
-
-            <p className="mt-2 max-w-3xl text-xs text-slate-500">
-              Prioritized operational queue for grouped investigations, SLA
-              tracking, ownership, action progress, AI analysis and closure readiness.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap gap-1.5">
-            <button
+      <EnterprisePageHeader
+        breadcrumbs={
+          <EnterpriseBreadcrumbs
+            items={[
+              { label: "Dashboard", href: "/" },
+              { label: "Cases" },
+            ]}
+          />
+        }
+        eyebrow="Investigation"
+        title="Cases"
+        description="Prioritized operational queue for grouped investigations, SLA tracking, ownership, action progress, AI analysis and closure readiness."
+        icon={<Briefcase aria-hidden="true" className="h-3.5 w-3.5" />}
+        status={demoMode ? <EnterpriseBadge tone="primary">Demo view</EnterpriseBadge> : null}
+        density="compact"
+        secondaryActions={
+          <>
+            <EnterpriseButton
               onClick={toggleDemoMode}
-              className={`rounded-xl border px-4 py-2 text-xs shadow-sm ${
-                demoMode
-                  ? "border-cyan-500 bg-cyan-500 text-slate-950 hover:bg-cyan-400"
-                  : "border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"
-              }`}
+              tone={demoMode ? "primary" : "secondary"}
+              size="xs"
             >
               {demoMode ? "Exit current demo" : "Current demo"}
-            </button>
-            <button
+            </EnterpriseButton>
+            <EnterpriseButton
               onClick={loadCases}
-              className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-xs text-slate-200 shadow-sm hover:bg-slate-800"
+              disabled={refreshing}
+              tone="secondary"
+              size="xs"
+              icon={
+                <RefreshCw
+                  aria-hidden="true"
+                  className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`}
+                />
+              }
             >
-              <RefreshCw
-                className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`}
-              />
               Refresh
-            </button>
-          </div>
-        </header>
+            </EnterpriseButton>
+          </>
+        }
+      />
 
-        {error && (
-          <div className="mb-3 rounded-2xl border border-red-800 bg-red-950/60 p-4 text-sm text-red-200">
-            API error: {error}
-          </div>
-        )}
+      {error && (
+        <EnterpriseErrorState
+          title="Unable to load cases"
+          message={error}
+          onRetry={loadCases}
+          className="mb-3"
+        />
+      )}
 
-        {loading ? (
-          <EnterpriseSection>
-            <div className="text-xs text-slate-300">Loading cases...</div>
-          </EnterpriseSection>
-        ) : (
-          <div className="space-y-3">
-            <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
-              <CaseQueueMetric
+      {loading ? (
+        <EnterprisePanel>
+          <EnterpriseSkeleton label="Loading cases" rows={8} />
+        </EnterprisePanel>
+      ) : (
+        <div className="space-y-3">
+            <EnterpriseMetricStrip className="lg:grid-cols-3 2xl:grid-cols-6">
+              <EnterpriseMetricCard
                 title="Active"
                 value={metrics.active}
                 subtitle={`${metrics.total} total`}
                 tone="primary"
                 icon={<Briefcase className="h-3.5 w-3.5" />}
               />
-              <CaseQueueMetric
+              <EnterpriseMetricCard
                 title="SLA breached"
                 value={metrics.breached}
                 subtitle="Immediate review"
                 tone={metrics.breached > 0 ? "danger" : "success"}
                 icon={<AlertTriangle className="h-3.5 w-3.5" />}
               />
-              <CaseQueueMetric
+              <EnterpriseMetricCard
                 title="High / Critical"
                 value={metrics.criticalHigh}
                 subtitle="Priority queue"
                 tone={metrics.criticalHigh > 0 ? "warning" : "success"}
                 icon={<ShieldAlert className="h-3.5 w-3.5" />}
               />
-              <CaseQueueMetric
+              <EnterpriseMetricCard
                 title="Ready to close"
                 value={metrics.readyToClose}
                 subtitle="Can be closed"
                 tone={metrics.readyToClose > 0 ? "success" : "neutral"}
                 icon={<CheckCircle2 className="h-3.5 w-3.5" />}
               />
-              <CaseQueueMetric
+              <EnterpriseMetricCard
                 title="Open actions"
                 value={metrics.blockedByActions}
                 subtitle="Blocked cases"
                 tone={metrics.blockedByActions > 0 ? "warning" : "success"}
                 icon={<CircleDashed className="h-3.5 w-3.5" />}
               />
-              <CaseQueueMetric
+              <EnterpriseMetricCard
                 title="Needs AI"
                 value={metrics.needsAi}
                 subtitle="No analysis yet"
                 tone={metrics.needsAi > 0 ? "warning" : "success"}
                 icon={<Bot className="h-3.5 w-3.5" />}
               />
-            </section>
+            </EnterpriseMetricStrip>
 
-            <EnterpriseSection
-              title="Queue Controls"
+            <EnterprisePanel
+              title="Queue controls"
               description="Filter and prioritize cases by operational urgency."
               actions={
                 <EnterpriseButton onClick={resetFilters} tone="ghost" size="xs">
@@ -687,20 +691,14 @@ export default function CasesPage() {
               </div>
 
               <div className="grid gap-2 lg:grid-cols-5">
-                <label className="lg:col-span-2">
-                  <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-slate-500">
-                    Search
-                  </span>
-                  <div className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-950 px-2">
-                    <Search className="h-3.5 w-3.5 text-slate-500" />
-                    <input
-                      value={searchText}
-                      onChange={(event) => setSearchText(event.target.value)}
-                      placeholder="Case, host, owner, correlation type, flags..."
-                      className="w-full bg-transparent text-xs text-slate-100 outline-none placeholder:text-slate-600"
-                    />
-                  </div>
-                </label>
+                <EnterpriseSearchInput
+                  label="Search cases"
+                  value={searchText}
+                  onChange={setSearchText}
+                  onClear={() => setSearchText("")}
+                  placeholder="Case, host, owner, correlation type, flags..."
+                  containerClassName="lg:col-span-2"
+                />
 
                 <FilterSelect
                   label="Status"
@@ -770,9 +768,9 @@ export default function CasesPage() {
                   </div>
                 </div>
               </div>
-            </EnterpriseSection>
+            </EnterprisePanel>
 
-            <EnterpriseSection
+            <EnterprisePanel
               title="Cases"
               description="Operational queue ordered by urgency."
               actions={
@@ -788,9 +786,10 @@ export default function CasesPage() {
             >
 
               {filteredCases.length === 0 ? (
-                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 text-xs text-slate-500">
-                  No cases match the current filters.
-                </div>
+                <EnterpriseEmptyState
+                  title="No matching cases"
+                  description="Adjust the quick view, search text or filters to widen the queue."
+                />
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs">
@@ -855,9 +854,10 @@ export default function CasesPage() {
                             </td>
 
                             <td className="min-w-28 whitespace-nowrap py-2 pr-3">
-                              <EnterpriseSeverityBadge value={severity ?? "LOW"} size="compact">
-                                {severity ?? "LOW"} · {item.risk_score ?? 0}
-                              </EnterpriseSeverityBadge>
+                              <CaseSeverityRisk
+                                severity={severity}
+                                score={item.risk_score}
+                              />
                             </td>
 
                             <td className="py-2 pr-3 text-slate-300">
@@ -919,10 +919,14 @@ export default function CasesPage() {
                             </td>
 
                             <td className="py-1.5 pr-2">
-                              <div className="inline-flex items-center gap-2 text-slate-300">
+                              <Link
+                                href={`/cases/${item.id}`}
+                                className="inline-flex items-center gap-2 text-cyan-300 hover:text-cyan-200"
+                                aria-label={`Open case ${item.id} with ${item.incident_count} linked incidents`}
+                              >
                                 <ShieldAlert className="h-4 w-4 text-cyan-300" />
                                 {item.incident_count}
-                              </div>
+                              </Link>
                             </td>
 
                             <td className="py-2 pr-3 text-slate-400">
@@ -951,7 +955,7 @@ export default function CasesPage() {
                   </table>
                 </div>
               )}
-            </EnterpriseSection>
+            </EnterprisePanel>
           </div>
         )}
       <EnterpriseConfirmationDialog
@@ -977,61 +981,6 @@ export default function CasesPage() {
   );
 }
 
-type CaseMetricTone = "neutral" | "primary" | "success" | "warning" | "danger";
-
-const caseMetricToneClasses: Record<CaseMetricTone, string> = {
-  neutral: "border-slate-800 bg-slate-900 text-slate-100",
-  primary: "border-cyan-900 bg-cyan-950/30 text-cyan-100",
-  success: "border-emerald-900 bg-emerald-950/30 text-emerald-100",
-  warning: "border-orange-900 bg-orange-950/30 text-orange-100",
-  danger: "border-red-900 bg-red-950/30 text-red-100",
-};
-
-const caseMetricIconClasses: Record<CaseMetricTone, string> = {
-  neutral: "bg-slate-950 text-slate-400",
-  primary: "bg-cyan-950 text-cyan-300",
-  success: "bg-emerald-950 text-emerald-300",
-  warning: "bg-orange-950 text-orange-300",
-  danger: "bg-red-950 text-red-300",
-};
-
-function CaseQueueMetric({
-  title,
-  value,
-  subtitle,
-  tone = "neutral",
-  icon,
-}: {
-  title: string;
-  value: number;
-  subtitle?: string;
-  tone?: CaseMetricTone;
-  icon: ReactNode;
-}) {
-  return (
-    <div
-      className={`flex min-h-[58px] items-center justify-between gap-3 rounded-sm border px-2.5 py-2 shadow-sm ${caseMetricToneClasses[tone]}`}
-    >
-      <div className="min-w-0">
-        <div className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
-          {title}
-        </div>
-        <div className="mt-0.5 flex min-w-0 items-baseline gap-2">
-          <span className="text-xl font-semibold leading-6">{value}</span>
-          {subtitle && (
-            <span className="min-w-0 truncate text-[11px] leading-4 text-slate-500">
-              {subtitle}
-            </span>
-          )}
-        </div>
-      </div>
-      <div className={`shrink-0 rounded-sm p-1.5 ${caseMetricIconClasses[tone]}`}>
-        {icon}
-      </div>
-    </div>
-  );
-}
-
 function QuickViewButton({
   label,
   active,
@@ -1042,16 +991,14 @@ function QuickViewButton({
   onClick: () => void;
 }) {
   return (
-    <button
+    <EnterpriseButton
       onClick={onClick}
-      className={`h-8 rounded-lg border px-2.5 text-xs font-medium transition ${
-        active
-          ? "border-cyan-500 bg-cyan-500 text-slate-950"
-          : "border-slate-700 bg-slate-950 text-slate-300 hover:border-cyan-800 hover:bg-slate-800 hover:text-cyan-200"
-      }`}
+      tone={active ? "primary" : "secondary"}
+      size="xs"
+      ariaPressed={active}
     >
       {label}
-    </button>
+    </EnterpriseButton>
   );
 }
 
@@ -1067,22 +1014,15 @@ function FilterSelect({
   options: [string, string][];
 }) {
   return (
-    <label>
-      <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-slate-500">
-        {label}
-      </span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500"
-      >
-        {options.map(([optionValue, optionLabel]) => (
-          <option key={optionValue} value={optionValue}>
-            {optionLabel}
-          </option>
-        ))}
-      </select>
-    </label>
+    <EnterpriseSelect
+      label={label}
+      value={value}
+      onChange={onChange}
+      options={options.map(([optionValue, optionLabel]) => ({
+        value: optionValue,
+        label: optionLabel,
+      }))}
+    />
   );
 }
 

@@ -30,6 +30,7 @@ type EnterpriseButtonProps = Pick<
   className?: string;
   type?: "button" | "submit" | "reset";
   ariaLabel?: string;
+  ariaPressed?: boolean;
   title?: string;
 };
 
@@ -68,6 +69,7 @@ export default function EnterpriseButton({
   className,
   type = "button",
   ariaLabel,
+  ariaPressed,
   title,
   autoFocus,
   name,
@@ -112,6 +114,7 @@ export default function EnterpriseButton({
       onClick={onClick}
       disabled={disabled}
       aria-label={ariaLabel}
+      aria-pressed={ariaPressed}
       title={title}
       autoFocus={autoFocus}
       name={name}
