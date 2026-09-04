@@ -163,8 +163,9 @@ Similarity does not prove identity, cause, severity, or closure readiness. The
 V3.1 backend validates model-authored prose through closed typed claims and
 source refs before it becomes visible. Sources distinguish operational,
 reference, advisory/playbook, analytical-relationship, and semantic-candidate
-provenance and use validated internal detail links. Sources and technical
-diagnostics are collapsed by default so the primary flow remains conversational.
+provenance and use validated internal detail links. Sources follow the answer
+directly; technical diagnostics are collapsed by default so the primary flow
+remains readable.
 
 Changing record context creates a new opaque conversation ID; the backend
 isolates state by authenticated owner, expires it,

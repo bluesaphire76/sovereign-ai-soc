@@ -47,6 +47,10 @@ export type AssistantFallbackReason =
   | "gateway_unavailable"
   | "queue_deadline_exceeded"
   | "generation_timeout"
+  | "invalid_visible_output"
+  | "invalid_json"
+  | "invalid_json_type"
+  | "invalid_structured_claim_schema"
   | "invalid_structured_output"
   | "grounding_validation_failed"
   | "focus_validation_failed"
@@ -381,7 +385,7 @@ export function normalizeAssistantApiError(
     return {
       kind: "aborted",
       message: "The assistant request was cancelled.",
-      retryable: false,
+      retryable: true,
       locksInteraction: false,
     };
   }
@@ -445,12 +449,31 @@ export function normalizeAssistantApiError(
     }
 
     if (
-      error.status === 503 ||
-      error.category === "ProviderUnavailable" ||
       error.category === "GenerationTimeout" ||
-      error.category === "provider_unavailable" ||
       error.category === "timeout"
     ) {
+      return {
+        kind: "unavailable",
+        message: `AI generation timed out. No ${scope} state was changed.`,
+        retryable: true,
+        locksInteraction: false,
+      };
+    }
+
+    if (
+      error.category === "ProviderUnavailable" ||
+      error.category === "provider_unavailable"
+    ) {
+      return {
+        kind: "unavailable",
+        message:
+          `The governed AI provider is currently unavailable. No ${scope} state was changed.`,
+        retryable: true,
+        locksInteraction: false,
+      };
+    }
+
+    if (error.status === 503) {
       return {
         kind: "unavailable",
         message:
