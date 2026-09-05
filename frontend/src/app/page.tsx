@@ -2,7 +2,7 @@
 
 import { authFetch } from "@/lib/auth";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Activity,
@@ -35,15 +35,21 @@ import {
   EnterpriseBadge,
   EnterpriseButton,
   EnterpriseChartCard,
+  EnterpriseEmptyState,
+  EnterpriseErrorState,
+  EnterpriseMetricCard,
+  EnterpriseMetricStrip,
   EnterprisePageHeader,
+  EnterprisePanel,
   EnterpriseSection,
-} from "../components/enterprise";
+  EnterpriseSelect,
+  EnterpriseSeverityBadge,
+  EnterpriseSkeleton,
+  EnterpriseStatusBadge,
+} from "@/components/enterprise";
 import {
-  SOC_TONE_CLASSES,
   riskScoreTone,
-  severityTone as semanticSeverityTone,
   slaTone as semanticSlaTone,
-  type SocTone,
 } from "@/lib/semantic-styles";
 
 type Incident = {
@@ -165,8 +171,6 @@ type ChartRow = {
   color: string;
 };
 
-type EnterpriseTone = SocTone;
-
 const STATUS_OPTIONS = [
   "ALL",
   "NEW",
@@ -224,6 +228,7 @@ const STATUS_CHART_COLORS: Record<string, string> = {
 };
 
 function riskLabel(score: number | null | undefined) {
+  if (score == null) return "Unknown";
   const value = score ?? 0;
 
   if (value >= 80) return "Critical";
@@ -232,27 +237,11 @@ function riskLabel(score: number | null | undefined) {
   return "Low";
 }
 
-function riskTone(score: number | null | undefined): EnterpriseTone {
-  return riskScoreTone(score);
+function riskTone(score: number | null | undefined) {
+  return score == null ? "neutral" : riskScoreTone(score);
 }
 
-function statusTone(status: string | null | undefined): EnterpriseTone {
-  const value = status ?? "NEW";
-
-  if (value === "ESCALATED") return "danger";
-  if (value === "NEW" || value === "OPEN") return "primary";
-  if (value === "TRIAGED" || value === "INVESTIGATING") return "primary";
-  if (value === "CLOSED") return "success";
-  if (value === "FALSE_POSITIVE") return "executive";
-
-  return "neutral";
-}
-
-function severityTone(severity: string | null | undefined): EnterpriseTone {
-  return semanticSeverityTone(severity);
-}
-
-function slaTone(slaStatus: string | null | undefined): EnterpriseTone {
+function slaTone(slaStatus: string | null | undefined) {
   return semanticSlaTone(slaStatus);
 }
 
@@ -863,19 +852,23 @@ export default function Home() {
         />
 
         {error && (
-          <div className="mb-2 rounded-sm border border-red-800 bg-red-950/60 p-2.5 text-xs text-red-200">
-            API error: {error}
-          </div>
+          <EnterpriseErrorState
+            title="Unable to load dashboard data"
+            message={`API error: ${error}${summary ? ". Last loaded data remains visible." : ""}`}
+            onRetry={loadDashboard}
+            className="mb-2"
+          />
         )}
 
         {loading ? (
-          <EnterpriseSection>
-            <div className="text-xs text-slate-300">Loading dashboard...</div>
-          </EnterpriseSection>
-        ) : (
+          <EnterprisePanel>
+            <EnterpriseSkeleton label="Loading dashboard" rows={5} />
+          </EnterprisePanel>
+        ) : summary ? (
           <div className="space-y-3">
-            <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
-              <DashboardKpi
+            <EnterpriseMetricStrip className="2xl:grid-cols-8">
+              <EnterpriseMetricCard
+                stacked
                 title="Incidents"
                 value={summary?.total_incidents ?? 0}
                 subtitle="Total observed"
@@ -883,14 +876,16 @@ export default function Home() {
                 icon={<Database className="h-3.5 w-3.5" />}
               />
 
-              <DashboardKpi
+              <EnterpriseMetricCard
+                stacked
                 title="Avg risk"
                 value={summary?.average_risk_score ?? 0}
                 subtitle="Current dataset"
                 icon={<Activity className="h-3.5 w-3.5" />}
               />
 
-              <DashboardKpi
+              <EnterpriseMetricCard
+                stacked
                 title="Max risk"
                 value={summary?.max_risk_score ?? 0}
                 subtitle={riskLabel(summary?.max_risk_score)}
@@ -898,7 +893,8 @@ export default function Home() {
                 icon={<AlertTriangle className="h-3.5 w-3.5" />}
               />
 
-              <DashboardKpi
+              <EnterpriseMetricCard
+                stacked
                 title="Correlated"
                 value={summary?.correlated_incidents ?? 0}
                 subtitle="AI correlation"
@@ -906,7 +902,8 @@ export default function Home() {
                 icon={<Brain className="h-3.5 w-3.5" />}
               />
 
-              <DashboardKpi
+              <EnterpriseMetricCard
+                stacked
                 title="Cases"
                 value={caseMetrics.total}
                 subtitle={`${caseMetrics.active} active`}
@@ -914,7 +911,8 @@ export default function Home() {
                 icon={<Briefcase className="h-3.5 w-3.5" />}
               />
 
-              <DashboardKpi
+              <EnterpriseMetricCard
+                stacked
                 title="SLA breach"
                 value={caseMetrics.slaBreached}
                 subtitle="Immediate attention"
@@ -922,7 +920,8 @@ export default function Home() {
                 icon={<Clock className="h-3.5 w-3.5" />}
               />
 
-              <DashboardKpi
+              <EnterpriseMetricCard
+                stacked
                 title="Open actions"
                 value={caseMetrics.openActions}
                 subtitle="Cases with tasks"
@@ -930,14 +929,166 @@ export default function Home() {
                 icon={<Zap className="h-3.5 w-3.5" />}
               />
 
-              <DashboardKpi
+              <EnterpriseMetricCard
+                stacked
                 title="Needs AI"
                 value={caseMetrics.needsAi}
                 subtitle="Open cases"
                 tone={caseMetrics.needsAi > 0 ? "warning" : "success"}
                 icon={<Target className="h-3.5 w-3.5" />}
               />
+            </EnterpriseMetricStrip>
+
+            <section className="grid gap-2 xl:grid-cols-[1.25fr_0.75fr]">
+              <EnterpriseSection
+                title="Priority Case Queue"
+                description="Highest operational attention based on SLA breach, open actions and risk."
+                actions={
+                  <>
+                    <EnterpriseButton href="/cases" tone="primary" size="xs">
+                      Open Queue
+                    </EnterpriseButton>
+                    <EnterpriseButton href="/cases/kanban" tone="secondary" size="xs">
+                      Kanban
+                    </EnterpriseButton>
+                  </>
+                }
+              >
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="border-b border-slate-800 uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="py-1.5 pr-2">Case</th>
+                        <th className="py-1.5 pr-2">Status</th>
+                        <th className="py-1.5 pr-2">Severity</th>
+                        <th className="py-1.5 pr-2">SLA</th>
+                        <th className="py-1.5 pr-2">Owner</th>
+                        <th className="py-1.5 pr-2">Actions</th>
+                        <th className="py-1.5 pr-2">AI</th>
+                      </tr>
+                    </thead>
+
+                    <tbody className="divide-y divide-slate-800/80">
+                      {highPriorityCases.map((item) => {
+                        const effectiveSeverity =
+                          item.severity_review ?? item.severity;
+
+                        return (
+                          <tr key={item.id} className="hover:bg-slate-800/40">
+                            <td className="max-w-md py-1.5 pr-2">
+                              <Link
+                                href={`/cases/${item.id}`}
+                                className="font-medium text-cyan-300 hover:text-cyan-200"
+                              >
+                                #{item.id} {shortTitle(item.title, 72)}
+                              </Link>
+                              <div className="mt-0.5 text-[11px] text-slate-500">
+                                {item.incident_count} incident(s) · updated{" "}
+                                {formatTimestamp(item.updated_at)}
+                              </div>
+                            </td>
+
+                            <td className="py-1.5 pr-2">
+                              <EnterpriseStatusBadge value={item.status} />
+                            </td>
+
+                            <td className="py-1.5 pr-2">
+                              <EnterpriseSeverityBadge value={effectiveSeverity} />
+                            </td>
+
+                            <td className="py-1.5 pr-2">
+                              <EnterpriseBadge tone={slaTone(item.sla_status)}>
+                                {item.sla_status ?? "UNKNOWN"}
+                              </EnterpriseBadge>
+                            </td>
+
+                            <td className="py-2 pr-3 text-slate-300">
+                              {item.owner ?? "unassigned"}
+                            </td>
+
+                            <td className="py-2 pr-3 text-slate-300">
+                              {item.open_action_count ?? 0}/{item.action_count ?? 0} open
+                            </td>
+
+                            <td className="py-1.5 pr-2">
+                              <EnterpriseBadge
+                                tone={item.has_ai_analysis ? "success" : "warning"}
+                              >
+                                {item.has_ai_analysis ? "ready" : "missing"}
+                              </EnterpriseBadge>
+                            </td>
+                          </tr>
+                        );
+                      })}
+
+                      {highPriorityCases.length === 0 && (
+                        <tr>
+                          <td colSpan={7} className="py-6 text-center text-slate-500">
+                            <EnterpriseEmptyState
+                              title="No active priority cases"
+                              description="There are no open cases requiring immediate attention."
+                              className="py-2"
+                            />
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </EnterpriseSection>
+
+              <EnterpriseSection
+                title="Top Noisy Hosts"
+                description="Hosts generating the highest alert volume."
+              >
+                <div className="space-y-2">
+                  {topHosts.map((host) => (
+                    <div
+                      key={host.agent ?? "unknown"}
+                      className="flex items-center justify-between gap-3 rounded-sm border border-slate-800 bg-slate-950 px-2.5 py-2"
+                    >
+                      <div className="flex min-w-0 items-center gap-2">
+                        <Server className="h-3.5 w-3.5 shrink-0 text-cyan-300" />
+
+                        <div className="min-w-0">
+                          <div className="truncate text-xs font-medium text-slate-200">
+                            {host.agent ?? "unknown"}
+                          </div>
+                          <div className="text-[11px] text-slate-500">
+                            {host.count} incident(s)
+                          </div>
+                        </div>
+                      </div>
+
+                      <EnterpriseBadge tone={riskTone(host.max_risk)}>
+                        max {host.max_risk ?? 0}
+                      </EnterpriseBadge>
+                    </div>
+                  ))}
+
+                  {topHosts.length === 0 && (
+                    <EnterpriseEmptyState
+                      title="No host data available"
+                      description="No noisy-host signal is present in the current dataset."
+                      className="py-4"
+                    />
+                  )}
+                </div>
+              </EnterpriseSection>
             </section>
+
+            {(!incidentTrend || !queueAging || !detectionFunnel) && (
+              <div role="status" className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                <EnterpriseBadge tone="warning">Partial analytics</EnterpriseBadge>
+                <span>
+                  Unavailable: {[
+                    !incidentTrend && "incident trend",
+                    !queueAging && "queue aging",
+                    !detectionFunnel && "detection funnel",
+                  ].filter(Boolean).join(", ")}. Local fallback data is shown where available.
+                </span>
+              </div>
+            )}
 
             <section className="grid gap-2 xl:grid-cols-3">
               <EnterpriseChartCard
@@ -992,142 +1143,6 @@ export default function Home() {
                   valueLabel="Items"
                 />
               </EnterpriseChartCard>
-            </section>
-
-            <section className="grid gap-2 xl:grid-cols-[1.25fr_0.75fr]">
-              <EnterpriseSection
-                title="Priority Case Queue"
-                description="Highest operational attention based on SLA breach, open actions and risk."
-                actions={
-                  <>
-                    <EnterpriseButton href="/cases" tone="primary" size="xs">
-                      Open Queue
-                    </EnterpriseButton>
-                    <EnterpriseButton href="/cases/kanban" tone="secondary" size="xs">
-                      Kanban
-                    </EnterpriseButton>
-                  </>
-                }
-              >
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="border-b border-slate-800 uppercase tracking-wide text-slate-500">
-                      <tr>
-                        <th className="py-1.5 pr-2">Case</th>
-                        <th className="py-1.5 pr-2">Status</th>
-                        <th className="py-1.5 pr-2">Severity</th>
-                        <th className="py-1.5 pr-2">SLA</th>
-                        <th className="py-1.5 pr-2">Owner</th>
-                        <th className="py-1.5 pr-2">Actions</th>
-                        <th className="py-1.5 pr-2">AI</th>
-                      </tr>
-                    </thead>
-
-                    <tbody className="divide-y divide-slate-800/80">
-                      {highPriorityCases.map((item) => {
-                        const effectiveSeverity =
-                          item.severity_review ?? item.severity ?? "LOW";
-
-                        return (
-                          <tr key={item.id} className="hover:bg-slate-800/40">
-                            <td className="max-w-md py-1.5 pr-2">
-                              <Link
-                                href={`/cases/${item.id}`}
-                                className="font-medium text-cyan-300 hover:text-cyan-200"
-                              >
-                                #{item.id} {shortTitle(item.title, 72)}
-                              </Link>
-                              <div className="mt-0.5 text-[11px] text-slate-500">
-                                {item.incident_count} incident(s) · updated{" "}
-                                {formatTimestamp(item.updated_at)}
-                              </div>
-                            </td>
-
-                            <td className="py-1.5 pr-2">
-                              <EnterpriseBadge tone={statusTone(item.status)}>
-                                {item.status ?? "OPEN"}
-                              </EnterpriseBadge>
-                            </td>
-
-                            <td className="py-1.5 pr-2">
-                              <EnterpriseBadge tone={severityTone(effectiveSeverity)}>
-                                {effectiveSeverity}
-                              </EnterpriseBadge>
-                            </td>
-
-                            <td className="py-1.5 pr-2">
-                              <EnterpriseBadge tone={slaTone(item.sla_status)}>
-                                {item.sla_status ?? "UNKNOWN"}
-                              </EnterpriseBadge>
-                            </td>
-
-                            <td className="py-2 pr-3 text-slate-300">
-                              {item.owner ?? "unassigned"}
-                            </td>
-
-                            <td className="py-2 pr-3 text-slate-300">
-                              {item.open_action_count ?? 0}/{item.action_count ?? 0} open
-                            </td>
-
-                            <td className="py-1.5 pr-2">
-                              <EnterpriseBadge
-                                tone={item.has_ai_analysis ? "success" : "warning"}
-                              >
-                                {item.has_ai_analysis ? "ready" : "missing"}
-                              </EnterpriseBadge>
-                            </td>
-                          </tr>
-                        );
-                      })}
-
-                      {highPriorityCases.length === 0 && (
-                        <tr>
-                          <td colSpan={7} className="py-6 text-center text-slate-500">
-                            No active priority cases found.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </EnterpriseSection>
-
-              <EnterpriseSection
-                title="Top Noisy Hosts"
-                description="Hosts generating the highest alert volume."
-              >
-                <div className="space-y-2">
-                  {topHosts.map((host) => (
-                    <div
-                      key={host.agent ?? "unknown"}
-                      className="flex items-center justify-between gap-3 rounded-sm border border-slate-800 bg-slate-950 px-2.5 py-2"
-                    >
-                      <div className="flex min-w-0 items-center gap-2">
-                        <Server className="h-3.5 w-3.5 shrink-0 text-cyan-300" />
-
-                        <div className="min-w-0">
-                          <div className="truncate text-xs font-medium text-slate-200">
-                            {host.agent ?? "unknown"}
-                          </div>
-                          <div className="text-[11px] text-slate-500">
-                            {host.count} incident(s)
-                          </div>
-                        </div>
-                      </div>
-
-                      <EnterpriseBadge tone={riskTone(host.max_risk)}>
-                        max {host.max_risk ?? 0}
-                      </EnterpriseBadge>
-                    </div>
-                  ))}
-
-                  {topHosts.length === 0 && (
-                    <div className="rounded-md border border-slate-800 bg-slate-950 p-2 text-xs text-slate-500">
-                      No host data available.
-                    </div>
-                  )}
-                </div>
-              </EnterpriseSection>
             </section>
 
             <EnterpriseSection
@@ -1283,9 +1298,7 @@ export default function Home() {
                         </td>
 
                         <td className="py-1.5 pr-2">
-                          <EnterpriseBadge tone={statusTone(incident.status)}>
-                            {incident.status ?? "NEW"}
-                          </EnterpriseBadge>
+                          <EnterpriseStatusBadge value={incident.status ?? "NEW"} />
                         </td>
 
                         <td className="whitespace-nowrap py-2 pr-3 text-slate-400">
@@ -1313,15 +1326,14 @@ export default function Home() {
                         <td className="py-1.5 pr-2">
                           <EnterpriseBadge tone={riskTone(incident.risk_score)}>
                             {riskLabel(incident.risk_score)} ·{" "}
-                            {incident.risk_score ?? 0}
+                            {incident.risk_score ?? "-"}
                           </EnterpriseBadge>
                         </td>
 
                         <td className="py-1.5 pr-2">
-                          <EnterpriseBadge tone={riskTone(incident.risk_score)}>
-                            {incident.recommended_priority ??
-                              riskLabel(incident.risk_score)}
-                          </EnterpriseBadge>
+                          <EnterpriseSeverityBadge
+                            value={incident.recommended_priority ?? riskLabel(incident.risk_score)}
+                          />
                         </td>
 
                         <td className="py-1.5 pr-2">
@@ -1344,7 +1356,11 @@ export default function Home() {
                     {incidents.length === 0 && (
                       <tr>
                         <td colSpan={9} className="py-6 text-center text-slate-500">
-                          No incidents found with current filters.
+                          <EnterpriseEmptyState
+                            title="No matching incidents"
+                            description="No incidents match the current filter set."
+                            className="py-2"
+                          />
                         </td>
                       </tr>
                     )}
@@ -1391,47 +1407,8 @@ export default function Home() {
               </div>
             </EnterpriseSection>
           </div>
-        )}
+        ) : null}
     </AppShell>
-  );
-}
-
-function DashboardKpi({
-  title,
-  value,
-  subtitle,
-  tone = "neutral",
-  icon,
-}: {
-  title: string;
-  value: string | number;
-  subtitle?: string;
-  tone?: EnterpriseTone;
-  icon: ReactNode;
-}) {
-  const classes = SOC_TONE_CLASSES[tone];
-
-  return (
-    <div
-      className={`flex min-h-[58px] items-center justify-between gap-3 rounded-sm border px-2.5 py-2 shadow-sm ${classes.card}`}
-    >
-      <div className="min-w-0">
-        <div className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
-          {title}
-        </div>
-        <div className="mt-0.5 flex min-w-0 items-baseline gap-2">
-          <span className="text-xl font-semibold leading-6">{value}</span>
-          {subtitle && (
-            <span className="min-w-0 truncate text-[11px] leading-4 text-slate-500">
-              {subtitle}
-            </span>
-          )}
-        </div>
-      </div>
-      <div className={`shrink-0 rounded-sm p-1.5 ${classes.icon}`}>
-        {icon}
-      </div>
-    </div>
   );
 }
 
@@ -1671,9 +1648,7 @@ function DashboardQueueAgingChart({ data }: { data: QueueAgingBucket[] }) {
 
 function DashboardChartEmpty({ label }: { label: string }) {
   return (
-    <div className="flex h-full items-center justify-center rounded-sm border border-dashed border-slate-800 bg-slate-950/70 text-xs text-slate-500">
-      {label}
-    </div>
+    <EnterpriseEmptyState title={label} className="h-full py-3" />
   );
 }
 
@@ -1691,23 +1666,15 @@ function FilterSelect({
   rawOptions?: string[];
 }) {
   return (
-    <label className="block">
-      <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-slate-500">
-        {label}
-      </span>
-
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-8 w-full rounded-sm border border-slate-700 bg-slate-900 px-2 text-xs text-slate-200 outline-none focus:border-cyan-700"
-      >
-        {options.map((option, index) => (
-          <option key={`${option}-${index}`} value={rawOptions?.[index] ?? option}>
-            {option}
-          </option>
-        ))}
-      </select>
-    </label>
+    <EnterpriseSelect
+      label={label}
+      value={value}
+      onChange={onChange}
+      options={options.map((option, index) => ({
+        label: option,
+        value: rawOptions?.[index] ?? option,
+      }))}
+    />
   );
 }
 

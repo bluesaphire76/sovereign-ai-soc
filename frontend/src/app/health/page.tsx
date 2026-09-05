@@ -8,13 +8,24 @@ import {
   EnterpriseBadge,
   EnterpriseBreadcrumbs,
   EnterpriseButton,
+  EnterpriseEmptyState,
   EnterpriseErrorState,
+  EnterpriseMetricCard,
   EnterpriseMetricStrip,
   EnterprisePageHeader,
   EnterprisePanel,
   EnterpriseSection,
   EnterpriseSkeleton,
+  EnterpriseStatusBadge,
 } from "@/components/enterprise";
+import {
+  SOC_CONTROL_CLASSES,
+  SOC_TONE_CLASSES,
+  cx,
+  riskScoreTone,
+  statusTone,
+  type SocTone,
+} from "@/lib/semantic-styles";
 import {
   Activity,
   AlertTriangle,
@@ -91,40 +102,11 @@ const COMPONENT_ORDER = [
   "cloudflare_tunnel",
 ];
 
-function statusClasses(status: HealthStatus) {
-  if (status === "OK") {
-    return {
-      badge: "border-emerald-700 bg-emerald-950 text-emerald-200",
-      card: "border-emerald-900/70 bg-emerald-950/20",
-      text: "text-emerald-300",
-      dot: "bg-emerald-400",
-    };
+function healthTone(value: HealthStatus | SocTone): SocTone {
+  if (Object.prototype.hasOwnProperty.call(SOC_TONE_CLASSES, value)) {
+    return value as SocTone;
   }
-
-  if (status === "WARN") {
-    return {
-      badge: "border-orange-700 bg-orange-950 text-orange-200",
-      card: "border-orange-900/70 bg-orange-950/20",
-      text: "text-orange-300",
-      dot: "bg-orange-400",
-    };
-  }
-
-  if (status === "ERROR") {
-    return {
-      badge: "border-red-800 bg-red-950 text-red-200",
-      card: "border-red-900/70 bg-red-950/25",
-      text: "text-red-300",
-      dot: "bg-red-400",
-    };
-  }
-
-  return {
-    badge: "border-slate-700 bg-slate-900 text-slate-300",
-    card: "border-slate-800 bg-slate-900",
-    text: "text-slate-300",
-    dot: "bg-slate-400",
-  };
+  return statusTone(value);
 }
 
 function statusIcon(status: HealthStatus) {
@@ -238,12 +220,12 @@ function formatLlmProfile(profile: string) {
   return profile || "-";
 }
 
-function ingestModeTone(mode: string): HealthStatus | "neutral" {
+function ingestModeTone(mode: string): SocTone {
   const value = mode.toUpperCase();
 
-  if (value === "REALTIME" || value === "STABLE" || value === "IDLE") return "OK";
-  if (value === "CATCHING_UP") return "WARN";
-  if (value === "LAGGING") return "ERROR";
+  if (value === "REALTIME" || value === "STABLE" || value === "IDLE") return "success";
+  if (value === "CATCHING_UP") return "warning";
+  if (value === "LAGGING") return "danger";
 
   return "neutral";
 }
@@ -451,7 +433,7 @@ export default function HealthPage() {
         {error && (
           <EnterpriseErrorState
             title="Unable to load platform health"
-            message={`API error: ${error}`}
+            message={`API error: ${error}${health ? ". Last loaded data remains visible." : ""}`}
             onRetry={loadHealth}
           />
         )}
@@ -460,9 +442,9 @@ export default function HealthPage() {
           <EnterprisePanel>
             <EnterpriseSkeleton label="Loading platform health" rows={4} />
           </EnterprisePanel>
-        ) : (
+        ) : health ? (
           <>
-            <EnterpriseMetricStrip className="lg:grid-cols-7">
+            <EnterpriseMetricStrip className="2xl:grid-cols-7">
               <StatusTile
                 title="Overall"
                 value={overallStatus}
@@ -476,15 +458,15 @@ export default function HealthPage() {
                 value={healthCounts.total}
                 subtitle={`${healthCounts.ok} OK · ${healthCounts.warn} WARN · ${healthCounts.error} ERR`}
                 icon={<Server className="h-3.5 w-3.5" />}
-                tone={healthCounts.error > 0 ? "ERROR" : healthCounts.warn > 0 ? "WARN" : "OK"}
+                tone={healthCounts.error > 0 ? "ERROR" : healthCounts.warn > 0 ? "WARN" : healthCounts.total > 0 && healthCounts.ok === healthCounts.total ? "OK" : "neutral"}
               />
 
               <StatusTile
                 title="Avg latency"
-                value={`${healthCounts.avgLatency} ms`}
+                value={healthCounts.total ? `${healthCounts.avgLatency} ms` : "-"}
                 subtitle="Component checks"
                 icon={<Clock className="h-3.5 w-3.5" />}
-                tone={healthCounts.avgLatency > 500 ? "WARN" : "OK"}
+                tone={!healthCounts.total ? "neutral" : healthCounts.avgLatency > 500 ? "WARN" : "OK"}
               />
 
               <StatusTile
@@ -501,7 +483,7 @@ export default function HealthPage() {
                 value={health?.active_users?.count ?? 0}
                 subtitle={`Last ${Math.round((health?.active_users?.window_seconds ?? 300) / 60)} min`}
                 icon={<Users className="h-3.5 w-3.5" />}
-                tone="OK"
+                tone="neutral"
               />
 
               <StatusTile
@@ -509,15 +491,15 @@ export default function HealthPage() {
                 value={health?.latest_incident ? `#${health.latest_incident.id}` : "-"}
                 subtitle={health?.latest_incident?.agent ?? "No incident"}
                 icon={<Shield className="h-3.5 w-3.5" />}
-                tone={(health?.latest_incident?.risk_score ?? 0) >= 60 ? "WARN" : "neutral"}
+                tone={health.latest_incident?.risk_score != null ? riskScoreTone(health.latest_incident.risk_score) : "neutral"}
               />
 
               <StatusTile
                 title="Latest risk"
-                value={health?.latest_incident?.risk_score ?? 0}
+                value={health.latest_incident?.risk_score ?? "-"}
                 subtitle="Last incident risk"
                 icon={<AlertTriangle className="h-3.5 w-3.5" />}
-                tone={(health?.latest_incident?.risk_score ?? 0) >= 80 ? "ERROR" : (health?.latest_incident?.risk_score ?? 0) >= 60 ? "WARN" : "OK"}
+                tone={health.latest_incident?.risk_score != null ? riskScoreTone(health.latest_incident.risk_score) : "neutral"}
               />
             </EnterpriseMetricStrip>
 
@@ -573,13 +555,21 @@ export default function HealthPage() {
               actions={<EnterpriseBadge tone="muted">Auto refresh 30s</EnterpriseBadge>}
             >
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-6">
-                {sortedComponents.map((item) => (
-                  <ComponentTile key={item.component} item={item} />
-                ))}
+                {sortedComponents.length > 0 ? (
+                  sortedComponents.map((item) => (
+                    <ComponentTile key={item.component} item={item} />
+                  ))
+                ) : (
+                  <EnterpriseEmptyState
+                    title="No component health data"
+                    description="The platform response did not include component checks."
+                    className="sm:col-span-2 lg:col-span-4 2xl:col-span-6"
+                  />
+                )}
               </div>
             </EnterpriseSection>
           </>
-        )}
+        ) : null}
       </div>
     </AppShell>
   );
@@ -679,28 +669,18 @@ function WorkerIngestMetricsPanel({
   });
 
   return (
-    <section className="rounded-xl border border-slate-800 bg-slate-900 p-3 shadow-sm">
-      <div className="mb-3 flex flex-col gap-2 xl:flex-row xl:items-start xl:justify-between">
-        <div>
-          <div className="mb-1 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wide text-cyan-300">
-            <HeartPulse className="h-3.5 w-3.5" />
-            Runtime operations
-          </div>
-
-          <h2 className="text-sm font-semibold">Worker / ingest metrics</h2>
-
-          <p className="mt-0.5 max-w-3xl text-[11px] leading-4 text-slate-500">
-            Focused view of Wazuh ingest, worker backlog, batch outcome and AI triage behavior.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap gap-1.5">
+    <EnterpriseSection
+      title="Worker / ingest metrics"
+      description="Focused view of Wazuh ingest, worker backlog, batch outcome and AI triage behavior."
+      actions={
+        <>
           <StatusPill label="Mode" value={ingestModeDisplay.label} tone={ingestModeTone(ingestModeDisplay.label)} />
           <StatusPill label="Worker" value={worker?.status ?? "-"} tone={worker?.status ?? "neutral"} />
           <StatusPill label="Ingest" value={ingest?.status ?? "-"} tone={ingest?.status ?? "neutral"} />
           <StatusPill label="Queue" value={queue?.status ?? "-"} tone={queue?.status ?? "neutral"} />
-        </div>
-      </div>
+        </>
+      }
+    >
 
       <div className="mb-3 grid gap-1.5 lg:grid-cols-3">
         <ExecutiveMetric
@@ -714,14 +694,14 @@ function WorkerIngestMetricsPanel({
           label="Pending events"
           value={formatNumber(pendingEvents)}
           subtitle="Wazuh events newer than watermark"
-          tone={(pendingEvents ?? 0) > 50 ? "WARN" : "OK"}
+          tone={pendingEvents === null ? "neutral" : pendingEvents > 50 ? "WARN" : "OK"}
         />
 
         <ExecutiveMetric
           label="Latest event lag"
           value={formatNumber(latestEventLagMinutes, "min")}
           subtitle="Delay of newest event in last batch"
-          tone={(latestEventLagMinutes ?? 0) > 15 ? "ERROR" : (latestEventLagMinutes ?? 0) > 2 ? "WARN" : "OK"}
+          tone={latestEventLagMinutes === null ? "neutral" : latestEventLagMinutes > 15 ? "ERROR" : latestEventLagMinutes > 2 ? "WARN" : "OK"}
         />
       </div>
 
@@ -790,7 +770,7 @@ function WorkerIngestMetricsPanel({
           value={formatTimestamp(readString(worker?.details, ["last_seen_at"], "-"))}
         />
       </div>
-    </section>
+    </EnterpriseSection>
   );
 }
 
@@ -803,29 +783,17 @@ function ExecutiveMetric({
   label: string;
   value: string | number;
   subtitle: string;
-  tone?: HealthStatus | "neutral";
+  tone?: HealthStatus | SocTone;
 }) {
-  const status = statusClasses(tone);
-
   return (
-    <div
-      className={`flex min-h-[46px] items-center justify-between gap-2 rounded-sm border px-2 py-1.5 shadow-sm ${status.card}`}
-    >
-      <div className="min-w-0">
-        <div className="truncate text-[9px] font-medium uppercase tracking-wide text-slate-500">
-          {label}
-        </div>
-        <div className="mt-0.5 flex min-w-0 items-baseline gap-1.5">
-          <span className="text-base font-semibold leading-5 text-slate-100">
-            {value}
-          </span>
-          <span className="min-w-0 truncate text-[10px] leading-3 text-slate-500">
-            {subtitle}
-          </span>
-        </div>
-      </div>
-      <div className={`h-1.5 w-1.5 shrink-0 rounded-full ${status.dot}`} />
-    </div>
+    <EnterpriseMetricCard
+      stacked
+      title={label}
+      value={value}
+      subtitle={subtitle}
+      tone={healthTone(tone)}
+      className="min-h-[46px]"
+    />
   );
 }
 
@@ -892,6 +860,7 @@ function AiProviderRuntimePanel({
     .filter((item) => item && item !== "-")
     .join(" · ") || "-";
   const externalEnabled = readUnknown(registry, ["external_providers_enabled"]) === true;
+  const externalSwitchAvailable = typeof readUnknown(registry, ["external_providers_enabled"]) === "boolean";
   const externalProviders = providers.filter(
     (provider) => !isLocalProviderType(readString(provider, ["provider_type"], ""))
   );
@@ -900,34 +869,26 @@ function AiProviderRuntimePanel({
   );
 
   return (
-    <section className="rounded-xl border border-slate-800 bg-slate-900 p-3 shadow-sm">
-      <div className="mb-3 flex flex-col gap-2 xl:flex-row xl:items-start xl:justify-between">
-        <div>
-          <div className="mb-1 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wide text-cyan-300">
-            <Cpu className="h-3.5 w-3.5" />
-            AI providers
-          </div>
-          <h2 className="text-sm font-semibold">Provider registry</h2>
-          <p className="mt-0.5 max-w-3xl text-[11px] leading-4 text-slate-500">
-            Local runtime status with external provider controls.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap gap-1.5">
+    <EnterpriseSection
+      title="Provider registry"
+      description="Local runtime status with external provider controls."
+      actions={
+        <>
           <StatusPill label="Default" value={aiProviderDisplayName(defaultProvider)} tone="neutral" />
           <StatusPill label="Fallback" value={aiProviderDisplayName(fallbackProvider)} tone="neutral" />
           <StatusPill
             label="External switch"
-            value={externalEnabled ? "enabled" : "disabled"}
-            tone={externalEnabled ? "WARN" : "OK"}
+            value={externalSwitchAvailable ? externalEnabled ? "enabled" : "disabled" : "-"}
+            tone={!externalSwitchAvailable ? "neutral" : externalEnabled ? "WARN" : "OK"}
           />
           <StatusPill
             label="External providers"
-            value={`${enabledExternalProviders.length}/${externalProviders.length} enabled`}
-            tone={enabledExternalProviders.length > 0 ? "WARN" : "OK"}
+            value={Array.isArray(providersValue) ? `${enabledExternalProviders.length}/${externalProviders.length} enabled` : "-"}
+            tone={!Array.isArray(providersValue) ? "neutral" : enabledExternalProviders.length > 0 ? "WARN" : "OK"}
           />
-        </div>
-      </div>
+        </>
+      }
+    >
 
       <div className="grid gap-2 lg:grid-cols-3">
         {providers.map((provider) => {
@@ -975,9 +936,12 @@ function AiProviderRuntimePanel({
                       href={readString(details, ["native_ui_url"], "#")}
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-flex max-w-[13rem] items-center gap-1 truncate text-[11px] font-medium text-cyan-300 hover:text-cyan-200"
+                      className={cx(
+                        "inline-flex max-w-[13rem] items-center gap-1 truncate text-[11px] font-medium text-cyan-300 hover:text-cyan-200",
+                        SOC_CONTROL_CLASSES.focus
+                      )}
                     >
-                      <ExternalLink className="h-3 w-3 shrink-0" />
+                      <ExternalLink aria-hidden="true" className="h-3 w-3 shrink-0" />
                       Open llama.cpp native UI
                     </a>
                   </div>
@@ -1013,8 +977,15 @@ function AiProviderRuntimePanel({
             </CollapsibleMetricGroup>
           );
         })}
+        {providers.length === 0 && (
+          <EnterpriseEmptyState
+            title="No AI providers reported"
+            description="The runtime did not include provider registry entries."
+            className="lg:col-span-3"
+          />
+        )}
       </div>
-    </section>
+    </EnterpriseSection>
   );
 }
 
@@ -1032,12 +1003,15 @@ function CollapsibleMetricGroup({
   const [open, setOpen] = useState(defaultOpen);
 
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-950/70">
+    <div className="rounded-sm border border-slate-800 bg-slate-950/70">
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
         aria-expanded={open}
-        className="flex w-full items-start justify-between gap-3 p-2.5 text-left"
+        className={cx(
+          "flex w-full items-start justify-between gap-3 p-2.5 text-left",
+          SOC_CONTROL_CLASSES.focus
+        )}
       >
         <span className="min-w-0">
           <span className="block truncate text-xs font-semibold text-slate-100">{title}</span>
@@ -1067,20 +1041,21 @@ function MetricRow({
 }: {
   label: string;
   value: string | number;
-  tone?: HealthStatus | "neutral";
+  tone?: HealthStatus | SocTone;
 }) {
-  const status = statusClasses(tone);
   const title = String(value);
 
   return (
     <div className="flex items-center justify-between gap-3 rounded-md border border-slate-800 bg-slate-900/70 px-2 py-1.5">
       <div className="truncate text-[11px] text-slate-400">{label}</div>
-      <div
-        className={`min-w-0 max-w-[13rem] truncate rounded-md border px-2 py-0.5 text-[11px] font-medium ${status.badge}`}
+      <EnterpriseBadge
+        tone={healthTone(tone)}
+        size="compact"
+        className="min-w-0 max-w-[13rem] truncate"
         title={title}
       >
         {value}
-      </div>
+      </EnterpriseBadge>
     </div>
   );
 }
@@ -1092,15 +1067,13 @@ function StatusPill({
 }: {
   label: string;
   value: string | number;
-  tone?: HealthStatus | "neutral";
+  tone?: HealthStatus | SocTone;
 }) {
-  const status = statusClasses(tone);
-
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium ${status.badge}`}>
+    <EnterpriseBadge tone={healthTone(tone)} size="compact" className="gap-1.5">
       <span className="text-slate-400">{label}</span>
       <span>{value}</span>
-    </span>
+    </EnterpriseBadge>
   );
 }
 
@@ -1116,36 +1089,24 @@ function StatusTile({
   value: string | number;
   subtitle: string;
   icon: ReactNode;
-  tone: HealthStatus | "neutral";
+  tone: HealthStatus | SocTone;
 }) {
-  const status = statusClasses(tone);
-
   return (
-    <div
-      className={`flex min-h-[46px] items-center justify-between gap-2 rounded-sm border px-2 py-1.5 shadow-sm ${status.card}`}
-    >
-      <div className="min-w-0">
-        <div className="truncate text-[9px] font-medium uppercase tracking-wide text-slate-500">
-          {title}
-        </div>
-        <div className="mt-0.5 flex min-w-0 items-baseline gap-1.5">
-          <span className="text-base font-semibold leading-5 text-slate-100">
-            {value}
-          </span>
-          <span className="min-w-0 truncate text-[10px] leading-3 text-slate-500">
-            {subtitle}
-          </span>
-        </div>
-      </div>
-      <div className={`shrink-0 rounded-sm bg-slate-950 p-1 ${status.text}`}>
-        {icon}
-      </div>
-    </div>
+    <EnterpriseMetricCard
+      stacked
+      title={title}
+      value={value}
+      subtitle={subtitle}
+      icon={icon}
+      tone={healthTone(tone)}
+      className="min-h-[46px]"
+    />
   );
 }
 
 function ComponentTile({ item }: { item: HealthComponent }) {
-  const status = statusClasses(item.status);
+  const tone = statusTone(item.status);
+  const status = SOC_TONE_CLASSES[tone];
   const nonBlocking = item.details?.non_blocking === true;
 
   return (
@@ -1171,9 +1132,7 @@ function ComponentTile({ item }: { item: HealthComponent }) {
           </div>
         </div>
 
-        <span className={`shrink-0 rounded-sm border px-1.5 py-0.5 text-[10px] font-medium ${status.badge}`}>
-          {item.status}
-        </span>
+        <EnterpriseStatusBadge value={item.status} size="compact" />
       </div>
 
       <div

@@ -22,13 +22,14 @@ export default function EnterpriseSection({
     <section
       className={cx(
         SOC_CONTROL_CLASSES.section,
+        "min-w-0",
         dense ? "p-4" : "p-5",
         className
       )}
     >
       {(title || description || actions) && (
         <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-          <div>
+          <div className="min-w-0">
             {title && (
               <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-200">
                 {title}

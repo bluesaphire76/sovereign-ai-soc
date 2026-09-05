@@ -14,6 +14,7 @@ type EnterpriseMetricCardProps = {
   icon?: ReactNode;
   tone?: EnterpriseMetricTone;
   compact?: boolean;
+  stacked?: boolean;
   className?: string;
 };
 
@@ -24,12 +25,18 @@ export default function EnterpriseMetricCard({
   icon,
   tone = "neutral",
   compact = true,
+  stacked = false,
   className,
 }: EnterpriseMetricCardProps) {
+  const valueTitle =
+    typeof value === "string" || typeof value === "number"
+      ? String(value)
+      : undefined;
+
   return (
     <div
       className={cx(
-        "rounded-sm border shadow-sm",
+        "relative min-w-0 rounded-sm border shadow-sm",
         SOC_TONE_CLASSES[tone].card,
         compact
           ? "flex min-h-[58px] items-center justify-between gap-3 px-2.5 py-2"
@@ -38,24 +45,32 @@ export default function EnterpriseMetricCard({
       )}
     >
       <div className="min-w-0">
-        <div className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
+        <div
+          title={title}
+          className={cx(
+            "truncate text-[10px] font-medium uppercase tracking-wide text-slate-500",
+            !compact && Boolean(icon) && "pr-7"
+          )}
+        >
           {title}
         </div>
-        <div className={cx("min-w-0", compact && "mt-0.5 flex items-baseline gap-2")}>
+        <div className={cx("min-w-0", compact && "mt-0.5", compact && !stacked && "flex items-baseline gap-2")}>
           <span
+            title={valueTitle}
             className={
               compact
-                ? "min-w-0 truncate text-xl font-semibold leading-6"
-                : "text-3xl font-semibold"
+                ? cx("block text-xl font-semibold leading-6", stacked ? "break-words" : "max-w-full shrink-0 truncate")
+                : "mt-1 block break-words text-xl font-semibold leading-7"
             }
           >
             {value}
           </span>
           {subtitle && (
             <span
+              title={subtitle}
               className={cx(
                 "text-[11px] text-slate-500",
-                compact ? "min-w-0 truncate leading-4" : "mt-1 block leading-5"
+                compact ? "block min-w-0 truncate leading-4" : "mt-1 block break-words leading-5"
               )}
             >
               {subtitle}
@@ -65,7 +80,7 @@ export default function EnterpriseMetricCard({
       </div>
 
       {icon && (
-        <div className={cx("shrink-0 rounded-sm p-1.5", SOC_TONE_CLASSES[tone].icon)}>
+        <div aria-hidden="true" className={cx("shrink-0 rounded-sm p-1.5", !compact && "absolute right-3 top-3", SOC_TONE_CLASSES[tone].icon)}>
           {icon}
         </div>
       )}

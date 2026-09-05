@@ -7,6 +7,7 @@ or migration validation notes.
 
 ## Current Validation
 
+- [UX-09 overview and monitoring verification](ux-09-overview-pages.md)
 - [AI Assistant V3.2 production validation](ai-assistant-v3-2-production.md)
 - [AI Assistant V3.1 Part A validation](ai-assistant-v3-1.md)
 - [AI Assistant V3.1 baseline failure](ai-assistant-v3-1-baseline-failure.md)

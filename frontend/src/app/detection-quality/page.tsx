@@ -2,14 +2,31 @@
 
 import { authFetch, fetchCurrentUser, getStoredUser, type AuthUser } from "@/lib/auth";
 import {
+  SOC_CONTROL_CLASSES,
   SOC_TONE_CLASSES,
-  severityTone as semanticSeverityTone,
+  cx,
   type SocTone,
 } from "@/lib/semantic-styles";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
+import {
+  EnterpriseBadge,
+  EnterpriseBreadcrumbs,
+  EnterpriseButton,
+  EnterpriseChartCard,
+  EnterpriseEmptyState,
+  EnterpriseErrorState,
+  EnterpriseMetricCard,
+  EnterpriseMetricStrip,
+  EnterprisePageHeader,
+  EnterprisePanel,
+  EnterpriseSection,
+  EnterpriseSelect,
+  EnterpriseSeverityBadge,
+  EnterpriseSkeleton,
+} from "@/components/enterprise";
 import {
   AlertTriangle,
   Brain,
@@ -140,7 +157,7 @@ const CHART_COLORS = {
   critical: "#ef4444",
   high: "#f97316",
   medium: "#f59e0b",
-  low: "#10b981",
+  low: "#2563eb",
   primary: "#22d3ee",
   secondary: "#60a5fa",
   ai: "#a78bfa",
@@ -158,8 +175,6 @@ const CHART_COLORS = {
   cursor: "rgba(15, 23, 42, 0.42)",
 };
 
-const TABLE_BADGE_BASE =
-  "inline-flex h-5 w-fit items-center justify-center whitespace-nowrap rounded-sm border px-1.5 text-[10px] font-medium leading-none";
 const ACTION_GUIDANCE_STORAGE_KEY =
   "ai-soc:detection-quality-action-guidance:v1";
 
@@ -508,10 +523,6 @@ function priorityMatchesSyntheticExpectation(incident: Incident): boolean {
   return priorityIsHighOrCritical(actualPriority);
 }
 
-function toneForPriority(priority: string | null | undefined): Tone {
-  return semanticSeverityTone(priority);
-}
-
 function pct(value: number, total: number): number {
   if (!total) return 0;
   return Math.round((value / total) * 100);
@@ -549,10 +560,6 @@ function scenarioGapCount(row: ScenarioSummary) {
     Math.max(row.incidents - row.priority_validated, 0) +
     Math.max(row.incidents - row.mitre_tagged, 0)
   );
-}
-
-function toneClasses(tone: Tone) {
-  return SOC_TONE_CLASSES[tone];
 }
 
 function toneDotClass(tone: Tone) {
@@ -976,91 +983,78 @@ export default function DetectionQualityPage() {
 
   return (
     <AppShell>
-
-        <header className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div>
-            <Link
-              href="/"
-              className="mb-2 inline-flex items-center gap-1.5 text-xs text-cyan-300 hover:text-cyan-200"
-            >
-              ← Dashboard
-            </Link>
-
-            <div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-cyan-300">
-              <Target className="h-3.5 w-3.5" />
-              Detection Engineering
-            </div>
-
-            <h1 className="text-xl font-semibold tracking-tight">
-              Detection Quality Dashboard
-            </h1>
-
-            <p className="mt-1 max-w-4xl text-xs leading-5 text-slate-500">
-              Compact view of synthetic scenario visibility, AI correlation,
-              priority assignment and MITRE coverage across the AI SOC pipeline.
-            </p>
-          </div>
-
-          <button
+      <EnterprisePageHeader
+        breadcrumbs={
+          <EnterpriseBreadcrumbs
+            items={[{ label: "Dashboard", href: "/" }, { label: "Detection Quality" }]}
+          />
+        }
+        eyebrow="Detection Engineering"
+        title="Detection Quality Dashboard"
+        description="Compact view of synthetic scenario visibility, AI correlation, priority assignment and MITRE coverage across the AI SOC pipeline."
+        icon={<Target aria-hidden="true" className="h-3.5 w-3.5" />}
+        secondaryActions={
+          <EnterpriseButton
             onClick={loadDetectionQuality}
-            className="flex h-8 items-center gap-1.5 rounded-sm border border-slate-700 bg-slate-900 px-3 text-xs text-slate-200 shadow-sm hover:bg-slate-800"
+            tone="secondary"
+            size="xs"
+            icon={
+              <RefreshCw
+                aria-hidden="true"
+                className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`}
+              />
+            }
           >
-            <RefreshCw
-              className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`}
-            />
             Refresh
-          </button>
-        </header>
+          </EnterpriseButton>
+        }
+        density="compact"
+      />
 
         {error && (
-          <div className="mb-3 rounded-sm border border-red-800 bg-red-950/60 p-3 text-xs text-red-200">
-            API error: {error}
-          </div>
+          <EnterpriseErrorState
+            title="Unable to load detection quality data"
+            message={`API error: ${error}${incidentsData ? ". Last loaded data remains visible." : ""}`}
+            onRetry={loadDetectionQuality}
+            className="mb-3"
+          />
         )}
 
         {loading ? (
-          <section className="rounded-sm border border-slate-800 bg-slate-900 p-3 text-xs text-slate-300">
-            Loading detection quality data...
-          </section>
-        ) : (
+          <EnterprisePanel>
+            <EnterpriseSkeleton label="Loading detection quality data" rows={5} />
+          </EnterprisePanel>
+        ) : incidentsData ? (
           <div className="space-y-3">
             {canOperate ? (
-            <section className="rounded-sm border border-slate-800 bg-slate-900 p-3 shadow-sm">
-              <div className="mb-3 flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <h2 className="text-sm font-semibold">Synthetic test runner</h2>
-                  <p className="mt-0.5 text-[11px] leading-4 text-slate-500">
-                    Generate controlled synthetic incidents to validate detection, correlation, priority and MITRE coverage from the GUI.
-                  </p>
-                </div>
-
-                <button
+            <EnterpriseSection
+              title="Synthetic test runner"
+              description="Generate controlled synthetic incidents to validate detection, correlation, priority and MITRE coverage from the GUI."
+              actions={
+                <EnterpriseButton
                   onClick={handleRunSyntheticTest}
                   disabled={runningSynthetic}
-                  className="h-8 rounded-sm border border-cyan-700 bg-cyan-500 px-3 text-xs font-medium text-slate-950 shadow-sm hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
+                  tone="primary"
+                  size="xs"
                 >
                   {runningSynthetic ? "Running..." : "Run synthetic test"}
-                </button>
-              </div>
+                </EnterpriseButton>
+              }
+            >
 
               <div className="grid gap-2 md:grid-cols-4">
-                <label>
-                  <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-slate-500">
-                    Scenario
-                  </span>
-                  <select
-                    value={selectedScenario}
-                    onChange={(event) => setSelectedScenario(event.target.value)}
-                    className="h-8 w-full rounded-sm border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500"
-                  >
-                    <option value="all">All scenarios</option>
-                    {syntheticScenarios.map((scenario) => (
-                      <option key={scenario.id} value={scenario.id}>
-                        {scenario.id.replaceAll("_", " ")}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <EnterpriseSelect
+                  label="Scenario"
+                  value={selectedScenario}
+                  onChange={setSelectedScenario}
+                  options={[
+                    { label: "All scenarios", value: "all" },
+                    ...syntheticScenarios.map((scenario) => ({
+                      label: scenario.id.replaceAll("_", " "),
+                      value: scenario.id,
+                    })),
+                  ]}
+                />
 
                 <label>
                   <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-slate-500">
@@ -1076,7 +1070,7 @@ export default function DetectionQualityPage() {
                         Math.max(1, Math.min(Number(event.target.value || 1), 10))
                       )
                     }
-                    className="h-8 w-full rounded-sm border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500"
+                    className={cx(SOC_CONTROL_CLASSES.input, SOC_CONTROL_CLASSES.focus, "h-8 w-full px-2 text-xs")}
                   />
                 </label>
 
@@ -1087,7 +1081,7 @@ export default function DetectionQualityPage() {
                   <input
                     value={syntheticHost}
                     onChange={(event) => setSyntheticHost(event.target.value)}
-                    className="h-8 w-full rounded-sm border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500"
+                    className={cx(SOC_CONTROL_CLASSES.input, SOC_CONTROL_CLASSES.focus, "h-8 w-full px-2 text-xs")}
                   />
                 </label>
 
@@ -1098,37 +1092,46 @@ export default function DetectionQualityPage() {
                   <input
                     value={syntheticCreatedBy}
                     onChange={(event) => setSyntheticCreatedBy(event.target.value)}
-                    className="h-8 w-full rounded-sm border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500"
+                    className={cx(SOC_CONTROL_CLASSES.input, SOC_CONTROL_CLASSES.focus, "h-8 w-full px-2 text-xs")}
                   />
                 </label>
               </div>
 
               {syntheticError && (
-                <div className="mt-2 rounded-sm border border-red-800 bg-red-950/60 p-2 text-xs text-red-200">
-                  Synthetic test error: {syntheticError}
-                </div>
+                <EnterpriseErrorState
+                  title="Synthetic test error"
+                  message={syntheticError}
+                  className="mt-2"
+                />
               )}
 
               {syntheticResult && (
-                <div className="mt-2 rounded-sm border border-emerald-800 bg-emerald-950/30 p-2 text-xs text-emerald-200">
+                <div
+                  role="status"
+                  className={cx(
+                    "mt-2 rounded-sm border p-2 text-xs",
+                    SOC_TONE_CLASSES.success.panel,
+                    SOC_TONE_CLASSES.success.text
+                  )}
+                >
                   Created {syntheticResult.created} synthetic incident(s) on host{" "}
                   <strong>{syntheticResult.host}</strong>. Latest IDs:{" "}
                   {syntheticResult.incidents.slice(0, 6).map((item) => `#${item.id}`).join(", ")}
                   {syntheticResult.incidents.length > 6 ? "…" : ""}
                 </div>
               )}
-            </section>
+            </EnterpriseSection>
             ) : isViewer ? (
-            <section className="rounded-sm border border-slate-800 bg-slate-900 p-3 shadow-sm">
-              <h2 className="text-sm font-semibold">Synthetic test runner</h2>
-              <p className="mt-2 text-xs text-slate-500">
+            <EnterprisePanel title="Synthetic test runner">
+              <p className="text-xs text-slate-500">
                 Read-only access: synthetic test execution is available only to ADMIN and ANALYST roles.
               </p>
-            </section>
+            </EnterprisePanel>
             ) : null}
 
-            <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-5">
-              <QualityMetric
+            <EnterpriseMetricStrip className="lg:grid-cols-5">
+              <EnterpriseMetricCard
+                stacked
                 title="Synthetic incidents"
                 value={totalSynthetic}
                 subtitle={`${incidentsData?.total ?? 0} matching loaded`}
@@ -1136,7 +1139,8 @@ export default function DetectionQualityPage() {
                 tone="primary"
               />
 
-              <QualityMetric
+              <EnterpriseMetricCard
+                stacked
                 title="Correlated"
                 value={`${pct(correlatedSynthetic, totalSynthetic)}%`}
                 subtitle={`${correlatedSynthetic}/${totalSynthetic}`}
@@ -1144,7 +1148,8 @@ export default function DetectionQualityPage() {
                 tone={toneForCoverage(pct(correlatedSynthetic, totalSynthetic), totalSynthetic > 0)}
               />
 
-              <QualityMetric
+              <EnterpriseMetricCard
+                stacked
                 title="Priority valid"
                 value={`${pct(priorityValidatedSynthetic, totalSynthetic)}%`}
                 subtitle={`${priorityValidatedSynthetic}/${totalSynthetic}`}
@@ -1152,7 +1157,8 @@ export default function DetectionQualityPage() {
                 tone={toneForCoverage(pct(priorityValidatedSynthetic, totalSynthetic), totalSynthetic > 0)}
               />
 
-              <QualityMetric
+              <EnterpriseMetricCard
+                stacked
                 title="MITRE signal"
                 value={`${pct(mitreTaggedSynthetic, totalSynthetic)}%`}
                 subtitle={`${mitreTaggedSynthetic}/${totalSynthetic}`}
@@ -1160,14 +1166,15 @@ export default function DetectionQualityPage() {
                 tone={toneForCoverage(pct(mitreTaggedSynthetic, totalSynthetic), totalSynthetic > 0)}
               />
 
-              <QualityMetric
+              <EnterpriseMetricCard
+                stacked
                 title="Quality score"
                 value={`${detectionQualityScore}%`}
                 subtitle="Correlation + priority + MITRE"
                 icon={<CheckCircle2 className="h-3.5 w-3.5" />}
                 tone={toneForCoverage(detectionQualityScore, totalSynthetic > 0)}
               />
-            </section>
+            </EnterpriseMetricStrip>
 
             <DetectionQualityBrief
               summary={detectionBriefSummary}
@@ -1183,33 +1190,25 @@ export default function DetectionQualityPage() {
             />
 
             <section className="grid gap-2 xl:grid-cols-[440px_1fr]">
-              <div className="rounded-sm border border-slate-800 bg-slate-900 p-3 shadow-sm">
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <div>
-                    <h2 className="text-sm font-semibold">
-                      Synthetic scenario coverage
-                    </h2>
-                    <p className="mt-0.5 text-[11px] text-slate-500">
-                      Stacked view of correlated detections and correlation gaps by scenario.
-                    </p>
-                  </div>
-
-                  <span
-                    className={`shrink-0 rounded-sm border px-2 py-1 text-[11px] ${
-                      toneClasses(toneForScore(maxRisk)).badge
-                    }`}
-                  >
+              <EnterpriseChartCard
+                title="Synthetic scenario coverage"
+                description="Stacked view of correlated detections and correlation gaps by scenario."
+                height="h-40"
+                actions={
+                  <EnterpriseBadge tone={toneForScore(maxRisk)} size="compact">
                     Max {maxRisk} · Avg {averageRisk}
-                  </span>
-                </div>
+                  </EnterpriseBadge>
+                }
+              >
 
                 {totalSynthetic === 0 ? (
-                  <div className="rounded-sm border border-orange-800 bg-orange-950/40 p-3 text-xs text-orange-100">
-                    No synthetic incidents found. Run a synthetic scenario, wait
-                    for ingestion, then refresh.
-                  </div>
+                  <EnterpriseEmptyState
+                    title="No synthetic incidents found"
+                    description="Run a synthetic scenario, wait for ingestion, then refresh."
+                    className="h-full py-3"
+                  />
                 ) : (
-                  <div className="h-40">
+                  <div className="h-full">
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart
                         data={scenarioChartData}
@@ -1285,18 +1284,17 @@ export default function DetectionQualityPage() {
                     </ResponsiveContainer>
                   </div>
                 )}
-              </div>
+              </EnterpriseChartCard>
 
-              <div className="rounded-sm border border-slate-800 bg-slate-900 p-3 shadow-sm">
-                <div className="mb-2 flex items-center justify-between">
-                  <h2 className="text-sm font-semibold">
-                    Scenario quality breakdown
-                  </h2>
-
-                  <span className="rounded-sm border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-400">
+              <EnterprisePanel
+                title="Scenario quality breakdown"
+                actions={
+                  <EnterpriseBadge tone="muted" size="compact">
                     {scenarioRows.length} scenario(s)
-                  </span>
-                </div>
+                  </EnterpriseBadge>
+                }
+                className="bg-slate-900"
+              >
 
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-left text-xs">
@@ -1334,13 +1332,9 @@ export default function DetectionQualityPage() {
                             {row.avg_risk}
                           </td>
                           <td className="px-2 py-1.5">
-                            <span
-                              className={`${TABLE_BADGE_BASE} ${
-                                toneClasses(toneForScore(row.max_risk)).badge
-                              }`}
-                            >
+                            <EnterpriseBadge tone={toneForScore(row.max_risk)} size="compact">
                               {row.max_risk}
-                            </span>
+                            </EnterpriseBadge>
                           </td>
                         </tr>
                       ))}
@@ -1351,31 +1345,30 @@ export default function DetectionQualityPage() {
                             colSpan={7}
                             className="px-2 py-4 text-center text-slate-500"
                           >
-                            No synthetic scenario data available yet.
+                            <EnterpriseEmptyState
+                              title="No synthetic scenario data"
+                              description="Run or ingest a synthetic scenario to populate this breakdown."
+                              className="py-3"
+                            />
                           </td>
                         </tr>
                       )}
                     </tbody>
                   </table>
                 </div>
-              </div>
+              </EnterprisePanel>
             </section>
 
-            <section className="rounded-sm border border-slate-800 bg-slate-900 p-3 shadow-sm">
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-sm font-semibold">
-                    Latest synthetic incidents
-                  </h2>
-                  <p className="mt-0.5 text-[11px] text-slate-500">
-                    Most recent synthetic detections loaded from the incident stream.
-                  </p>
-                </div>
-
-                <span className="rounded-sm border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-400">
+            <EnterprisePanel
+              title="Latest synthetic incidents"
+              description="Most recent synthetic detections loaded from the incident stream."
+              actions={
+                <EnterpriseBadge tone="muted" size="compact">
                   Showing {Math.min(syntheticIncidents.length, 25)}
-                </span>
-              </div>
+                </EnterpriseBadge>
+              }
+              className="bg-slate-900"
+            >
 
               <div className="overflow-x-auto">
                 <table className="min-w-full text-left text-xs">
@@ -1417,24 +1410,18 @@ export default function DetectionQualityPage() {
                           {shortText(incident.rule, 120)}
                         </td>
                         <td className="px-2 py-1.5 text-slate-300">
-                          <span
-                            className={`${TABLE_BADGE_BASE} ${
-                              toneClasses(toneForPriority(incident.recommended_priority)).badge
-                            }`}
-                          >
-                            {incident.recommended_priority ?? "UNKNOWN"}
-                          </span>
+                          <EnterpriseSeverityBadge
+                            value={incident.recommended_priority}
+                            size="compact"
+                          />
                         </td>
                         <td className="px-2 py-1.5">
-                          <span
-                            className={`${TABLE_BADGE_BASE} ${
-                              toneClasses(
-                                toneForScore(incident.risk_score ?? 0)
-                              ).badge
-                            }`}
+                          <EnterpriseBadge
+                            tone={incident.risk_score == null ? "neutral" : toneForScore(incident.risk_score)}
+                            size="compact"
                           >
-                            {incident.risk_score ?? 0}
-                          </span>
+                            {incident.risk_score ?? "-"}
+                          </EnterpriseBadge>
                         </td>
                         <td className="px-2 py-1.5 text-slate-300">
                           {incident.correlated ? "Yes" : "No"}
@@ -1452,16 +1439,20 @@ export default function DetectionQualityPage() {
                           colSpan={7}
                           className="px-2 py-4 text-center text-slate-500"
                         >
-                          No synthetic incidents found.
+                          <EnterpriseEmptyState
+                            title="No synthetic incidents found"
+                            description="Run or ingest a synthetic scenario, then refresh this page."
+                            className="py-3"
+                          />
                         </td>
                       </tr>
                     )}
                   </tbody>
                 </table>
               </div>
-            </section>
+            </EnterprisePanel>
           </div>
-        )}
+        ) : null}
     </AppShell>
   );
 }
@@ -1508,33 +1499,22 @@ function DetectionQualityBrief({
   ];
 
   return (
-    <section className="rounded-sm border border-slate-800 bg-slate-900 p-3 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-800 pb-2">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-wide text-violet-300">
-            <Brain className="h-3.5 w-3.5" />
-            Detection quality brief
-          </div>
-          <h2 className="mt-1 text-sm font-semibold">
-            Synthetic validation posture
-          </h2>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <span
-            className={`${TABLE_BADGE_BASE} ${
-              toneClasses(scoreTone).badge
-            }`}
-          >
+    <EnterpriseSection
+      title="Synthetic validation posture"
+      description="Detection quality brief with deterministic metrics and analyst-controlled guidance."
+      actions={
+        <>
+          <EnterpriseBadge tone={scoreTone} size="compact">
             Quality {qualityScore}%
-          </span>
-          <span className="rounded-sm border border-slate-700 bg-slate-950 px-2 py-1 text-[10px] uppercase tracking-wide text-slate-500">
+          </EnterpriseBadge>
+          <EnterpriseBadge tone="neutral" size="compact">
             Human review
-          </span>
-        </div>
-      </div>
+          </EnterpriseBadge>
+        </>
+      }
+    >
 
-      <div className="mt-3">
+      <div>
         <p className="text-xs leading-5 text-slate-400">
           {summary}
         </p>
@@ -1575,9 +1555,9 @@ function DetectionQualityBrief({
                 {nextAction}
               </div>
             </div>
-            <span className="shrink-0 rounded-sm border border-amber-900/70 bg-amber-950/30 px-1.5 py-0.5 text-[10px] leading-none text-amber-200">
+            <EnterpriseBadge tone="medium" size="compact" className="shrink-0">
               Analyst decision
-            </span>
+            </EnterpriseBadge>
           </div>
           <div className="mt-1 text-[10px] uppercase tracking-wide text-slate-600">
             Human validation required before tuning or release decisions
@@ -1588,41 +1568,43 @@ function DetectionQualityBrief({
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
               <div className="text-[10px] uppercase leading-4 tracking-wide text-violet-300">
-                AI suggestion
+                AI suggestion · advisory
               </div>
               <div className="mt-0.5 text-[11px] text-slate-500">
-                LLM-assisted execution guidance
+                Non-authoritative LLM-assisted execution guidance
               </div>
             </div>
             {actionGuidance ? (
-              <span
-                className="inline-flex h-4 items-center rounded-sm border border-violet-800 bg-violet-950 px-1.5 py-0 text-[10px] leading-4 text-violet-200"
+              <EnterpriseBadge
+                tone="executive"
+                size="compact"
                 title={`${formatGuidanceModelLabel(actionGuidance)}${
                   actionGuidance.model ? ` · ${actionGuidance.model}` : ""
                 }${actionGuidance.cache_hit ? " · cache" : ""}`}
               >
                 {formatGuidanceModelLabel(actionGuidance)}
-              </span>
+              </EnterpriseBadge>
             ) : (
-              <button
-                type="button"
+              <EnterpriseButton
                 onClick={onGenerateGuidance}
                 disabled={guidanceLoading}
-                className="inline-flex h-4 items-center rounded-sm border border-violet-800 bg-violet-950 px-2 py-0 text-[10px] font-medium leading-4 text-violet-200 hover:bg-violet-900 disabled:cursor-not-allowed disabled:opacity-60"
+                tone="executive"
+                size="xs"
               >
                 {guidanceLoading ? "Generating..." : "Generate AI suggestion"}
-              </button>
+              </EnterpriseButton>
             )}
           </div>
 
           {guidanceLoading ? (
-            <div className="mt-2 rounded-sm border border-violet-900/50 bg-slate-950 px-2 py-1.5 text-[11px] leading-4 text-slate-400">
-              Generating AI suggestion...
-            </div>
+            <EnterpriseSkeleton label="Generating AI suggestion" rows={2} className="mt-2" />
           ) : guidanceError ? (
-            <div className="mt-2 rounded-sm border border-orange-900/60 bg-orange-950/20 px-2 py-1.5 text-[11px] leading-4 text-orange-200">
-              LLM guidance unavailable: {guidanceError}
-            </div>
+            <EnterpriseErrorState
+              title="LLM guidance unavailable"
+              message={guidanceError}
+              onRetry={onGenerateGuidance}
+              className="mt-2"
+            />
           ) : actionGuidance ? (
             <>
               <ol className="mt-2 space-y-1 text-[11px] leading-4 text-slate-300">
@@ -1653,51 +1635,11 @@ function DetectionQualityBrief({
             </>
           ) : (
             <div className="mt-2 rounded-sm border border-violet-900/40 bg-slate-950 px-2 py-1.5 text-[11px] leading-4 text-slate-500">
-              Click Generate AI suggestion to generate LLM execution guidance for this recommended action.
+              Generate an advisory AI suggestion for this recommended action. Deterministic metrics and analyst review remain authoritative.
             </div>
           )}
         </div>
       </div>
-    </section>
-  );
-}
-
-function QualityMetric({
-  title,
-  value,
-  subtitle,
-  icon,
-  tone,
-}: {
-  title: string;
-  value: string | number;
-  subtitle: string;
-  icon: ReactNode;
-  tone: Tone;
-}) {
-  const classes = toneClasses(tone);
-
-  return (
-    <div
-      className={`flex min-h-[58px] items-center justify-between gap-3 rounded-sm border px-2.5 py-2 shadow-sm ${classes.card}`}
-    >
-        <div className="min-w-0">
-          <div className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
-            {title}
-          </div>
-          <div className="mt-0.5 flex min-w-0 items-baseline gap-2">
-            <span className="text-xl font-semibold leading-6 text-slate-100">
-              {value}
-            </span>
-            <span className="min-w-0 truncate text-[11px] leading-4 text-slate-500">
-              {subtitle}
-            </span>
-          </div>
-        </div>
-
-        <div className={`shrink-0 rounded-sm bg-slate-950 p-1.5 ${classes.text}`}>
-          {icon}
-        </div>
-    </div>
+    </EnterpriseSection>
   );
 }

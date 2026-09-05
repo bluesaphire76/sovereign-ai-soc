@@ -17,7 +17,7 @@ export default function EnterprisePanel({
   className,
 }: EnterprisePanelProps) {
   return (
-    <section className={cx(SOC_CONTROL_CLASSES.panel, "p-3 shadow-sm", className)}>
+    <section className={cx(SOC_CONTROL_CLASSES.panel, "min-w-0 p-3 shadow-sm", className)}>
       {(title || description || actions) && (
         <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
