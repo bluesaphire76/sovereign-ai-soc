@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import type { ButtonHTMLAttributes, MouseEventHandler, ReactNode } from "react";
-import { SOC_CONTROL_CLASSES, cx } from "@/lib/semantic-styles";
+import { SOC_CONTROL_CLASSES, SOC_TONE_CLASSES, cx } from "@/lib/semantic-styles";
 
 export type EnterpriseButtonTone =
   | "primary"
+  | "info"
   | "secondary"
   | "success"
   | "warning"
@@ -17,7 +18,7 @@ export type EnterpriseButtonSize = "xs" | "sm" | "md";
 
 type EnterpriseButtonProps = Pick<
   ButtonHTMLAttributes<HTMLButtonElement>,
-  "autoFocus" | "name" | "value"
+  "autoFocus" | "name" | "value" | "aria-expanded" | "aria-controls"
 > & {
   children: ReactNode;
   href?: string;
@@ -37,6 +38,7 @@ type EnterpriseButtonProps = Pick<
 export const ENTERPRISE_BUTTON_TONE_CLASSES: Record<EnterpriseButtonTone, string> = {
   primary:
     "border-cyan-700 bg-cyan-500 text-slate-950 hover:bg-cyan-400",
+  info: cx(SOC_TONE_CLASSES.primary.badge, "hover:bg-cyan-900"),
   secondary:
     "border-slate-700 bg-slate-900 text-slate-200 hover:border-slate-600 hover:bg-slate-800",
   success:
@@ -74,6 +76,8 @@ export default function EnterpriseButton({
   autoFocus,
   name,
   value,
+  "aria-expanded": ariaExpanded,
+  "aria-controls": ariaControls,
 }: EnterpriseButtonProps) {
   const classes = cx(
     "inline-flex items-center justify-center gap-2 rounded-sm border font-medium shadow-sm transition disabled:cursor-not-allowed disabled:opacity-40",
@@ -115,6 +119,8 @@ export default function EnterpriseButton({
       disabled={disabled}
       aria-label={ariaLabel}
       aria-pressed={ariaPressed}
+      aria-expanded={ariaExpanded}
+      aria-controls={ariaControls}
       title={title}
       autoFocus={autoFocus}
       name={name}

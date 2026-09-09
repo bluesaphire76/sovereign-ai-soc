@@ -7,6 +7,7 @@ or migration validation notes.
 
 ## Current Validation
 
+- [UX-10 detection governance and operations verification](ux-10-detection-operations.md)
 - [UX-09 overview and monitoring verification](ux-09-overview-pages.md)
 - [AI Assistant V3.2 production validation](ai-assistant-v3-2-production.md)
 - [AI Assistant V3.1 Part A validation](ai-assistant-v3-1.md)

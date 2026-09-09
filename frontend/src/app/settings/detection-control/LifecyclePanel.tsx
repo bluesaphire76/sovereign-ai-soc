@@ -3,7 +3,13 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import {
-  AlertTriangle,
+  EnterpriseBadge, EnterpriseButton, EnterpriseConfirmationDialog, EnterpriseEmptyState,
+  EnterpriseErrorState, EnterpriseIconButton, EnterpriseMetricCard, EnterpriseMetricStrip,
+  EnterpriseSearchInput, EnterpriseSection, EnterpriseSelect, EnterpriseSkeleton, EnterpriseStatusBadge,
+} from "@/components/enterprise";
+import type { EnterpriseButtonTone } from "@/components/enterprise/EnterpriseButton";
+import { SOC_CONTROL_CLASSES, SOC_TONE_CLASSES, statusTone as sharedStatusTone, type SocTone } from "@/lib/semantic-styles";
+import {
   ChevronDown,
   CheckCircle2,
   Copy,
@@ -14,7 +20,6 @@ import {
   RefreshCw,
   RotateCcw,
   Save,
-  Search,
   Send,
   ShieldCheck,
   Trash2,
@@ -242,27 +247,8 @@ function parseJsonObject(value: string, label: string) {
 }
 
 function stateTone(state: string) {
-  const normalized = state.toUpperCase();
-
-  if (normalized === "ACTIVE" || normalized === "APPROVED") {
-    return "border-emerald-800 bg-emerald-950/60 text-emerald-200";
-  }
-
-  if (normalized === "FAILED_VALIDATION" || normalized === "REJECTED") {
-    return "border-red-800 bg-red-950/60 text-red-200";
-  }
-
-  if (normalized === "PROPOSED" || normalized === "DRAFT") {
-    return "border-cyan-800 bg-cyan-950/60 text-cyan-200";
-  }
-
-  return "border-slate-700 bg-slate-900 text-slate-300";
-}
-
-function validationTone(status: string) {
-  if (status === "passed") return "border-emerald-800 bg-emerald-950/60 text-emerald-200";
-  if (status === "failed") return "border-red-800 bg-red-950/60 text-red-200";
-  return "border-slate-700 bg-slate-900 text-slate-300";
+  return state === "FAILED_VALIDATION" || state === "REJECTED"
+    ? "danger" : sharedStatusTone(state);
 }
 
 async function fetchLifecycle(queryString: string): Promise<LifecycleListResponse> {
@@ -369,6 +355,8 @@ export default function LifecyclePanel({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resultTone, setResultTone] = useState<SocTone>("neutral");
+  const [deleteTarget, setDeleteTarget] = useState<LifecycleItem | null>(null);
   const [resultMessage, setResultMessage] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(true);
 
@@ -507,6 +495,7 @@ export default function LifecyclePanel({
       const result = (await response.json()) as LifecycleMutationResponse;
       setSelectedItem(result.item);
       setEditingItemId(result.item.id);
+      setResultTone("success");
       setResultMessage(editingItemId ? "Draft updated." : "Draft created.");
       await loadLifecycle();
     } catch (err) {
@@ -541,7 +530,12 @@ export default function LifecyclePanel({
 
       const result = (await response.json()) as LifecycleMutationResponse;
       setSelectedItem(result.item);
-      setResultMessage(result.message || `${action.replaceAll("-", " ")} completed.`);
+      const failedValidation = result.validation?.valid === false ||
+        (action === "validate" && result.item.validation_status === "failed");
+      setResultTone(failedValidation ? "danger" : result.validation?.warnings.length ? "warning" : "success");
+      setResultMessage(failedValidation
+        ? "Validation failed. Review the blocking findings."
+        : result.message || `${action.replaceAll("-", " ")} completed.`);
 
       if (action === "apply" || action === "disable") {
         await onConfigChanged();
@@ -557,7 +551,7 @@ export default function LifecyclePanel({
 
   async function deleteDraft(item: LifecycleItem) {
     if (!canEdit(item)) return;
-    if (!window.confirm(`Delete draft ${item.title}?`)) return;
+    if (item.state !== "DRAFT") return;
 
     try {
       setSaving(true);
@@ -575,6 +569,7 @@ export default function LifecyclePanel({
         setSelectedItem(null);
       }
       resetForm();
+      setDeleteTarget(null);
       await loadLifecycle();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to delete draft");
@@ -589,7 +584,7 @@ export default function LifecyclePanel({
   const draftCount = items.filter((item) => item.state === "DRAFT").length;
 
   return (
-    <section className="rounded-lg border border-slate-800 bg-slate-900/80 p-3">
+    <EnterpriseSection className="!border-0 !bg-transparent !px-0 !shadow-none">
       <div className="mb-3 flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h2 className="text-sm font-semibold text-slate-100">
@@ -601,55 +596,51 @@ export default function LifecyclePanel({
         </div>
 
         <div className="flex flex-wrap gap-1.5">
-          <button
+          <EnterpriseButton
+            size="xs"
+            tone="secondary"
             type="button"
             aria-expanded={!collapsed}
             onClick={() => setCollapsed((value) => !value)}
-            className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-950 px-3 text-xs text-slate-300 hover:bg-slate-800"
           >
             <ChevronDown className={`h-3.5 w-3.5 transition ${collapsed ? "" : "rotate-180"}`} />
             {collapsed ? "Open" : "Close"}
-          </button>
-          <button
+          </EnterpriseButton>
+          <EnterpriseButton
+            size="xs"
+            tone="secondary"
             type="button"
             onClick={loadLifecycle}
             disabled={loading || saving}
-            className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-950 px-3 text-xs text-slate-300 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
             Refresh
-          </button>
+          </EnterpriseButton>
           {canCreate && (
-            <button
-              type="button"
-              onClick={startNewDraft}
-              className="flex h-8 items-center gap-1.5 rounded-lg border border-cyan-700 bg-cyan-500 px-3 text-xs font-medium text-slate-950 hover:bg-cyan-400"
-            >
+            <EnterpriseButton size="xs" tone="primary" type="button" onClick={startNewDraft}>
               <Plus className="h-3.5 w-3.5" />
               New Draft
-            </button>
+            </EnterpriseButton>
           )}
         </div>
       </div>
 
       {error && (
-        <div className="mb-3 rounded-lg border border-red-800 bg-red-950/60 p-3 text-xs text-red-200">
-          {error}
-        </div>
+        <EnterpriseErrorState className="mb-3" title="Lifecycle request failed" message={error} />
       )}
 
       {resultMessage && (
-        <div className="mb-3 rounded-lg border border-emerald-800 bg-emerald-950/60 p-3 text-xs text-emerald-200">
+        <div role="status" className={`mb-3 rounded-sm border p-3 text-xs ${SOC_TONE_CLASSES[resultTone].panel} ${SOC_TONE_CLASSES[resultTone].text}`}>
           {resultMessage}
         </div>
       )}
 
-      <div className="mb-3 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
-        <LifecycleMetric label="Lifecycle items" value={data?.summary.total ?? 0} />
-        <LifecycleMetric label="Drafts" value={draftCount} />
-        <LifecycleMetric label="Proposed" value={proposedCount} />
-        <LifecycleMetric label="Active" value={activeCount} />
-      </div>
+      <EnterpriseMetricStrip className="mb-3">
+        <EnterpriseMetricCard title="Lifecycle items" value={data?.summary.total ?? 0} />
+        <EnterpriseMetricCard title="Drafts" value={draftCount} />
+        <EnterpriseMetricCard title="Proposed" value={proposedCount} />
+        <EnterpriseMetricCard title="Active" value={activeCount} />
+      </EnterpriseMetricStrip>
 
       {!collapsed && (
         <>
@@ -671,15 +662,15 @@ export default function LifecyclePanel({
               </label>
             </div>
 
-            <div className="mt-2 flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900 px-2">
-              <Search className="h-3.5 w-3.5 text-slate-500" />
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search title, key, owner, reason or content..."
-                className="h-9 w-full bg-transparent text-xs text-slate-100 outline-none placeholder:text-slate-600"
-              />
-            </div>
+            <EnterpriseSearchInput
+              label="Search lifecycle"
+              value={search}
+              onChange={setSearch}
+              onClear={() => setSearch("")}
+              hideLabel
+              containerClassName="mt-2"
+              placeholder="Search title, key, owner, reason or content..."
+            />
           </div>
 
           <div className="grid gap-3 2xl:grid-cols-[minmax(0,1.25fr)_minmax(420px,0.75fr)]">
@@ -693,7 +684,7 @@ export default function LifecyclePanel({
                 canAdmin={canAdmin}
                 canOperate={canOperate}
                 canEdit={canEdit}
-                onDelete={deleteDraft}
+                onDelete={(item) => { setError(null); setDeleteTarget(item); }}
                 onEdit={editItem}
                 onSelect={setSelectedItem}
                 onAction={runAction}
@@ -722,18 +713,18 @@ export default function LifecyclePanel({
           </div>
         </>
       )}
-    </section>
-  );
-}
-
-function LifecycleMetric({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-sm border border-slate-800 bg-slate-950 px-2.5 py-2">
-      <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
-        {label}
-      </div>
-      <div className="mt-1 text-xl font-semibold leading-6 text-slate-100">{value}</div>
-    </div>
+      <EnterpriseConfirmationDialog
+        open={Boolean(deleteTarget)}
+        title="Delete lifecycle draft"
+        description={deleteTarget ? `Delete draft ${deleteTarget.title}? Scope: ${String(deleteTarget.content_json.scope || "-")}. This removes the draft.` : undefined}
+        confirmLabel="Delete draft"
+        busy={saving}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => deleteTarget ? deleteDraft(deleteTarget) : undefined}
+      >
+        {error && <EnterpriseErrorState title="Draft deletion failed" message={error} />}
+      </EnterpriseConfirmationDialog>
+    </EnterpriseSection>
   );
 }
 
@@ -748,24 +739,8 @@ function FilterSelect({
   onChange: (value: string) => void;
   options: string[];
 }) {
-  return (
-    <label>
-      <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-slate-500">
-        {label}
-      </span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-8 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500"
-      >
-        {options.map((item) => (
-          <option key={item} value={item}>
-            {item.replaceAll("_", " ")}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
+  return <EnterpriseSelect label={label} value={value} onChange={onChange}
+    options={options.map((item) => ({ value: item, label: item.replaceAll("_", " ") }))} />;
 }
 
 function LifecycleTable({
@@ -797,24 +772,19 @@ function LifecycleTable({
 }) {
   if (loading) {
     return (
-      <div className="rounded-lg border border-slate-800 bg-slate-950 p-3 text-xs text-slate-400">
-        Loading lifecycle items...
-      </div>
+      <EnterpriseSkeleton label="Loading lifecycle items" rows={4} />
     );
   }
 
   if (items.length === 0) {
     return (
-      <div className="rounded-lg border border-slate-800 bg-slate-950 p-6 text-center text-xs text-slate-500">
-        <AlertTriangle className="mx-auto mb-2 h-5 w-5 text-slate-600" />
-        No lifecycle items match the selected filters.
-      </div>
+      <EnterpriseEmptyState title="No lifecycle items match the selected filters." />
     );
   }
 
   return (
     <div className="overflow-x-auto rounded-lg border border-slate-800 bg-slate-950">
-      <table className="min-w-full divide-y divide-slate-800 text-left text-xs">
+      <table className="w-full min-w-[1100px] divide-y divide-slate-800 text-left text-xs">
         <thead className="bg-slate-900 text-[11px] uppercase tracking-wide text-slate-500">
           <tr>
             <th className="px-3 py-2">Title</th>
@@ -836,13 +806,15 @@ function LifecycleTable({
               }`}
             >
               <td className="max-w-xs px-3 py-2">
-                <button
+                <EnterpriseButton
+                  size="xs"
+                  tone="ghost"
+                  className="!h-auto !justify-start !border-0 !p-0 !text-left !shadow-none"
                   type="button"
                   onClick={() => onSelect(item)}
-                  className="text-left font-medium text-slate-100 hover:text-cyan-200"
                 >
                   {item.title}
-                </button>
+                </EnterpriseButton>
                 <div className="mt-1 truncate text-[11px] text-slate-500">
                   {item.rule_key}
                 </div>
@@ -851,14 +823,10 @@ function LifecycleTable({
                 {item.policy_type.replaceAll("_", " ")}
               </td>
               <td className="px-3 py-2">
-                <span className={`rounded-md border px-2 py-1 text-[11px] ${stateTone(item.state)}`}>
-                  {item.state.replaceAll("_", " ")}
-                </span>
+                <EnterpriseBadge tone={stateTone(item.state)} size="compact">{item.state}</EnterpriseBadge>
               </td>
               <td className="px-3 py-2">
-                <span className={`rounded-md border px-2 py-1 text-[11px] ${validationTone(item.validation_status)}`}>
-                  {item.validation_status}
-                </span>
+                <EnterpriseStatusBadge value={item.validation_status} size="compact" />
               </td>
               <td className="px-3 py-2 text-slate-500">{item.owner || "-"}</td>
               <td className="px-3 py-2 text-slate-500">v{item.version_number}</td>
@@ -874,13 +842,13 @@ function LifecycleTable({
                     </IconButton>
                   )}
                   {canOperate && ["DRAFT", "PROPOSED", "FAILED_VALIDATION"].includes(item.state) && (
-                    <IconButton label="Validate" disabled={saving} onClick={() => onAction(item, "validate", {})}>
+                    <IconButton tone="info" label="Validate" disabled={saving} onClick={() => onAction(item, "validate", {})}>
                       <CheckCircle2 className="h-3.5 w-3.5" />
                     </IconButton>
                   )}
                   {canOperate && ["DRAFT", "FAILED_VALIDATION"].includes(item.state) && (
                     <IconButton
-                      label="Submit"
+                      tone="primary" label="Submit"
                       disabled={saving}
                       onClick={() => onAction(item, "submit", { comment: "Ready for admin approval." })}
                     >
@@ -889,7 +857,7 @@ function LifecycleTable({
                   )}
                   {canAdmin && item.state === "PROPOSED" && (
                     <IconButton
-                      label="Approve"
+                      tone="primary" label="Approve"
                       disabled={saving}
                       onClick={() => onAction(item, "approve", { approval_comment: "Reviewed for controlled apply." })}
                     >
@@ -898,7 +866,7 @@ function LifecycleTable({
                   )}
                   {canAdmin && ["PROPOSED", "APPROVED"].includes(item.state) && (
                     <IconButton
-                      label="Reject"
+                      tone="danger" label="Reject"
                       disabled={saving}
                       onClick={() => {
                         const reason = window.prompt("Rejection reason:");
@@ -919,10 +887,10 @@ function LifecycleTable({
                   )}
                   {canAdmin && item.state === "APPROVED" && (
                     <IconButton
-                      label="Apply"
+                      tone="primary" label="Apply"
                       disabled={saving}
                       onClick={() => {
-                        if (window.confirm("Apply this approved lifecycle item to active configuration?")) {
+                        if (window.confirm(`Apply approved lifecycle item ${item.title} to active configuration?`)) {
                           onAction(item, "apply", { comment: "Apply approved lifecycle item." });
                         }
                       }}
@@ -932,7 +900,7 @@ function LifecycleTable({
                   )}
                   {canAdmin && item.state === "ACTIVE" && (
                     <IconButton
-                      label="Disable"
+                      tone="danger" label="Disable"
                       disabled={saving}
                       onClick={() => {
                         const reason = window.prompt("Disable reason:");
@@ -950,7 +918,7 @@ function LifecycleTable({
                   {canEdit(item) &&
                     item.state === "DRAFT" &&
                     (currentUser?.role === "ADMIN" || item.created_by_user_id === currentUser?.id) && (
-                    <IconButton label="Delete draft" disabled={saving} onClick={() => onDelete(item)}>
+                    <IconButton tone="danger" label="Delete draft" disabled={saving} onClick={() => onDelete(item)}>
                       <Trash2 className="h-3.5 w-3.5" />
                     </IconButton>
                   )}
@@ -965,28 +933,15 @@ function LifecycleTable({
 }
 
 function IconButton({
-  children,
-  disabled,
-  label,
-  onClick,
+  children, disabled, label, onClick, tone = "secondary",
 }: {
   children: ReactNode;
   disabled: boolean;
   label: string;
   onClick: () => void;
+  tone?: EnterpriseButtonTone;
 }) {
-  return (
-    <button
-      type="button"
-      title={label}
-      aria-label={label}
-      disabled={disabled}
-      onClick={onClick}
-      className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-700 bg-slate-900 text-slate-300 hover:border-cyan-700 hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-40"
-    >
-      {children}
-    </button>
-  );
+  return <EnterpriseIconButton icon={children} label={label} disabled={disabled} onClick={onClick} tone={tone} size="xs" />;
 }
 
 function LifecycleDetail({
@@ -1012,20 +967,16 @@ function LifecycleDetail({
           </div>
         </div>
         {canEdit && (
-          <button
-            type="button"
-            onClick={() => onEdit(item)}
-            className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 text-xs text-slate-300 hover:text-cyan-200"
-          >
+          <EnterpriseButton size="xs" tone="secondary" type="button" onClick={() => onEdit(item)}>
             <Pencil className="h-3.5 w-3.5" />
             Edit
-          </button>
+          </EnterpriseButton>
         )}
       </div>
 
       <div className="grid gap-3 xl:grid-cols-3">
         <DetailBlock title="Overview">
-          <InfoRow label="State" value={item.state.replaceAll("_", " ")} />
+          <InfoRow label="State" value={<EnterpriseBadge tone={stateTone(item.state)} size="compact">{item.state}</EnterpriseBadge>} />
           <InfoRow label="Owner" value={item.owner || "-"} />
           <InfoRow label="Source" value={item.source_system || "-"} />
           <InfoRow label="Created by" value={item.created_by_username || "-"} />
@@ -1034,6 +985,7 @@ function LifecycleDetail({
         </DetailBlock>
 
         <DetailBlock title="Validation">
+          <EnterpriseStatusBadge value={item.validation_status} size="compact" />
           <FindingRows items={item.validation_errors} tone="red" empty="No blocking validation errors." />
           <FindingRows items={item.validation_warnings} tone="amber" empty="No validation warnings." />
         </DetailBlock>
@@ -1081,6 +1033,10 @@ function LifecycleDetail({
                   <div>No active-config differences.</div>
                 )}
               </div>
+              <details className="mt-2 text-xs text-slate-400">
+                <summary className={`cursor-pointer ${SOC_CONTROL_CLASSES.focus}`}>Raw lifecycle diff</summary>
+                <pre className="mt-2 max-h-72 overflow-auto text-[11px]">{prettyJson(diff)}</pre>
+              </details>
             </div>
           ) : (
             <div className="text-xs text-slate-500">Loading diff...</div>
@@ -1141,17 +1097,13 @@ function LifecycleForm({
             {editingItemId ? `Lifecycle item #${editingItemId}` : "New lifecycle item"}
           </div>
         </div>
-        <button
-          type="button"
-          onClick={onReset}
-          className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 text-xs text-slate-300 hover:text-slate-100"
-        >
+        <EnterpriseButton size="xs" tone="ghost" type="button" onClick={onReset}>
           <XCircle className="h-3.5 w-3.5" />
           Reset
-        </button>
+        </EnterpriseButton>
       </div>
 
-      <div className="grid gap-2">
+      <fieldset disabled={!canCreate || saving} className="grid min-w-0 gap-2">
         <FilterSelect
           label="Policy type"
           value={form.policy_type}
@@ -1207,16 +1159,18 @@ function LifecycleForm({
           rows={10}
           monospace
         />
-      </div>
+      </fieldset>
 
-      <button
+      <EnterpriseButton
+        size="xs"
+        tone="primary"
+        className="mt-3 w-full"
         type="submit"
         disabled={!canCreate || saving}
-        className="mt-3 flex h-8 w-full items-center justify-center gap-1.5 rounded-lg border border-cyan-700 bg-cyan-500 px-3 text-xs font-medium text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
       >
         <Save className="h-3.5 w-3.5" />
         {editingItemId ? "Save Draft" : "Create Draft"}
-      </button>
+      </EnterpriseButton>
     </form>
   );
 }
@@ -1300,7 +1254,7 @@ function InfoRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="mb-1 grid grid-cols-[110px_minmax(0,1fr)] gap-2 text-xs">
       <span className="text-slate-500">{label}</span>
-      <span className="min-w-0 truncate text-slate-200">{value}</span>
+      <span className="min-w-0 break-words text-slate-200">{value}</span>
     </div>
   );
 }

@@ -3,16 +3,15 @@
 import { authFetch } from "@/lib/auth";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import {
-  EnterpriseButton,
-  EnterpriseSection,
-} from "../../components/enterprise";
+  EnterpriseBadge, EnterpriseBreadcrumbs, EnterpriseButton, EnterpriseEmptyState,
+  EnterpriseErrorState, EnterpriseMetricCard, EnterpriseMetricStrip, EnterprisePageHeader,
+  EnterpriseSection, EnterpriseSearchInput, EnterpriseSelect, EnterpriseSkeleton,
+} from "@/components/enterprise";
+import { SOC_TONE_CLASSES } from "@/lib/semantic-styles";
 import {
   Activity,
-  AlertTriangle,
-  ArrowLeft,
   Database,
   Globe2,
   Network,
@@ -82,26 +81,6 @@ const NETWORK_BADGE_BASE =
   "inline-flex h-5 w-fit items-center whitespace-nowrap rounded-sm border px-1.5 text-[10px] font-medium uppercase leading-none tracking-wide";
 const COUNT_BADGE_BASE =
   "inline-flex h-5 min-w-8 items-center justify-center rounded-sm border border-slate-700 bg-slate-950 px-2 font-mono text-[10px] font-semibold text-slate-300";
-const CONTROL_CLASS =
-  "h-8 rounded-sm border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-cyan-500";
-type NetworkMetricTone = "neutral" | "primary" | "success" | "warning" | "danger";
-
-const networkMetricToneClasses: Record<NetworkMetricTone, string> = {
-  neutral: "border-slate-800 bg-slate-900 text-slate-100",
-  primary: "border-cyan-900 bg-cyan-950/30 text-cyan-100",
-  success: "border-emerald-900 bg-emerald-950/30 text-emerald-100",
-  warning: "border-orange-900 bg-orange-950/30 text-orange-100",
-  danger: "border-red-900 bg-red-950/30 text-red-100",
-};
-
-const networkMetricIconClasses: Record<NetworkMetricTone, string> = {
-  neutral: "bg-slate-950 text-slate-400",
-  primary: "bg-cyan-950 text-cyan-300",
-  success: "bg-emerald-950 text-emerald-300",
-  warning: "bg-orange-950 text-orange-300",
-  danger: "bg-red-950 text-red-300",
-};
-
 function formatDate(value: string | null) {
   if (!value) return "—";
 
@@ -121,10 +100,10 @@ function compactValue(value: string | number | null | undefined) {
 }
 
 function eventTypeClasses(type: string) {
-  if (type === "alert") return "border-red-800 bg-red-950/40 text-red-200";
-  if (type === "dns") return "border-cyan-800 bg-cyan-950/30 text-cyan-200";
-  if (type === "http") return "border-blue-800 bg-blue-950/30 text-blue-200";
-  if (type === "tls") return "border-violet-800 bg-violet-950/30 text-violet-200";
+  if (type === "alert") return SOC_TONE_CLASSES.danger.badge;
+  if (type === "dns") return SOC_TONE_CLASSES.primary.badge;
+  if (type === "http") return SOC_TONE_CLASSES.low.badge;
+  if (type === "tls") return SOC_TONE_CLASSES.executive.badge;
   if (type === "flow") return "border-slate-700 bg-slate-900 text-slate-300";
 
   return "border-slate-700 bg-slate-900 text-slate-300";
@@ -232,102 +211,57 @@ export default function NetworkEventsPage() {
   return (
     <AppShell>
 
-        <header className="mb-2 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div>
-            <Link
-              href="/"
-              className="mb-3 inline-flex items-center gap-2 text-sm text-cyan-300 hover:text-cyan-200"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              Back to dashboard
-            </Link>
+        <EnterprisePageHeader
+          title="Network Activity"
+          eyebrow="Operations / Telemetry"
+          density="compact"
+          icon={<Network aria-hidden="true" className="h-3.5 w-3.5" />}
+          breadcrumbs={<EnterpriseBreadcrumbs items={[{ label: "Dashboard", href: "/" }, { label: "Network Events" }]} />}
+          metadata={<EnterpriseBadge tone="muted">Read-only / Suricata evidence</EnterpriseBadge>}
+          secondaryActions={<EnterpriseButton onClick={loadData} disabled={refreshing} size="xs"
+            icon={<RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />}>Refresh</EnterpriseButton>}
+        />
 
-            <div className="mb-2 flex items-center gap-2 text-sm text-cyan-300">
-              <Network className="h-4 w-4" />
-              Network telemetry
-            </div>
+        {error && <EnterpriseErrorState className="mb-3" title="Unable to load network telemetry"
+          message={`${error}${summary ? " Previous snapshot retained." : ""}`} onRetry={loadData} />}
 
-            <h1 className="text-xl font-semibold tracking-tight text-slate-100">
-              Network Activity
-            </h1>
-
-            <p className="mt-2 max-w-3xl text-xs leading-5 text-slate-500">
-              Read-only Suricata telemetry for investigation context. Events are ingested
-              as network evidence and are not converted into incidents automatically.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap gap-1.5">
-            <EnterpriseButton
-              onClick={loadData}
-              disabled={refreshing}
-              tone="secondary"
-              size="xs"
-              icon={<RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />}
-            >
-              Refresh
-            </EnterpriseButton>
-          </div>
-        </header>
-
-        {error && (
-          <div className="mb-3 flex items-start gap-2 rounded-sm border border-red-800 bg-red-950/50 px-3 py-2 text-xs text-red-200">
-            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <div>
-              <p className="font-semibold">Unable to load network activity</p>
-              <p className="mt-1 text-red-200/80">API error: {error}</p>
-            </div>
-          </div>
-        )}
-
-        <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
-          <NetworkMetric
+        {loading ? <EnterpriseSkeleton label="Loading network telemetry" rows={6} /> : summary && events ? (<>
+        <EnterpriseMetricStrip>
+          <EnterpriseMetricCard stacked
             icon={<Database className="h-4 w-4" />}
             title="Network events"
             value={summary?.total ?? 0}
             subtitle="Persisted Suricata events"
             tone="primary"
           />
-          <NetworkMetric
+          <EnterpriseMetricCard stacked
             icon={<Activity className="h-4 w-4" />}
             title="Event types"
             value={byType.length}
             subtitle="Alert / DNS / HTTP / TLS / Flow"
             tone="neutral"
           />
-          <NetworkMetric
+          <EnterpriseMetricCard stacked
             icon={<Globe2 className="h-4 w-4" />}
             title="Top destinations"
             value={topDestinations.length}
             subtitle="Destination IPs observed"
             tone="neutral"
           />
-          <NetworkMetric
+          <EnterpriseMetricCard stacked
             icon={<Shield className="h-4 w-4" />}
             title="Latest event"
             value={summary?.latest_event_timestamp ? "Active" : "No data"}
             subtitle={formatDate(summary?.latest_event_timestamp ?? null)}
             tone={summary?.latest_event_timestamp ? "success" : "neutral"}
           />
-        </div>
+        </EnterpriseMetricStrip>
 
-        <section className="mt-3 grid gap-3 xl:grid-cols-[1.4fr_0.8fr]">
+        <section className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,0.8fr)]">
           <Panel title="Network event filters" subtitle="Query network telemetry without changing incident state.">
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              <label className="flex flex-col gap-1.5 text-[10px] font-medium uppercase tracking-wide text-slate-500">
-                Event type
-                <select
-                  value={eventType}
-                  onChange={(event) => setEventType(event.target.value)}
-                  className={CONTROL_CLASS}
-                >
-                  {EVENT_TYPES.map((type) => (
-                    <option key={type || "all"} value={type}>
-                      {type ? type.toUpperCase() : "All"}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <EnterpriseSelect label="Event type" value={eventType} onChange={setEventType}
+                options={EVENT_TYPES.map((type) => ({ value: type, label: type ? type.toUpperCase() : "All" }))} />
 
               <TextFilter label="Source IP" value={srcIp} onChange={setSrcIp} placeholder="172.20.x.x" />
               <TextFilter label="Destination IP" value={destIp} onChange={setDestIp} placeholder="1.1.1.1" />
@@ -402,9 +336,7 @@ export default function NetworkEventsPage() {
             }
           >
             {visibleEvents.length === 0 ? (
-              <div className="rounded-sm border border-dashed border-slate-800 bg-slate-950/80 p-6 text-center text-xs text-slate-500">
-                No network events match the current filters.
-              </div>
+              <EnterpriseEmptyState title="No network events match the current filters." />
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[1120px] table-fixed text-left text-[12px]">
@@ -476,6 +408,7 @@ export default function NetworkEventsPage() {
             )}
           </Panel>
         </div>
+        </>) : null}
     </AppShell>
   );
 }
@@ -519,43 +452,6 @@ function DestinationRankedRow({ item }: { item: TopDestinationItem }) {
 }
 
 
-function NetworkMetric({
-  title,
-  value,
-  subtitle,
-  tone = "neutral",
-  icon,
-}: {
-  title: string;
-  value: number | string;
-  subtitle?: string;
-  tone?: NetworkMetricTone;
-  icon: ReactNode;
-}) {
-  return (
-    <div
-      className={`flex min-h-[58px] items-center justify-between gap-3 rounded-sm border px-2.5 py-2 shadow-sm ${networkMetricToneClasses[tone]}`}
-    >
-      <div className="min-w-0">
-        <div className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
-          {title}
-        </div>
-        <div className="mt-0.5 flex min-w-0 items-baseline gap-2">
-          <span className="text-xl font-semibold leading-6">{value}</span>
-          {subtitle && (
-            <span className="min-w-0 truncate text-[11px] leading-4 text-slate-500">
-              {subtitle}
-            </span>
-          )}
-        </div>
-      </div>
-      <div className={`shrink-0 rounded-sm p-1.5 ${networkMetricIconClasses[tone]}`}>
-        {icon}
-      </div>
-    </div>
-  );
-}
-
 function Panel({
   title,
   subtitle,
@@ -566,7 +462,7 @@ function Panel({
   children: ReactNode;
 }) {
   return (
-    <EnterpriseSection title={title} description={subtitle}>
+    <EnterpriseSection title={title} description={subtitle} className="!border-0 !bg-transparent !p-0 !shadow-none">
       {children}
     </EnterpriseSection>
   );
@@ -583,17 +479,7 @@ function TextFilter({
   onChange: (value: string) => void;
   placeholder: string;
 }) {
-  return (
-    <label className="flex flex-col gap-1.5 text-[10px] font-medium uppercase tracking-wide text-slate-500">
-      {label}
-      <input
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder={placeholder}
-        className={CONTROL_CLASS}
-      />
-    </label>
-  );
+  return <EnterpriseSearchInput label={label} value={value} onChange={onChange} placeholder={placeholder} />;
 }
 
 function RankedPanel({
@@ -609,7 +495,7 @@ function RankedPanel({
 
   return (
     <Panel title={title}>
-      {hasChildren ? <div className="space-y-2">{children}</div> : <p className="text-xs text-slate-500">{emptyText}</p>}
+      {hasChildren ? <div className="space-y-2">{children}</div> : <EnterpriseEmptyState title={emptyText} />}
     </Panel>
   );
 }

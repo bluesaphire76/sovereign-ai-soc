@@ -2,6 +2,11 @@
 
 import { authFetch, type AuthUser } from "@/lib/auth";
 import {
+  EnterpriseBadge, EnterpriseButton, EnterpriseEmptyState, EnterpriseErrorState,
+  EnterpriseModal, EnterpriseSection, EnterpriseSkeleton, EnterpriseStatusBadge,
+} from "@/components/enterprise";
+import { SOC_CONTROL_CLASSES, SOC_TONE_CLASSES, statusTone as sharedStatusTone } from "@/lib/semantic-styles";
+import {
   AlertTriangle,
   CheckCircle2,
   Eye,
@@ -9,7 +14,6 @@ import {
   RefreshCw,
   RotateCcw,
   ShieldAlert,
-  XCircle,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -149,29 +153,15 @@ function formatDate(value: string | null | undefined) {
 }
 
 function statusTone(status: string) {
-  const normalized = status.toLowerCase();
-
-  if (normalized === "running" || normalized === "success") {
-    return "border-emerald-800 bg-emerald-950/60 text-emerald-200";
-  }
-
-  if (normalized === "failed" || normalized === "unsupported") {
-    return "border-red-800 bg-red-950/60 text-red-200";
-  }
-
-  if (normalized === "stopped" || normalized === "not_found") {
-    return "border-slate-700 bg-slate-900 text-slate-300";
-  }
-
-  return "border-amber-800 bg-amber-950/60 text-amber-200";
+  // Running is healthy for a service, not a completed operation.
+  return SOC_TONE_CLASSES[status === "running" ? "success" : sharedStatusTone(status)].badge;
 }
 
 function riskTone(riskLevel: string) {
-  if (riskLevel.toLowerCase() === "high") {
-    return "border-red-800 bg-red-950/60 text-red-200";
-  }
-
-  return "border-amber-800 bg-amber-950/60 text-amber-200";
+  if (riskLevel.toLowerCase() === "high") return "danger";
+  if (riskLevel.toLowerCase() === "medium") return "medium";
+  if (riskLevel.toLowerCase() === "low") return "low";
+  return "neutral";
 }
 
 function serviceMatchesAffected(service: ServiceItem, relatedConfigVersion: RelatedConfigVersion) {
@@ -421,6 +411,7 @@ export default function ServiceOperationsPanel({
       setRunning(true);
       setError(null);
       setResult(null);
+      setPreview(null);
 
       const response = await authFetch(
         `/service-operations/services/${selectedService.key}/restart-preview`,
@@ -489,7 +480,7 @@ export default function ServiceOperationsPanel({
   }
 
   return (
-    <section className="rounded-lg border border-slate-800 bg-slate-900/80 p-3">
+    <EnterpriseSection className="!border-0 !bg-transparent !px-0 !shadow-none">
       <div className="mb-3 flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-cyan-300">
@@ -501,21 +492,20 @@ export default function ServiceOperationsPanel({
           </h2>
         </div>
 
-        <button
+        <EnterpriseButton
+          size="xs"
+          tone="secondary"
           type="button"
           onClick={loadData}
           disabled={loading || running}
-          className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-950 px-3 text-xs text-slate-200 hover:border-cyan-700 hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
           Refresh
-        </button>
+        </EnterpriseButton>
       </div>
 
       {error && (
-        <div className="mb-3 rounded-lg border border-red-800 bg-red-950/60 p-3 text-xs text-red-200">
-          {error}
-        </div>
+        <EnterpriseErrorState className="mb-3" title="Service operation request failed" message={error} />
       )}
 
       {relatedConfigVersion?.requires_restart && configRestartClearance && (
@@ -525,6 +515,8 @@ export default function ServiceOperationsPanel({
         />
       )}
 
+      {loading && services.length === 0 && <EnterpriseSkeleton label="Loading services" rows={3} />}
+      {!loading && !error && services.length === 0 && <EnterpriseEmptyState title="No managed services available" />}
       <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
         {services.map((service) => (
           <ServiceCard
@@ -548,6 +540,7 @@ export default function ServiceOperationsPanel({
         <RestartModal
           canPreview={canPreview}
           canRestart={canRestart}
+          error={error}
           confirmed={confirmed}
           preview={preview}
           reason={reason}
@@ -562,11 +555,11 @@ export default function ServiceOperationsPanel({
           onClose={closeRestart}
           onConfirm={setConfirmed}
           onPreview={runPreview}
-          onReason={setReason}
+          onReason={(value) => { setReason(value); setPreview(null); setConfirmed(false); setResult(null); }}
           onRestart={restartService}
         />
       )}
-    </section>
+    </EnterpriseSection>
   );
 }
 
@@ -600,9 +593,7 @@ function ServiceCard({
             {service.description}
           </div>
         </div>
-        <span className={`shrink-0 rounded-sm border px-1.5 py-0.5 text-[10px] ${riskTone(service.risk_level)}`}>
-          {service.risk_level}
-        </span>
+        <EnterpriseBadge tone={riskTone(service.risk_level)} size="compact">{service.risk_level} impact</EnterpriseBadge>
       </div>
 
       <div className="mb-1.5 flex flex-wrap items-center gap-1 text-xs">
@@ -633,35 +624,34 @@ function ServiceCard({
       )}
 
       <div className="flex flex-wrap gap-1">
-        <button
+        <EnterpriseButton
+          size="xs"
+          tone="secondary"
           type="button"
           onClick={() => onCheckStatus(service)}
           disabled={running}
-          className="flex h-7 items-center gap-1 rounded-sm border border-slate-700 bg-slate-900 px-2 text-[11px] text-slate-200 hover:border-cyan-700 hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Eye className="h-3.5 w-3.5" />
           Status
-        </button>
-        <button
+        </EnterpriseButton>
+        <EnterpriseButton
+          size="xs"
+          tone="danger"
           type="button"
           onClick={() => onRestart(service)}
           disabled={restartDisabled}
-          title={
-            !canRestart
-              ? "ADMIN role required"
-              : service.restart_disabled_reason || undefined
-          }
-          className="flex h-7 items-center gap-1 rounded-sm border border-slate-700 bg-slate-900 px-2 text-[11px] text-slate-200 hover:border-amber-700 hover:text-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
+          title={!canRestart ? "ADMIN role required" : service.restart_disabled_reason || undefined}
         >
           <RotateCcw className="h-3.5 w-3.5" />
           Restart
-        </button>
+        </EnterpriseButton>
       </div>
     </article>
   );
 }
 
 function RestartModal({
+  error,
   canPreview,
   canRestart,
   confirmed,
@@ -679,6 +669,7 @@ function RestartModal({
 }: {
   canPreview: boolean;
   canRestart: boolean;
+  error: string | null;
   confirmed: boolean;
   preview: RestartPreview | null;
   reason: string;
@@ -696,28 +687,15 @@ function RestartModal({
   const restartDisabled = running || !canRestart || !reason.trim() || !confirmed || !previewReady;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4">
-      <div className="w-full max-w-2xl rounded-lg border border-slate-800 bg-slate-950 p-4 shadow-2xl">
-        <div className="mb-3 flex items-start justify-between gap-3">
-          <div>
-            <h3 className="text-base font-semibold text-slate-100">
-              Restart {service.display_name}
-            </h3>
-            <div className="mt-1 text-xs text-slate-500">
-              Current status: {preview?.current_status || service.status}
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={running}
-            className="flex h-7 items-center gap-1 rounded-md border border-slate-700 bg-slate-900 px-2 text-[11px] text-slate-300 hover:text-slate-100 disabled:opacity-50"
-          >
-            <XCircle className="h-3.5 w-3.5" />
-            Close
-          </button>
-        </div>
-
+    <EnterpriseModal
+      open
+      title={`Restart ${service.display_name}`}
+      description={`Current status: ${preview?.current_status || service.status}`}
+      onClose={onClose}
+      closeDisabled={running}
+      className="w-[min(42rem,calc(100vw-2rem))] max-h-[calc(100dvh-2rem)] overflow-y-auto"
+    >
+      {error && <EnterpriseErrorState className="mb-3" title="Restart request failed" message={error} />}
         <div className="mb-3 grid gap-2 text-xs md:grid-cols-2">
           <div className="rounded-lg border border-slate-800 bg-slate-900 p-3">
             <div className="mb-1 font-medium text-slate-300">Impact</div>
@@ -747,12 +725,13 @@ function RestartModal({
         )}
 
         <label className="mb-3 block text-xs">
-          <span className="mb-1 block font-medium text-slate-300">Reason</span>
+          <span className="mb-1 block font-medium text-slate-300">Reason (required)</span>
           <textarea
+            required
             value={reason}
             onChange={(event) => onReason(event.target.value)}
             disabled={running}
-            className="min-h-20 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-100 outline-none focus:border-cyan-500 disabled:opacity-60"
+            className={`min-h-20 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-100 outline-none focus:border-cyan-500 disabled:opacity-60 ${SOC_CONTROL_CLASSES.focus}`}
           />
         </label>
 
@@ -773,11 +752,11 @@ function RestartModal({
           <div className="mb-3 rounded-lg border border-slate-800 bg-slate-900 p-3 text-xs">
             <div className="mb-2 flex items-center gap-2 text-slate-200">
               {preview.allowed ? (
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-300" />
+                <CheckCircle2 className="h-3.5 w-3.5 text-cyan-300" />
               ) : (
                 <AlertTriangle className="h-3.5 w-3.5 text-amber-300" />
               )}
-              Preview {preview.allowed ? "allowed" : "blocked"}
+              Preview {preview.allowed ? "allowed" : "blocked"} / not executed
             </div>
             {preview.warnings.length > 0 && (
               <ul className="space-y-1 text-amber-100">
@@ -790,7 +769,8 @@ function RestartModal({
         )}
 
         {result && (
-          <div className={`mb-3 rounded-lg border p-3 text-xs ${statusTone(result.status)}`}>
+          <div role="status" className={`mb-3 rounded-sm border p-3 text-xs ${statusTone(result.status)}`}>
+            <EnterpriseStatusBadge value={result.status} size="compact" />
             <div className="font-medium">{result.message}</div>
             <div className="mt-1">
               Operation #{result.operation_id}: {result.pre_status || "-"} to{" "}
@@ -801,34 +781,30 @@ function RestartModal({
         )}
 
         <div className="flex flex-wrap justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={running}
-            className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 text-xs text-slate-200 hover:bg-slate-800 disabled:opacity-50"
-          >
+          <EnterpriseButton size="xs" tone="secondary" type="button" onClick={onClose} disabled={running}>
             Cancel
-          </button>
-          <button
+          </EnterpriseButton>
+          <EnterpriseButton
+            size="xs"
+            tone="secondary"
             type="button"
             onClick={onPreview}
             disabled={running || !canPreview || !reason.trim()}
-            className="flex h-8 items-center gap-1.5 rounded-lg border border-cyan-700 bg-slate-900 px-3 text-xs text-cyan-200 hover:bg-cyan-950/50 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Eye className="h-3.5 w-3.5" />
             Run preview
-          </button>
-          <button
+          </EnterpriseButton>
+          <EnterpriseButton
+            size="xs"
+            tone="danger"
             type="button"
             onClick={onRestart}
             disabled={restartDisabled}
-            className="flex h-8 items-center gap-1.5 rounded-lg border border-amber-700 bg-amber-500 px-3 text-xs font-medium text-slate-950 hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Play className="h-3.5 w-3.5" />
             Restart service
-          </button>
+          </EnterpriseButton>
         </div>
-      </div>
-    </div>
+    </EnterpriseModal>
   );
 }
