@@ -1,7 +1,9 @@
 "use client";
 
-import { FormEvent, useState } from "react";
-import { Shield, LogIn } from "lucide-react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
+import { Shield, LogIn, Loader2 } from "lucide-react";
+import { EnterpriseButton, EnterpriseErrorState } from "@/components/enterprise";
+import { SOC_CONTROL_CLASSES, SOC_TONE_CLASSES } from "@/lib/semantic-styles";
 import { API_BASE, setAuthSession, type AuthUser } from "../../lib/auth";
 
 type LoginResponse = {
@@ -11,17 +13,26 @@ type LoginResponse = {
   user: AuthUser;
 };
 
-
-
 export default function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loggingIn, setLoggingIn] = useState(false);
+  const submitting = useRef(false);
+  const [sessionNotice, setSessionNotice] = useState(false);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const session = new URLSearchParams(window.location.search).get("session");
+      setSessionNotice(session === "expired" || session === "invalid");
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   async function handleLogin(event: FormEvent) {
     event.preventDefault();
+    if (submitting.current || !username.trim() || !password.trim()) return;
+    submitting.current = true;
 
     try {
       setLoggingIn(true);
@@ -39,98 +50,114 @@ export default function LoginPage() {
       });
 
       if (!response.ok) {
-        let message = `Login failed: ${response.status}`;
-
-        try {
-          const body = await response.json();
-          message = body?.detail ?? message;
-        } catch {
-          // keep default message
-        }
-
-        throw new Error(String(message));
+        setError(
+          response.status === 401
+            ? "Invalid username or password."
+            : response.status === 403
+              ? "User account is disabled."
+              : response.status === 400 || response.status === 422
+                ? "Enter your username and password."
+                : "Authentication service unavailable. Please try again.",
+        );
+        return;
       }
 
       const data = (await response.json()) as LoginResponse;
       await setAuthSession(data.access_token, data.user, data.expires_at);
 
       window.location.assign("/");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown login error");
+    } catch {
+      setError("Unable to complete sign-in. Check your connection and try again.");
     } finally {
+      submitting.current = false;
       setLoggingIn(false);
     }
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-950 px-4 text-slate-100">
+    <main className="flex min-h-dvh items-center justify-center bg-slate-950 px-4 py-8 text-slate-100">
       <form
         onSubmit={handleLogin}
-        className="w-full max-w-md rounded-xl border border-slate-800 bg-slate-900 p-5 shadow-2xl"
+        aria-busy={loggingIn}
+        aria-describedby={error ? "login-error" : undefined}
+        className="w-full max-w-sm rounded-sm border border-slate-800 bg-slate-900 p-5 shadow-sm"
       >
         <div className="mb-5 flex items-center gap-3">
-          <div className="rounded-lg border border-cyan-900 bg-cyan-950 p-2 text-cyan-300">
-            <Shield className="h-5 w-5" />
+          <div className="rounded-sm border border-cyan-900 bg-cyan-950 p-2 text-cyan-300">
+            <Shield aria-hidden="true" className="h-5 w-5" />
           </div>
 
           <div>
-            <div className="text-sm font-semibold uppercase tracking-wide">
-              Sovereign AI SOC
-            </div>
-            <div className="text-xs text-slate-500">
-              Personal login required
-            </div>
+            <div className="text-sm font-semibold uppercase tracking-wide">Sovereign AI SOC</div>
           </div>
         </div>
 
-        <h1 className="mb-1 text-xl font-semibold tracking-tight">Sign in</h1>
+        <h1 className="mb-5 text-xl font-semibold">Sign in</h1>
+        {sessionNotice && (
+          <p
+            role="status"
+            className={`mb-4 rounded-sm border p-3 text-xs ${SOC_TONE_CLASSES.warning.panel} ${SOC_TONE_CLASSES.warning.text}`}
+          >
+            Your session is no longer available. Please sign in again.
+          </p>
+        )}
 
-        <p className="mb-5 text-xs leading-5 text-slate-500">
-          Use your personal SOC account to access dashboards, cases, incidents
-          and administrative functions.
-        </p>
-
-        <div className="space-y-3">
-          <label>
+        <fieldset disabled={loggingIn} className="min-w-0 space-y-3">
+          <label className="block">
             <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-slate-500">
               Username
             </span>
             <input
+              name="username"
+              required
               value={username}
               onChange={(event) => setUsername(event.target.value)}
-              className="h-9 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-slate-100 outline-none focus:border-cyan-500"
+              className={`h-9 w-full px-3 text-sm ${SOC_CONTROL_CLASSES.input} ${SOC_CONTROL_CLASSES.focus}`}
               autoComplete="username"
+              autoCapitalize="none"
+              spellCheck={false}
+              aria-describedby={error ? "login-error" : undefined}
             />
           </label>
 
-          <label>
+          <label className="block">
             <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-slate-500">
               Password
             </span>
             <input
+              name="password"
               type="password"
+              required
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              className="h-9 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-slate-100 outline-none focus:border-cyan-500"
+              className={`h-9 w-full px-3 text-sm ${SOC_CONTROL_CLASSES.input} ${SOC_CONTROL_CLASSES.focus}`}
               autoComplete="current-password"
+              aria-describedby={error ? "login-error" : undefined}
             />
           </label>
-        </div>
+        </fieldset>
 
         {error && (
-          <div className="mt-4 rounded-lg border border-red-800 bg-red-950/60 p-3 text-xs text-red-200">
-            {error}
+          <div id="login-error" className="mt-4">
+            <EnterpriseErrorState title="Sign-in failed" message={error} />
           </div>
         )}
 
-        <button
+        <EnterpriseButton
           type="submit"
+          tone="primary"
           disabled={loggingIn || !username.trim() || !password.trim()}
-          className="mt-5 flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-cyan-700 bg-cyan-500 px-3 text-sm font-medium text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
+          className="mt-5 w-full"
+          icon={
+            loggingIn ? (
+              <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+            ) : (
+              <LogIn aria-hidden="true" className="h-4 w-4" />
+            )
+          }
         >
-          <LogIn className="h-4 w-4" />
           {loggingIn ? "Signing in..." : "Sign in"}
-        </button>
+        </EnterpriseButton>
       </form>
     </main>
   );
