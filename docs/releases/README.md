@@ -2,12 +2,14 @@
 
 This folder contains Sovereign AI SOC release notes.
 
-## Current Release
+## Current Release Candidate
 
-- [v0.8.0 release notes](RELEASE_NOTES_v0.8.0.md)
+- [v0.9.0 release notes](RELEASE_NOTES_v0.9.0.md)
+- [Release gate](../validation/v0.9.0-release-readiness.md)
 
 ## Published and Historical Release Notes
 
+- [v0.8.0 release notes (latest published)](RELEASE_NOTES_v0.8.0.md)
 - [v0.7.1 release notes](RELEASE_NOTES_v0.7.1.md)
 - [v0.7.0 release notes](RELEASE_NOTES_v0.7.0.md)
 - [RELEASE NOTES v0.6.0](RELEASE_NOTES_v0.6.0.md)

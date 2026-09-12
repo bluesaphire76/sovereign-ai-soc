@@ -1,7 +1,8 @@
 # Roadmap
 
-This roadmap separates published releases from future work. The current release
-baseline is `v0.8.0`.
+This roadmap separates published releases from future work. The current candidate
+is `v0.9.0`; [final public verification](../validation/v0.9.0-release-readiness.md)
+is required before publication. The latest published release remains `v0.8.0`.
 
 | Version | Status | Theme | Highlights |
 |---|---:|---|---|
@@ -17,6 +18,8 @@ baseline is `v0.8.0`.
 
 ## Completed Product Themes
 
+- User-approved UX-01 through UX-12: shared design system, navigation, investigation,
+  monitoring, operations, governance, responsive and accessibility harmonization.
 - Local-first AI SOC architecture.
 - Wazuh endpoint/security monitoring.
 - Suricata network IDS visibility.
@@ -45,12 +48,11 @@ baseline is `v0.8.0`.
 - Prometheus/Alertmanager alerting and Loki/Grafana Alloy logging.
 - Executive-ready reporting and evidence packs.
 
-## Candidate Post-v0.8.0 Direction
+## Future Candidate Directions
 
 These are candidate directions, not implemented commitments:
 
 - Additional telemetry connectors.
-- Platform-wide UX alignment and workflow consistency.
 - Case collaboration enhancements.
 - Scheduled report generation.
 - Production adapters for provider types beyond OpenAI-compatible endpoints.

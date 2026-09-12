@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import ast
+import os
 from pathlib import Path
 
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 APPROVED_LOW_LEVEL = {
@@ -28,20 +30,34 @@ FORBIDDEN_CALLS = {
 
 
 def _production_python_files():
-    for path in ROOT.rglob("*.py"):
-        relative = path.relative_to(ROOT)
-        if any(
-            part in {
-                ".git",
-                ".venv",
-                "__pycache__",
-                "config.backup.1779663398",
-                "tests",
-            }
-            for part in relative.parts
-        ):
-            continue
-        yield path, relative
+    excluded = {".git", ".venv", "__pycache__", "node_modules",
+                "config.backup.1779663398", "tests"}
+    for directory, children, files in os.walk(ROOT):
+        parent = Path(directory)
+        children[:] = [name for name in children if name not in excluded
+                       and not (parent / name / "pyvenv.cfg").is_file()]
+        for name in files:
+            if name.endswith(".py"):
+                path = parent / name
+                yield path, path.relative_to(ROOT)
+
+
+def test_boundary_scanner_excludes_environments_not_application_code(tmp_path, monkeypatch):
+    monkeypatch.setattr(__import__(__name__), "ROOT", tmp_path)
+    for folder in (".venv-xpu-test", "custom-environment"):
+        root = tmp_path / folder
+        root.mkdir()
+        (root / "pyvenv.cfg").write_text("home = /fixture/python\n")
+        (root / "vendor.py").write_bytes(b"\xa4")
+    for folder in ("services", "new_module", "frontend/node_modules/package"):
+        root = tmp_path / folder
+        root.mkdir(parents=True)
+        (root / "app.py").write_text("import llm_client\n")
+    assert {relative.as_posix() for _, relative in _production_python_files()} == {
+        "services/app.py", "new_module/app.py",
+    }
+    with pytest.raises(AssertionError, match="import llm_client"):
+        test_only_gateway_and_low_level_modules_touch_generative_providers()
 
 
 def test_only_gateway_and_low_level_modules_touch_generative_providers() -> None:

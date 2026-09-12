@@ -23,7 +23,7 @@ The AI layer is designed around evidence-based support:
 
 ## 2. AI Runtime and Provider Routing
 
-The active v0.8 generation path uses the local llama.cpp standard profile
+The active generation path, unchanged in v0.9.0, uses the local llama.cpp standard profile
 through the single-owner inference gateway and its Unix socket. The gateway
 owns model readiness and serializes Assistant generation. Ollama and governed
 OpenAI-compatible providers remain configurable platform integrations but are

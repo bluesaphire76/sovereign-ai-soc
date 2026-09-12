@@ -477,10 +477,12 @@ def test_assistant_skips_fallback_when_total_budget_is_exhausted():
     ],
 )
 def test_soc_assistant_llama_cpp_reserves_visible_tokens_and_disables_thinking(
+    monkeypatch,
     requested_mode,
     profile_name,
     expected_max_tokens,
 ):
+    monkeypatch.delenv("AI_SOC_ASSISTANT_MAX_VISIBLE_TOKENS", raising=False)
     profile = LlmProfile(
         name=profile_name,
         model=f"ai-soc-{profile_name}",

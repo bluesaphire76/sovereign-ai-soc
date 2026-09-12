@@ -17,9 +17,8 @@ Editable Mermaid source: [deployment-architecture.mmd](../diagrams/deployment-ar
 | Qdrant | Local vector knowledge base for SOC playbook context used by RAG-enabled AI workflows. |
 | Wazuh | Host/security telemetry source. |
 | Suricata | Network IDS telemetry source. |
-| Ollama | Default local AI runtime. |
-| llama.cpp router/runtime | Optional local GGUF runtime path, disabled by default. |
-| External AI providers | Optional OpenAI-compatible endpoints such as OpenRouter, disabled by default. |
+| llama.cpp router/runtime and inference gateway | Active local standard-profile generation, serialized through a Unix socket. |
+| Ollama / external AI providers | Configurable low-level integrations, not active generation paths in gateway mode. |
 | Prometheus/Grafana/Alertmanager | Optional metrics, dashboards and Wazuh backlog alerting. |
 | Loki/Grafana Alloy | Optional selected platform-log storage and collection. |
 | systemd workers/timers | API, frontend, ingestion and Qdrant maintenance process management. |
@@ -55,12 +54,19 @@ The frontend is under `frontend/`:
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run build
 npm run start
 ```
 
 The deployed service is represented by `ai-soc-frontend` in existing systemd documentation.
+
+After rebuilding the production `.next` used by `next start`, run
+`sudo systemctl restart ai-soc-frontend.service` before runtime/static validation.
+Otherwise old-process HTML and new on-disk chunks can disagree, producing asset
+404/500 responses. This does not apply to isolated development/preview builds.
+For the related API hardening activation and complete v0.8.x update procedure,
+see [v0.9.0 upgrade](v0.9.0-upgrade.md).
 
 ## Backend
 
@@ -98,8 +104,9 @@ and retention runbooks in
 
 ## AI Providers
 
-Local Ollama requires no external credential and remains the default local
-path. llama.cpp is an optional local runtime path configured with
+Gateway-mode generation uses the local llama.cpp standard profile and the
+single-owner inference gateway. Ollama and external providers are not fallback
+generation paths in this mode. llama.cpp connectivity is configured with
 `LLAMA_CPP_ENABLED`, `LLAMA_CPP_BASE_URL`, `LLAMA_CPP_API_BASE_URL` and the
 `LLAMA_CPP_FAST_MODEL`, `LLAMA_CPP_STANDARD_MODEL` and
 `LLAMA_CPP_QUALITY_MODEL` profile settings.
@@ -139,6 +146,11 @@ Nginx configuration exists under `deploy/nginx/` and includes:
 - `/reports/` routing for generated report access.
 - Security headers.
 - Cache controls for sensitive pages.
+
+The public deployment path is Browser -> Cloudflare Access -> Cloudflare Tunnel
+-> Nginx `127.0.0.1:8088` -> Next.js `127.0.0.1:3000`; API requests are proxied
+to `127.0.0.1:8008`. Local ingress validation uses `Host: soc.varqon.net` and does
+not replace the authenticated public-browser check. Do not bypass Access.
 
 ## Ingestion Workers
 
@@ -181,8 +193,8 @@ After deployment or restart:
 2. Confirm API, PostgreSQL and Qdrant are healthy/populated as expected.
 3. Confirm Wazuh and Suricata/network freshness if those sources are expected;
    inspect DNS telemetry on its dedicated page.
-4. Confirm Ollama, optional llama.cpp router/profile state and
-   provider-registry state.
+4. Confirm inference gateway, llama.cpp standard profile and provider-registry
+   state without changing models or generating responses just for health checks.
 5. Confirm optional Grafana, Prometheus and Alertmanager state when deployed.
 6. Open `/incidents`, `/executive`, `/detection-quality`,
    `/settings/semantic-memory` and `/system-information/operation-history`.
