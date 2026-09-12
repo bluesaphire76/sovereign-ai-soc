@@ -338,7 +338,7 @@ export default function NetworkEventsPage() {
             {visibleEvents.length === 0 ? (
               <EnterpriseEmptyState title="No network events match the current filters." />
             ) : (
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto" role="region" aria-label="Network events" tabIndex={0}>
                 <table className="w-full min-w-[1120px] table-fixed text-left text-[12px]">
                 <thead className="border-b border-slate-800 bg-slate-950 text-[10px] uppercase tracking-[0.16em] text-slate-500">
                   <tr>

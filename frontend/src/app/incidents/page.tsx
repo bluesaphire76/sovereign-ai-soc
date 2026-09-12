@@ -699,7 +699,7 @@ export default function IncidentsPage() {
               </div>
             </div>
 
-            <aside className="min-w-0 bg-slate-950">
+            <section aria-label="Incident inspection" className="min-w-0 bg-slate-950">
               <div className="border-b border-slate-800 px-3 py-2">
                 <h2 className="text-[12px] font-semibold uppercase tracking-[0.18em] text-slate-300">
                   Analyst decision support
@@ -836,7 +836,7 @@ export default function IncidentsPage() {
                   />
                 </div>
               )}
-            </aside>
+            </section>
           </section>
         </div>
     </AppShell>

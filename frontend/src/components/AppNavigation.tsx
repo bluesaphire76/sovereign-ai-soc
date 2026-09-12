@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -109,6 +109,7 @@ export default function AppNavigation() {
   const pathname = usePathname();
   const [user, setUser] = useState<AuthUser | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const toggleRef = useRef<HTMLButtonElement | null>(null);
   const groups = useMemo(() => getNavigationGroups(user?.role ?? null), [user?.role]);
 
   useEffect(() => {
@@ -138,6 +139,12 @@ export default function AppNavigation() {
   return (
     <nav
       aria-label="Primary navigation"
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && mobileOpen) {
+          setMobileOpen(false);
+          toggleRef.current?.focus();
+        }
+      }}
       className="ai-soc-sidebar mx-4 mt-4 overflow-hidden rounded-sm border border-slate-800 bg-slate-950/95 shadow-sm xl:fixed xl:bottom-4 xl:left-4 xl:top-4 xl:z-40 xl:m-0 xl:w-64"
     >
       <div className="flex min-w-0 flex-col xl:h-full">
@@ -158,7 +165,10 @@ export default function AppNavigation() {
             label={mobileOpen ? "Close navigation" : "Open navigation"}
             aria-expanded={mobileOpen}
             aria-controls="ai-soc-navigation-menu"
-            onClick={() => setMobileOpen((value) => !value)}
+            onClick={(event) => {
+              toggleRef.current = event.currentTarget;
+              setMobileOpen((value) => !value);
+            }}
             tone="ghost"
             size="sm"
             className="xl:hidden"
@@ -177,7 +187,7 @@ export default function AppNavigation() {
               const groupId = `nav-${group.label.replaceAll(/[^a-z]+/gi, "-").toLowerCase()}`;
 
               return (
-                <section key={group.label} aria-labelledby={groupId}>
+                <div key={group.label} role="group" aria-labelledby={groupId}>
                   <h2
                     id={groupId}
                     className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-wide text-slate-600"
@@ -194,7 +204,7 @@ export default function AppNavigation() {
                       />
                     ))}
                   </div>
-                </section>
+                </div>
               );
             })}
           </div>

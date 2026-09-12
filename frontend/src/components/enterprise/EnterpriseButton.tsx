@@ -48,7 +48,7 @@ export const ENTERPRISE_BUTTON_TONE_CLASSES: Record<EnterpriseButtonTone, string
   danger:
     "border-red-800 bg-red-950/60 text-red-200 hover:bg-red-950",
   executive:
-    "border-violet-700 bg-violet-500 text-white hover:bg-violet-400",
+    "border-violet-700 bg-violet-600 text-white hover:bg-violet-700",
   ghost:
     "border-slate-800 bg-transparent text-slate-300 hover:border-cyan-800 hover:bg-slate-900 hover:text-cyan-200",
 };

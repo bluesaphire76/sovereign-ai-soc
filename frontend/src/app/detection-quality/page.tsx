@@ -1296,7 +1296,7 @@ export default function DetectionQualityPage() {
                 className="bg-slate-900"
               >
 
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto" role="region" aria-label="Scenario quality data" tabIndex={0}>
                   <table className="min-w-full text-left text-xs">
                     <thead className="border-b border-slate-800 text-[10px] uppercase tracking-wide text-slate-500">
                       <tr>

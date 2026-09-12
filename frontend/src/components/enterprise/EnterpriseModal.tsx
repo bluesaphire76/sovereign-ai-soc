@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, type MouseEvent, type ReactNode } from "react";
+import { useLayoutEffect, useId, useRef, type MouseEvent, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { cx } from "@/lib/semantic-styles";
 import EnterpriseIconButton from "./EnterpriseIconButton";
@@ -30,12 +30,17 @@ export default function EnterpriseModal({
   const titleId = useId();
   const descriptionId = useId();
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
 
     if (open && !dialog.open) dialog.showModal();
     if (!open && dialog.open) dialog.close();
+
+    // Close before removal so native dialog focus restoration also works on unmount.
+    return () => {
+      if (dialog.open) dialog.close();
+    };
   }, [open]);
 
   function handleBackdropClick(event: MouseEvent<HTMLDialogElement>) {
@@ -54,13 +59,13 @@ export default function EnterpriseModal({
       }}
       onClick={handleBackdropClick}
       className={cx(
-        "m-auto w-[min(32rem,calc(100vw-2rem))] rounded-sm border border-slate-700 bg-slate-900 p-0 text-slate-100 shadow-2xl backdrop:bg-slate-950/80",
+        "m-auto max-h-[calc(100dvh-2rem)] w-[min(32rem,calc(100vw-2rem))] overflow-y-auto rounded-sm border border-slate-700 bg-slate-900 p-0 text-slate-100 shadow-2xl backdrop:bg-slate-950/80",
         className
       )}
     >
       <div className="flex items-start justify-between gap-4 border-b border-slate-800 px-4 py-3">
         <div className="min-w-0">
-          <h2 id={titleId} className="text-sm font-semibold text-slate-100">
+          <h2 id={titleId} className="break-words text-sm font-semibold text-slate-100">
             {title}
           </h2>
           {description && (

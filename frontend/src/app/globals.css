@@ -45,6 +45,29 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+/* Legacy metadata foregrounds use the readable semantic token on SOC surfaces. */
+@layer utilities {
+  .text-slate-500,
+  .text-slate-600 {
+    color: var(--soc-text-subtle);
+  }
+}
+
+:where(.ai-soc-shell, main) :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--soc-focus);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :where(.ai-soc-shell, main),
+  :where(.ai-soc-shell, main) * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* Shared authenticated shell: fixed desktop sidebar, flow-based mobile navigation. */
 @media (min-width: 1280px) {
   .ai-soc-shell-workspace {

@@ -74,7 +74,7 @@ def test_role_and_self_service_matrix(isolated, role):
 
 
 def test_admin_operations_and_current_user_guards(isolated):
-    client, _, writes = isolated
+    client, sessions, writes = isolated
     h = headers()
     payload = {"username": " Fixture ", "display_name": "Fixture", "role": "ANALYST",
                "password": "fixture-only-password", "is_active": True}
@@ -105,6 +105,10 @@ def test_admin_operations_and_current_user_guards(isolated):
     assert client.patch("/users/1", headers=h, json={"role": "VIEWER"}).status_code == 200
     assert client.get("/auth/me", headers=h).json()["role"] == "VIEWER"
     assert client.get("/security-audit/events", headers=h).status_code == 403
+    with sessions() as db:
+        # Known release risk: demoting the sole ADMIN leaves no active administrator.
+        assert db.query(AppUser).filter(AppUser.role == "ADMIN", AppUser.is_active.is_(True)).count() == 0
+    assert client.patch("/users/1", headers=h, json={"role": "ADMIN"}).status_code == 403
 
 
 def test_login_tokens_expiry_and_disabled_accounts(isolated):

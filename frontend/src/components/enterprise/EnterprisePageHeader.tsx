@@ -55,11 +55,12 @@ export default function EnterprisePageHeader({
 
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <h1
-            className={
+            className={cx(
+              "min-w-0 max-w-full break-words",
               density === "compact"
                 ? SOC_TEXT_CLASSES.compactPageTitle
                 : SOC_TEXT_CLASSES.pageTitle
-            }
+            )}
           >
             {title}
           </h1>

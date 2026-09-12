@@ -111,6 +111,14 @@ def test_health_keeps_runtime_detail_polling_and_native_links() -> None:
     assert "function statusClasses" not in source
 
 
+def test_executive_pulse_uses_the_same_compact_metrics_as_incidents() -> None:
+    pulse = read(EXECUTIVE).split("function ExecutivePulseBar(", 1)[1].split("\nfunction ", 1)[0]
+    assert "<EnterpriseMetricStrip" in pulse
+    assert pulse.count("<EnterpriseMetricCard") == 2
+    assert "compact={false}" not in pulse
+    assert "icon=" not in pulse
+
+
 def test_detection_quality_keeps_calculations_runner_rbac_and_guidance() -> None:
     source = read(DETECTION_QUALITY)
 

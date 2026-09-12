@@ -26,10 +26,18 @@ export default function AppShell({
   contentClassName,
 }: AppShellProps) {
   return (
-    <main className="ai-soc-shell min-h-screen bg-slate-950 text-slate-100">
+    <div className="ai-soc-shell min-h-screen bg-slate-950 text-slate-100">
+      <a
+        href="#soc-main"
+        className="sr-only z-50 bg-slate-950 p-3 text-sm text-cyan-100 focus:not-sr-only focus:fixed focus:left-4 focus:top-4"
+      >
+        Skip to content
+      </a>
       <AppNavigation />
       <div className="ai-soc-shell-workspace min-w-0">
-        <div
+        <main
+          id="soc-main"
+          tabIndex={-1}
           className={cx(
             "ai-soc-shell-content mx-auto w-full",
             widthClasses[width],
@@ -39,8 +47,8 @@ export default function AppShell({
           )}
         >
           {children}
-        </div>
+        </main>
       </div>
-    </main>
+    </div>
   );
 }

@@ -7,6 +7,8 @@ or migration validation notes.
 
 ## Current Validation
 
+- [UX-12 responsive, accessibility and final regression](ux-12-responsive-accessibility-regression.md)
+- [v0.9.0 UX Harmonization summary (release review pending)](../ux-harmonization/v0.9.0-summary.md)
 - [UX-11 governance and authentication verification](ux-11-governance-auth.md)
 - [UX-10 detection governance and operations verification](ux-10-detection-operations.md)
 - [UX-09 overview and monitoring verification](ux-09-overview-pages.md)

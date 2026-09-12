@@ -772,9 +772,9 @@ function OperationDetail({
 }) {
   if (!item) {
     return (
-      <aside className="rounded-lg border border-slate-800 bg-slate-950 p-4 text-xs text-slate-500">
+      <section aria-label="Operation inspection" className="rounded-lg border border-slate-800 bg-slate-950 p-4 text-xs text-slate-500">
         Select an operational entry to inspect scope, review state and recent event matches.
-      </aside>
+      </section>
     );
   }
 
@@ -783,7 +783,7 @@ function OperationDetail({
   const countSource = preview?.preview.count_source ?? matches?.count_source;
 
   return (
-    <aside className="min-w-0 rounded-lg border border-slate-800 bg-slate-950 p-3">
+    <section aria-label="Operation inspection" className="min-w-0 rounded-lg border border-slate-800 bg-slate-950 p-3">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="truncate text-sm font-semibold text-slate-100">{item.name}</h3>
@@ -912,7 +912,7 @@ function OperationDetail({
           </div>
         )}
       </div>
-    </aside>
+    </section>
   );
 }
 

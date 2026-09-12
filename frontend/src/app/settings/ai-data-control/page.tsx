@@ -948,7 +948,11 @@ export default function AiDataControlPage() {
                 </label>
               </div>
             </div>
+            <label htmlFor="ai-preview-payload" className="mb-1 block text-xs text-slate-400">
+              Preview payload
+            </label>
             <textarea
+              id="ai-preview-payload"
               value={previewText}
               onChange={(event) => setPreviewText(event.target.value)}
               className="h-56 w-full resize-y rounded-sm border border-slate-800 bg-slate-900 p-3 font-mono text-xs text-slate-100 outline-none focus:border-cyan-800"
@@ -1023,7 +1027,7 @@ export default function AiDataControlPage() {
             <div className="col-span-2">Actor</div>
             <div className="col-span-1 text-right">Hash</div>
           </div>
-          <div className="max-h-80 divide-y divide-slate-800 overflow-y-auto bg-slate-950">
+          <div className="max-h-80 divide-y divide-slate-800 overflow-y-auto bg-slate-950" role="region" aria-label="Recent policy decisions" tabIndex={0}>
             {decisions.map((decision) => (
               <div key={decision.id} className="grid grid-cols-12 gap-2 px-3 py-2 text-xs text-slate-300">
                 <div className="col-span-12 truncate md:col-span-3">{decision.event_type}</div>

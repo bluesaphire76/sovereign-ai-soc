@@ -1199,7 +1199,9 @@ export default function SemanticMemoryPage() {
               </Section>
 
               <Section title="Semantic Search Test" icon={<Search className="h-3.5 w-3.5" />}>
-                <form onSubmit={runSearch} className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_220px_auto]">
+                <form onSubmit={runSearch} className="grid items-end gap-2 lg:grid-cols-[minmax(0,1fr)_220px_auto]">
+                  <label className="grid gap-1 text-xs text-slate-400">
+                    Search query
                   <input
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
@@ -1207,11 +1209,13 @@ export default function SemanticMemoryPage() {
                     placeholder="ssh brute force"
                     className="h-9 min-w-0 flex-1 rounded-md border border-slate-800 bg-slate-950 px-3 text-xs text-slate-100 outline-none placeholder:text-slate-600 focus:border-cyan-700"
                   />
+                  </label>
+                  <label className="grid gap-1 text-xs text-slate-400">
+                    Source type
                   <select
                     value={searchSourceType}
                     onChange={(event) => setSearchSourceType(event.target.value)}
                     className="h-9 rounded-md border border-slate-800 bg-slate-950 px-3 text-xs text-slate-100 outline-none focus:border-cyan-700"
-                    title="Semantic memory source type"
                   >
                     <option value="">All source types</option>
                     <option value="knowledge_base">Knowledge Base</option>
@@ -1219,6 +1223,7 @@ export default function SemanticMemoryPage() {
                     <option value="detection_control">Detection Control</option>
                     <option value="case_closure">Case Closure</option>
                   </select>
+                  </label>
                   <button
                     type="submit"
                     disabled={searching || !search.trim()}

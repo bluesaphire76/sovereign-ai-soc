@@ -317,7 +317,7 @@ export default function DnsTelemetryPage() {
                   {visibleEvents.length === 0 ? (
                     <EnterpriseEmptyState title="No DNS events match the current filters." />
                   ) : (
-                    <div className="overflow-x-auto">
+                    <div className="overflow-x-auto" role="region" aria-label="DNS events" tabIndex={0}>
                       <table className="w-full min-w-[850px] table-fixed text-left text-xs">
                         <thead className="border-b border-slate-800 text-[10px] uppercase tracking-wide text-slate-500">
                           <tr>

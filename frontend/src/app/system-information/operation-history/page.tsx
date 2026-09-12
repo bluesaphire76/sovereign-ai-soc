@@ -355,7 +355,7 @@ export default function OperationHistoryPage() {
                   }
                 />
               ) : (
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto" role="region" aria-label="Operation history events" tabIndex={0}>
                   <table className="min-w-full divide-y divide-slate-800 text-left text-xs">
                     <thead className="bg-slate-950 text-[11px] uppercase tracking-wide text-slate-500">
                       <tr>

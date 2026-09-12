@@ -445,7 +445,6 @@ function ExecutivePulseBar({
       value: summary.open_incidents + summary.open_cases,
       meta: `${summary.open_incidents} inc / ${summary.open_cases} cases`,
       tone: summary.open_incidents + summary.open_cases > 0 ? "primary" : "success",
-      icon: <AlertTriangle className="h-3.5 w-3.5" />,
     },
     {
       title: "Critical pressure",
@@ -457,7 +456,6 @@ function ExecutivePulseBar({
           : summary.high_or_critical_incidents > 0
             ? "warning"
             : "success",
-      icon: <ShieldAlert className="h-3.5 w-3.5" />,
     },
     {
       title: "Escalation load",
@@ -467,28 +465,24 @@ function ExecutivePulseBar({
         summary.escalated_incidents + summary.escalated_cases > 0
           ? "danger"
           : "success",
-      icon: <Briefcase className="h-3.5 w-3.5" />,
     },
     {
       title: "Correlation",
       value: `${correlationCoverage}%`,
       meta: `${summary.correlated_incidents} linked`,
       tone: correlationCoverage >= 60 ? "executive" : "neutral",
-      icon: <TrendingUp className="h-3.5 w-3.5" />,
     },
     {
       title: "Risk ceiling",
       value: summary.max_risk_score,
       meta: `avg ${summary.average_risk_score}`,
       tone: riskScoreTone(summary.max_risk_score),
-      icon: <BarChart3 className="h-3.5 w-3.5" />,
     },
   ] satisfies Array<{
     title: string;
     value: string | number;
     meta: string;
     tone: Tone;
-    icon: ReactNode;
   }>;
 
   return (
@@ -498,16 +492,6 @@ function ExecutivePulseBar({
         value={data.status}
         subtitle={statusMessage(data.status)}
         tone={tone}
-        compact={false}
-        icon={
-          data.status === "CRITICAL" ? (
-            <AlertTriangle aria-hidden="true" className="h-4 w-4" />
-          ) : data.status === "ATTENTION" ? (
-            <ShieldAlert aria-hidden="true" className="h-4 w-4" />
-          ) : (
-            <CheckCircle2 aria-hidden="true" className="h-4 w-4" />
-          )
-        }
       />
 
       {signals.map((signal) => (
@@ -517,8 +501,6 @@ function ExecutivePulseBar({
           value={signal.value}
           subtitle={signal.meta}
           tone={signal.tone}
-          icon={signal.icon}
-          compact={false}
         />
       ))}
     </EnterpriseMetricStrip>
@@ -729,7 +711,7 @@ function ExposureMatrix({ rows }: { rows: ExposureRow[] }) {
       {visibleRows.length === 0 ? (
         <EmptyState label="No distribution data available." />
       ) : (
-        <div className="overflow-x-auto rounded-md border border-slate-800">
+        <div className="overflow-x-auto rounded-md border border-slate-800" role="region" aria-label="Exposure distribution" tabIndex={0}>
           <table className="min-w-full text-left text-xs">
             <thead className="border-b border-slate-800 bg-slate-950 text-[10px] uppercase tracking-wide text-slate-500">
               <tr>
