@@ -101,13 +101,18 @@ def test_admin_operations_and_current_user_guards(isolated):
     assert client.delete(url, headers=h).status_code == 200
     assert client.delete(url, headers=h).status_code == 404
     assert {w["event_type"] for w in writes} >= {"USER_CREATED", "USER_UPDATED", "USER_PASSWORD_RESET", "USER_DELETED"}
-    # Self-downgrade is currently allowed; stale token role must not retain ADMIN access.
+    blocked = client.patch("/users/1", headers=h, json={"role": "VIEWER", "display_name": "Rejected"})
+    assert blocked.status_code == 409
+    assert blocked.json() == {"detail": "At least one enabled administrator must remain."}
+    with sessions() as db:
+        assert db.get(AppUser, 1).display_name == "ADMIN"
+    # Self-downgrade with another enabled ADMIN preserves the stale-token RBAC check.
+    assert client.patch("/users/2", headers=h, json={"role": "ADMIN"}).status_code == 200
     assert client.patch("/users/1", headers=h, json={"role": "VIEWER"}).status_code == 200
     assert client.get("/auth/me", headers=h).json()["role"] == "VIEWER"
     assert client.get("/security-audit/events", headers=h).status_code == 403
     with sessions() as db:
-        # Known release risk: demoting the sole ADMIN leaves no active administrator.
-        assert db.query(AppUser).filter(AppUser.role == "ADMIN", AppUser.is_active.is_(True)).count() == 0
+        assert db.query(AppUser).filter(AppUser.role == "ADMIN", AppUser.is_active.is_(True)).count() == 1
     assert client.patch("/users/1", headers=h, json={"role": "ADMIN"}).status_code == 403
 
 

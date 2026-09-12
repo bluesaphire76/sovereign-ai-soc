@@ -84,6 +84,12 @@ async function fixture(browser, role = "ADMIN", width = 1440) {
       const match = p.match(/^\/users\/(\d+)(\/password)?$/);
       if (match) {
         const target = control.users.find(u => u.id === Number(match[1]));
+        const proposed = method === "DELETE" ? null : {...target, ...body};
+        if (!match[2] && target?.role === "ADMIN" && target.is_active &&
+            (!proposed || proposed.role !== "ADMIN" || !proposed.is_active) &&
+            !control.users.some(u => u !== target && u.role === "ADMIN" && u.is_active)) {
+          return send({detail:"At least one enabled administrator must remain."}, 409);
+        }
         if (method === "POST" && match[2]) return send({status:"password_updated", user:target});
         if (method === "DELETE") { control.users = control.users.filter(u => u !== target); return send({status:"deleted"}); }
         if (method === "PATCH") {
@@ -263,6 +269,14 @@ async function run() {
       await button(page.getByRole("dialog"),"Delete user").click(); await f.settled();
       await renamed.waitFor({state:"hidden"});
       assert.equal(f.mutations().at(-1).method, "DELETE"); assert.equal(f.mutations().at(-1).body, null);
+      await page.getByRole("combobox", {name:"Role for admin", exact:true}).selectOption("VIEWER");
+      await page.getByRole("alert").filter({hasText:"At least one enabled administrator must remain."}).waitFor();
+      assert.equal(await page.getByRole("combobox", {name:"Role for admin", exact:true}).inputValue(), "ADMIN");
+      assert.equal(control.user.role, "ADMIN");
+      assert.equal(await page.getByText("User updated.", {exact:true}).count(), 0);
+      await f.check("Last ADMIN rejected"); pass("Last enabled ADMIN conflict feedback and retained role");
+      await page.getByRole("combobox", {name:"Role for analyst", exact:true}).selectOption("ADMIN");
+      await page.getByText("User updated.", {exact:true}).waitFor(); await f.settled();
       await page.getByRole("combobox", {name:"Role for admin", exact:true}).selectOption("VIEWER");
       await page.getByRole("heading", {name:"User Profile", exact:true}).waitFor();
       assert.equal(await button(page,"Create").count(), 0); assert.equal(await page.locator("tbody tr").count(), 1);

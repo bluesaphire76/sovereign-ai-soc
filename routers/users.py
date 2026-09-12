@@ -12,7 +12,9 @@ from security.auth import get_current_user, require_admin
 from security.rbac import ROLE_ADMIN, current_user_role
 from services.users import (
     VALID_USER_ROLES,
+    ensure_enabled_administrator,
     hash_password_or_400,
+    lock_user_management,
     normalize_username,
     serialize_user,
 )
@@ -58,6 +60,7 @@ def create_user(payload: UserCreate, request: Request, current_user: dict = Depe
     db = SessionLocal()
 
     try:
+        lock_user_management(db)
         existing = db.query(AppUser).filter(AppUser.username == username).first()
 
         if existing:
@@ -72,6 +75,7 @@ def create_user(payload: UserCreate, request: Request, current_user: dict = Depe
         )
 
         db.add(user)
+        ensure_enabled_administrator(db)
         db.commit()
         db.refresh(user)
 
@@ -104,6 +108,7 @@ def update_user(
     db = SessionLocal()
 
     try:
+        lock_user_management(db)
         user = db.query(AppUser).filter(AppUser.id == user_id).first()
 
         if not user:
@@ -134,6 +139,7 @@ def update_user(
                 user.is_active = payload.is_active
 
         user.updated_at = datetime.now(timezone.utc)
+        ensure_enabled_administrator(db)
         db.commit()
         db.refresh(user)
 
@@ -164,6 +170,7 @@ def update_user_password(
     db = SessionLocal()
 
     try:
+        lock_user_management(db)
         user = db.query(AppUser).filter(AppUser.id == user_id).first()
 
         if not user:
@@ -174,6 +181,7 @@ def update_user_password(
 
         user.password_hash = hash_password_or_400(payload.password)
         user.updated_at = datetime.now(timezone.utc)
+        ensure_enabled_administrator(db)
         db.commit()
         db.refresh(user)
 
@@ -207,6 +215,7 @@ def delete_user(user_id: int, request: Request, current_user: dict = Depends(req
     db = SessionLocal()
 
     try:
+        lock_user_management(db)
         user = db.query(AppUser).filter(AppUser.id == user_id).first()
 
         if not user:
@@ -217,6 +226,7 @@ def delete_user(user_id: int, request: Request, current_user: dict = Depends(req
         deleted_is_active = user.is_active
 
         db.delete(user)
+        ensure_enabled_administrator(db)
         db.commit()
 
         write_security_audit(

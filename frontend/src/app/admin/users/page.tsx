@@ -43,7 +43,16 @@ async function userRequestError(response: Response) {
   if (response.status === 401) return "Session expired. Please sign in again.";
   if (response.status === 403) return "You are not authorized to perform this account operation.";
   if (response.status === 404) return "User not found. Refresh the account list.";
-  if (response.status === 409) return "Username already exists.";
+  if (response.status === 409) {
+    const body = await response.json().catch(() => null);
+    const safeMessages = [
+      "Username already exists.",
+      "At least one enabled administrator must remain.",
+    ];
+    return safeMessages.includes(body?.detail)
+      ? (body.detail as string)
+      : "Account conflict. Refresh the account list and try again.";
+  }
   if (response.status === 400 || response.status === 422) {
     const body = await response.json().catch(() => null);
     const safeMessages = [
