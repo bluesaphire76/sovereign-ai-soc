@@ -1,7 +1,8 @@
 # Sovereign AI SOC v0.9.0 - UX Harmonization
 
-Release candidate: publication awaits the final authenticated public verification.
-See the [release decision](../validation/v0.9.0-release-readiness.md).
+Release approved for publication on 2026-09-13: **GO**. Authenticated public
+verification passed and the observed systemd restart propagation is accepted.
+See the [release decision and publication status](../validation/v0.9.0-release-readiness.md).
 
 v0.9.0 delivers product-wide UX harmonization while preserving existing security,
 investigation and AI governance workflows. UX-01 through UX-12 are user-approved.
@@ -9,7 +10,7 @@ investigation and AI governance workflows. UX-01 through UX-12 are user-approved
 ## Highlights
 
 - Unified enterprise shell, navigation, semantic tokens and shared UI primitives.
-- Harmonized Incident and Case investigation, ownership, closure and AI workflows.
+- Harmonized Incident, Case and Kanban investigation, ownership, closure and AI workflows.
 - Clearer contextual Assistant sources, provenance, grounding and deterministic
   fallback presentation, with keyboard-accessible citations.
 - Consistent Dashboard, Executive, Health and Detection Quality workspaces.
@@ -32,8 +33,11 @@ Observability remains external and restricted to ADMIN/ANALYST.
 Release checks cover full backend regression, real-router account/RBAC tests,
 isolated SQLite and PostgreSQL concurrency, frontend lint/build/TypeScript,
 Chromium responsive/accessibility and protected workflow regression, documentation,
-and current-build JS/CSS/font consistency through Next.js and Nginx. Exact results
-and the public verification gate are recorded in the
+and current-build JS/CSS/font consistency through Next.js and Nginx. Full pytest:
+**1,558 passed, 0 failed**, with all four baseline failures resolved. Chromium:
+60 responsive page/viewport audits plus 100 workflow groups passed. The user also
+confirmed the real authenticated Cloudflare public path. Exact results and
+accepted coverage limitations are recorded in the
 [release-readiness report](../validation/v0.9.0-release-readiness.md).
 
 ## Upgrade

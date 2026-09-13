@@ -2,10 +2,9 @@
 
 This is the canonical documentation entry point for the repository.
 
-The current release candidate is v0.9.0, UX Harmonization. The documentation below
-describes this approved UX baseline unless marked historical. Publication awaits
-the [final release gate](validation/v0.9.0-release-readiness.md); v0.8.0 remains
-the latest published release until then.
+The current release is v0.9.0, UX Harmonization. The documentation below
+describes this release unless marked historical. Authenticated public
+verification passed; see [release readiness and publication status](validation/v0.9.0-release-readiness.md).
 
 ## Start Here
 
@@ -52,7 +51,7 @@ the latest published release until then.
 - `docs/product/`: user-facing behavior, workflows, demos and roadmap.
 - `docs/architecture/`: current architecture, security model and feature design.
 - `docs/operations/`: installation, administration, observability and runbooks.
-- `docs/releases/`: published release history and v0.9.0 candidate notes.
+- `docs/releases/`: published release history and approved v0.9.0 release notes.
 - `docs/ux-harmonization/`: v0.9.0 design system, implementation plan and final summary.
 - `docs/validation/`: historical validation evidence and current validation guides.
 - `docs/diagrams/`: editable Mermaid architecture sources.

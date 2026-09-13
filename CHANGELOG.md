@@ -1,6 +1,9 @@
 # Changelog
 
-## v0.9.0 - Release Candidate
+## v0.9.0 - 2026-09-13
+
+Approved for publication on 2026-09-13. Authenticated Cloudflare verification
+passed; systemd restart propagation is accepted operational behavior.
 
 ### Added
 

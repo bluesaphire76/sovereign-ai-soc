@@ -1,7 +1,7 @@
 # Sovereign AI SOC
 
-![Release candidate](https://img.shields.io/badge/release%20candidate-v0.9.0-2563eb)
-![main](https://img.shields.io/badge/main-v0.8.0%20release-0891b2)
+![Release](https://img.shields.io/badge/latest%20tag-v0.9.0-2563eb)
+![main](https://img.shields.io/badge/main-v0.9.0%20release-0891b2)
 [![Dependency Graph](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/dependabot/update-graph/badge.svg)](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/dependabot/update-graph)
 [![CodeQL](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/github-code-scanning/codeql)
 [![Public CI](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/ci.yml/badge.svg)](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/ci.yml)
@@ -31,10 +31,10 @@ runtime through a single-owner inference gateway. Ollama, OpenRouter, and other
 OpenAI-compatible endpoints remain configurable low-level integrations but are
 not active generation paths in gateway mode.
 
-The current release candidate is `v0.9.0 - UX Harmonization`. UX-01 through
-UX-12 are approved; final public verification and publication remain gated by
-the [release-readiness report](docs/validation/v0.9.0-release-readiness.md).
-The latest published release remains v0.8.0 until that gate passes.
+The current release is `v0.9.0 - UX Harmonization`, including UX-01 through UX-12
+and the final authenticated Cloudflare validation. See the
+[release-readiness report](docs/validation/v0.9.0-release-readiness.md) for evidence
+and the [GitHub Release](https://github.com/bluesaphire76/sovereign-ai-soc/releases/tag/v0.9.0).
 
 ## For First-Time Visitors
 
@@ -576,7 +576,7 @@ Existing release and validation notes:
 | v0.7 | Released | Governed AI providers/data control, semantic memory, Recommended Playbooks, graph/timeline, Detection Control lifecycle, governed connectors, Operation History, Alertmanager/Loki/Alloy and installability |
 | v0.7.1 | Released | Llama.cpp runtime foundation, operational Qdrant memory, HTTPS-first platform access, modular `api.py` composition root and API refactor guardrails |
 | v0.8.0 | Released | Grounded Global, Incident and Case Assistant, compositional authoritative analytics, V3.2 semantic proof and fail-closed publication |
-| v0.9.0 | Release candidate; UX approved | Product-wide UX Harmonization, responsive/accessibility regression and last-enabled-ADMIN protection |
+| v0.9.0 | Released | Product-wide UX Harmonization, responsive/accessibility regression and last-enabled-ADMIN protection |
 
 See [Roadmap](docs/product/roadmap.md).
 

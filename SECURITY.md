@@ -27,8 +27,8 @@ response authority.
 
 | Version | Security support |
 |---|---|
-| `main` / v0.8.0 current baseline | Supported |
-| v0.9.0 release candidate | Last-enabled-ADMIN hardening; publication gate pending |
+| `main` / v0.9.0 current baseline | Supported; last-enabled-ADMIN protection |
+| v0.8.x | Supported |
 | v0.7.x | Supported |
 | v0.6.x | Supported |
 | v0.4-v0.5 | Best-effort critical fixes only |

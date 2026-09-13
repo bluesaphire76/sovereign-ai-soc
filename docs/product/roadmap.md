@@ -1,8 +1,7 @@
 # Roadmap
 
-This roadmap separates published releases from future work. The current candidate
-is `v0.9.0`; [final public verification](../validation/v0.9.0-release-readiness.md)
-is required before publication. The latest published release remains `v0.8.0`.
+This roadmap separates published releases from future work. The current release
+is `v0.9.0`, including [final public verification](../validation/v0.9.0-release-readiness.md).
 
 | Version | Status | Theme | Highlights |
 |---|---:|---|---|
@@ -15,6 +14,7 @@ is required before publication. The latest published release remains `v0.8.0`.
 | v0.7 | Released | Governed AI, semantic memory and operational control | AI providers/OpenRouter, AI Data Control, Qdrant Semantic Memory, Recommended Playbooks, investigation graph, advanced timeline, Detection Control lifecycle/versioning, governed remediation connectors, Operation History, Alertmanager, Loki/Alloy, installability and expanded validation. |
 | v0.7.1 | Released | Runtime, memory and API hardening | Llama.cpp local runtime foundation, operational Qdrant semantic memory, HTTPS-first internal platform access, modular `api.py` composition root and permanent API refactor guardrails. |
 | v0.8.0 | Released | Grounded Assistant and authoritative analytics | Global, Incident and Case Assistant scopes, compositional typed analytics, V3.2 semantic grounding, SQL/RBAC authority and fail-closed publication. |
+| v0.9.0 | Released | UX Harmonization | Shared design system, harmonized SOC workflows, responsive/accessibility validation and last-enabled-ADMIN protection. |
 
 ## Completed Product Themes
 
