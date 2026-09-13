@@ -1,7 +1,8 @@
 # Sovereign AI SOC v0.9.0 - UX Harmonization
 
-Release approved for publication on 2026-09-13: **GO**. Authenticated public
-verification passed and the observed systemd restart propagation is accepted.
+Release approved for publication on 2026-09-13: **GO**, explicitly authorized again
+after dependency hardening. The prior authenticated public verification passed;
+the observed systemd restart propagation is accepted.
 See the [release decision and publication status](../validation/v0.9.0-release-readiness.md).
 
 v0.9.0 delivers product-wide UX harmonization while preserving existing security,
@@ -38,8 +39,12 @@ isolated SQLite and PostgreSQL concurrency, frontend lint/build/TypeScript,
 Chromium responsive/accessibility and protected workflow regression, documentation,
 and current-build JS/CSS/font consistency through Next.js and Nginx. Full pytest:
 **1,558 passed, 0 failed**, with all four baseline failures resolved. Chromium:
-60 responsive page/viewport audits plus 100 workflow groups passed. The user also
-confirmed the real authenticated Cloudflare public path. Exact results and
+60 responsive page/viewport audits plus 100 workflow groups passed again after
+dependency hardening, along with 297 targeted tests and the complete GitHub CI.
+All four Dependabot alerts are fixed. The user confirmed the authenticated
+Cloudflare path before dependency hardening; the patched build was revalidated
+through Next.js and Nginx. A second manual Cloudflare result was not separately
+recorded before the user's final publication instruction. Exact results and
 accepted coverage limitations are recorded in the
 [release-readiness report](../validation/v0.9.0-release-readiness.md).
 
