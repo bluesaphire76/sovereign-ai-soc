@@ -2,10 +2,26 @@
 
 import { downloadBackendFile } from "@/lib/download";
 import { authFetch } from "@/lib/auth";
+import { severityTone, slaTone } from "@/lib/semantic-styles";
 
 import { Component, useCallback, useEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from "react";
 import Link from "next/link";
-import AppNavigation from "../../../components/AppNavigation";
+import AppShell from "@/components/AppShell";
+import CaseSeverityRisk from "@/components/cases/CaseSeverityRisk";
+import IncidentRiskScore from "@/components/incidents/IncidentRiskScore";
+import {
+  EnterpriseBadge,
+  EnterpriseBreadcrumbs,
+  EnterpriseButton,
+  EnterpriseErrorState,
+  EnterpriseMetricCard,
+  EnterpriseMetricStrip,
+  EnterprisePageHeader,
+  EnterprisePanel,
+  EnterpriseSeverityBadge,
+  EnterpriseSkeleton,
+  EnterpriseStatusBadge,
+} from "@/components/enterprise";
 import ContextualAssistantPanel from "../../../components/assistant/ContextualAssistantPanel";
 import InvestigationGraph from "../../../components/investigation-graph/InvestigationGraph";
 import GovernedRemediationPanel, {
@@ -19,11 +35,11 @@ import { fetchCurrentUser, getStoredUser, type AuthUser } from "../../../lib/aut
 import { useParams } from "next/navigation";
 import {
   AlertTriangle,
-  ArrowLeft,
   Bot,
   BookOpen,
   Briefcase,
   CheckCircle2,
+  ChevronDown,
   CircleDashed,
   FileText,
   Loader2,
@@ -272,37 +288,6 @@ type ActionForm = {
   due_at: string;
 };
 
-function severityClass(value: string | null | undefined) {
-  const severity = value ?? "LOW";
-
-  if (severity === "CRITICAL") return "bg-red-100 text-red-800 border-red-200";
-  if (severity === "HIGH") return "bg-orange-100 text-orange-800 border-orange-200";
-  if (severity === "MEDIUM") return "bg-yellow-100 text-yellow-800 border-yellow-200";
-
-  return "bg-emerald-100 text-emerald-800 border-emerald-200";
-}
-
-function statusClass(value: string | null | undefined) {
-  const status = value ?? "OPEN";
-
-  if (status === "ESCALATED") return "bg-red-100 text-red-800 border-red-200";
-  if (status === "TRIAGED") return "bg-blue-100 text-blue-800 border-blue-200";
-  if (status === "CLOSED") return "bg-slate-200 text-slate-800 border-slate-300";
-  if (status === "FALSE_POSITIVE") return "bg-purple-100 text-purple-800 border-purple-200";
-
-  return "bg-cyan-100 text-cyan-800 border-cyan-200";
-}
-
-function slaClass(value: string | null | undefined) {
-  const status = value ?? "NOT_SET";
-
-  if (status === "BREACHED") return "bg-red-100 text-red-800 border-red-200";
-  if (status === "WITHIN_SLA") return "bg-emerald-100 text-emerald-800 border-emerald-200";
-  if (status === "COMPLETED") return "bg-slate-200 text-slate-800 border-slate-300";
-
-  return "bg-slate-100 text-slate-700 border-slate-200";
-}
-
 function timelineEventClass(value: string | null | undefined) {
   const eventType = value ?? "";
 
@@ -379,26 +364,6 @@ function closureFormFromResponse(
     closure_approved: Boolean(checklist?.closure_approved),
     closure_approved_by: checklist?.closure_approved_by ?? "",
   };
-}
-
-function actionStatusClass(value: string | null | undefined) {
-  const status = value ?? "OPEN";
-
-  if (status === "DONE") return "bg-emerald-100 text-emerald-800 border-emerald-200";
-  if (status === "IN_PROGRESS") return "bg-blue-100 text-blue-800 border-blue-200";
-  if (status === "CANCELLED") return "bg-slate-200 text-slate-800 border-slate-300";
-
-  return "bg-cyan-100 text-cyan-800 border-cyan-200";
-}
-
-function actionPriorityClass(value: string | null | undefined) {
-  const priority = value ?? "MEDIUM";
-
-  if (priority === "CRITICAL") return "bg-red-100 text-red-800 border-red-200";
-  if (priority === "HIGH") return "bg-orange-100 text-orange-800 border-orange-200";
-  if (priority === "LOW") return "bg-slate-100 text-slate-700 border-slate-200";
-
-  return "bg-yellow-100 text-yellow-800 border-yellow-200";
 }
 
 function formatTimestamp(value: string | null | undefined) {
@@ -1421,10 +1386,10 @@ function CaseCollapsibleSection({
     <details
       open={open}
       onToggle={(event) => onOpenChange(event.currentTarget.open)}
-      className="rounded-md border border-slate-800 bg-slate-950"
+      className="rounded-sm border border-slate-800 bg-slate-950"
       id={id}
     >
-      <summary className="cursor-pointer list-none px-3 py-2 hover:bg-slate-900/60">
+      <summary className="cursor-pointer list-none px-3 py-2 outline-none hover:bg-slate-900/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-400/40">
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="flex items-center gap-2 text-xs font-semibold text-slate-100">
@@ -1436,9 +1401,12 @@ function CaseCollapsibleSection({
             )}
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <span className="text-[10px] uppercase tracking-wide text-cyan-300">
-              {open ? "Close" : "Open"}
-            </span>
+            <ChevronDown
+              aria-hidden="true"
+              className={`h-3.5 w-3.5 text-cyan-300 transition-transform ${
+                open ? "rotate-180" : ""
+              }`}
+            />
           </div>
         </div>
       </summary>
@@ -2122,6 +2090,10 @@ function CaseDetailPageContent({ caseId }: { caseId: string }) {
       return;
     }
 
+    if (action !== "PREPARE_CLOSURE" && !assertCanOperate()) {
+      return;
+    }
+
     try {
       setQuickActionRunning(action);
       setError(null);
@@ -2443,14 +2415,19 @@ function CaseDetailPageContent({ caseId }: { caseId: string }) {
   const closureReady = Boolean(caseClosure?.ready_to_close);
   const hasAIAnalysis = Boolean(caseAnalysis);
   const caseAnalysisAction = canOperate ? (
-    <button
+    <EnterpriseButton
       onClick={handleGenerateAnalysis}
       disabled={generatingAnalysis}
-      className="inline-flex items-center gap-2 rounded-md border border-cyan-500 bg-cyan-500 px-3 py-1.5 text-xs font-medium text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
+      tone="primary"
+      size="xs"
+      icon={
+        generatingAnalysis ? (
+          <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
+        ) : undefined
+      }
     >
-      {generatingAnalysis && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
       {generatingAnalysis ? "Generating..." : caseAnalysis ? "Regenerate AI analysis" : "Generate AI analysis"}
-    </button>
+    </EnterpriseButton>
   ) : null;
   const governedRecommendations: GovernedRemediationRecommendation[] = [
     ...aiActionSuggestions.map((suggestion) => ({
@@ -2472,210 +2449,74 @@ function CaseDetailPageContent({ caseId }: { caseId: string }) {
   ].filter((item) => item.title);
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto max-w-[1600px] px-4 py-4">
-        <AppNavigation />
-        <header className="mb-2">
-          <Link
-            href="/cases"
-            className="mb-3 inline-flex items-center gap-2 text-xs text-cyan-300 hover:text-cyan-200"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back to cases
-          </Link>
+    <AppShell>
+      <EnterprisePageHeader
+        breadcrumbs={
+          <EnterpriseBreadcrumbs
+            items={[
+              { label: "Dashboard", href: "/" },
+              { label: "Cases", href: "/cases" },
+              { label: `Case #${caseId}` },
+            ]}
+          />
+        }
+        eyebrow="Investigation case"
+        title={caseData ? `Case #${caseId}: ${caseData.title}` : `Case #${caseId}`}
+        description={
+          caseData?.summary ||
+          "Case investigation detail, workflow, evidence, actions and closure readiness."
+        }
+        icon={<Briefcase aria-hidden="true" className="h-3.5 w-3.5" />}
+        status={
+          caseData ? (
+            <EnterpriseStatusBadge value={caseData.status ?? "OPEN"} size="compact" />
+          ) : null
+        }
+        metadata={
+          caseData ? (
+            <>
+              <CaseSeverityRisk
+                severity={caseData.severity_review ?? caseData.severity}
+                score={caseData.risk_score}
+              />
+              <EnterpriseBadge tone="neutral" size="compact">
+                Host {caseData.agent ?? "unknown"}
+              </EnterpriseBadge>
+              <EnterpriseBadge tone="neutral" size="compact">
+                Correlation {caseData.correlation_type ?? "unknown"}
+              </EnterpriseBadge>
+              <EnterpriseBadge tone="neutral" size="compact">
+                Opened {formatTimestamp(caseData.created_at)}
+              </EnterpriseBadge>
+            </>
+          ) : null
+        }
+        density="compact"
+        secondaryActions={
+          <EnterpriseButton href="/cases" tone="secondary" size="xs">
+            Queue view
+          </EnterpriseButton>
+        }
+      />
 
-          <div className="mb-1 flex items-center gap-2 text-xs text-cyan-300">
-            <Briefcase className="h-4 w-4" />
-            Investigation case
-          </div>
+      {loading && (
+        <EnterprisePanel className="mb-3">
+          <EnterpriseSkeleton label="Loading case" rows={6} />
+        </EnterprisePanel>
+      )}
 
-          <h1 className="text-xl font-semibold tracking-tight">
-            Case #{caseId}
-          </h1>
-
-          {caseData && (
-            <div className="mt-2 flex flex-wrap items-center gap-1.5">
-              <span className="rounded-full border border-slate-800 bg-slate-900/70 px-2.5 py-1 text-[11px] text-slate-400">
-                Host{" "}
-                <span className="font-medium text-slate-200">
-                  {caseData.agent ?? "unknown"}
-                </span>
-              </span>
-
-              <span className="rounded-full border border-slate-800 bg-slate-900/70 px-2.5 py-1 text-[11px] text-slate-400">
-                Correlation{" "}
-                <span className="font-medium text-slate-200">
-                  {caseData.correlation_type ?? "unknown"}
-                </span>
-              </span>
-
-              <span className="rounded-full border border-slate-800 bg-slate-900/70 px-2.5 py-1 text-[11px] text-slate-400">
-                Opened{" "}
-                <span className="font-medium text-slate-200">
-                  {formatTimestamp(caseData.created_at)}
-                </span>
-              </span>
-            </div>
-          )}
-
-
-        </header>
-
-        {loading && (
-          <div className="rounded-lg border border-slate-800 bg-slate-900 p-3 text-slate-300">
-            Loading case...
-          </div>
-        )}
-
-        {error && (
-          <div className="whitespace-pre-wrap rounded-lg border border-red-800 bg-red-950/60 p-3 text-sm text-red-200">
-            Operation error: {error}
-          </div>
-        )}
+      {error && (
+        <EnterpriseErrorState
+          title="Case operation failed"
+          message={error}
+          onRetry={loadCase}
+          className="mb-3 whitespace-pre-wrap"
+        />
+      )}
 
         {caseData && (
           <div className="space-y-3" data-case-focus="ALL">
             <style>{`
-              /*
-                AI SOC case detail enterprise alignment.
-                Conservative scoped density layer: keeps all workflows intact,
-                but aligns visual density with Dashboard / Kanban / Executive.
-              */
-
-              [data-case-focus] section {
-                padding: 0.75rem !important;
-                border-radius: 0.75rem !important;
-              }
-
-              [data-case-focus] section > div:first-child {
-                margin-bottom: 0.5rem !important;
-              }
-
-              [data-case-focus] h2 {
-                font-size: 0.875rem !important;
-                line-height: 1.25rem !important;
-                font-weight: 600 !important;
-              }
-
-              [data-case-focus] h3,
-              [data-case-focus] h4 {
-                font-size: 0.8125rem !important;
-                line-height: 1.15rem !important;
-                font-weight: 600 !important;
-              }
-
-              [data-case-focus] p {
-                font-size: 0.75rem !important;
-                line-height: 1.15rem !important;
-              }
-
-              [data-case-focus] input,
-              [data-case-focus] select {
-                height: 2rem !important;
-                min-height: 2rem !important;
-                padding: 0.25rem 0.5rem !important;
-                border-radius: 0.5rem !important;
-                font-size: 0.75rem !important;
-              }
-
-              [data-case-focus] textarea {
-                min-height: 4rem !important;
-                padding: 0.375rem 0.5rem !important;
-                border-radius: 0.5rem !important;
-                font-size: 0.75rem !important;
-                line-height: 1.15rem !important;
-              }
-
-              [data-case-focus] button,
-              [data-case-focus] a[download],
-              [data-case-focus] a[href^="#"] {
-                min-height: 2rem !important;
-                padding: 0.375rem 0.625rem !important;
-                border-radius: 0.5rem !important;
-                font-size: 0.75rem !important;
-                line-height: 1rem !important;
-              }
-
-              [data-case-focus] pre {
-                font-size: 0.75rem !important;
-                line-height: 1.15rem !important;
-                padding: 0.75rem !important;
-                border-radius: 0.5rem !important;
-              }
-
-              [data-case-focus] table {
-                font-size: 0.75rem !important;
-              }
-
-              [data-case-focus] th,
-              [data-case-focus] td {
-                padding-top: 0.375rem !important;
-                padding-bottom: 0.375rem !important;
-                padding-right: 0.625rem !important;
-              }
-
-              [data-case-focus] .rounded-lg {
-                border-radius: 0.75rem !important;
-              }
-
-              [data-case-focus] .rounded-md {
-                border-radius: 0.625rem !important;
-              }
-
-              [data-case-focus] .p-6,
-              [data-case-focus] .p-5,
-              [data-case-focus] .p-4 {
-                padding: 0.75rem !important;
-              }
-
-              [data-case-focus] .gap-6,
-              [data-case-focus] .gap-5,
-              [data-case-focus] .gap-4 {
-                gap: 0.75rem !important;
-              }
-
-              [data-case-focus] .space-y-3 > :not([hidden]) ~ :not([hidden]),
-              [data-case-focus] .space-y-3 > :not([hidden]) ~ :not([hidden]),
-              [data-case-focus] .space-y-3 > :not([hidden]) ~ :not([hidden]) {
-                margin-top: 0.75rem !important;
-              }
-
-              [data-case-focus] .text-xl,
-              [data-case-focus] .text-lg {
-                font-size: 1.125rem !important;
-                line-height: 1.5rem !important;
-              }
-
-              [data-case-focus] .text-xl,
-              [data-case-focus] .text-lg,
-              [data-case-focus] .text-base {
-                font-size: 0.875rem !important;
-                line-height: 1.25rem !important;
-              }
-
-              [data-case-focus] .text-sm {
-                font-size: 0.75rem !important;
-                line-height: 1.15rem !important;
-              }
-
-              [data-case-focus] .max-h-96 {
-                max-height: 14rem !important;
-              }
-
-              [data-case-focus] .max-h-72 {
-                max-height: 12rem !important;
-              }
-
-              [data-case-focus] .max-h-48 {
-                max-height: 8rem !important;
-              }
-
-              /*
-                Enterprise density mode for case detail.
-                This keeps the existing layout and logic intact while reducing
-                vertical space, card size, control height and font size.
-              */
-
               [data-case-focus] section {
                 padding: 0.75rem !important;
                 border-radius: 0.75rem !important;
@@ -2698,7 +2539,8 @@ function CaseDetailPageContent({ caseId }: { caseId: string }) {
                 font-weight: 600 !important;
               }
 
-              [data-case-focus] p {
+              [data-case-focus] p,
+              [data-case-focus] .text-sm {
                 font-size: 0.75rem !important;
                 line-height: 1.15rem !important;
               }
@@ -2762,6 +2604,7 @@ function CaseDetailPageContent({ caseId }: { caseId: string }) {
                 border-radius: 0.625rem !important;
               }
 
+              [data-case-focus] .p-6,
               [data-case-focus] .p-5,
               [data-case-focus] .p-4 {
                 padding: 0.75rem !important;
@@ -2777,6 +2620,8 @@ function CaseDetailPageContent({ caseId }: { caseId: string }) {
                 padding-bottom: 0.375rem !important;
               }
 
+              [data-case-focus] .gap-6,
+              [data-case-focus] .gap-5,
               [data-case-focus] .gap-4 {
                 gap: 0.75rem !important;
               }
@@ -2795,31 +2640,19 @@ function CaseDetailPageContent({ caseId }: { caseId: string }) {
                 margin-bottom: 0.75rem !important;
               }
 
-              [data-case-focus] .space-y-3 > :not([hidden]) ~ :not([hidden]),
               [data-case-focus] .space-y-3 > :not([hidden]) ~ :not([hidden]) {
                 margin-top: 0.75rem !important;
-              }
-
-              [data-case-focus] .text-lg,
-              [data-case-focus] .text-base {
-                font-size: 0.875rem !important;
-                line-height: 1.25rem !important;
-              }
-
-              [data-case-focus] .text-sm {
-                font-size: 0.75rem !important;
-                line-height: 1.15rem !important;
-              }
-
-              [data-case-focus] .text-xl {
-                font-size: 1rem !important;
-                line-height: 1.35rem !important;
               }
 
               [data-case-focus] .text-xl,
               [data-case-focus] .text-lg {
                 font-size: 1.125rem !important;
                 line-height: 1.5rem !important;
+              }
+
+              [data-case-focus] .text-base {
+                font-size: 0.875rem !important;
+                line-height: 1.25rem !important;
               }
 
               [data-case-focus] [class*="px-3"][class*="py-1"] {
@@ -2832,50 +2665,95 @@ function CaseDetailPageContent({ caseId }: { caseId: string }) {
                 max-height: 14rem !important;
               }
 
+              [data-case-focus] .max-h-72 {
+                max-height: 12rem !important;
+              }
+
               [data-case-focus] .max-h-48 {
                 max-height: 8rem !important;
               }
-
-              [data-case-focus="OVERVIEW"] #case-workflow,
-              [data-case-focus="OVERVIEW"] #case-action-plan,
-              [data-case-focus="OVERVIEW"] #case-closure-checklist,
-              [data-case-focus="OVERVIEW"] #case-timeline,
-              [data-case-focus="OVERVIEW"] #case-audit,
-              [data-case-focus="OVERVIEW"] #related-incidents {
-                display: none;
-              }
-
-              [data-case-focus="WORKBENCH"] #reports-center,
-              [data-case-focus="WORKBENCH"] #case-investigation-graph,
-              [data-case-focus="WORKBENCH"] #case-timeline,
-              [data-case-focus="WORKBENCH"] #case-audit,
-              [data-case-focus="WORKBENCH"] #related-incidents {
-                display: none;
-              }
-
-              [data-case-focus="EVIDENCE"] #reports-center,
-              [data-case-focus="EVIDENCE"] #case-workflow,
-              [data-case-focus="EVIDENCE"] #case-action-plan,
-              [data-case-focus="EVIDENCE"] #case-closure-checklist {
-                display: none;
-              }
-
-              [data-case-focus="REPORTS"] #case-workflow,
-              [data-case-focus="REPORTS"] #case-action-plan,
-              [data-case-focus="REPORTS"] #case-closure-checklist,
-              [data-case-focus="REPORTS"] #case-investigation-graph,
-              [data-case-focus="REPORTS"] #case-timeline,
-              [data-case-focus="REPORTS"] #case-audit,
-              [data-case-focus="REPORTS"] #related-incidents {
-                display: none;
-              }
             `}</style>
-            <section className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-              <InfoCard title="Host" value={caseData.agent ?? "unknown"} />
-              <InfoCard title="Incidents" value={caseData.incident_count} />
-              <InfoCard title="Risk score" value={caseData.risk_score ?? 0} />
-              <InfoCard title="Updated" value={formatTimestamp(caseData.updated_at)} />
-            </section>
+            <EnterpriseMetricStrip className="lg:grid-cols-3 2xl:grid-cols-6">
+              <EnterpriseMetricCard
+                title="Host"
+                value={caseData.agent ?? "unknown"}
+                subtitle="Primary case entity"
+                tone="neutral"
+              />
+              <EnterpriseMetricCard
+                title="Linked incidents"
+                value={
+                  <button
+                    type="button"
+                    onClick={() => openAndScrollToCaseSection("related-incidents")}
+                    className="rounded-sm text-cyan-300 hover:text-cyan-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-400"
+                    aria-label={`Open ${caseData.incident_count} linked incidents`}
+                  >
+                    {caseData.incident_count}
+                  </button>
+                }
+                subtitle="Investigation signals"
+                tone="primary"
+              />
+              <EnterpriseMetricCard
+                title="Owner"
+                value={caseData.owner ?? "unassigned"}
+                subtitle={`Assignee: ${caseData.assignee ?? "unassigned"}`}
+                tone={caseData.owner ? "neutral" : "warning"}
+              />
+              <EnterpriseMetricCard
+                title="SLA"
+                value={slaLabel(caseData.sla_status)}
+                subtitle={
+                  caseData.sla_due_at
+                    ? `Due ${formatTimestamp(caseData.sla_due_at)}`
+                    : "No due date"
+                }
+                tone={slaTone(caseData.sla_status)}
+              />
+              <EnterpriseMetricCard
+                title="Closure readiness"
+                value={closureReady ? "Ready" : "Blocked"}
+                subtitle={
+                  closureReady
+                    ? "Requirements complete"
+                    : `${caseClosure?.missing_items.length ?? 0} requirement(s) missing`
+                }
+                tone={closureReady ? "success" : "warning"}
+              />
+              <EnterpriseMetricCard
+                title="Updated"
+                value={formatTimestamp(caseData.updated_at)}
+                subtitle={`Created by ${caseData.created_by ?? "unknown"}`}
+                tone="neutral"
+              />
+            </EnterpriseMetricStrip>
+
+            <EnterprisePanel
+              title="Case context"
+              description="Authoritative case metadata and analyst workflow context."
+            >
+              <dl className="grid gap-x-4 gap-y-2 sm:grid-cols-2 xl:grid-cols-4">
+                <CaseMetadataRow label="Group key" value={caseData.group_key} />
+                <CaseMetadataRow
+                  label="Correlation type"
+                  value={caseData.correlation_type ?? "unknown"}
+                />
+                <CaseMetadataRow
+                  label="Last reviewed by"
+                  value={caseData.last_reviewed_by ?? "-"}
+                />
+                <CaseMetadataRow
+                  label="Last reviewed"
+                  value={formatTimestamp(caseData.last_reviewed_at)}
+                />
+                <CaseMetadataRow
+                  label="Status reason"
+                  value={caseData.status_reason ?? "No analyst status reason recorded."}
+                  className="sm:col-span-2 xl:col-span-4"
+                />
+              </dl>
+            </EnterprisePanel>
             <CaseCommandCenter
               caseData={caseData}
               actionCount={caseActions.length}
@@ -2887,6 +2765,7 @@ function CaseDetailPageContent({ caseId }: { caseId: string }) {
 
             <CaseQuickActions
               caseData={caseData}
+              canOperate={canOperate}
               actionCount={caseActions.length}
               openActionCount={openActionCount}
               closureReady={closureReady}
@@ -3063,13 +2942,14 @@ function CaseDetailPageContent({ caseId }: { caseId: string }) {
                   {formatTimestamp(caseData.last_reviewed_at)}
                 </div>
 
-                <button
+                <EnterpriseButton
                   onClick={handleSaveWorkflow}
                   disabled={savingWorkflow}
-                  className="rounded-md border border-cyan-500 bg-cyan-500 px-3 py-1.5 text-xs font-medium text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
+                  tone="primary"
+                  size="xs"
                 >
                   {savingWorkflow ? "Saving..." : "Save workflow"}
-                </button>
+                </EnterpriseButton>
               </div>
             </CaseCollapsibleSection>
             <CaseCollapsibleSection
@@ -3093,14 +2973,19 @@ function CaseDetailPageContent({ caseId }: { caseId: string }) {
                     </p>
                   </div>
 
-                  <button
+                  <EnterpriseButton
                     onClick={handleGenerateActionSuggestions}
                     disabled={generatingSuggestions}
-                    className="inline-flex items-center gap-2 rounded-md border border-cyan-500 bg-cyan-500 px-3 py-1.5 text-xs font-medium text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
+                    tone="primary"
+                    size="xs"
+                    icon={
+                      generatingSuggestions ? (
+                        <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
+                      ) : undefined
+                    }
                   >
-                    {generatingSuggestions && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                     {generatingSuggestions ? "Generating..." : "Generate AI action plan"}
-                  </button>
+                  </EnterpriseButton>
                 </div>
 
                 {generatingSuggestions && (
@@ -3126,17 +3011,17 @@ function CaseDetailPageContent({ caseId }: { caseId: string }) {
                         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                           <div>
                             <div className="mb-2 flex flex-wrap items-center gap-2">
-                              <span
-                                className={`rounded-full border px-2 py-0.5 text-[11px] ${actionPriorityClass(
-                                  suggestion.priority
-                                )}`}
+                              <EnterpriseBadge
+                                tone={severityTone(suggestion.priority)}
+                                size="compact"
+                                aria-label={`Priority: ${suggestion.priority || "MEDIUM"}`}
                               >
                                 {suggestion.priority || "MEDIUM"}
-                              </span>
+                              </EnterpriseBadge>
 
-                              <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-0.5 text-[11px] text-slate-300">
+                              <EnterpriseBadge tone="neutral" size="compact">
                                 {suggestion.category || "INVESTIGATION"}
-                              </span>
+                              </EnterpriseBadge>
                             </div>
 
                             <h4 className="text-sm font-semibold text-slate-100">
@@ -3153,17 +3038,18 @@ function CaseDetailPageContent({ caseId }: { caseId: string }) {
                             </div>
                           </div>
 
-                          <button
+                          <EnterpriseButton
                             onClick={() =>
                               handleCreateActionFromSuggestion(suggestion, index)
                             }
                             disabled={creatingSuggestionIndex === index}
-                            className="rounded-md border border-emerald-500 bg-emerald-500 px-3 py-1.5 text-xs font-medium text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
+                            tone="success"
+                            size="xs"
                           >
                             {creatingSuggestionIndex === index
                               ? "Creating..."
                               : "Create action"}
-                          </button>
+                          </EnterpriseButton>
                         </div>
                       </div>
                     ))}
@@ -3275,13 +3161,14 @@ function CaseDetailPageContent({ caseId }: { caseId: string }) {
                 </label>
 
                 <div className="mt-2 flex justify-end">
-                  <button
+                  <EnterpriseButton
                     onClick={handleCreateAction}
                     disabled={creatingAction}
-                    className="rounded-md border border-cyan-500 bg-cyan-500 px-3 py-1.5 text-xs font-medium text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
+                    tone="primary"
+                    size="xs"
                   >
                     {creatingAction ? "Creating..." : "Add action"}
-                  </button>
+                  </EnterpriseButton>
                 </div>
               </div>
 
@@ -3299,23 +3186,17 @@ function CaseDetailPageContent({ caseId }: { caseId: string }) {
                       <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                         <div>
                           <div className="mb-2 flex flex-wrap items-center gap-2">
-                            <span
-                              className={`rounded-full border px-2 py-0.5 text-[11px] ${actionStatusClass(
-                                action.status
-                              )}`}
-                            >
-                              {action.status}
-                            </span>
-                            <span
-                              className={`rounded-full border px-2 py-0.5 text-[11px] ${actionPriorityClass(
-                                action.priority
-                              )}`}
+                            <EnterpriseStatusBadge value={action.status} size="compact" />
+                            <EnterpriseBadge
+                              tone={severityTone(action.priority)}
+                              size="compact"
+                              aria-label={`Priority: ${action.priority}`}
                             >
                               {action.priority}
-                            </span>
-                            <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-0.5 text-[11px] text-slate-300">
+                            </EnterpriseBadge>
+                            <EnterpriseBadge tone="neutral" size="compact">
                               {action.category}
-                            </span>
+                            </EnterpriseBadge>
                           </div>
 
                           <h3 className="text-sm font-semibold text-slate-100">
@@ -3399,12 +3280,14 @@ function CaseDetailPageContent({ caseId }: { caseId: string }) {
                     </div>
 
                     {caseTimeline.length > 12 && (
-                      <button
+                      <EnterpriseButton
                         onClick={() => setTimelineExpanded((current) => !current)}
-                        className="w-fit rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800"
+                        tone="secondary"
+                        size="xs"
+                        ariaPressed={timelineExpanded}
                       >
                         {timelineExpanded ? "Show latest only" : "Show all events"}
-                      </button>
+                      </EnterpriseButton>
                     )}
                   </div>
 
@@ -3444,27 +3327,27 @@ function CaseDetailPageContent({ caseId }: { caseId: string }) {
 
                           <div className="mt-3 flex flex-wrap gap-2 text-xs">
                             {item.status && (
-                              <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">
+                              <EnterpriseStatusBadge value={item.status} size="compact">
                                 Status: {item.status}
-                              </span>
+                              </EnterpriseStatusBadge>
                             )}
 
                             {item.severity && (
-                              <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">
+                              <EnterpriseSeverityBadge value={item.severity} size="compact">
                                 Severity: {item.severity}
-                              </span>
+                              </EnterpriseSeverityBadge>
                             )}
 
                             {item.actor && (
-                              <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">
+                              <EnterpriseBadge tone="neutral" size="compact">
                                 Actor: {item.actor}
-                              </span>
+                              </EnterpriseBadge>
                             )}
 
                             {item.source && (
-                              <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">
+                              <EnterpriseBadge tone="neutral" size="compact">
                                 Source: {item.source}
-                              </span>
+                              </EnterpriseBadge>
                             )}
                           </div>
                         </div>
@@ -3512,14 +3395,16 @@ function CaseDetailPageContent({ caseId }: { caseId: string }) {
                     </div>
 
                     {incidents.length > 15 && (
-                      <button
+                      <EnterpriseButton
                         onClick={() =>
                           setRelatedIncidentsExpanded((current) => !current)
                         }
-                        className="w-fit rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800"
+                        tone="secondary"
+                        size="xs"
+                        ariaPressed={relatedIncidentsExpanded}
                       >
                         {relatedIncidentsExpanded ? "Show latest only" : "Show all incidents"}
-                      </button>
+                      </EnterpriseButton>
                     )}
                   </div>
 
@@ -3553,13 +3438,10 @@ function CaseDetailPageContent({ caseId }: { caseId: string }) {
                             </td>
 
                             <td className="py-3 pr-4">
-                              <span
-                                className={`rounded-full border px-2 py-0.5 text-[11px] ${statusClass(
-                                  incident.status
-                                )}`}
-                              >
-                                {incident.status ?? "NEW"}
-                              </span>
+                              <EnterpriseStatusBadge
+                                value={incident.status ?? "NEW"}
+                                size="compact"
+                              />
                             </td>
 
                             <td className="py-3 pr-4 text-slate-400">
@@ -3574,7 +3456,7 @@ function CaseDetailPageContent({ caseId }: { caseId: string }) {
                             <td className="py-3 pr-4">{incident.level ?? 0}</td>
 
                             <td className="py-3 pr-4">
-                              {incident.risk_score ?? 0}
+                              <IncidentRiskScore score={incident.risk_score} />
                             </td>
 
                             <td className="py-3 pr-4 text-slate-400">
@@ -3898,13 +3780,14 @@ function CaseDetailPageContent({ caseId }: { caseId: string }) {
                   {formatTimestamp(caseClosure?.checklist?.reviewed_at)}
                 </div>
 
-                <button
+                <EnterpriseButton
                   onClick={handleSaveClosureChecklist}
                   disabled={savingClosureChecklist}
-                  className="rounded-md border border-cyan-500 bg-cyan-500 px-3 py-1.5 text-xs font-medium text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
+                  tone="primary"
+                  size="xs"
                 >
                   {savingClosureChecklist ? "Saving..." : "Save closure checklist"}
-                </button>
+                </EnterpriseButton>
               </div>
             </CaseCollapsibleSection>
             <CaseCollapsibleSection
@@ -3939,12 +3822,14 @@ function CaseDetailPageContent({ caseId }: { caseId: string }) {
                     </div>
 
                     {auditTrail.length > 10 && (
-                      <button
+                      <EnterpriseButton
                         onClick={() => setAuditTrailExpanded((current) => !current)}
-                        className="w-fit rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800"
+                        tone="secondary"
+                        size="xs"
+                        ariaPressed={auditTrailExpanded}
                       >
                         {auditTrailExpanded ? "Show latest only" : "Show all audit events"}
-                      </button>
+                      </EnterpriseButton>
                     )}
                   </div>
 
@@ -4051,8 +3936,7 @@ function CaseDetailPageContent({ caseId }: { caseId: string }) {
 
           </div>
         )}
-      </div>
-    </main>
+    </AppShell>
   );
 }
 
@@ -4062,6 +3946,7 @@ function CaseDetailPageContent({ caseId }: { caseId: string }) {
 
 function CaseQuickActions({
   caseData,
+  canOperate,
   actionCount,
   openActionCount,
   closureReady,
@@ -4072,6 +3957,7 @@ function CaseQuickActions({
   onAction,
 }: {
   caseData: IncidentCase;
+  canOperate: boolean;
   actionCount: number;
   openActionCount: number;
   closureReady: boolean;
@@ -4103,9 +3989,7 @@ function CaseQuickActions({
           </p>
         </div>
 
-        <span className="w-fit rounded-full border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-300">
-          Status {status}
-        </span>
+        <EnterpriseStatusBadge value={status}>Status {status}</EnterpriseStatusBadge>
       </div>
 
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8">
@@ -4114,7 +3998,7 @@ function CaseQuickActions({
           description="Take ownership as the signed-in user."
           action="ASSIGN_TO_ME"
           running={quickActionRunning}
-          disabled={isTerminal}
+          disabled={!canOperate || isTerminal}
           onAction={onAction}
         />
 
@@ -4123,7 +4007,7 @@ function CaseQuickActions({
           description="Set status to INVESTIGATING and assign owner if missing."
           action="START_INVESTIGATION"
           running={quickActionRunning}
-          disabled={isTerminal}
+          disabled={!canOperate || isTerminal}
           onAction={onAction}
         />
 
@@ -4132,7 +4016,7 @@ function CaseQuickActions({
           description="Move the case to ESCALATED for senior review."
           action="ESCALATE_CASE"
           running={quickActionRunning}
-          disabled={isTerminal}
+          disabled={!canOperate || isTerminal}
           danger
           onAction={onAction}
         />
@@ -4146,7 +4030,7 @@ function CaseQuickActions({
           }
           action="GENERATE_AI_ANALYSIS"
           running={quickActionRunning ?? (generatingAnalysis ? "GENERATE_AI_ANALYSIS" : null)}
-          disabled={false}
+          disabled={!canOperate}
           onAction={onAction}
         />
 
@@ -4155,7 +4039,7 @@ function CaseQuickActions({
           description="Suggest analyst tasks from the current case evidence."
           action="GENERATE_AI_ACTION_PLAN"
           running={quickActionRunning ?? (generatingSuggestions ? "GENERATE_AI_ACTION_PLAN" : null)}
-          disabled={isTerminal}
+          disabled={!canOperate || isTerminal}
           onAction={onAction}
         />
 
@@ -4177,7 +4061,7 @@ function CaseQuickActions({
           }
           action="CLOSE_CASE"
           running={quickActionRunning}
-          disabled={isTerminal}
+          disabled={!canOperate || isTerminal}
           success={closureReady}
           danger={!closureReady}
           onAction={onAction}
@@ -4245,7 +4129,7 @@ function QuickActionButton({
       type="button"
       onClick={() => onAction(action)}
       disabled={disabled || isAnyRunning}
-      className={`flex min-h-20 flex-col justify-between rounded-md border p-2.5 text-left transition disabled:cursor-not-allowed disabled:opacity-40 ${className}`}
+      className={`flex min-h-20 flex-col justify-between rounded-md border p-2.5 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-400 disabled:cursor-not-allowed disabled:opacity-40 ${className}`}
     >
       <div className="flex items-center gap-1.5 truncate text-xs font-semibold">
         {isRunning && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />}
@@ -4277,7 +4161,7 @@ function CaseCommandCenter({
   closureReady: boolean;
   hasAIAnalysis: boolean;
 }) {
-  const effectiveSeverity = caseData.severity_review ?? caseData.severity ?? "LOW";
+  const effectiveSeverity = caseData.severity_review ?? caseData.severity;
 
   return (
     <section className="rounded-lg border border-cyan-900/60 bg-cyan-950/10 p-3 shadow-lg">
@@ -4290,15 +4174,14 @@ function CaseCommandCenter({
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <span className={`rounded-full border px-2 py-0.5 text-[11px] ${statusClass(caseData.status)}`}>
-            {caseData.status ?? "OPEN"}
-          </span>
-          <span className={`rounded-full border px-2 py-0.5 text-[11px] ${severityClass(effectiveSeverity)}`}>
-            {effectiveSeverity}
-          </span>
-          <span className={`rounded-full border px-2 py-0.5 text-[11px] ${slaClass(caseData.sla_status)}`}>
+          <EnterpriseStatusBadge value={caseData.status ?? "OPEN"} size="compact" />
+          <CaseSeverityRisk
+            severity={effectiveSeverity}
+            score={caseData.risk_score}
+          />
+          <EnterpriseStatusBadge value={caseData.sla_status ?? "NOT_SET"} size="compact">
             SLA {slaLabel(caseData.sla_status)}
-          </span>
+          </EnterpriseStatusBadge>
         </div>
       </div>
 
@@ -4419,14 +4302,14 @@ function ReportDownloadCard({
           ? "border-slate-700 bg-slate-950 text-slate-300"
           : "border-cyan-800 bg-cyan-950/30 text-cyan-200";
 
-  const buttonClass =
+  const buttonTone =
     tone === "executive"
-      ? "border-violet-700 bg-violet-500 text-white hover:bg-violet-400"
+      ? "executive"
       : tone === "evidence"
-        ? "border-emerald-700 bg-emerald-500 text-slate-950 hover:bg-emerald-400"
+        ? "success"
         : tone === "json"
-          ? "border-slate-700 bg-slate-800 text-slate-100 hover:bg-slate-700"
-          : "border-cyan-700 bg-cyan-500 text-slate-950 hover:bg-cyan-400";
+          ? "secondary"
+          : "primary";
 
   return (
     <div className={`flex h-full min-h-28 flex-col rounded-md border p-2.5 ${toneClass}`}>
@@ -4444,35 +4327,36 @@ function ReportDownloadCard({
       </div>
 
       <div className="mt-auto pt-2">
-        <button
-          type="button"
+        <EnterpriseButton
           onClick={() =>
             downloadBackendFile(href, fallbackFilename).catch((error) => alert(error.message))
           }
-          className={`inline-flex h-7 w-full items-center justify-center gap-2 rounded-md border px-2 text-[11px] font-medium shadow-sm ${buttonClass}`}
+          tone={buttonTone}
+          size="xs"
+          className="h-7 w-full text-[11px]"
         >
           Download
-        </button>
+        </EnterpriseButton>
       </div>
     </div>
   );
 }
 
-function InfoCard({
-  title,
+function CaseMetadataRow({
+  label,
   value,
+  className,
 }: {
-  title: string;
+  label: string;
   value: string | number;
+  className?: string;
 }) {
   return (
-    <div className="flex h-16 min-w-0 flex-col justify-between rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2">
-      <div className="truncate text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-        {title}
-      </div>
-      <div className="truncate text-sm font-semibold text-slate-100">
-        {value}
-      </div>
+    <div className={`min-w-0 border-b border-slate-900 pb-2 ${className ?? ""}`}>
+      <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+        {label}
+      </dt>
+      <dd className="mt-0.5 break-words text-xs text-slate-300">{value}</dd>
     </div>
   );
 }

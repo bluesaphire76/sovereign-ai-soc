@@ -1,17 +1,30 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import {
   AlertTriangle,
   ChevronLeft,
   ChevronRight,
   History,
   RefreshCw,
-  Search,
   XCircle,
 } from "lucide-react";
-import AppNavigation from "../../../components/AppNavigation";
+import AppShell from "@/components/AppShell";
+import {
+  EnterpriseBadge,
+  EnterpriseBreadcrumbs,
+  EnterpriseButton,
+  EnterpriseEmptyState,
+  EnterpriseErrorState,
+  EnterpriseMetricCard,
+  EnterpriseMetricStrip,
+  EnterprisePageHeader,
+  EnterprisePanel,
+  EnterpriseSearchInput,
+  EnterpriseSelect,
+  EnterpriseSkeleton,
+  EnterpriseStatusBadge,
+} from "../../../components/enterprise";
 import { authFetch, fetchCurrentUser, type AuthUser } from "../../../lib/auth";
 
 type ServiceOperation = {
@@ -92,24 +105,6 @@ function formatDate(value: string | null | undefined) {
   } catch {
     return value;
   }
-}
-
-function statusTone(status: string) {
-  const normalized = status.toLowerCase();
-
-  if (normalized === "running" || normalized === "success") {
-    return "border-emerald-800 bg-emerald-950/60 text-emerald-200";
-  }
-
-  if (normalized === "failed" || normalized === "unsupported") {
-    return "border-red-800 bg-red-950/60 text-red-200";
-  }
-
-  if (normalized === "denied") {
-    return "border-amber-800 bg-amber-950/60 text-amber-200";
-  }
-
-  return "border-slate-700 bg-slate-900 text-slate-300";
 }
 
 async function fetchOperations(queryString: string): Promise<OperationsResponse> {
@@ -220,61 +215,65 @@ export default function OperationHistoryPage() {
   const restarts = operations.filter((item) => item.operation_type === "restart").length;
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto max-w-[1600px] px-4 py-4">
-        <AppNavigation />
-
-        <header className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div>
-            <Link
-              href="/"
-              className="mb-2 inline-flex items-center gap-1.5 text-xs text-cyan-300 hover:text-cyan-200"
-            >
-              Back to Dashboard
-            </Link>
-
-            <div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-cyan-300">
-              <History className="h-3.5 w-3.5" />
-              System Information
-            </div>
-
-            <h1 className="text-xl font-semibold tracking-tight">
-              Operation History
-            </h1>
-
-            <p className="mt-1 max-w-4xl text-xs leading-5 text-slate-500">
-              Review governed service status checks, restart previews and restart executions.
-            </p>
-          </div>
-
-          <button
+    <AppShell>
+      <EnterprisePageHeader
+        breadcrumbs={
+          <EnterpriseBreadcrumbs
+            items={[
+              { label: "Dashboard", href: "/" },
+              { label: "Operation History" },
+            ]}
+          />
+        }
+        eyebrow="Operations / Telemetry"
+        title="Operation History"
+        description="Review governed service status checks, restart previews and restart executions."
+        icon={<History aria-hidden="true" className="h-3.5 w-3.5" />}
+        density="compact"
+        secondaryActions={
+          <EnterpriseButton
             onClick={loadData}
             disabled={refreshing}
-            className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 text-xs text-slate-200 shadow-sm hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+            tone="secondary"
+            size="xs"
+            icon={<RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />}
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
             Refresh
-          </button>
-        </header>
+          </EnterpriseButton>
+        }
+      />
 
+      <div className="space-y-3">
         {error && (
-          <div className="mb-3 rounded-lg border border-red-800 bg-red-950/60 p-3 text-xs text-red-200">
-            {error}
-          </div>
+          <EnterpriseErrorState
+            title="Unable to load operation history"
+            message={error}
+            onRetry={loadData}
+          />
         )}
 
         {canView && (
-          <div className="space-y-3">
-            <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
-              <MetricCard label="Operations" value={total} description="Matching filters" />
-              <MetricCard label="Restarts" value={restarts} description="Visible on page" />
-              <MetricCard label="Failed" value={failed} description="Visible on page" />
-              <MetricCard label="Denied" value={denied} description="Visible on page" />
-            </section>
+          <>
+            <EnterpriseMetricStrip>
+              <EnterpriseMetricCard title="Operations" value={total} subtitle="Matching filters" />
+              <EnterpriseMetricCard title="Restarts" value={restarts} subtitle="Visible on page" />
+              <EnterpriseMetricCard
+                title="Failed"
+                value={failed}
+                subtitle="Visible on page"
+                tone={failed > 0 ? "danger" : "neutral"}
+              />
+              <EnterpriseMetricCard
+                title="Denied"
+                value={denied}
+                subtitle="Visible on page"
+                tone={denied > 0 ? "warning" : "neutral"}
+              />
+            </EnterpriseMetricStrip>
 
-            <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
+            <EnterprisePanel title="Filters">
               <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-5">
-                <FilterSelect
+                <EnterpriseSelect
                   label="Service"
                   value={serviceKey}
                   onChange={(value) => {
@@ -284,7 +283,7 @@ export default function OperationHistoryPage() {
                   options={SERVICE_OPTIONS}
                 />
 
-                <FilterSelect
+                <EnterpriseSelect
                   label="Operation"
                   value={operationType}
                   onChange={(value) => {
@@ -294,7 +293,7 @@ export default function OperationHistoryPage() {
                   options={OPERATION_TYPE_OPTIONS}
                 />
 
-                <FilterSelect
+                <EnterpriseSelect
                   label="Status"
                   value={status}
                   onChange={(value) => {
@@ -304,7 +303,7 @@ export default function OperationHistoryPage() {
                   options={STATUS_OPTIONS}
                 />
 
-                <FilterSelect
+                <EnterpriseSelect
                   label="Page size"
                   value={String(pageSize)}
                   onChange={(value) => {
@@ -315,50 +314,48 @@ export default function OperationHistoryPage() {
                 />
 
                 <div className="flex items-end">
-                  <button
+                  <EnterpriseButton
                     onClick={resetFilters}
-                    className="flex h-8 w-full items-center justify-center gap-1.5 rounded-lg border border-slate-700 bg-slate-950 px-3 text-xs text-slate-300 hover:bg-slate-800"
+                    tone="ghost"
+                    size="xs"
+                    icon={<XCircle className="h-3.5 w-3.5" />}
+                    className="w-full"
                   >
-                    <XCircle className="h-3.5 w-3.5" />
                     Reset
-                  </button>
+                  </EnterpriseButton>
                 </div>
               </div>
 
-              <div className="mt-2 flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-950 px-2">
-                <Search className="h-3.5 w-3.5 text-slate-500" />
-                <input
-                  value={searchInput}
-                  onChange={(event) => setSearchInput(event.target.value)}
-                  placeholder="Search service, operation, user, config, message or reason..."
-                  className="h-9 w-full bg-transparent text-xs text-slate-100 outline-none placeholder:text-slate-600"
-                />
-              </div>
-            </section>
+              <EnterpriseSearchInput
+                label="Search operation history"
+                value={searchInput}
+                onChange={setSearchInput}
+                onClear={() => setSearchInput("")}
+                hideLabel
+                placeholder="Search service, operation, user, config, message or reason..."
+                containerClassName="mt-2"
+              />
+            </EnterprisePanel>
 
-            <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
-              <div className="mb-2 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <History className="h-3.5 w-3.5 text-cyan-300" />
-                  <h2 className="text-sm font-semibold">Operation History</h2>
-                </div>
-
-                <span className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-400">
-                  {total}
-                </span>
-              </div>
-
+            <EnterprisePanel
+              title="Operation History"
+              actions={<EnterpriseBadge tone="muted">{total}</EnterpriseBadge>}
+            >
               {loading ? (
-                <div className="rounded-md border border-slate-800 bg-slate-950 p-3 text-xs text-slate-400">
-                  Loading operation history...
-                </div>
+                <EnterpriseSkeleton label="Loading operation history" rows={4} />
               ) : operations.length === 0 ? (
-                <div className="rounded-md border border-slate-800 bg-slate-950 p-6 text-center text-xs text-slate-500">
-                  <AlertTriangle className="mx-auto mb-2 h-5 w-5 text-slate-600" />
-                  No service operations match the selected filters.
-                </div>
+                <EnterpriseEmptyState
+                  title="No matching service operations"
+                  description="No service operations match the selected filters."
+                  icon={<AlertTriangle className="h-5 w-5" />}
+                  action={
+                    <EnterpriseButton onClick={resetFilters} tone="ghost" size="xs">
+                      Reset filters
+                    </EnterpriseButton>
+                  }
+                />
               ) : (
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto" role="region" aria-label="Operation history events" tabIndex={0}>
                   <table className="min-w-full divide-y divide-slate-800 text-left text-xs">
                     <thead className="bg-slate-950 text-[11px] uppercase tracking-wide text-slate-500">
                       <tr>
@@ -382,9 +379,7 @@ export default function OperationHistoryPage() {
                             {item.display_name || item.service_key}
                           </td>
                           <td className="px-3 py-2">
-                            <span className={`rounded-md border px-2 py-1 text-[11px] ${statusTone(item.status)}`}>
-                              {item.status}
-                            </span>
+                            <EnterpriseStatusBadge value={item.status} size="compact" />
                           </td>
                           <td className="px-3 py-2 text-slate-500">
                             {item.pre_status || "-"} / {item.post_status || "-"}
@@ -411,89 +406,35 @@ export default function OperationHistoryPage() {
               )}
 
               <div className="mt-3 flex flex-col gap-2 border-t border-slate-800 pt-3 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between">
-                <button
+                <EnterpriseButton
                   disabled={effectivePage <= 1}
                   onClick={() => setPage((value) => Math.max(value - 1, 1))}
-                  className="flex items-center justify-center gap-1.5 rounded-lg border border-slate-700 bg-slate-950 px-3 py-1.5 disabled:cursor-not-allowed disabled:opacity-40"
+                  tone="secondary"
+                  size="xs"
+                  icon={<ChevronLeft className="h-3.5 w-3.5" />}
                 >
-                  <ChevronLeft className="h-3.5 w-3.5" />
                   Previous
-                </button>
+                </EnterpriseButton>
 
                 <span className="text-center">
                   Showing {firstVisible}-{lastVisible} of {total} - Page {effectivePage} of {totalPages}
                 </span>
 
-                <button
+                <EnterpriseButton
                   disabled={effectivePage >= totalPages}
                   onClick={() => setPage((value) => value + 1)}
-                  className="flex items-center justify-center gap-1.5 rounded-lg border border-slate-700 bg-slate-950 px-3 py-1.5 disabled:cursor-not-allowed disabled:opacity-40"
+                  tone="secondary"
+                  size="xs"
+                  icon={<ChevronRight className="h-3.5 w-3.5" />}
+                  iconPosition="end"
                 >
                   Next
-                  <ChevronRight className="h-3.5 w-3.5" />
-                </button>
+                </EnterpriseButton>
               </div>
-            </section>
-          </div>
+            </EnterprisePanel>
+          </>
         )}
       </div>
-    </main>
-  );
-}
-
-function MetricCard({
-  label,
-  value,
-  description,
-}: {
-  label: string;
-  value: number;
-  description: string;
-}) {
-  return (
-    <div className="flex min-h-[58px] items-center justify-between gap-3 rounded-sm border border-slate-800 bg-slate-900 px-2.5 py-2 text-slate-100 shadow-sm">
-      <div className="min-w-0">
-        <div className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
-          {label}
-        </div>
-        <div className="mt-0.5 flex min-w-0 items-baseline gap-2">
-          <span className="text-xl font-semibold leading-6">{value}</span>
-          <span className="min-w-0 truncate text-[11px] leading-4 text-slate-500">
-            {description}
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function FilterSelect({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  options: FilterOption[];
-}) {
-  return (
-    <label>
-      <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-slate-500">
-        {label}
-      </span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500"
-      >
-        {options.map((item) => (
-          <option key={item.value} value={item.value}>
-            {item.label}
-          </option>
-        ))}
-      </select>
-    </label>
+    </AppShell>
   );
 }

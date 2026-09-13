@@ -3,18 +3,22 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Activity,
-  AlertTriangle,
   CalendarClock,
   CheckCircle2,
   Clock,
   Eye,
   FileSearch,
   RefreshCw,
-  Search,
   ShieldAlert,
   Target,
 } from "lucide-react";
 import { authFetch, type AuthUser } from "@/lib/auth";
+import {
+  EnterpriseBadge, EnterpriseButton, EnterpriseEmptyState, EnterpriseErrorState,
+  EnterpriseIconButton, EnterpriseMetricCard, EnterpriseMetricStrip, EnterpriseSearchInput,
+  EnterpriseSection, EnterpriseSelect, EnterpriseSkeleton,
+} from "@/components/enterprise";
+import { SOC_CONTROL_CLASSES, statusTone } from "@/lib/semantic-styles";
 
 type OperationCategory = "noise" | "exceptions" | "rules";
 
@@ -173,37 +177,22 @@ function formatDate(value: string | null | undefined) {
 }
 
 function toneForScope(scope: string) {
-  if (scope === "narrow") return "border-emerald-800 bg-emerald-950/60 text-emerald-200";
-  if (scope === "moderate") return "border-cyan-800 bg-cyan-950/60 text-cyan-200";
-  if (scope === "broad") return "border-amber-800 bg-amber-950/60 text-amber-200";
-  if (scope === "dangerously_broad") return "border-red-800 bg-red-950/60 text-red-200";
-  return "border-slate-700 bg-slate-900 text-slate-300";
+  if (scope === "narrow") return "low";
+  if (scope === "moderate") return "primary";
+  if (scope === "broad") return "medium";
+  if (scope === "dangerously_broad") return "danger";
+  return "neutral";
 }
 
 function toneForReview(status: string) {
-  if (status === "reviewed" || status === "risk_accepted") {
-    return "border-emerald-800 bg-emerald-950/60 text-emerald-200";
-  }
-  if (status === "expired") return "border-red-800 bg-red-950/60 text-red-200";
-  if (status === "review_due" || status === "needs_follow_up") {
-    return "border-amber-800 bg-amber-950/60 text-amber-200";
-  }
-  return "border-slate-700 bg-slate-900 text-slate-300";
+  if (status === "reviewed") return "success";
+  if (status === "expired") return "danger";
+  if (["review_due", "needs_follow_up", "risk_accepted"].includes(status)) return "warning";
+  return "neutral";
 }
 
 function toneForState(state: string) {
-  const normalized = state.toUpperCase();
-
-  if (normalized === "ACTIVE" || normalized === "APPROVED") {
-    return "border-emerald-800 bg-emerald-950/60 text-emerald-200";
-  }
-  if (normalized === "DISABLED" || normalized === "REJECTED") {
-    return "border-slate-700 bg-slate-900 text-slate-300";
-  }
-  if (normalized === "FAILED_VALIDATION" || normalized === "ERROR") {
-    return "border-red-800 bg-red-950/60 text-red-200";
-  }
-  return "border-cyan-800 bg-cyan-950/60 text-cyan-200";
+  return state.toUpperCase() === "FAILED_VALIDATION" ? "danger" : statusTone(state);
 }
 
 async function fetchOverview(): Promise<OperationsOverview> {
@@ -256,6 +245,7 @@ export default function OperationsPanel({ currentUser }: { currentUser: AuthUser
   const [search, setSearch] = useState("");
   const [selectedItem, setSelectedItem] = useState<OperationItem | null>(null);
   const [matches, setMatches] = useState<MatchedEventsResponse | null>(null);
+  const [previewItemId, setPreviewItemId] = useState<string | null>(null);
   const [preview, setPreview] = useState<MatchPreviewResponse | null>(null);
   const [reviewDate, setReviewDate] = useState("");
   const [reviewNotes, setReviewNotes] = useState("");
@@ -338,6 +328,13 @@ export default function OperationsPanel({ currentUser }: { currentUser: AuthUser
   async function runPreview(item: OperationItem) {
     if (!canPreview) return;
 
+    if (selectedItem?.id !== item.id) {
+      setSelectedItem(item);
+      setMatches(null);
+      setReviewDate(item.expires_at ? item.expires_at.slice(0, 10) : "");
+      setReviewNotes(item.review_notes || "");
+      setReviewStatus(item.review_status === "needs_follow_up" ? "needs_follow_up" : "reviewed");
+    }
     const content = isRecord(item.metadata?.content_json) ? item.metadata.content_json : item.metadata;
 
     try {
@@ -365,6 +362,7 @@ export default function OperationsPanel({ currentUser }: { currentUser: AuthUser
       }
 
       setPreview((await response.json()) as MatchPreviewResponse);
+      setPreviewItemId(item.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to run match preview");
     } finally {
@@ -448,7 +446,7 @@ export default function OperationsPanel({ currentUser }: { currentUser: AuthUser
     (overview?.summary.scope.broad ?? 0) + (overview?.summary.scope.dangerously_broad ?? 0);
 
   return (
-    <section className="rounded-lg border border-slate-800 bg-slate-900/80 p-3">
+    <EnterpriseSection className="!border-0 !bg-transparent !px-0 !shadow-none">
       <div className="mb-3 flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h2 className="text-sm font-semibold text-slate-100">
@@ -459,30 +457,29 @@ export default function OperationsPanel({ currentUser }: { currentUser: AuthUser
           </p>
         </div>
 
-        <button
+        <EnterpriseButton
+          size="xs"
+          tone="secondary"
           type="button"
           onClick={loadData}
           disabled={loading || actionRunning}
-          className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-950 px-3 text-xs text-slate-300 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
           Refresh
-        </button>
+        </EnterpriseButton>
       </div>
 
       {error && (
-        <div className="mb-3 rounded-lg border border-red-800 bg-red-950/60 p-3 text-xs text-red-200">
-          {error}
-        </div>
+        <EnterpriseErrorState className="mb-3" title="Operations request failed" message={error} />
       )}
 
       {message && (
-        <div className="mb-3 rounded-lg border border-emerald-800 bg-emerald-950/60 p-3 text-xs text-emerald-200">
+        <div role="status" className="mb-3 rounded-sm border border-emerald-800 bg-emerald-950/60 p-3 text-xs text-emerald-200">
           {message}
         </div>
       )}
 
-      <div className="mb-3 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-5">
+      <EnterpriseMetricStrip className="mb-3 lg:!grid-cols-3 2xl:!grid-cols-5">
         <OperationMetric
           label="Active Controls"
           value={overview?.summary.active ?? 0}
@@ -513,12 +510,15 @@ export default function OperationsPanel({ currentUser }: { currentUser: AuthUser
           detail={overview?.summary.affected_services.join(", ") || "No restart flag"}
           icon={<Clock className="h-3.5 w-3.5" />}
         />
-      </div>
+      </EnterpriseMetricStrip>
 
       <div className="mb-3 grid gap-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
         <div className="flex flex-wrap gap-1.5">
           {CATEGORY_OPTIONS.map((item) => (
-            <button
+            <EnterpriseButton
+              size="xs"
+              tone={category === item.key ? "primary" : "secondary"}
+              ariaPressed={category === item.key}
               key={item.key}
               type="button"
               onClick={() => {
@@ -527,30 +527,18 @@ export default function OperationsPanel({ currentUser }: { currentUser: AuthUser
                 setMatches(null);
                 setPreview(null);
               }}
-              className={`rounded-md border px-2.5 py-1.5 text-xs font-medium transition ${
-                category === item.key
-                  ? "border-cyan-500 bg-cyan-500 text-slate-950"
-                  : "border-slate-700 bg-slate-950 text-slate-300 hover:border-slate-600 hover:text-cyan-200"
-              }`}
             >
               {item.label}
-            </button>
+            </EnterpriseButton>
           ))}
         </div>
 
-        <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-[repeat(3,minmax(120px,1fr))_minmax(200px,1.4fr)]">
+        <div className="grid gap-2 sm:grid-cols-3 2xl:grid-cols-[repeat(3,minmax(0,1fr))_minmax(0,1.4fr)]">
           <FilterSelect label="Status" value={statusFilter} options={STATUS_FILTERS} onChange={setStatusFilter} />
           <FilterSelect label="Scope" value={scopeFilter} options={SCOPE_FILTERS} onChange={setScopeFilter} />
           <FilterSelect label="Review" value={reviewFilter} options={REVIEW_FILTERS} onChange={setReviewFilter} />
-          <label className="flex h-8 items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-2 text-xs text-slate-400">
-            <Search className="h-3.5 w-3.5 shrink-0" />
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search operations..."
-              className="min-w-0 flex-1 bg-transparent text-xs text-slate-100 outline-none placeholder:text-slate-600"
-            />
-          </label>
+          <EnterpriseSearchInput label="Search operations" value={search} onChange={setSearch}
+            onClear={() => setSearch("")} placeholder="Search operations..." />
         </div>
       </div>
 
@@ -562,7 +550,7 @@ export default function OperationsPanel({ currentUser }: { currentUser: AuthUser
               Active in view: {currentSummary?.active ?? 0} / Review due: {currentSummary?.review_due ?? 0}
             </span>
           </div>
-          <OperationsTable
+          {loading && !data ? <EnterpriseSkeleton label="Loading operations" rows={4} /> : <OperationsTable
             items={items}
             selectedId={selectedItem?.id ?? null}
             onPreview={runPreview}
@@ -576,14 +564,15 @@ export default function OperationsPanel({ currentUser }: { currentUser: AuthUser
             }}
             canPreview={Boolean(canPreview)}
             running={actionRunning}
-          />
+          />}
         </div>
 
         <OperationDetail
+          canPreview={Boolean(canPreview)}
           canReview={Boolean(canReview)}
           item={selectedItem}
-          matches={matches}
-          preview={preview}
+          matches={matches?.item.id === selectedItem?.id ? matches : null}
+          preview={previewItemId === selectedItem?.id ? preview : null}
           reviewDate={reviewDate}
           reviewNotes={reviewNotes}
           reviewStatus={reviewStatus}
@@ -596,7 +585,7 @@ export default function OperationsPanel({ currentUser }: { currentUser: AuthUser
           onReviewStatusChange={setReviewStatus}
         />
       </div>
-    </section>
+    </EnterpriseSection>
   );
 }
 
@@ -611,26 +600,7 @@ function OperationMetric({
   label: string;
   value: ReactNode;
 }) {
-  return (
-    <article className="flex min-h-[48px] items-center justify-between gap-2 rounded-sm border border-slate-800 bg-slate-950 px-2 py-1.5">
-      <div className="min-w-0">
-        <div className="truncate text-[9px] font-medium uppercase tracking-wide text-slate-500">
-          {label}
-        </div>
-        <div className="mt-0.5 flex min-w-0 items-baseline gap-1.5">
-          <span className="truncate text-base font-semibold leading-5 text-slate-100">
-            {value}
-          </span>
-          <span className="min-w-0 truncate text-[10px] leading-3 text-slate-500">
-            {detail}
-          </span>
-        </div>
-      </div>
-      <div className="shrink-0 rounded-sm bg-slate-900 p-1 text-slate-400">
-        {icon}
-      </div>
-    </article>
-  );
+  return <EnterpriseMetricCard title={label} value={value} subtitle={detail} icon={icon} stacked />;
 }
 
 function FilterSelect({
@@ -644,23 +614,7 @@ function FilterSelect({
   options: string[];
   value: string;
 }) {
-  return (
-    <label>
-      <span className="sr-only">{label}</span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500"
-        title={label}
-      >
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option.replaceAll("_", " ")}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
+  return <EnterpriseSelect label={label} value={value} onChange={onChange} options={options.map((option) => ({ value: option, label: option.replaceAll("_", " ") }))} />;
 }
 
 function OperationsTable({
@@ -680,17 +634,14 @@ function OperationsTable({
 }) {
   if (items.length === 0) {
     return (
-      <div className="rounded-lg border border-slate-800 bg-slate-950 p-6 text-center text-xs text-slate-500">
-        <AlertTriangle className="mx-auto mb-2 h-5 w-5 text-slate-600" />
-        No operational entries match the selected filters.
-      </div>
+      <EnterpriseEmptyState title="No operational entries match the selected filters." />
     );
   }
 
   return (
     <div className="overflow-hidden rounded-lg border border-slate-800">
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-slate-800 text-left text-xs">
+        <table className="w-full min-w-[980px] divide-y divide-slate-800 text-left text-xs">
           <thead className="bg-slate-950 text-[11px] uppercase tracking-wide text-slate-500">
             <tr>
               <th className="px-3 py-2">Entry</th>
@@ -711,13 +662,15 @@ function OperationsTable({
                 }`}
               >
                 <td className="max-w-sm px-3 py-2">
-                  <button
+                  <EnterpriseButton
+                    size="xs"
+                    tone="ghost"
+                    className="!h-auto !justify-start !border-0 !p-0 !text-left !shadow-none"
                     type="button"
                     onClick={() => onSelect(item)}
-                    className="text-left font-medium text-slate-100 hover:text-cyan-200"
                   >
                     {item.name}
-                  </button>
+                  </EnterpriseButton>
                   <div className="mt-1 truncate text-[11px] text-slate-500">
                     {item.type.replaceAll("_", " ")} / {item.rule_key}
                   </div>
@@ -726,25 +679,19 @@ function OperationsTable({
                   </div>
                 </td>
                 <td className="px-3 py-2">
-                  <span className={`inline-flex rounded-md border px-2 py-1 text-[11px] ${toneForState(item.state)}`}>
-                    {item.state.replaceAll("_", " ")}
-                  </span>
+                  <EnterpriseBadge tone={toneForState(item.state)} size="compact">{item.state.replaceAll("_", " ")}</EnterpriseBadge>
                   {!item.enabled && (
                     <div className="mt-1 text-[11px] text-slate-500">disabled</div>
                   )}
                 </td>
                 <td className="px-3 py-2">
-                  <span className={`inline-flex rounded-md border px-2 py-1 text-[11px] ${toneForScope(item.scope_classification)}`}>
-                    {item.scope_classification.replaceAll("_", " ")}
-                  </span>
+                  <EnterpriseBadge tone={toneForScope(item.scope_classification)} size="compact">{item.scope_classification.replaceAll("_", " ")}</EnterpriseBadge>
                   <div className="mt-1 max-w-[220px] truncate text-[11px] text-slate-500" title={item.scope}>
                     {item.scope || "-"}
                   </div>
                 </td>
                 <td className="px-3 py-2">
-                  <span className={`inline-flex rounded-md border px-2 py-1 text-[11px] ${toneForReview(item.review_status)}`}>
-                    {item.review_status.replaceAll("_", " ")}
-                  </span>
+                  <EnterpriseBadge tone={toneForReview(item.review_status)} size="compact">{item.review_status.replaceAll("_", " ")}</EnterpriseBadge>
                   <div className="mt-1 text-[11px] text-slate-500">
                     expires {formatDate(item.expires_at)}
                   </div>
@@ -780,31 +727,18 @@ function OperationsTable({
 }
 
 function IconButton({
-  children,
-  disabled,
-  label,
-  onClick,
+  children, disabled, label, onClick,
 }: {
   children: ReactNode;
   disabled: boolean;
   label: string;
   onClick: () => void;
 }) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      disabled={disabled}
-      onClick={onClick}
-      className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-700 bg-slate-950 text-slate-300 hover:border-cyan-700 hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-40"
-    >
-      {children}
-    </button>
-  );
+  return <EnterpriseIconButton icon={children} label={label} disabled={disabled} onClick={onClick} size="xs" />;
 }
 
 function OperationDetail({
+  canPreview,
   canReview,
   item,
   matches,
@@ -820,6 +754,7 @@ function OperationDetail({
   reviewStatus,
   running,
 }: {
+  canPreview: boolean;
   canReview: boolean;
   item: OperationItem | null;
   matches: MatchedEventsResponse | null;
@@ -837,9 +772,9 @@ function OperationDetail({
 }) {
   if (!item) {
     return (
-      <aside className="rounded-lg border border-slate-800 bg-slate-950 p-4 text-xs text-slate-500">
+      <section aria-label="Operation inspection" className="rounded-lg border border-slate-800 bg-slate-950 p-4 text-xs text-slate-500">
         Select an operational entry to inspect scope, review state and recent event matches.
-      </aside>
+      </section>
     );
   }
 
@@ -848,7 +783,7 @@ function OperationDetail({
   const countSource = preview?.preview.count_source ?? matches?.count_source;
 
   return (
-    <aside className="min-w-0 rounded-lg border border-slate-800 bg-slate-950 p-3">
+    <section aria-label="Operation inspection" className="min-w-0 rounded-lg border border-slate-800 bg-slate-950 p-3">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="truncate text-sm font-semibold text-slate-100">{item.name}</h3>
@@ -856,15 +791,17 @@ function OperationDetail({
             {item.type.replaceAll("_", " ")} / {item.source}
           </div>
         </div>
-        <button
+        <EnterpriseButton
+          size="xs"
+          tone="secondary"
           type="button"
           onClick={() => onPreview(item)}
-          disabled={running}
-          className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 text-xs text-slate-300 hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={!canPreview || running}
+          title={!canPreview ? "ADMIN or ANALYST role required" : undefined}
         >
           <FileSearch className="h-3.5 w-3.5" />
           Preview
-        </button>
+        </EnterpriseButton>
       </div>
 
       <div className="grid gap-2 text-xs">
@@ -889,10 +826,11 @@ function OperationDetail({
         </div>
         <div className="grid gap-2">
           <select
+            aria-label="Review status"
             value={reviewStatus}
             onChange={(event) => onReviewStatusChange(event.target.value)}
             disabled={!canReview || running}
-            className="h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500 disabled:cursor-not-allowed disabled:opacity-50"
+            className={`h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500 disabled:cursor-not-allowed disabled:opacity-50 ${SOC_CONTROL_CLASSES.focus}`}
           >
             <option value="reviewed">reviewed</option>
             <option value="needs_follow_up">needs follow up</option>
@@ -900,38 +838,42 @@ function OperationDetail({
           </select>
           <input
             type="date"
+            aria-label="Review expiration date"
             value={reviewDate}
             onChange={(event) => onReviewDateChange(event.target.value)}
             disabled={!canReview || running}
-            className="h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500 disabled:cursor-not-allowed disabled:opacity-50"
+            className={`h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500 disabled:cursor-not-allowed disabled:opacity-50 ${SOC_CONTROL_CLASSES.focus}`}
           />
           <textarea
+            aria-label="Review notes / extension reason"
             value={reviewNotes}
             onChange={(event) => onReviewNotesChange(event.target.value)}
             disabled={!canReview || running}
             rows={3}
-            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-2 text-xs text-slate-100 outline-none focus:border-cyan-500 disabled:cursor-not-allowed disabled:opacity-50"
+            className={`w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-2 text-xs text-slate-100 outline-none focus:border-cyan-500 disabled:cursor-not-allowed disabled:opacity-50 ${SOC_CONTROL_CLASSES.focus}`}
             placeholder="Review notes"
           />
           <div className="flex flex-wrap gap-1.5">
-            <button
+            <EnterpriseButton
+              size="xs"
+              tone="primary"
               type="button"
               onClick={onMarkReviewed}
               disabled={!canReview || running}
-              className="flex h-8 items-center gap-1.5 rounded-lg border border-emerald-800 bg-emerald-950 px-3 text-xs text-emerald-100 hover:bg-emerald-900 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <CheckCircle2 className="h-3.5 w-3.5" />
               Mark
-            </button>
-            <button
+            </EnterpriseButton>
+            <EnterpriseButton
+              size="xs"
+              tone="primary"
               type="button"
               onClick={onExtendReview}
               disabled={!canReview || running || !reviewDate}
-              className="flex h-8 items-center gap-1.5 rounded-lg border border-cyan-800 bg-cyan-950 px-3 text-xs text-cyan-100 hover:bg-cyan-900 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <CalendarClock className="h-3.5 w-3.5" />
               Extend
-            </button>
+            </EnterpriseButton>
           </div>
         </div>
       </div>
@@ -939,15 +881,15 @@ function OperationDetail({
       <div className="mt-3 rounded-md border border-slate-800 bg-slate-900 p-2">
         <div className="mb-2 flex items-center justify-between gap-2">
           <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            Match Evidence
+            {preview ? "Preview / expected matches" : "Match Evidence"}
           </div>
           <div className="text-[11px] text-slate-500">
-            {observedCount ?? 0} observed / {countSource?.replaceAll("_", " ") || "not run"}
+            {observedCount ?? "-"} observed / {countSource?.replaceAll("_", " ") || "not run"}
           </div>
         </div>
 
         {displayedMatches.length === 0 ? (
-          <div className="text-xs text-slate-500">No recent matches in the current scan window.</div>
+          <div className="text-xs text-slate-500">{matches || preview ? "No recent matches in the current scan window." : "Match evidence unavailable or loading."}</div>
         ) : (
           <div className="max-h-72 overflow-auto rounded-md border border-slate-800 bg-slate-950">
             {displayedMatches.map((match) => (
@@ -970,7 +912,7 @@ function OperationDetail({
           </div>
         )}
       </div>
-    </aside>
+    </section>
   );
 }
 
@@ -978,7 +920,7 @@ function InfoRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="grid grid-cols-[96px_minmax(0,1fr)] gap-2">
       <span className="text-slate-500">{label}</span>
-      <span className="min-w-0 truncate text-slate-200">{value}</span>
+      <span className="min-w-0 break-words text-slate-200">{value}</span>
     </div>
   );
 }

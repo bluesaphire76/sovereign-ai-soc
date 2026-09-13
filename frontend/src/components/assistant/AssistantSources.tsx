@@ -13,6 +13,8 @@ import {
   type AssistantProvenanceClass,
   type AssistantSource,
 } from "@/lib/assistant";
+import { EnterpriseBadge } from "@/components/enterprise";
+import { SOC_CONTROL_CLASSES, cx } from "@/lib/semantic-styles";
 import {
   ASSISTANT_PROVENANCE,
   formatAssistantScore,
@@ -88,6 +90,9 @@ function SourceGroup({
         </h4>
         <span className="text-[11px] text-slate-500">{sources.length}</span>
       </div>
+      <p className="mb-2 text-[11px] leading-5 text-slate-500">
+        {presentation.description}
+      </p>
 
       <ul className="grid gap-2 xl:grid-cols-2">
         {sources.map((source) => {
@@ -104,12 +109,16 @@ function SourceGroup({
               <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span
-                      className={`text-[10px] font-semibold ${presentation.textClassName}`}
+                    <EnterpriseBadge tone={presentation.tone} size="compact">
+                      {presentation.label}
+                    </EnterpriseBadge>
+                    <EnterpriseBadge
+                      tone={source.authority === "authoritative" ? "primary" : "warning"}
+                      size="compact"
                     >
-                      {presentation.label.toUpperCase()}
-                    </span>
-                    <span className="text-[10px] font-semibold text-cyan-300">
+                      {source.authority}
+                    </EnterpriseBadge>
+                    <span className="text-[10px] font-semibold text-slate-300">
                       [{source.source_id}]
                     </span>
                     <span className="text-[10px] text-slate-500">
@@ -124,7 +133,10 @@ function SourceGroup({
                 {isSafeInternalAssistantUrl(source.url) ? (
                   <Link
                     href={source.url}
-                    className="inline-flex min-h-8 shrink-0 items-center gap-1.5 text-xs font-medium text-cyan-300 hover:text-cyan-200"
+                    className={cx(
+                      "inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-sm text-xs font-medium text-cyan-300 hover:text-cyan-200",
+                      SOC_CONTROL_CLASSES.focus,
+                    )}
                     aria-label={`Open source ${source.source_id}: ${source.label}`}
                   >
                     Open source
@@ -167,9 +179,9 @@ export default function AssistantSources({
 }: AssistantSourcesProps) {
   if (sources.length === 0) {
     return (
-      <div className="border-t border-slate-800 pt-3 text-xs leading-5 text-slate-500">
+      <p className="text-xs leading-5 text-slate-500">
         No supporting source records were returned for this answer.
-      </div>
+      </p>
     );
   }
 

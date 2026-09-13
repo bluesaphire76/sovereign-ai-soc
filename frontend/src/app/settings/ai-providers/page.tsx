@@ -1,10 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
-  AlertTriangle,
   CheckCircle2,
   Cpu,
   ExternalLink,
@@ -14,7 +12,18 @@ import {
   XCircle,
 } from "lucide-react";
 import { authFetch, fetchCurrentUser, type AuthUser } from "@/lib/auth";
-import AppNavigation from "../../../components/AppNavigation";
+import AppShell from "@/components/AppShell";
+import {
+  EnterpriseBadge,
+  EnterpriseBreadcrumbs,
+  EnterpriseButton,
+  EnterpriseErrorState,
+  EnterpriseMetricCard,
+  EnterpriseMetricStrip,
+  EnterprisePageHeader,
+  EnterprisePanel,
+  EnterpriseSection,
+} from "@/components/enterprise";
 
 type ProviderConfig = {
   key: string;
@@ -134,39 +143,6 @@ function StatusBadge({ value, label }: { value: boolean | null | undefined; labe
     <span className={`inline-flex h-6 items-center rounded-sm border px-2 text-[11px] ${statusTone(value)}`}>
       {label}
     </span>
-  );
-}
-
-function SummaryCard({
-  title,
-  value,
-  subtitle,
-  icon,
-}: {
-  title: string;
-  value: ReactNode;
-  subtitle: string;
-  icon: ReactNode;
-}) {
-  return (
-    <article className="flex min-h-[46px] items-center justify-between gap-2 rounded-sm border border-slate-800 bg-slate-900 px-2 py-1.5 shadow-sm">
-      <div className="min-w-0">
-        <div className="truncate text-[9px] font-medium uppercase tracking-wide text-slate-500">
-          {title}
-        </div>
-        <div className="mt-0.5 flex min-w-0 items-baseline gap-1.5">
-          <span className="truncate text-base font-semibold leading-5 text-slate-100">
-            {value}
-          </span>
-          <span className="min-w-0 truncate text-[10px] leading-3 text-slate-500">
-            {subtitle}
-          </span>
-        </div>
-      </div>
-      <div className="shrink-0 rounded-sm bg-slate-950 p-1 text-slate-400">
-        {icon}
-      </div>
-    </article>
   );
 }
 
@@ -434,83 +410,86 @@ export default function AiProvidersPage() {
   const canEdit = user?.role === "ADMIN";
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto max-w-[1600px] px-4 py-4">
-        <AppNavigation />
-
-        <header className="mb-4 flex flex-col gap-3 border-b border-slate-800 pb-4 lg:flex-row lg:items-end lg:justify-between">
-          <div className="min-w-0">
-            <div className="mb-2 flex flex-col items-start gap-2">
-              <Link
-                href="/"
-                className="inline-flex items-center gap-1.5 text-xs text-cyan-300 hover:text-cyan-200"
-              >
-                Back to Dashboard
-              </Link>
-
-              <div className="inline-flex items-center gap-2 rounded-sm border border-cyan-900/70 bg-cyan-950/20 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-cyan-200">
-                <Cpu className="h-3.5 w-3.5" strokeWidth={1.75} />
-                AI Providers
-              </div>
-            </div>
-            <h1 className="text-xl font-semibold text-slate-50">AI Provider Control</h1>
-            <p className="mt-1 max-w-3xl text-sm text-slate-400">
-              Local-first provider visibility with governed external provider controls.
-            </p>
-          </div>
-
-          <button
-            type="button"
+    <AppShell>
+      <EnterprisePageHeader
+        breadcrumbs={
+          <EnterpriseBreadcrumbs
+            items={[
+              { label: "Dashboard", href: "/" },
+              { label: "AI Providers" },
+            ]}
+          />
+        }
+        eyebrow="Governance"
+        title="AI Provider Control"
+        description="Local-first provider visibility with governed external provider controls."
+        icon={<Cpu aria-hidden="true" className="h-3.5 w-3.5" strokeWidth={1.75} />}
+        density="compact"
+        divided
+        secondaryActions={
+          <EnterpriseButton
             onClick={() => void load()}
-            className="inline-flex h-9 items-center justify-center gap-2 rounded-sm border border-slate-700 px-3 text-xs font-medium text-slate-200 transition hover:border-cyan-800 hover:bg-slate-900"
+            tone="secondary"
+            size="sm"
+            icon={
+              <RefreshCw
+                className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`}
+                strokeWidth={1.75}
+              />
+            }
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} strokeWidth={1.75} />
             Refresh
-          </button>
-        </header>
+          </EnterpriseButton>
+        }
+      />
 
+      <div className="space-y-3">
         {error && (
-          <div className="flex items-start gap-2 rounded-sm border border-rose-900 bg-rose-950/30 px-3 py-2 text-sm text-rose-100">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.75} />
-            <span>{error}</span>
-          </div>
+          <EnterpriseErrorState
+            title="Unable to load AI providers"
+            message={error}
+            onRetry={load}
+          />
         )}
 
         {notice && (
-          <div className="flex items-start gap-2 rounded-sm border border-emerald-900 bg-emerald-950/30 px-3 py-2 text-sm text-emerald-100">
+          <div
+            role="status"
+            className="flex items-start gap-2 rounded-sm border border-emerald-900 bg-emerald-950/30 px-3 py-2 text-sm text-emerald-100"
+          >
             <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.75} />
             <span>{notice}</span>
           </div>
         )}
 
-        <section className="mb-3 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
-          <SummaryCard
+        <EnterpriseMetricStrip>
+          <EnterpriseMetricCard
             title="Default provider"
             value={providers?.default_provider ?? "Loading"}
             subtitle="selected"
             icon={<Cpu className="h-3.5 w-3.5" strokeWidth={1.75} />}
           />
-          <SummaryCard
+          <EnterpriseMetricCard
             title="Fallback provider"
             value={providers?.fallback_provider ?? health?.fallback_provider ?? "local_ollama"}
             subtitle="on failure"
             icon={<ShieldCheck className="h-3.5 w-3.5" strokeWidth={1.75} />}
           />
-          <SummaryCard
+          <EnterpriseMetricCard
             title="External providers"
             value={providers?.external_providers_enabled ? "Enabled" : "Disabled"}
             subtitle="runtime switch"
             icon={<ShieldCheck className="h-3.5 w-3.5" strokeWidth={1.75} />}
           />
-          <SummaryCard
+          <EnterpriseMetricCard
             title="Configured providers"
             value={providers?.providers.length ?? 0}
             subtitle="registry"
             icon={<Activity className="h-3.5 w-3.5" strokeWidth={1.75} />}
           />
-        </section>
+        </EnterpriseMetricStrip>
 
-        <section className="rounded-sm border border-slate-800 bg-slate-950 p-3">
+        <EnterprisePanel title="Registry controls">
           <div className="grid gap-3 lg:grid-cols-[minmax(220px,0.8fr)_minmax(220px,0.8fr)_minmax(260px,1fr)_auto] lg:items-end">
             <label className="block text-xs text-slate-400">
               Default provider
@@ -549,29 +528,30 @@ export default function AiProvidersPage() {
               />
             </label>
 
-            <button
-              type="button"
+            <EnterpriseButton
               disabled={!canEdit || savingKey === "__registry__"}
               onClick={() => void saveRegistrySettings()}
-              className="inline-flex h-9 items-center justify-center gap-2 rounded-sm border border-cyan-800 bg-cyan-500 px-3 text-xs font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
+              tone="primary"
+              size="sm"
+              icon={<Save className="h-3.5 w-3.5" strokeWidth={1.75} />}
             >
-              <Save className="h-3.5 w-3.5" strokeWidth={1.75} />
               {savingKey === "__registry__" ? "Saving" : "Save"}
-            </button>
+            </EnterpriseButton>
           </div>
-        </section>
+        </EnterprisePanel>
 
-        <section className="overflow-hidden rounded-sm border border-slate-800">
-          <div className="grid grid-cols-12 gap-2 border-b border-slate-800 bg-slate-900/70 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-            <div className="col-span-4">Provider</div>
-            <div className="col-span-2">Status</div>
-            <div className="col-span-2">Model</div>
-            <div className="col-span-2">Data control</div>
-            <div className="col-span-2 text-right">Test</div>
-          </div>
+        <EnterpriseSection title="Provider registry">
+          <div className="-mx-4 -mb-4 overflow-hidden border-t border-slate-800">
+            <div className="grid grid-cols-12 gap-2 border-b border-slate-800 bg-slate-900/70 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              <div className="col-span-4">Provider</div>
+              <div className="col-span-2">Status</div>
+              <div className="col-span-2">Model</div>
+              <div className="col-span-2">Data control</div>
+              <div className="col-span-2 text-right">Test</div>
+            </div>
 
-          <div className="divide-y divide-slate-800 bg-slate-950">
-            {(providers?.providers ?? []).map((provider) => {
+            <div className="divide-y divide-slate-800 bg-slate-950">
+              {(providers?.providers ?? []).map((provider) => {
               const providerHealth = healthByProvider[provider.key];
               const result = testResults[provider.key];
               const runtime = provider.runtime ?? {};
@@ -842,24 +822,22 @@ export default function AiProvidersPage() {
                   )}
                 </div>
               );
-            })}
-          </div>
-        </section>
-
-        <section className="rounded-sm border border-slate-800 bg-slate-950 p-3">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h2 className="text-sm font-semibold text-slate-100">Local LLM Profiles</h2>
-              <div className="mt-1 text-xs text-slate-500">
-                Mode {profiles?.mode ?? "-"} · Current {profiles?.current_profile ?? "none"}
-                {profiles?.ollama_ps_error ? ` · Ollama ps ${profiles.ollama_ps_error}` : ""}
-              </div>
+              })}
             </div>
-            <div className="text-xs text-slate-500">
+          </div>
+        </EnterpriseSection>
+
+        <EnterpriseSection
+          title="Local LLM Profiles"
+          description={`Mode ${profiles?.mode ?? "-"} · Current ${profiles?.current_profile ?? "none"}${
+            profiles?.ollama_ps_error ? ` · Ollama ps ${profiles.ollama_ps_error}` : ""
+          }`}
+          actions={
+            <EnterpriseBadge tone="muted">
               Loaded models: {profiles?.loaded_models.length ?? 0}
-            </div>
-          </div>
-
+            </EnterpriseBadge>
+          }
+        >
           <div className="grid gap-3 lg:grid-cols-3">
             {(profiles?.profiles ?? []).map((profile) => (
               <div key={profile.name} className="rounded-sm border border-slate-800 bg-slate-900/50 p-3">
@@ -895,8 +873,8 @@ export default function AiProvidersPage() {
               </div>
             ))}
           </div>
-        </section>
+        </EnterpriseSection>
       </div>
-    </main>
+    </AppShell>
   );
 }

@@ -17,7 +17,7 @@ import {
   Terminal,
   Trash2,
 } from "lucide-react";
-import AppNavigation from "../../../components/AppNavigation";
+import AppShell from "@/components/AppShell";
 
 type SourceTypeCounts = Record<string, number>;
 
@@ -953,13 +953,8 @@ export default function SemanticMemoryPage() {
   const knowledgeDocuments = documentsByType.get("knowledge_base") ?? [];
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-4 px-3 py-3 xl:flex-row xl:py-4">
-        <aside className="xl:w-72 xl:shrink-0">
-          <AppNavigation />
-        </aside>
-
-        <main className="min-w-0 flex-1 xl:ml-0">
+    <AppShell width="wide" gutter="compact" padding="compact" contentClassName="xl:py-4">
+      <div className="min-w-0">
           <header className="mb-4 flex flex-col gap-3 border-b border-slate-800 pb-4 lg:flex-row lg:items-end lg:justify-between">
             <div className="min-w-0">
               <Link
@@ -1204,7 +1199,9 @@ export default function SemanticMemoryPage() {
               </Section>
 
               <Section title="Semantic Search Test" icon={<Search className="h-3.5 w-3.5" />}>
-                <form onSubmit={runSearch} className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_220px_auto]">
+                <form onSubmit={runSearch} className="grid items-end gap-2 lg:grid-cols-[minmax(0,1fr)_220px_auto]">
+                  <label className="grid gap-1 text-xs text-slate-400">
+                    Search query
                   <input
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
@@ -1212,11 +1209,13 @@ export default function SemanticMemoryPage() {
                     placeholder="ssh brute force"
                     className="h-9 min-w-0 flex-1 rounded-md border border-slate-800 bg-slate-950 px-3 text-xs text-slate-100 outline-none placeholder:text-slate-600 focus:border-cyan-700"
                   />
+                  </label>
+                  <label className="grid gap-1 text-xs text-slate-400">
+                    Source type
                   <select
                     value={searchSourceType}
                     onChange={(event) => setSearchSourceType(event.target.value)}
                     className="h-9 rounded-md border border-slate-800 bg-slate-950 px-3 text-xs text-slate-100 outline-none focus:border-cyan-700"
-                    title="Semantic memory source type"
                   >
                     <option value="">All source types</option>
                     <option value="knowledge_base">Knowledge Base</option>
@@ -1224,6 +1223,7 @@ export default function SemanticMemoryPage() {
                     <option value="detection_control">Detection Control</option>
                     <option value="case_closure">Case Closure</option>
                   </select>
+                  </label>
                   <button
                     type="submit"
                     disabled={searching || !search.trim()}
@@ -1275,9 +1275,8 @@ export default function SemanticMemoryPage() {
               </div>
             </section>
           )}
-        </main>
       </div>
-    </div>
+    </AppShell>
   );
 }
 

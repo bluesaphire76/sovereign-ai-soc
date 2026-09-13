@@ -1,7 +1,7 @@
 # Roadmap
 
 This roadmap separates published releases from future work. The current release
-baseline is `v0.8.0`.
+is `v0.9.0`, including [final public verification](../validation/v0.9.0-release-readiness.md).
 
 | Version | Status | Theme | Highlights |
 |---|---:|---|---|
@@ -14,9 +14,12 @@ baseline is `v0.8.0`.
 | v0.7 | Released | Governed AI, semantic memory and operational control | AI providers/OpenRouter, AI Data Control, Qdrant Semantic Memory, Recommended Playbooks, investigation graph, advanced timeline, Detection Control lifecycle/versioning, governed remediation connectors, Operation History, Alertmanager, Loki/Alloy, installability and expanded validation. |
 | v0.7.1 | Released | Runtime, memory and API hardening | Llama.cpp local runtime foundation, operational Qdrant semantic memory, HTTPS-first internal platform access, modular `api.py` composition root and permanent API refactor guardrails. |
 | v0.8.0 | Released | Grounded Assistant and authoritative analytics | Global, Incident and Case Assistant scopes, compositional typed analytics, V3.2 semantic grounding, SQL/RBAC authority and fail-closed publication. |
+| v0.9.0 | Released | UX Harmonization | Shared design system, harmonized SOC workflows, responsive/accessibility validation and last-enabled-ADMIN protection. |
 
 ## Completed Product Themes
 
+- User-approved UX-01 through UX-12: shared design system, navigation, investigation,
+  monitoring, operations, governance, responsive and accessibility harmonization.
 - Local-first AI SOC architecture.
 - Wazuh endpoint/security monitoring.
 - Suricata network IDS visibility.
@@ -45,12 +48,11 @@ baseline is `v0.8.0`.
 - Prometheus/Alertmanager alerting and Loki/Grafana Alloy logging.
 - Executive-ready reporting and evidence packs.
 
-## Candidate Post-v0.8.0 Direction
+## Future Candidate Directions
 
 These are candidate directions, not implemented commitments:
 
 - Additional telemetry connectors.
-- Platform-wide UX alignment and workflow consistency.
 - Case collaboration enhancements.
 - Scheduled report generation.
 - Production adapters for provider types beyond OpenAI-compatible endpoints.

@@ -13,8 +13,13 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
-import Link from "next/link";
-import AppNavigation from "../../../components/AppNavigation";
+import {
+  EnterpriseBadge, EnterpriseBreadcrumbs, EnterpriseButton, EnterpriseConfirmationDialog,
+  EnterpriseEmptyState, EnterpriseErrorState, EnterpriseMetricCard, EnterpriseMetricStrip,
+  EnterprisePageHeader, EnterprisePanel, EnterpriseSection, EnterpriseSkeleton, EnterpriseStatusBadge,
+} from "@/components/enterprise";
+import { SOC_CONTROL_CLASSES, SOC_TONE_CLASSES, statusTone as sharedStatusTone } from "@/lib/semantic-styles";
+import AppShell from "@/components/AppShell";
 import OperationsPanel from "./OperationsPanel";
 import ServiceOperationsPanel from "./ServiceOperationsPanel";
 import {
@@ -295,9 +300,7 @@ const TABS: Array<{ key: TabKey; label: string }> = [
 const LifecyclePanel = dynamic<LifecyclePanelProps>(() => import("./LifecyclePanel"), {
   ssr: false,
   loading: () => (
-    <section className="rounded-lg border border-slate-800 bg-slate-900/80 p-3 text-xs text-slate-400">
-      Loading detection lifecycle...
-    </section>
+    <EnterpriseSkeleton label="Loading detection lifecycle" rows={2} />
   ),
 });
 
@@ -339,14 +342,10 @@ class LifecyclePanelBoundary extends Component<
                 <div className="mt-1 text-amber-200/80">{this.state.errorMessage}</div>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={this.retry}
-              className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-amber-800 bg-amber-950 px-3 text-xs text-amber-100 hover:bg-amber-900"
-            >
+            <EnterpriseButton size="xs" tone="secondary" type="button" onClick={this.retry}>
               <RefreshCw className="h-3.5 w-3.5" />
               Retry
-            </button>
+            </EnterpriseButton>
           </div>
         </section>
       );
@@ -438,21 +437,9 @@ async function fetchConfigVersion(
 }
 
 function statusTone(status: string) {
-  const normalized = status.toUpperCase();
-
-  if (normalized === "ACTIVE" || normalized === "OK") {
-    return "border-emerald-800 bg-emerald-950/60 text-emerald-200";
-  }
-
-  if (normalized === "DISABLED" || normalized === "READ_ONLY" || normalized === "EMPTY") {
-    return "border-slate-700 bg-slate-900 text-slate-300";
-  }
-
-  if (normalized === "ERROR" || normalized === "FAILED_VALIDATION") {
-    return "border-red-800 bg-red-950/60 text-red-200";
-  }
-
-  return "border-amber-800 bg-amber-950/60 text-amber-200";
+  const tone = status === "FAILED_VALIDATION" || status === "REJECTED"
+    ? "danger" : sharedStatusTone(status);
+  return SOC_TONE_CLASSES[tone].badge;
 }
 
 function sourceTone(source: string) {
@@ -730,6 +717,7 @@ export default function DetectionControlPlanePage() {
   const [selectedDomain, setSelectedDomain] = useState<ConfigDomain>("noise_suppression");
   const [form, setForm] = useState<RuleFormState>(emptyForm());
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
+  const [archiveTarget, setArchiveTarget] = useState<ManagedRule | null>(null);
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [configValidation, setConfigValidation] = useState<ConfigValidationResult | null>(null);
   const [configDiff, setConfigDiff] = useState<ConfigDiff | null>(null);
@@ -1013,7 +1001,7 @@ export default function DetectionControlPlanePage() {
     };
 
     setEditingRuleId(rule.id);
-    setValidationResult({
+    setValidationResult(rule.last_validation_status ? {
       valid: rule.last_validation_status !== "ERROR",
       severity: rule.last_validation_status || "OK",
       messages: rule.last_validation_status === "ERROR" && rule.last_validation_message
@@ -1022,7 +1010,7 @@ export default function DetectionControlPlanePage() {
       warnings: rule.last_validation_status === "WARNING" && rule.last_validation_message
         ? [rule.last_validation_message]
         : [],
-    });
+    } : null);
     setForm(nextForm);
     void refreshSemanticContext(nextForm, rule.id);
   }
@@ -1096,10 +1084,6 @@ export default function DetectionControlPlanePage() {
   async function archiveRule(rule: ManagedRule) {
     if (!canWrite) return;
 
-    const confirmed = window.confirm(`Archive ${rule.name}?`);
-
-    if (!confirmed) return;
-
     try {
       setSaving(true);
       setError(null);
@@ -1118,6 +1102,7 @@ export default function DetectionControlPlanePage() {
       }
 
       await loadData();
+      setArchiveTarget(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to archive rule");
     } finally {
@@ -1304,110 +1289,93 @@ export default function DetectionControlPlanePage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto max-w-[1600px] px-4 py-4">
-        <AppNavigation />
+    <AppShell>
 
-        <header className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div>
-            <Link
-              href="/"
-              className="mb-2 inline-flex items-center gap-1.5 text-xs text-cyan-300 hover:text-cyan-200"
+        <EnterprisePageHeader
+          title="Detection Control Plane"
+          eyebrow="Detection"
+          density="compact"
+          icon={<SlidersHorizontal aria-hidden="true" className="h-3.5 w-3.5" />}
+          breadcrumbs={<EnterpriseBreadcrumbs items={[{ label: "Dashboard", href: "/" }, { label: "Detection Control Plane" }]} />}
+          metadata={<>
+            <EnterpriseBadge tone="neutral">{currentUser?.role || "Loading permissions"}</EnterpriseBadge>
+            <EnterpriseBadge tone={canWrite ? "primary" : "muted"}>
+              {canWrite ? "ADMIN managed-entry writes" : "Managed entries read-only"}
+            </EnterpriseBadge>
+            <EnterpriseBadge tone={canValidateConfig ? "primary" : "muted"}>
+              {canValidateConfig ? "Configuration validation and lifecycle authoring" : "Governance read-only"}
+            </EnterpriseBadge>
+          </>}
+          secondaryActions={
+            <EnterpriseButton
+              onClick={loadData}
+              disabled={!canView || refreshing}
+              size="xs"
+              icon={<RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />}
             >
-              Back to Dashboard
-            </Link>
-
-            <div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-cyan-300">
-              <SlidersHorizontal className="h-3.5 w-3.5" />
-              Settings
-            </div>
-
-            <h1 className="text-xl font-semibold tracking-tight">
-              Detection Control Plane
-            </h1>
-
-            <p className="mt-1 max-w-4xl text-xs leading-5 text-slate-500">
-              Governed management for detection suppressions, exceptions, rules and
-              source policies, with admin-only writes and security audit coverage.
-            </p>
-          </div>
-
-          <button
-            onClick={loadData}
-            disabled={!canView || refreshing}
-            className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 text-xs text-slate-200 shadow-sm hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <RefreshCw
-              className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`}
-            />
-            Refresh
-          </button>
-        </header>
+              Refresh
+            </EnterpriseButton>
+          }
+        />
 
         {error && (
-          <div className="mb-3 rounded-lg border border-red-800 bg-red-950/60 p-3 text-xs text-red-200">
-            API error: {error}
-          </div>
+          <EnterpriseErrorState className="mb-3" title="Detection control request failed" message={error} onRetry={loadData} />
         )}
 
         {loading ? (
-          <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 text-xs text-slate-300">
-            Loading detection control plane...
-          </section>
+          <EnterpriseSkeleton label="Loading detection control plane" rows={6} />
         ) : managedRules && inventory && canView ? (
           <div className="space-y-3">
-            <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-6">
-              <MetricCard
+            <EnterpriseMetricStrip className="lg:!grid-cols-3 2xl:!grid-cols-6">
+              <EnterpriseMetricCard stacked
                 title="Unified Inventory"
                 value={unifiedSummary.total}
                 subtitle={`${unifiedSummary.active} active / ${unifiedSummary.disabled} disabled`}
                 icon={<FileCog className="h-3.5 w-3.5" />}
               />
-              <MetricCard
+              <EnterpriseMetricCard stacked
                 title="Rules"
                 value={unifiedSummary.rules}
                 subtitle="Detected and managed"
                 icon={<Shield className="h-3.5 w-3.5" />}
               />
-              <MetricCard
+              <EnterpriseMetricCard stacked
                 title="Exceptions"
                 value={unifiedSummary.exceptions}
                 subtitle="Suppressions and exceptions"
                 icon={<Ban className="h-3.5 w-3.5" />}
               />
-              <MetricCard
+              <EnterpriseMetricCard stacked
                 title="Sources"
                 value={unifiedSummary.sources}
                 subtitle="Telemetry inputs"
                 icon={<ServerCog className="h-3.5 w-3.5" />}
               />
-              <MetricCard
+              <EnterpriseMetricCard stacked
                 title="Policies"
                 value={unifiedSummary.policies}
                 subtitle={`${unifiedSummary.services} service controls`}
                 icon={<SlidersHorizontal className="h-3.5 w-3.5" />}
               />
-              <MetricCard
+              <EnterpriseMetricCard stacked
                 title="Failed Validation"
                 value={unifiedSummary.failed_validation}
                 subtitle={formatDate(managedRules.summary.generated_at)}
                 icon={<AlertTriangle className="h-3.5 w-3.5" />}
               />
-            </section>
+            </EnterpriseMetricStrip>
 
             {!canWrite && (
               <section className="rounded-lg border border-slate-800 bg-slate-900/80 p-3 text-xs text-slate-300">
                 <div className="flex items-start gap-2">
                   <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
                   <p className="leading-5">
-                    {currentUser?.role} access is read-only for detection-control changes.
+                    {currentUser?.role} access is read-only for managed-entry changes.
                     ADMIN role is required to create, edit, enable, disable, validate or archive entries.
                   </p>
                 </div>
               </section>
             )}
-
-            <OperationsPanel currentUser={currentUser} />
 
             <VersionGovernancePanel
               activeVersion={activeVersion}
@@ -1433,24 +1401,8 @@ export default function DetectionControlPlanePage() {
               <LifecyclePanel currentUser={currentUser} onConfigChanged={loadData} />
             </LifecyclePanelBoundary>
 
-            <section id="service-operations" className="scroll-mt-4">
-              <ServiceOperationsPanel
-                currentUser={currentUser}
-                relatedConfigVersion={
-                  activeVersion
-                    ? {
-                        id: activeVersion.id,
-                        version_number: activeVersion.version_number,
-                        requires_restart: activeVersion.requires_restart,
-                        affected_services: activeVersion.affected_services,
-                      }
-                    : null
-                }
-              />
-            </section>
-
             <section className="grid gap-3 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.55fr)]">
-              <div className="min-w-0 rounded-lg border border-slate-800 bg-slate-900/80 p-3">
+              <EnterprisePanel className="!border-0 !bg-transparent !p-0 !shadow-none">
                 <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                   <div>
                     <h2 className="text-sm font-semibold text-slate-100">
@@ -1462,14 +1414,10 @@ export default function DetectionControlPlanePage() {
                   </div>
 
                   {canWrite && (
-                    <button
-                      type="button"
-                      onClick={startCreate}
-                      className="flex h-8 items-center gap-1.5 rounded-lg border border-cyan-700 bg-cyan-500 px-3 text-xs font-medium text-slate-950 hover:bg-cyan-400"
-                    >
+                    <EnterpriseButton size="xs" tone="primary" type="button" onClick={startCreate}>
                       <Plus className="h-3.5 w-3.5" />
                       New Entry
-                    </button>
+                    </EnterpriseButton>
                   )}
                 </div>
 
@@ -1477,12 +1425,12 @@ export default function DetectionControlPlanePage() {
                   canWrite={Boolean(canWrite)}
                   items={managedRules.items}
                   saving={saving}
-                  onArchive={archiveRule}
+                  onArchive={(rule) => { setError(null); setArchiveTarget(rule); }}
                   onEdit={startEdit}
                   onToggle={setRuleEnabled}
                   onValidate={validateRule}
                 />
-              </div>
+              </EnterprisePanel>
 
               <div className="min-w-0 space-y-3">
                 <RuleForm
@@ -1527,17 +1475,15 @@ export default function DetectionControlPlanePage() {
 
               <div className="mb-2 flex flex-wrap gap-1.5">
                 {TABS.map((tab) => (
-                  <button
+                  <EnterpriseButton
+                    size="xs"
+                    tone={activeTab === tab.key ? "primary" : "secondary"}
+                    ariaPressed={activeTab === tab.key}
                     key={tab.key}
                     onClick={() => setActiveTab(tab.key)}
-                    className={`rounded-md border px-2.5 py-1.5 text-xs font-medium transition ${
-                      activeTab === tab.key
-                        ? "border-cyan-500 bg-cyan-500 text-slate-950"
-                        : "border-slate-700 bg-slate-950 text-slate-300 hover:border-slate-600 hover:text-cyan-200"
-                    }`}
                   >
                     {tab.label}
-                  </button>
+                  </EnterpriseButton>
                 ))}
               </div>
 
@@ -1550,10 +1496,38 @@ export default function DetectionControlPlanePage() {
                 onManageInventory={startManageInventoryItem}
               />
             </section>
+            <OperationsPanel currentUser={currentUser} />
+
+            <section id="service-operations" className="scroll-mt-4">
+              <ServiceOperationsPanel
+                currentUser={currentUser}
+                relatedConfigVersion={
+                  activeVersion
+                    ? {
+                        id: activeVersion.id,
+                        version_number: activeVersion.version_number,
+                        requires_restart: activeVersion.requires_restart,
+                        affected_services: activeVersion.affected_services,
+                      }
+                    : null
+                }
+              />
+            </section>
+
           </div>
         ) : null}
-      </div>
-    </main>
+        <EnterpriseConfirmationDialog
+          open={Boolean(archiveTarget)}
+          title="Archive managed entry"
+          description={archiveTarget ? `Archive ${archiveTarget.name}? Scope: ${archiveTarget.scope}. The entry will be archived.` : undefined}
+          confirmLabel="Archive entry"
+          busy={saving}
+          onCancel={() => setArchiveTarget(null)}
+          onConfirm={() => archiveTarget ? archiveRule(archiveTarget) : undefined}
+        >
+          {error && <EnterpriseErrorState title="Archive request failed" message={error} />}
+        </EnterpriseConfirmationDialog>
+    </AppShell>
   );
 }
 
@@ -1597,7 +1571,7 @@ function VersionGovernancePanel({
   const applyEnabled = Boolean(canApply && validation?.valid && diff);
 
   return (
-    <section className="rounded-lg border border-slate-800 bg-slate-900/80 p-3">
+    <EnterpriseSection className="!border-0 !bg-transparent !p-0 !shadow-none">
       <div className="mb-3 flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h2 className="text-sm font-semibold text-slate-100">
@@ -1610,18 +1584,16 @@ function VersionGovernancePanel({
 
         <div className="flex flex-wrap gap-1.5">
           {CONFIG_DOMAINS.map((item) => (
-            <button
+            <EnterpriseButton
+              size="xs"
+              tone={domain === item ? "primary" : "secondary"}
+              ariaPressed={domain === item}
               key={item}
               type="button"
               onClick={() => onChangeDomain(item)}
-              className={`rounded-md border px-2.5 py-1.5 text-xs font-medium transition ${
-                domain === item
-                  ? "border-cyan-500 bg-cyan-500 text-slate-950"
-                  : "border-slate-700 bg-slate-950 text-slate-300 hover:border-slate-600 hover:text-cyan-200"
-              }`}
             >
               {CONFIG_DOMAIN_LABELS[item]}
-            </button>
+            </EnterpriseButton>
           ))}
         </div>
       </div>
@@ -1650,33 +1622,36 @@ function VersionGovernancePanel({
           )}
 
           <div className="mt-3 flex flex-wrap gap-2">
-            <button
+            <EnterpriseButton
+              size="xs"
+              tone="info"
               type="button"
               onClick={onValidate}
               disabled={!canValidate || running}
-              className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 text-xs text-slate-200 hover:border-emerald-700 hover:text-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <CheckCircle2 className="h-3.5 w-3.5" />
               Validate
-            </button>
-            <button
+            </EnterpriseButton>
+            <EnterpriseButton
+              size="xs"
+              tone="secondary"
               type="button"
               onClick={onDiff}
               disabled={!canValidate || running}
-              className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 text-xs text-slate-200 hover:border-cyan-700 hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Eye className="h-3.5 w-3.5" />
               Preview diff
-            </button>
-            <button
+            </EnterpriseButton>
+            <EnterpriseButton
+              size="xs"
+              tone="primary"
               type="button"
               onClick={onApply}
               disabled={!applyEnabled || running}
-              className="flex h-8 items-center gap-1.5 rounded-lg border border-cyan-700 bg-cyan-500 px-3 text-xs font-medium text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Save className="h-3.5 w-3.5" />
               Apply version
-            </button>
+            </EnterpriseButton>
           </div>
 
           <div className="mt-2 text-[11px] text-slate-500">
@@ -1704,7 +1679,7 @@ function VersionGovernancePanel({
           onClose={onCloseVersionDetails}
         />
       )}
-    </section>
+    </EnterpriseSection>
   );
 }
 
@@ -1712,7 +1687,7 @@ function InfoRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="grid grid-cols-[110px_minmax(0,1fr)] gap-2">
       <span className="text-slate-500">{label}</span>
-      <span className="min-w-0 truncate text-slate-200">{value}</span>
+      <span className="min-w-0 break-words text-slate-200">{value}</span>
     </div>
   );
 }
@@ -1721,7 +1696,7 @@ function ConfigValidationPanel({ result }: { result: ConfigValidationResult | nu
   if (!result) {
     return (
       <div className="rounded-lg border border-slate-800 bg-slate-950 p-3 text-xs text-slate-500">
-        Run validation before applying a version.
+        Validation not run.
       </div>
     );
   }
@@ -1732,7 +1707,7 @@ function ConfigValidationPanel({ result }: { result: ConfigValidationResult | nu
         <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
           Validation
         </div>
-        <span className={`inline-flex rounded-md border px-2 py-1 text-[11px] ${statusTone(result.severity)}`}>
+        <span className={`inline-flex rounded-md border px-2 py-1 text-[11px] ${statusTone(!result.valid ? "ERROR" : result.warnings.length ? "WARNING" : result.severity)}`}>
           {result.valid ? "valid" : "blocked"} / {result.severity}
         </span>
       </div>
@@ -1762,7 +1737,7 @@ function ConfigDiffPanel({ diff }: { diff: ConfigDiff | null }) {
   if (!diff) {
     return (
       <div className="rounded-lg border border-slate-800 bg-slate-950 p-3 text-xs text-slate-500">
-        Preview diff to compare proposed config against the active version.
+        Diff preview not run.
       </div>
     );
   }
@@ -1803,6 +1778,10 @@ function ConfigDiffPanel({ diff }: { diff: ConfigDiff | null }) {
           <div>No field-level changes.</div>
         )}
       </div>
+      <details className="mt-2 text-xs text-slate-400">
+        <summary className={`cursor-pointer ${SOC_CONTROL_CLASSES.focus}`}>Raw diff / technical changes</summary>
+        <pre className="mt-2 max-h-72 overflow-auto text-[11px]">{JSON.stringify(diff, null, 2)}</pre>
+      </details>
     </div>
   );
 }
@@ -1885,14 +1864,10 @@ function VersionDetailsPanel({
             {CONFIG_DOMAIN_LABELS[version.config_domain]} / {version.checksum_short || "-"}
           </div>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="flex h-7 items-center gap-1 rounded-md border border-slate-700 bg-slate-900 px-2 text-[11px] text-slate-300 hover:text-slate-100"
-        >
+        <EnterpriseButton size="xs" tone="secondary" type="button" onClick={onClose}>
           <XCircle className="h-3.5 w-3.5" />
           Close
-        </button>
+        </EnterpriseButton>
       </div>
 
       <div className="grid gap-3 lg:grid-cols-3">
@@ -1982,7 +1957,7 @@ function VersionHistoryTable({
         Version History
       </div>
       <div className="max-h-[220px] overflow-auto">
-        <table className="min-w-full divide-y divide-slate-800 text-left text-xs">
+        <table className="w-full min-w-[1040px] divide-y divide-slate-800 text-left text-xs">
           <thead className="sticky top-0 z-10 bg-slate-950 text-[11px] uppercase tracking-wide text-slate-500">
             <tr>
               <th className="px-3 py-2">Version</th>
@@ -2026,25 +2001,27 @@ function VersionHistoryTable({
                   </td>
                   <td className="px-3 py-2">
                     <div className="flex min-w-[160px] flex-wrap gap-1.5">
-                      <button
+                      <EnterpriseButton
+                        size="xs"
+                        tone="secondary"
                         type="button"
                         onClick={() => onViewVersion(version)}
                         disabled={running}
-                        className="flex h-7 items-center gap-1 rounded-md border border-slate-700 bg-slate-950 px-2 text-[11px] text-slate-200 hover:border-cyan-700 hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <Eye className="h-3.5 w-3.5" />
                         Details
-                      </button>
+                      </EnterpriseButton>
                       {canApply && version.status !== "ACTIVE" && (
-                        <button
+                        <EnterpriseButton
+                          size="xs"
+                          tone="danger"
                           type="button"
                           onClick={() => onRollback(version)}
                           disabled={running}
-                          className="flex h-7 items-center gap-1 rounded-md border border-slate-700 bg-slate-950 px-2 text-[11px] text-slate-200 hover:border-amber-700 hover:text-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           <RefreshCw className="h-3.5 w-3.5" />
                           Rollback
-                        </button>
+                        </EnterpriseButton>
                       )}
                     </div>
                   </td>
@@ -2055,39 +2032,6 @@ function VersionHistoryTable({
         </table>
       </div>
     </div>
-  );
-}
-
-function MetricCard({
-  title,
-  value,
-  subtitle,
-  icon,
-}: {
-  title: string;
-  value: ReactNode;
-  subtitle: string;
-  icon: ReactNode;
-}) {
-  return (
-    <article className="flex min-h-[46px] items-center justify-between gap-2 rounded-sm border border-slate-800 bg-slate-900 px-2 py-1.5 shadow-sm">
-      <div className="min-w-0">
-        <div className="truncate text-[9px] font-medium uppercase tracking-wide text-slate-500">
-          {title}
-        </div>
-        <div className="mt-0.5 flex min-w-0 items-baseline gap-1.5">
-          <span className="text-base font-semibold leading-5 text-slate-100">
-            {value}
-          </span>
-          <span className="min-w-0 truncate text-[10px] leading-3 text-slate-500">
-            {subtitle}
-          </span>
-        </div>
-      </div>
-      <div className="shrink-0 rounded-sm bg-slate-950 p-1 text-slate-400">
-        {icon}
-      </div>
-    </article>
   );
 }
 
@@ -2110,16 +2054,14 @@ function ManagedRulesTable({
 }) {
   if (items.length === 0) {
     return (
-      <div className="rounded-lg border border-slate-800 bg-slate-950 p-4 text-xs text-slate-500">
-        No managed entries have been created yet.
-      </div>
+      <EnterpriseEmptyState title="No managed entries have been created yet." />
     );
   }
 
   return (
     <div className="overflow-hidden rounded-lg border border-slate-800">
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-slate-800 text-left text-xs">
+        <table className="w-full min-w-[1040px] divide-y divide-slate-800 text-left text-xs">
           <thead className="bg-slate-950 text-[11px] uppercase tracking-wide text-slate-500">
             <tr>
               <th className="px-3 py-2">Type</th>
@@ -2159,9 +2101,9 @@ function ManagedRulesTable({
                 </td>
                 <td className="px-3 py-2 text-slate-300">{rule.owner}</td>
                 <td className="max-w-xs px-3 py-2">
-                  <span className={`inline-flex rounded-md border px-2 py-1 text-[11px] ${statusTone(rule.last_validation_status || "OK")}`}>
-                    {rule.last_validation_status || "OK"}
-                  </span>
+                  <EnterpriseStatusBadge value={rule.last_validation_status ?? "NOT_RUN"} size="compact">
+                    {rule.last_validation_status || "Not run"}
+                  </EnterpriseStatusBadge>
                   <div className="mt-1 leading-5 text-slate-500">
                     {rule.last_validation_message || "Validation not run yet."}
                   </div>
@@ -2173,42 +2115,46 @@ function ManagedRulesTable({
                 <td className="px-3 py-2">
                   {canWrite ? (
                     <div className="flex min-w-[170px] flex-wrap gap-1.5">
-                      <button
+                      <EnterpriseButton
+                        size="xs"
+                        tone="secondary"
                         type="button"
                         onClick={() => onEdit(rule)}
                         disabled={saving}
-                        className="flex h-7 items-center gap-1 rounded-md border border-slate-700 bg-slate-950 px-2 text-[11px] text-slate-200 hover:border-cyan-700 hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <Pencil className="h-3.5 w-3.5" />
                         Edit
-                      </button>
-                      <button
+                      </EnterpriseButton>
+                      <EnterpriseButton
+                        size="xs"
+                        tone="info"
                         type="button"
                         onClick={() => onValidate(rule)}
                         disabled={saving}
-                        className="flex h-7 items-center gap-1 rounded-md border border-slate-700 bg-slate-950 px-2 text-[11px] text-slate-200 hover:border-emerald-700 hover:text-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <CheckCircle2 className="h-3.5 w-3.5" />
                         Validate
-                      </button>
-                      <button
+                      </EnterpriseButton>
+                      <EnterpriseButton
+                        size="xs"
+                        tone={rule.enabled ? "danger" : "primary"}
                         type="button"
                         onClick={() => onToggle(rule, !rule.enabled)}
                         disabled={saving}
-                        className="flex h-7 items-center gap-1 rounded-md border border-slate-700 bg-slate-950 px-2 text-[11px] text-slate-200 hover:border-amber-700 hover:text-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <Power className="h-3.5 w-3.5" />
                         {rule.enabled ? "Disable" : "Enable"}
-                      </button>
-                      <button
+                      </EnterpriseButton>
+                      <EnterpriseButton
+                        size="xs"
+                        tone="danger"
                         type="button"
                         onClick={() => onArchive(rule)}
                         disabled={saving}
-                        className="flex h-7 items-center gap-1 rounded-md border border-slate-700 bg-slate-950 px-2 text-[11px] text-slate-200 hover:border-red-800 hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                         Archive
-                      </button>
+                      </EnterpriseButton>
                     </div>
                   ) : (
                     <span className="inline-flex items-center gap-1 text-slate-500">
@@ -2349,7 +2295,7 @@ function DetectionControlSemanticContextPanel({
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-2 text-sm font-semibold text-slate-100">
               <Bot className="h-3.5 w-3.5 text-cyan-300" />
-              Semantic Tuning Context
+              Semantic Tuning Context / Advisory
             </div>
             <span className={`rounded-md border px-1.5 py-0.5 text-[10px] ${statusClass}`}>
               {status}
@@ -2361,19 +2307,16 @@ function DetectionControlSemanticContextPanel({
           </p>
         </div>
 
-        <button
+        <EnterpriseButton
+          size="xs"
+          tone="secondary"
           type="button"
           onClick={onRefresh}
           disabled={disabled}
-          className="inline-flex h-8 w-fit items-center gap-1.5 rounded-md border border-slate-700 bg-slate-950 px-2.5 text-xs text-slate-200 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {loading ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Bot className="h-3.5 w-3.5" />
-          )}
+          {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Bot className="h-3.5 w-3.5" />}
           Refresh context
-        </button>
+        </EnterpriseButton>
       </div>
 
       {error && (
@@ -2487,13 +2430,9 @@ function RuleForm({
           {editingRuleId ? "Edit Entry" : "Create Entry"}
         </h2>
         {editingRuleId && (
-          <button
-            type="button"
-            onClick={onReset}
-            className="text-xs text-cyan-300 hover:text-cyan-200"
-          >
+          <EnterpriseButton size="xs" tone="ghost" type="button" onClick={onReset}>
             Clear
-          </button>
+          </EnterpriseButton>
         )}
       </div>
 
@@ -2503,7 +2442,7 @@ function RuleForm({
             value={form.name}
             onChange={(event) => onChange({ ...form, name: event.target.value })}
             disabled={!canWrite || saving}
-            className="h-9 w-full rounded-md border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-600 disabled:cursor-not-allowed disabled:opacity-60"
+            className={`h-9 w-full px-2 text-xs ${SOC_CONTROL_CLASSES.input} ${SOC_CONTROL_CLASSES.focus}`}
           />
         </Field>
 
@@ -2513,7 +2452,7 @@ function RuleForm({
               value={form.type}
               onChange={(event) => onChange({ ...form, type: event.target.value as RuleType })}
               disabled={!canWrite || saving}
-              className="h-9 w-full rounded-md border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-600 disabled:cursor-not-allowed disabled:opacity-60"
+              className={`h-9 w-full px-2 text-xs ${SOC_CONTROL_CLASSES.input} ${SOC_CONTROL_CLASSES.focus}`}
             >
               {RULE_TYPES.map((type) => (
                 <option key={type} value={type}>
@@ -2528,7 +2467,7 @@ function RuleForm({
               value={form.scope}
               onChange={(event) => onChange({ ...form, scope: event.target.value })}
               disabled={!canWrite || saving}
-              className="h-9 w-full rounded-md border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-600 disabled:cursor-not-allowed disabled:opacity-60"
+              className={`h-9 w-full px-2 text-xs ${SOC_CONTROL_CLASSES.input} ${SOC_CONTROL_CLASSES.focus}`}
             />
           </Field>
         </div>
@@ -2538,7 +2477,7 @@ function RuleForm({
             value={form.matcher_kind}
             onChange={(event) => onChange({ ...form, matcher_kind: event.target.value as MatcherKind })}
             disabled={!canWrite || saving}
-            className="h-9 w-full rounded-md border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-600 disabled:cursor-not-allowed disabled:opacity-60"
+            className={`h-9 w-full px-2 text-xs ${SOC_CONTROL_CLASSES.input} ${SOC_CONTROL_CLASSES.focus}`}
           >
             {MATCHER_KINDS.map((kind) => (
               <option key={kind} value={kind}>
@@ -2554,7 +2493,7 @@ function RuleForm({
             onChange={(event) => onChange({ ...form, matcher_value: event.target.value })}
             disabled={!canWrite || saving}
             rows={4}
-            className="w-full resize-y rounded-md border border-slate-700 bg-slate-950 px-2 py-2 text-xs leading-5 text-slate-100 outline-none focus:border-cyan-600 disabled:cursor-not-allowed disabled:opacity-60"
+            className={`w-full resize-y px-2 py-2 text-xs leading-5 ${SOC_CONTROL_CLASSES.input} ${SOC_CONTROL_CLASSES.focus}`}
           />
         </Field>
 
@@ -2564,7 +2503,7 @@ function RuleForm({
             onChange={(event) => onChange({ ...form, reason: event.target.value })}
             disabled={!canWrite || saving}
             rows={3}
-            className="w-full resize-y rounded-md border border-slate-700 bg-slate-950 px-2 py-2 text-xs leading-5 text-slate-100 outline-none focus:border-cyan-600 disabled:cursor-not-allowed disabled:opacity-60"
+            className={`w-full resize-y px-2 py-2 text-xs leading-5 ${SOC_CONTROL_CLASSES.input} ${SOC_CONTROL_CLASSES.focus}`}
           />
         </Field>
 
@@ -2574,7 +2513,7 @@ function RuleForm({
               value={form.owner}
               onChange={(event) => onChange({ ...form, owner: event.target.value })}
               disabled={!canWrite || saving}
-              className="h-9 w-full rounded-md border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-600 disabled:cursor-not-allowed disabled:opacity-60"
+              className={`h-9 w-full px-2 text-xs ${SOC_CONTROL_CLASSES.input} ${SOC_CONTROL_CLASSES.focus}`}
             />
           </Field>
 
@@ -2596,28 +2535,19 @@ function RuleForm({
             onChange={(event) => onChange({ ...form, description: event.target.value })}
             disabled={!canWrite || saving}
             rows={2}
-            className="w-full resize-y rounded-md border border-slate-700 bg-slate-950 px-2 py-2 text-xs leading-5 text-slate-100 outline-none focus:border-cyan-600 disabled:cursor-not-allowed disabled:opacity-60"
+            className={`w-full resize-y px-2 py-2 text-xs leading-5 ${SOC_CONTROL_CLASSES.input} ${SOC_CONTROL_CLASSES.focus}`}
           />
         </Field>
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
-        <button
-          type="submit"
-          disabled={!canWrite || saving}
-          className="flex h-8 items-center gap-1.5 rounded-lg border border-cyan-700 bg-cyan-500 px-3 text-xs font-medium text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
-        >
+        <EnterpriseButton size="xs" tone="primary" type="submit" disabled={!canWrite || saving}>
           <Save className="h-3.5 w-3.5" />
           {editingRuleId ? "Save" : "Create"}
-        </button>
-        <button
-          type="button"
-          onClick={onReset}
-          disabled={saving}
-          className="h-8 rounded-lg border border-slate-700 bg-slate-950 px-3 text-xs text-slate-200 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
-        >
+        </EnterpriseButton>
+        <EnterpriseButton size="xs" tone="ghost" type="button" onClick={onReset} disabled={saving}>
           Reset
-        </button>
+        </EnterpriseButton>
       </div>
     </form>
   );
@@ -2636,7 +2566,7 @@ function ValidationPanel({ result }: { result: ValidationResult | null }) {
   if (!result) {
     return (
       <section className="rounded-lg border border-slate-800 bg-slate-900/80 p-3 text-xs text-slate-500">
-        Validation result will appear after save or validate.
+        Validation not run.
       </section>
     );
   }
@@ -2645,7 +2575,7 @@ function ValidationPanel({ result }: { result: ValidationResult | null }) {
     <section className="rounded-lg border border-slate-800 bg-slate-900/80 p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
         <h2 className="text-sm font-semibold text-slate-100">Validation Result</h2>
-        <span className={`inline-flex rounded-md border px-2 py-1 text-[11px] ${statusTone(result.severity)}`}>
+        <span className={`inline-flex rounded-md border px-2 py-1 text-[11px] ${statusTone(!result.valid ? "ERROR" : result.warnings.length ? "WARNING" : result.severity)}`}>
           {result.valid ? "valid" : "invalid"} / {result.severity}
         </span>
       </div>
@@ -2705,7 +2635,7 @@ function InventoryTable({
   return (
     <div className="overflow-hidden rounded-lg border border-slate-800">
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-slate-800 text-left text-xs">
+        <table className="w-full min-w-[1040px] divide-y divide-slate-800 text-left text-xs">
           <thead className="bg-slate-950 text-[11px] uppercase tracking-wide text-slate-500">
             <tr>
               <th className="px-3 py-2">Name</th>
@@ -2778,19 +2708,16 @@ function InventoryTable({
                   </td>
                   <td className="px-3 py-2">
                     {canWrite ? (
-                      <button
+                      <EnterpriseButton
+                        size="xs"
+                        tone="secondary"
                         type="button"
-                        onClick={() =>
-                          managedRule
-                            ? onEditManaged(managedRule)
-                            : onManageInventory(item, category)
-                        }
+                        onClick={() => (managedRule ? onEditManaged(managedRule) : onManageInventory(item, category))}
                         disabled={saving}
-                        className="flex h-7 items-center gap-1 rounded-md border border-slate-700 bg-slate-950 px-2 text-[11px] text-slate-200 hover:border-cyan-700 hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <Pencil className="h-3.5 w-3.5" />
                         {managedRule ? "Edit" : "Manage"}
-                      </button>
+                      </EnterpriseButton>
                     ) : (
                       <span className="inline-flex items-center gap-1 text-slate-500">
                         <Lock className="h-3.5 w-3.5" />

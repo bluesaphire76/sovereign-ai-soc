@@ -1,18 +1,28 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
-import AppNavigation from "../../../components/AppNavigation";
-import { RefreshCw, UserPlus, Users } from "lucide-react";
-import { authFetch, fetchCurrentUser, type AuthUser } from "../../../lib/auth";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type InputHTMLAttributes } from "react";
+import AppShell from "@/components/AppShell";
+import {
+  EnterpriseBadge,
+  EnterpriseBreadcrumbs,
+  EnterpriseButton,
+  EnterpriseConfirmationDialog,
+  EnterpriseEmptyState,
+  EnterpriseErrorState,
+  EnterprisePageHeader,
+  EnterpriseSection,
+  EnterpriseSelect,
+  EnterpriseSkeleton,
+} from "@/components/enterprise";
+import { KeyRound, Pencil, Power, RefreshCw, Trash2, UserPlus, Users } from "lucide-react";
+import { SOC_CONTROL_CLASSES, SOC_TONE_CLASSES } from "@/lib/semantic-styles";
+import { authFetch, fetchCurrentUser, type AuthUser } from "@/lib/auth";
+import UserPasswordDialog from "./UserPasswordDialog";
 
-type UsersResponse = {
-  items: AuthUser[];
-};
-
+type UsersResponse = { items: AuthUser[] };
+type Confirmation = { operation: "delete" | "status"; user: AuthUser };
 const ROLES = ["ADMIN", "ANALYST", "VIEWER"];
-
-
+const ROLE_OPTIONS = ROLES.map((value) => ({ value, label: value }));
 const ZURICH_DATE_TIME_FORMATTER = new Intl.DateTimeFormat("en-GB", {
   timeZone: "Europe/Zurich",
   day: "2-digit",
@@ -24,17 +34,37 @@ const ZURICH_DATE_TIME_FORMATTER = new Intl.DateTimeFormat("en-GB", {
 });
 
 function formatZurichDateTime(value?: string | null) {
-  if (!value) {
-    return "-";
-  }
-
+  if (!value) return "-";
   const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : ZURICH_DATE_TIME_FORMATTER.format(date);
+}
 
-  if (Number.isNaN(date.getTime())) {
-    return value;
+async function userRequestError(response: Response) {
+  if (response.status === 401) return "Session expired. Please sign in again.";
+  if (response.status === 403) return "You are not authorized to perform this account operation.";
+  if (response.status === 404) return "User not found. Refresh the account list.";
+  if (response.status === 409) {
+    const body = await response.json().catch(() => null);
+    const safeMessages = [
+      "Username already exists.",
+      "At least one enabled administrator must remain.",
+    ];
+    return safeMessages.includes(body?.detail)
+      ? (body.detail as string)
+      : "Account conflict. Refresh the account list and try again.";
   }
-
-  return ZURICH_DATE_TIME_FORMATTER.format(date);
+  if (response.status === 400 || response.status === 422) {
+    const body = await response.json().catch(() => null);
+    const safeMessages = [
+      "Username is required.",
+      "You cannot disable your own account.",
+      "You cannot delete your own account.",
+    ];
+    return safeMessages.includes(body?.detail)
+      ? (body.detail as string)
+      : "Invalid account details. Check the fields and password length (minimum 8 characters).";
+  }
+  return "Account service unavailable. Please try again.";
 }
 
 export default function AdminUsersPage() {
@@ -42,436 +72,432 @@ export default function AdminUsersPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [mutating, setMutating] = useState(false);
+  const mutationRunning = useRef(false);
+  const loadSequence = useRef(0);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
-
+  const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
+  const [passwordTarget, setPasswordTarget] = useState<AuthUser | null>(null);
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [role, setRole] = useState("ANALYST");
   const [password, setPassword] = useState("");
+  const isAdmin = currentUser?.role === "ADMIN";
 
   const loadUsers = useCallback(async () => {
+    const sequence = ++loadSequence.current;
+    setRefreshing(true);
+    setError(null);
+    setCurrentUser(null);
+    setUsers([]);
     try {
-      setRefreshing(true);
-      setError(null);
-
       const current = await fetchCurrentUser();
+      if (sequence !== loadSequence.current) return;
       setCurrentUser(current);
-
       const response = await authFetch("/users");
-
-      if (!response.ok) {
-        throw new Error(`API error ${response.status}`);
-      }
-
+      if (!response.ok) throw new Error(await userRequestError(response));
       const data = (await response.json()) as UsersResponse;
-      setUsers(data.items);
+      if (sequence === loadSequence.current) setUsers(data.items);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
+      if (sequence === loadSequence.current)
+        setError(
+          err instanceof TypeError || err instanceof SyntaxError
+            ? "Account service unavailable. Please try again."
+            : err instanceof Error
+              ? err.message
+              : "Unable to load accounts.",
+        );
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (sequence === loadSequence.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, []);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void loadUsers();
-    }, 0);
-
-    return () => window.clearTimeout(timer);
+    const timer = window.setTimeout(() => void loadUsers(), 0);
+    return () => {
+      window.clearTimeout(timer);
+      loadSequence.current += 1;
+    };
   }, [loadUsers]);
 
-  const isAdmin = currentUser?.role === "ADMIN";
-
-  async function createUser() {
+  async function mutateUser(path: string, method: string, body: unknown, successMessage: string) {
+    if (mutationRunning.current) return false;
+    mutationRunning.current = true;
+    setMutating(true);
+    setError(null);
+    setMessage(null);
     try {
-      setCreating(true);
-      setError(null);
+      const response = await authFetch(path, {
+        method,
+        ...(body === undefined
+          ? {}
+          : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+      });
+      if (!response.ok) throw new Error(await userRequestError(response));
+      setMessage(successMessage);
+      await loadUsers();
+      return true;
+    } catch (err) {
+      setError(
+        err instanceof TypeError || err instanceof SyntaxError
+          ? "Account service unavailable. Please try again."
+          : err instanceof Error
+            ? err.message
+            : "Account operation failed.",
+      );
+      return false;
+    } finally {
+      mutationRunning.current = false;
+      setMutating(false);
+    }
+  }
 
-      const response = await authFetch("/users", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
+  async function createUser(event: FormEvent) {
+    event.preventDefault();
+    if (!isAdmin || !username.trim() || password.length < 8) return;
+    if (
+      await mutateUser(
+        "/users",
+        "POST",
+        {
           username,
           display_name: displayName || null,
           role,
           password,
           is_active: true,
-        }),
-      });
-
-      if (!response.ok) {
-        const body = await response.json().catch(() => null);
-        throw new Error(String(body?.detail ?? `API error ${response.status}`));
-      }
-
+        },
+        "User created.",
+      )
+    ) {
       setUsername("");
       setDisplayName("");
       setRole("ANALYST");
       setPassword("");
-      await loadUsers();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-    } finally {
-      setCreating(false);
     }
   }
 
   async function updateUser(userId: number, patch: Partial<AuthUser>) {
-    try {
-      setError(null);
-
-      const response = await authFetch(`/users/${userId}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(patch),
-      });
-
-      if (!response.ok) {
-        const body = await response.json().catch(() => null);
-        throw new Error(String(body?.detail ?? `API error ${response.status}`));
-      }
-
-      await loadUsers();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
+    if (!isAdmin) return false;
+    if (userId === currentUser.id && patch.is_active === false) {
+      setError("You cannot disable your own active account.");
+      return false;
     }
+    return mutateUser(`/users/${userId}`, "PATCH", patch, "User updated.");
   }
 
   async function updateDisplayName(user: AuthUser) {
-    const newDisplayName = window.prompt(
-      `Display name for ${user.username}`,
-      user.display_name ?? ""
-    );
-
-    if (newDisplayName === null) return;
-
-    await updateUser(user.id, {
-      display_name: newDisplayName.trim() || null,
-    });
+    if (!isAdmin || mutating) return;
+    const value = window.prompt(`Display name for ${user.username}`, user.display_name ?? "");
+    if (value !== null) await updateUser(user.id, { display_name: value.trim() || null });
   }
 
-  async function toggleUserActive(user: AuthUser) {
-    if (currentUser?.id === user.id && user.is_active) {
-      setError("You cannot disable your own active account.");
-      return;
-    }
-
-    const action = user.is_active ? "disable" : "enable";
-
-    if (!window.confirm(`${action.charAt(0).toUpperCase() + action.slice(1)} user ${user.username}?`)) {
-      return;
-    }
-
-    await updateUser(user.id, {
-      is_active: !user.is_active,
-    });
+  function toggleUserActive(user: AuthUser) {
+    if (!isAdmin || mutating || (user.id === currentUser.id && user.is_active)) return;
+    setError(null);
+    setConfirmation({ operation: "status", user });
   }
 
-  async function deleteUser(user: AuthUser) {
-    if (!window.confirm(`Delete user ${user.username}? This action cannot be undone.`)) {
+  async function confirmOperation() {
+    if (!confirmation || !isAdmin) return;
+    const { user, operation } = confirmation;
+    if (user.id === currentUser.id) return;
+    const success =
+      operation === "delete"
+        ? await mutateUser(`/users/${user.id}`, "DELETE", undefined, "User deleted.")
+        : await updateUser(user.id, { is_active: !user.is_active });
+    if (success) setConfirmation(null);
+  }
+
+  async function resetPassword(newPassword: string) {
+    if (
+      !passwordTarget ||
+      !currentUser ||
+      (!isAdmin && passwordTarget.id !== currentUser.id) ||
+      newPassword.length < 8
+    )
       return;
-    }
-
-    try {
-      setError(null);
-
-      const response = await authFetch(`/users/${user.id}`, {
-        method: "DELETE",
-      });
-
-      if (!response.ok) {
-        const body = await response.json().catch(() => null);
-        throw new Error(String(body?.detail ?? `API error ${response.status}`));
-      }
-
-      await loadUsers();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
+    if (
+      await mutateUser(
+        `/users/${passwordTarget.id}/password`,
+        "POST",
+        { password: newPassword },
+        "Password updated.",
+      )
+    ) {
+      setPasswordTarget(null);
     }
   }
 
-  async function resetPassword(user: AuthUser) {
-    const newPassword = window.prompt(
-      `New password for ${user.username} - minimum 8 characters`
-    );
-
-    if (!newPassword) return;
-
-    if (newPassword.length < 8) {
-      setError("Password must be at least 8 characters long.");
-      return;
-    }
-
-    try {
-      setError(null);
-
-      const response = await authFetch(`/users/${user.id}/password`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          password: newPassword,
-        }),
-      });
-
-      if (!response.ok) {
-        const body = await response.json().catch(() => null);
-        throw new Error(String(body?.detail ?? `API error ${response.status}`));
-      }
-
-      await loadUsers();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-    }
-  }
+  const confirmationTitle =
+    confirmation?.operation === "delete"
+      ? "Delete user"
+      : confirmation?.user.is_active
+        ? "Disable user"
+        : "Enable user";
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto max-w-[1600px] px-4 py-4">
-        <AppNavigation />
-
-        <header className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div>
-            <Link
-              href="/"
-              className="mb-2 inline-flex items-center gap-1.5 text-xs text-cyan-300 hover:text-cyan-200"
-            >
-              ← Dashboard
-            </Link>
-
-            <div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-cyan-300">
-              <Users className="h-3.5 w-3.5" />
-              {isAdmin ? "Administration" : "Self-service"}
-            </div>
-
-            <h1 className="text-xl font-semibold tracking-tight">
-                {isAdmin ? "User Management" : "User Profile"}
-              </h1>
-
-            <p className="mt-1 max-w-4xl text-xs leading-5 text-slate-500">
-                {isAdmin
-                  ? "Create and manage personal accounts for the Sovereign AI SOC console."
-                  : "View your account profile and reset your own password."}
-              </p>
-          </div>
-
-          <button
+    <AppShell>
+      <EnterprisePageHeader
+        title={isAdmin ? "User Management" : currentUser ? "User Profile" : "Users"}
+        eyebrow={isAdmin ? "Administration" : currentUser ? "Self-service" : "Governance"}
+        density="compact"
+        icon={<Users aria-hidden="true" className="h-3.5 w-3.5" />}
+        breadcrumbs={
+          <EnterpriseBreadcrumbs items={[{ label: "Dashboard", href: "/" }, { label: "Users" }]} />
+        }
+        metadata={
+          <>
+            <EnterpriseBadge tone="neutral">{currentUser?.role ?? "Checking access"}</EnterpriseBadge>
+            <EnterpriseBadge tone="muted">Europe/Zurich</EnterpriseBadge>
+          </>
+        }
+        secondaryActions={
+          <EnterpriseButton
             onClick={loadUsers}
-            className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 text-xs text-slate-200 shadow-sm hover:bg-slate-800"
+            disabled={refreshing || mutating}
+            size="xs"
+            icon={<RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />}
           >
-            <RefreshCw
-              className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`}
-            />
             Refresh
-          </button>
-        </header>
+          </EnterpriseButton>
+        }
+      />
 
-        {error && (
-          <div className="mb-3 rounded-lg border border-red-800 bg-red-950/60 p-3 text-xs text-red-200">
-            {error}
-          </div>
+      {error && (
+        <div id="users-error">
+          <EnterpriseErrorState
+            className="mb-3"
+            title="Account request failed"
+            message={error}
+            onRetry={!mutating && !confirmation && !passwordTarget ? loadUsers : undefined}
+          />
+        </div>
+      )}
+      {message && (
+        <div
+          role="status"
+          className={`mb-3 rounded-sm border p-3 text-xs ${SOC_TONE_CLASSES.success.panel} ${SOC_TONE_CLASSES.success.text}`}
+        >
+          {message}
+        </div>
+      )}
+
+      <div className="space-y-4">
+        {isAdmin && (
+          <EnterpriseSection title="Create user" className="!border-0 !bg-transparent !p-0 !shadow-none">
+            <form onSubmit={createUser} aria-describedby={error ? "users-error" : undefined}>
+              <fieldset
+                disabled={mutating || refreshing}
+                className="grid min-w-0 items-end gap-2 sm:grid-cols-2 2xl:grid-cols-[1fr_1fr_140px_1fr_120px]"
+              >
+                <Input label="Username" value={username} onChange={setUsername} required autoComplete="off" />
+                <Input label="Display name" value={displayName} onChange={setDisplayName} />
+                <EnterpriseSelect label="Role" value={role} onChange={setRole} options={ROLE_OPTIONS} />
+                <Input
+                  label="Password (minimum 8 characters)"
+                  value={password}
+                  onChange={setPassword}
+                  type="password"
+                  required
+                  minLength={8}
+                  autoComplete="new-password"
+                />
+                <EnterpriseButton
+                  type="submit"
+                  tone="primary"
+                  size="xs"
+                  disabled={mutating || !username.trim() || password.length < 8}
+                  icon={<UserPlus className="h-3.5 w-3.5" />}
+                >
+                  {mutating ? "Working..." : "Create"}
+                </EnterpriseButton>
+              </fieldset>
+            </form>
+          </EnterpriseSection>
         )}
 
-        <div className="space-y-3">
-          {isAdmin && (
-          <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
-            <div className="mb-3 flex items-center gap-2">
-              <UserPlus className="h-3.5 w-3.5 text-cyan-300" />
-              <h2 className="text-sm font-semibold">Create user</h2>
-            </div>
-
-            <div className="grid gap-2 md:grid-cols-[1fr_1fr_140px_1fr_120px]">
-              <Input label="Username" value={username} onChange={setUsername} />
-              <Input label="Display name" value={displayName} onChange={setDisplayName} />
-
-              <label>
-                <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-slate-500">
-                  Role
-                </span>
-                <select
-                  value={role}
-                  onChange={(event) => setRole(event.target.value)}
-                  className="h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500"
-                >
-                  {ROLES.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <Input
-                label="Password"
-                value={password}
-                onChange={setPassword}
-                type="password"
-              />
-
-              <div className="flex items-end">
-                <button
-                  onClick={createUser}
-                  disabled={creating || !username.trim() || password.length < 8}
-                  className="h-8 w-full rounded-lg border border-cyan-700 bg-cyan-500 px-3 text-xs font-medium text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {creating ? "Creating..." : "Create"}
-                </button>
-              </div>
-            </div>
-          </section>
-
-          )}          <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
-            <div className="mb-2 flex items-center justify-between">
-              <h2 className="text-sm font-semibold">Users</h2>
-              <span className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-400">
-                {users.length}
-              </span>
-            </div>
-
-            {loading ? (
-              <div className="rounded-md border border-slate-800 bg-slate-950 p-3 text-xs text-slate-400">
-                Loading users...
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-left text-xs">
-                  <thead className="border-b border-slate-800 text-[10px] uppercase tracking-wide text-slate-500">
-                    <tr>
-                      <th className="px-2 py-1.5">Username</th>
-                      <th className="px-2 py-1.5">Display name</th>
-                      <th className="px-2 py-1.5">Role</th>
-                      <th className="px-2 py-1.5">Status</th>
-                      <th className="px-2 py-1.5">Last login</th>
-                      <th className="px-2 py-1.5">Actions</th>
-                    </tr>
-                  </thead>
-
-                  <tbody className="divide-y divide-slate-800/80">
-                    {users.map((user) => (
-                      <tr key={user.id} className="hover:bg-slate-800/40">
-                        <td className="px-2 py-1.5 font-medium text-slate-100">
-                          {user.username}
+        <EnterpriseSection
+          title={isAdmin ? "Users" : "Account"}
+          actions={<EnterpriseBadge tone="neutral">{users.length}</EnterpriseBadge>}
+          className="!border-0 !bg-transparent !p-0 !shadow-none"
+        >
+          {loading || refreshing ? (
+            <EnterpriseSkeleton label="Loading users" rows={4} />
+          ) : error && users.length === 0 ? null : users.length === 0 ? (
+            <EnterpriseEmptyState title="No users available." />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1080px] text-left text-xs">
+                <thead className="border-b border-slate-800 text-[10px] uppercase text-slate-500">
+                  <tr>
+                    {["Username", "Display name", "Role", "Status", "Last login", "Actions"].map((label) => (
+                      <th key={label} scope="col" className="px-2 py-2">
+                        {label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/80">
+                  {users.map((user) => {
+                    const own = user.id === currentUser?.id;
+                    const canReset = Boolean(currentUser && (isAdmin || own));
+                    return (
+                      <tr key={user.id} className="align-top hover:bg-slate-900">
+                        <td className="px-2 py-2 font-medium text-slate-100">
+                          <span className="break-all">{user.username}</span>
+                          {own && (
+                            <span className="ml-2">
+                              <EnterpriseBadge tone="primary" size="compact">
+                                You
+                              </EnterpriseBadge>
+                            </span>
+                          )}
                         </td>
-                        <td className="px-2 py-1.5 text-slate-300">
-                          {user.display_name ?? "-"}
+                        <td className="px-2 py-2 text-slate-300">{user.display_name ?? "-"}</td>
+                        <td className="px-2 py-2">
+                          {isAdmin ? (
+                            <select
+                              aria-label={`Role for ${user.username}`}
+                              value={user.role}
+                              disabled={mutating}
+                              onChange={(event) => void updateUser(user.id, { role: event.target.value })}
+                              className={`h-7 px-2 text-xs ${SOC_CONTROL_CLASSES.input} ${SOC_CONTROL_CLASSES.focus}`}
+                            >
+                              {ROLES.map((item) => (
+                                <option key={item}>{item}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <EnterpriseBadge tone="neutral" size="compact">
+                              {user.role}
+                            </EnterpriseBadge>
+                          )}
                         </td>
-                        <td className="px-2 py-1.5">
-                            {isAdmin ? (
-                              <select
-                                value={user.role}
-                                onChange={(event) =>
-                                  updateUser(user.id, { role: event.target.value })
-                                }
-                                className="h-7 rounded-md border border-slate-700 bg-slate-950 px-2 text-[11px] text-slate-100"
-                              >
-                                {ROLES.map((item) => (
-                                  <option key={item} value={item}>
-                                    {item}
-                                  </option>
-                                ))}
-                              </select>
-                            ) : (
-                              <span className="rounded-md border border-slate-700 bg-slate-950 px-2 py-0.5 text-[11px] text-slate-300">
-                                {user.role}
-                              </span>
-                            )}
-                          </td>
-                        <td className="px-2 py-1.5">
-                            {isAdmin ? (
-                              <button
-                                onClick={() =>
-                                  updateUser(user.id, { is_active: !user.is_active })
-                                }
-                                className={`rounded-md border px-2 py-0.5 text-[11px] ${
-                                  user.is_active
-                                    ? "border-emerald-700 bg-emerald-950 text-emerald-200"
-                                    : "border-red-800 bg-red-950 text-red-200"
-                                }`}
-                              >
-                                {user.is_active ? "ACTIVE" : "DISABLED"}
-                              </button>
-                            ) : (
-                              <span
-                                className={`rounded-md border px-2 py-0.5 text-[11px] ${
-                                  user.is_active
-                                    ? "border-emerald-700 bg-emerald-950 text-emerald-200"
-                                    : "border-red-800 bg-red-950 text-red-200"
-                                }`}
-                              >
-                                {user.is_active ? "ACTIVE" : "DISABLED"}
-                              </span>
-                            )}
-                          </td>
-                        <td className="whitespace-nowrap px-2 py-1.5 text-slate-400">
+                        <td className="px-2 py-2">
+                          {isAdmin ? (
+                            <EnterpriseButton
+                              size="xs"
+                              tone={user.is_active ? "secondary" : "ghost"}
+                              disabled={mutating || own}
+                              title={own ? "You cannot disable your own account." : undefined}
+                              ariaLabel={`Change account status for ${user.username}`}
+                              onClick={() => toggleUserActive(user)}
+                            >
+                              {user.is_active ? "ACTIVE" : "DISABLED"}
+                            </EnterpriseButton>
+                          ) : (
+                            <EnterpriseBadge tone={user.is_active ? "primary" : "neutral"} size="compact">
+                              {user.is_active ? "ACTIVE" : "DISABLED"}
+                            </EnterpriseBadge>
+                          )}
+                        </td>
+                        <td
+                          className="whitespace-nowrap px-2 py-2 text-slate-400"
+                          title={user.last_login_at ?? undefined}
+                        >
                           {formatZurichDateTime(user.last_login_at)}
                         </td>
-                        <td className="px-2 py-1.5">
-                            <div className="flex flex-wrap gap-1.5">
-                              <button
-                                onClick={() => resetPassword(user)}
-                                className="rounded-md border border-slate-700 bg-slate-950 px-2 py-0.5 text-[11px] text-slate-300 hover:bg-slate-800"
-                              >
-                                Reset password
-                              </button>
-
-                              {isAdmin && (
-                                <>
-                                  <button
-                                    onClick={() => toggleUserActive(user)}
-                                    className={`rounded-md border px-2 py-1 text-[11px] font-medium ${
-                                      user.is_active
-                                        ? "border-orange-700 bg-orange-950 text-orange-200 hover:bg-orange-900"
-                                        : "border-emerald-700 bg-emerald-950 text-emerald-200 hover:bg-emerald-900"
-                                    }`}
-                                  >
-                                    {user.is_active ? "Disable" : "Enable"}
-                                  </button>
-
-                                  <button
-                                    onClick={() => updateDisplayName(user)}
-                                    className="rounded-md border border-slate-700 bg-slate-950 px-2 py-0.5 text-[11px] text-slate-300 hover:bg-slate-800"
-                                  >
-                                    Edit
-                                  </button>
-
-                                  <button
-                                    onClick={() => deleteUser(user)}
-                                    className="rounded-md border border-red-800 bg-red-950 px-2 py-0.5 text-[11px] text-red-200 hover:bg-red-900"
+                        <td className="px-2 py-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <EnterpriseButton
+                              size="xs"
+                              tone="primary"
+                              disabled={!canReset || mutating}
+                              icon={<KeyRound className="h-3.5 w-3.5" />}
+                              onClick={() => {
+                                if (canReset) {
+                                  setError(null);
+                                  setPasswordTarget(user);
+                                }
+                              }}
+                            >
+                              Reset password
+                            </EnterpriseButton>
+                            {isAdmin && (
+                              <>
+                                <EnterpriseButton
+                                  size="xs"
+                                  disabled={mutating}
+                                  icon={<Pencil className="h-3.5 w-3.5" />}
+                                  onClick={() => updateDisplayName(user)}
+                                >
+                                  Edit
+                                </EnterpriseButton>
+                                <EnterpriseButton
+                                  size="xs"
+                                  tone={user.is_active ? "warning" : "primary"}
+                                  disabled={mutating || own}
+                                  title={own ? "You cannot disable your own account." : undefined}
+                                  icon={<Power className="h-3.5 w-3.5" />}
+                                  onClick={() => toggleUserActive(user)}
+                                >
+                                  {user.is_active ? "Disable" : "Enable"}
+                                </EnterpriseButton>
+                                <span className="border-l border-slate-700 pl-2">
+                                  <EnterpriseButton
+                                    size="xs"
+                                    tone="danger"
+                                    disabled={mutating || own}
+                                    title={own ? "You cannot delete your own account." : undefined}
+                                    icon={<Trash2 className="h-3.5 w-3.5" />}
+                                    onClick={() => {
+                                      if (!own) {
+                                        setError(null);
+                                        setConfirmation({ operation: "delete", user });
+                                      }
+                                    }}
                                   >
                                     Delete
-                                  </button>
-                                </>
-                              )}
-                            </div>
-                          </td>
-                      </tr>
-                    ))}
-
-                    {users.length === 0 && (
-                      <tr>
-                        <td
-                          colSpan={6}
-                          className="px-2 py-4 text-center text-slate-500"
-                        >
-                          No users available.
+                                  </EnterpriseButton>
+                                </span>
+                              </>
+                            )}
+                          </div>
                         </td>
                       </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-        </div>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </EnterpriseSection>
       </div>
-    </main>
+
+      <EnterpriseConfirmationDialog
+        open={Boolean(confirmation)}
+        title={confirmationTitle}
+        description={
+          confirmation
+            ? `${confirmationTitle} ${confirmation.user.username}?${confirmation.operation === "delete" ? " This action cannot be undone." : ""}`
+            : undefined
+        }
+        confirmLabel={confirmationTitle}
+        confirmTone={
+          confirmation?.operation === "delete"
+            ? "danger"
+            : confirmation?.user.is_active
+              ? "warning"
+              : "primary"
+        }
+        busy={mutating}
+        onCancel={() => setConfirmation(null)}
+        onConfirm={confirmOperation}
+      >
+        {error && <EnterpriseErrorState title="Account operation failed" message={error} />}
+      </EnterpriseConfirmationDialog>
+      <UserPasswordDialog
+        user={passwordTarget}
+        busy={mutating}
+        error={error}
+        onCancel={() => setPasswordTarget(null)}
+        onSubmit={resetPassword}
+      />
+    </AppShell>
   );
 }
 
@@ -479,23 +505,20 @@ function Input({
   label,
   value,
   onChange,
-  type = "text",
+  ...props
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
-  type?: string;
-}) {
+} & Pick<InputHTMLAttributes<HTMLInputElement>, "type" | "autoComplete" | "required" | "minLength">) {
   return (
-    <label>
-      <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-slate-500">
-        {label}
-      </span>
+    <label className="block min-w-0">
+      <span className="mb-1 block text-[10px] font-medium uppercase text-slate-500">{label}</span>
       <input
-        type={type}
+        {...props}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500"
+        className={`h-8 w-full px-2 text-xs ${SOC_CONTROL_CLASSES.input} ${SOC_CONTROL_CLASSES.focus}`}
       />
     </label>
   );

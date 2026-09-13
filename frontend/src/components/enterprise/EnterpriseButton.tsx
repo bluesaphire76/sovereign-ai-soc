@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
+import type { ButtonHTMLAttributes, MouseEventHandler, ReactNode } from "react";
+import { SOC_CONTROL_CLASSES, SOC_TONE_CLASSES, cx } from "@/lib/semantic-styles";
 
-type EnterpriseButtonTone =
+export type EnterpriseButtonTone =
   | "primary"
+  | "info"
   | "secondary"
   | "success"
   | "warning"
@@ -12,27 +14,31 @@ type EnterpriseButtonTone =
   | "executive"
   | "ghost";
 
-type EnterpriseButtonSize = "xs" | "sm" | "md";
+export type EnterpriseButtonSize = "xs" | "sm" | "md";
 
-type EnterpriseButtonProps = {
+type EnterpriseButtonProps = Pick<
+  ButtonHTMLAttributes<HTMLButtonElement>,
+  "autoFocus" | "name" | "value" | "aria-expanded" | "aria-controls"
+> & {
   children: ReactNode;
   href?: string;
-  onClick?: () => void | Promise<void>;
+  onClick?: MouseEventHandler<HTMLButtonElement>;
   disabled?: boolean;
   tone?: EnterpriseButtonTone;
   size?: EnterpriseButtonSize;
   icon?: ReactNode;
+  iconPosition?: "start" | "end";
   className?: string;
   type?: "button" | "submit" | "reset";
+  ariaLabel?: string;
+  ariaPressed?: boolean;
+  title?: string;
 };
 
-function cx(...classes: Array<string | false | null | undefined>) {
-  return classes.filter(Boolean).join(" ");
-}
-
-const toneClasses: Record<EnterpriseButtonTone, string> = {
+export const ENTERPRISE_BUTTON_TONE_CLASSES: Record<EnterpriseButtonTone, string> = {
   primary:
     "border-cyan-700 bg-cyan-500 text-slate-950 hover:bg-cyan-400",
+  info: cx(SOC_TONE_CLASSES.primary.badge, "hover:bg-cyan-900"),
   secondary:
     "border-slate-700 bg-slate-900 text-slate-200 hover:border-slate-600 hover:bg-slate-800",
   success:
@@ -42,7 +48,7 @@ const toneClasses: Record<EnterpriseButtonTone, string> = {
   danger:
     "border-red-800 bg-red-950/60 text-red-200 hover:bg-red-950",
   executive:
-    "border-violet-700 bg-violet-500 text-white hover:bg-violet-400",
+    "border-violet-700 bg-violet-600 text-white hover:bg-violet-700",
   ghost:
     "border-slate-800 bg-transparent text-slate-300 hover:border-cyan-800 hover:bg-slate-900 hover:text-cyan-200",
 };
@@ -61,29 +67,69 @@ export default function EnterpriseButton({
   tone = "secondary",
   size = "sm",
   icon,
+  iconPosition = "start",
   className,
   type = "button",
+  ariaLabel,
+  ariaPressed,
+  title,
+  autoFocus,
+  name,
+  value,
+  "aria-expanded": ariaExpanded,
+  "aria-controls": ariaControls,
 }: EnterpriseButtonProps) {
   const classes = cx(
     "inline-flex items-center justify-center gap-2 rounded-sm border font-medium shadow-sm transition disabled:cursor-not-allowed disabled:opacity-40",
-    toneClasses[tone],
+    SOC_CONTROL_CLASSES.focus,
+    ENTERPRISE_BUTTON_TONE_CLASSES[tone],
     sizeClasses[size],
     className
   );
 
   if (href) {
+    if (disabled) {
+      return (
+        <span
+          aria-disabled="true"
+          aria-label={ariaLabel}
+          title={title}
+          className={cx(classes, "cursor-not-allowed opacity-40")}
+        >
+          {iconPosition === "start" && icon}
+          {children}
+          {iconPosition === "end" && icon}
+        </span>
+      );
+    }
+
     return (
-      <Link href={href} className={classes}>
-        {icon}
+      <Link href={href} aria-label={ariaLabel} title={title} className={classes}>
+        {iconPosition === "start" && icon}
         {children}
+        {iconPosition === "end" && icon}
       </Link>
     );
   }
 
   return (
-    <button type={type} onClick={onClick} disabled={disabled} className={classes}>
-      {icon}
+    <button
+      type={type}
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={ariaLabel}
+      aria-pressed={ariaPressed}
+      aria-expanded={ariaExpanded}
+      aria-controls={ariaControls}
+      title={title}
+      autoFocus={autoFocus}
+      name={name}
+      value={value}
+      className={classes}
+    >
+      {iconPosition === "start" && icon}
       {children}
+      {iconPosition === "end" && icon}
     </button>
   );
 }

@@ -1,7 +1,7 @@
 # Sovereign AI SOC
 
-![Release](https://img.shields.io/badge/latest%20tag-v0.8.0-953fdc0)
-![main](https://img.shields.io/badge/main-v0.8.0%20release-0891b2)
+![Release](https://img.shields.io/badge/latest%20tag-v0.9.0-2563eb)
+![main](https://img.shields.io/badge/main-v0.9.0%20release-0891b2)
 [![Dependency Graph](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/dependabot/update-graph/badge.svg)](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/dependabot/update-graph)
 [![CodeQL](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/github-code-scanning/codeql)
 [![Public CI](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/ci.yml/badge.svg)](https://github.com/bluesaphire76/sovereign-ai-soc/actions/workflows/ci.yml)
@@ -31,7 +31,10 @@ runtime through a single-owner inference gateway. Ollama, OpenRouter, and other
 OpenAI-compatible endpoints remain configurable low-level integrations but are
 not active generation paths in gateway mode.
 
-The current release baseline is `v0.8.0`.
+The current release is `v0.9.0 - UX Harmonization`, including UX-01 through UX-12
+and the final authenticated Cloudflare validation. See the
+[release-readiness report](docs/validation/v0.9.0-release-readiness.md) for evidence
+and the [GitHub Release](https://github.com/bluesaphire76/sovereign-ai-soc/releases/tag/v0.9.0).
 
 ## For First-Time Visitors
 
@@ -39,9 +42,14 @@ The current release baseline is `v0.8.0`.
 - Want to evaluate it safely? Start with [Evaluation Guide](docs/product/evaluation-guide.md).
 - Want to run it locally? Start with [External User Quickstart](docs/product/external-user-quickstart.md).
 - Want to see the architecture? Start with [Architecture](docs/architecture/architecture.md).
-- Want to evaluate the current release? Start with [v0.8.0 Release Notes](docs/releases/RELEASE_NOTES_v0.8.0.md).
+- Want to evaluate v0.9.0? Start with [Release Notes](docs/releases/RELEASE_NOTES_v0.9.0.md),
+  the [UX summary](docs/ux-harmonization/v0.9.0-summary.md) and [upgrade notes](docs/operations/v0.9.0-upgrade.md).
 
 ## Product Preview
+
+The committed screenshots below are retained historical product illustrations;
+they are not a fresh v0.9.0 screenshot set. Current UX validation is indexed in
+the [UX summary](docs/ux-harmonization/v0.9.0-summary.md).
 
 Sovereign AI SOC is a local-first, human-in-the-loop security operations platform that combines detection, AI-assisted investigation, case workflow, governance and observability.
 
@@ -194,6 +202,7 @@ Sovereign AI SOC demonstrates a local-first approach:
 
 | Area | Capability |
 |---|---|
+| Unified SOC experience | Shared semantic design system, role-aware navigation, harmonized investigation/operations/governance workspaces and responsive keyboard-accessible controls |
 | Detection sources | Wazuh host/security monitoring, Suricata network IDS visibility and DNS telemetry context |
 | Event model | Separation between raw events, security alerts, incidents and cases |
 | Ingestion quality | Aggregation, deduplication, watermarking, backlog tracking and noise suppression |
@@ -208,7 +217,7 @@ Sovereign AI SOC demonstrates a local-first approach:
 | Detection engineering | Detection Quality plus Detection Control inventory, lifecycle, validation, versioning, rollback, exceptions and noise operations |
 | Executive workflow | Executive dashboard, executive insights, decision brief and concise management reporting |
 | Reporting | Incident reports, case reports, evidence packs, executive PDFs and professional export naming |
-| Governance | Backend-default-deny RBAC, Security Audit, user management, semantic-memory boundaries and Operation History |
+| Governance | Backend-default-deny RBAC, Security Audit, last-enabled-ADMIN protection, user management, semantic-memory boundaries and Operation History |
 | Observability | Expanded Health, Prometheus/Grafana metrics, Alertmanager/optional ntfy notifications and Loki/Grafana Alloy selected-log troubleshooting |
 
 ## AI Capabilities
@@ -472,6 +481,11 @@ Suricata and DNS telemetry have dedicated deployment artifacts:
 
 See [Deployment Guide](docs/operations/deployment-guide.md) for a fuller operational view.
 
+After replacing the production `.next` build, restart `ai-soc-frontend.service`
+before testing current JS/CSS assets. Isolated preview builds do not require a
+production restart. v0.9.0 also requires API activation for its last-ADMIN safeguard;
+follow the [upgrade procedure](docs/operations/v0.9.0-upgrade.md).
+
 ## Public CI Validation
 
 GitHub Actions validates backend tests and Python syntax, the frontend production build, and public Docker Compose configuration syntax without starting runtime services.
@@ -516,6 +530,10 @@ python3 scripts/validate_public_ci_baseline.py
 - [Investigation Graph](docs/architecture/v0.7-investigation-graph.md)
 - [Governed Remediation Connectors](docs/architecture/v0.7-governed-remediation-connectors.md)
 - [Service Operations and Operation History](docs/operations/v0.7-service-operations-history.md)
+- [v0.9.0 Release Notes](docs/releases/RELEASE_NOTES_v0.9.0.md)
+- [v0.9.0 UX Harmonization](docs/ux-harmonization/v0.9.0-summary.md)
+- [v0.9.0 Release Readiness](docs/validation/v0.9.0-release-readiness.md)
+- [Changelog](CHANGELOG.md)
 - [v0.8.0 Release Notes](docs/releases/RELEASE_NOTES_v0.8.0.md)
 - [v0.7.1 Release Notes](docs/releases/RELEASE_NOTES_v0.7.1.md)
 - [v0.7.0 Release Notes](docs/releases/RELEASE_NOTES_v0.7.0.md)
@@ -558,6 +576,7 @@ Existing release and validation notes:
 | v0.7 | Released | Governed AI providers/data control, semantic memory, Recommended Playbooks, graph/timeline, Detection Control lifecycle, governed connectors, Operation History, Alertmanager/Loki/Alloy and installability |
 | v0.7.1 | Released | Llama.cpp runtime foundation, operational Qdrant memory, HTTPS-first platform access, modular `api.py` composition root and API refactor guardrails |
 | v0.8.0 | Released | Grounded Global, Incident and Case Assistant, compositional authoritative analytics, V3.2 semantic proof and fail-closed publication |
+| v0.9.0 | Released | Product-wide UX Harmonization, responsive/accessibility regression and last-enabled-ADMIN protection |
 
 See [Roadmap](docs/product/roadmap.md).
 

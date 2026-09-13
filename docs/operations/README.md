@@ -6,6 +6,7 @@
 - [AI Inference Gateway](ai-inference-gateway.md)
 - [AI SOC Assistant observability](ai-assistant-observability.md)
 - [Deployment guide](deployment-guide.md)
+- [v0.9.0 upgrade and production build consistency](v0.9.0-upgrade.md)
 - [Ports and components](ports-and-components.md)
 - [Troubleshooting](troubleshooting.md)
 - [Ubuntu installer guide](ubuntu-installer-guide.md)

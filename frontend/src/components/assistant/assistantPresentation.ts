@@ -1,8 +1,10 @@
 import type {
+  AssistantBlockKind,
   AssistantMode,
   AssistantProvenanceClass,
   ContextualAssistantScope,
 } from "@/lib/assistant";
+import type { SocTone } from "@/lib/semantic-styles";
 
 export const ASSISTANT_PROVENANCE: Record<
   AssistantProvenanceClass,
@@ -11,38 +13,59 @@ export const ASSISTANT_PROVENANCE: Record<
     description: string;
     className: string;
     textClassName: string;
+    tone: SocTone;
   }
 > = {
   operational_source: {
     label: "Operational source",
     description: "Recorded platform data",
-    className: "border-emerald-900 text-emerald-300",
-    textClassName: "text-emerald-300",
+    className: "border-cyan-900 text-cyan-300",
+    textClassName: "text-cyan-300",
+    tone: "primary",
   },
   reference_knowledge: {
     label: "Reference knowledge",
     description: "Bounded technical definition",
-    className: "border-cyan-900 text-cyan-300",
-    textClassName: "text-cyan-300",
+    className: "border-sky-900 text-sky-300",
+    textClassName: "text-sky-300",
+    tone: "low",
   },
   advisory_playbook: {
     label: "Advisory / playbook",
     description: "Guidance for analyst review",
     className: "border-amber-900 text-amber-300",
     textClassName: "text-amber-300",
+    tone: "warning",
   },
   analytical_relationship: {
     label: "Analytical relationship",
     description: "Derived from recorded evidence",
-    className: "border-sky-900 text-sky-300",
-    textClassName: "text-sky-300",
+    className: "border-violet-900 text-violet-300",
+    textClassName: "text-violet-300",
+    tone: "executive",
   },
   semantic_candidate: {
     label: "Semantic candidate",
     description: "Similarity for comparison only",
     className: "border-slate-700 text-slate-300",
     textClassName: "text-slate-300",
+    tone: "neutral",
   },
+};
+
+export const ASSISTANT_BLOCK_LABELS: Record<AssistantBlockKind, string> = {
+  direct_answer: "Answer",
+  key_findings: "Key findings",
+  related_incidents: "Related incidents",
+  evidence: "Evidence",
+  technical_context: "Technical context",
+  analysis: "Assessment",
+  comparison: "Comparison",
+  pattern: "Pattern",
+  conclusion: "Conclusion",
+  next_check: "Next check",
+  recommended_checks: "Recommended checks",
+  limitations: "Limitations",
 };
 
 export const ASSISTANT_SUGGESTIONS: Record<ContextualAssistantScope, string[]> = {

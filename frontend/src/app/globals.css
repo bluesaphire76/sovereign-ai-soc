@@ -8,6 +8,26 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-soc-bg: var(--soc-bg);
+  --color-soc-bg-subtle: var(--soc-bg-subtle);
+  --color-soc-surface: var(--soc-surface);
+  --color-soc-panel: var(--soc-panel);
+  --color-soc-panel-elevated: var(--soc-panel-elevated);
+  --color-soc-border: var(--soc-border);
+  --color-soc-border-strong: var(--soc-border-strong);
+  --color-soc-text: var(--soc-text);
+  --color-soc-text-muted: var(--soc-text-muted);
+  --color-soc-text-subtle: var(--soc-text-subtle);
+  --color-soc-focus: var(--soc-focus);
+  --color-soc-primary: var(--soc-primary);
+  --color-soc-success: var(--soc-success);
+  --color-soc-warning: var(--soc-warning);
+  --color-soc-error: var(--soc-error);
+  --color-soc-info: var(--soc-info);
+  --color-soc-severity-critical: var(--soc-severity-critical);
+  --color-soc-severity-high: var(--soc-severity-high);
+  --color-soc-severity-medium: var(--soc-severity-medium);
+  --color-soc-severity-low: var(--soc-severity-low);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -25,12 +45,33 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
-/* AI SOC desktop shell: keep page content clear of the fixed left sidebar. */
+/* Legacy metadata foregrounds use the readable semantic token on SOC surfaces. */
+@layer utilities {
+  .text-slate-500,
+  .text-slate-600 {
+    color: var(--soc-text-subtle);
+  }
+}
+
+:where(.ai-soc-shell, main) :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--soc-focus);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :where(.ai-soc-shell, main),
+  :where(.ai-soc-shell, main) * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Shared authenticated shell: fixed desktop sidebar, flow-based mobile navigation. */
 @media (min-width: 1280px) {
-  main:has(.ai-soc-sidebar) > div {
-    max-width: calc(100vw - 18rem);
-    margin-left: 17rem;
-    margin-right: 1rem;
+  .ai-soc-shell-workspace {
+    padding-left: 17rem;
   }
 }
 
@@ -39,81 +80,153 @@ body {
  * Safe foundation layer:
  * - additive only
  * - not wired into global body/background
- * - not wired into Tailwind @theme yet
  * - intended for future enterprise components via CSS variables
  */
 :root {
-  --soc-enterprise-bg: #0b0f14;
-  --soc-enterprise-bg-subtle: #101820;
-  --soc-enterprise-surface: #111827;
-  --soc-enterprise-surface-muted: #0f172a;
-  --soc-enterprise-panel: #151b23;
-  --soc-enterprise-panel-elevated: #1b2430;
-  --soc-enterprise-border: #253142;
-  --soc-enterprise-border-strong: #334155;
+  --soc-bg: #0b0f14;
+  --soc-bg-subtle: #101820;
+  --soc-surface: #111827;
+  --soc-surface-muted: #0f172a;
+  --soc-panel: #151b23;
+  --soc-panel-elevated: #1b2430;
+  --soc-border: #253142;
+  --soc-border-strong: #334155;
 
-  --soc-enterprise-text: #f3f6f9;
-  --soc-enterprise-text-muted: #a7b4c3;
-  --soc-enterprise-text-subtle: #7d8b9d;
-  --soc-enterprise-text-disabled: #526173;
+  --soc-text: #f3f6f9;
+  --soc-text-muted: #a7b4c3;
+  --soc-text-subtle: #7d8b9d;
+  --soc-text-disabled: #526173;
 
-  --soc-enterprise-accent: #4cc2ff;
-  --soc-enterprise-accent-muted: #0e7490;
-  --soc-enterprise-focus: #60a5fa;
+  --soc-primary: #4cc2ff;
+  --soc-primary-muted: #0e7490;
+  --soc-focus: #60a5fa;
 
-  --soc-enterprise-success: #3fb950;
-  --soc-enterprise-warning: #d29922;
-  --soc-enterprise-danger: #f85149;
-  --soc-enterprise-info: #58a6ff;
-  --soc-enterprise-purple: #a78bfa;
+  --soc-success: #3fb950;
+  --soc-warning: #d29922;
+  --soc-error: #f85149;
+  --soc-info: #58a6ff;
+  --soc-executive: #a78bfa;
 
-  --soc-enterprise-severity-critical: #f85149;
-  --soc-enterprise-severity-high: #ff8c42;
-  --soc-enterprise-severity-medium: #d29922;
-  --soc-enterprise-severity-low: #3fb950;
-  --soc-enterprise-severity-informational: #58a6ff;
+  --soc-severity-critical: #f85149;
+  --soc-severity-high: #ff8c42;
+  --soc-severity-medium: #d29922;
+  --soc-severity-low: #58a6ff;
 
-  --soc-enterprise-chart-grid: #253142;
+  --soc-space-1: 0.25rem;
+  --soc-space-2: 0.5rem;
+  --soc-space-3: 0.75rem;
+  --soc-space-4: 1rem;
+  --soc-space-5: 1.25rem;
+  --soc-space-6: 1.5rem;
+
+  --soc-radius-sm: 2px;
+  --soc-radius-md: 3px;
+  --soc-radius-lg: 6px;
+
+  --soc-shadow-panel: 0 1px 2px rgb(0 0 0 / 0.28);
+  --soc-transition-fast: 120ms ease;
+  --soc-z-sidebar: 40;
+  --soc-z-sticky: 10;
+
+  --soc-enterprise-bg: var(--soc-bg);
+  --soc-enterprise-bg-subtle: var(--soc-bg-subtle);
+  --soc-enterprise-surface: var(--soc-surface);
+  --soc-enterprise-surface-muted: var(--soc-surface-muted);
+  --soc-enterprise-panel: var(--soc-panel);
+  --soc-enterprise-panel-elevated: var(--soc-panel-elevated);
+  --soc-enterprise-border: var(--soc-border);
+  --soc-enterprise-border-strong: var(--soc-border-strong);
+
+  --soc-enterprise-text: var(--soc-text);
+  --soc-enterprise-text-muted: var(--soc-text-muted);
+  --soc-enterprise-text-subtle: var(--soc-text-subtle);
+  --soc-enterprise-text-disabled: var(--soc-text-disabled);
+
+  --soc-enterprise-accent: var(--soc-primary);
+  --soc-enterprise-accent-muted: var(--soc-primary-muted);
+  --soc-enterprise-focus: var(--soc-focus);
+
+  --soc-enterprise-success: var(--soc-success);
+  --soc-enterprise-warning: var(--soc-warning);
+  --soc-enterprise-danger: var(--soc-error);
+  --soc-enterprise-info: var(--soc-info);
+  --soc-enterprise-purple: var(--soc-executive);
+
+  --soc-enterprise-severity-critical: var(--soc-severity-critical);
+  --soc-enterprise-severity-high: var(--soc-severity-high);
+  --soc-enterprise-severity-medium: var(--soc-severity-medium);
+  --soc-enterprise-severity-low: var(--soc-severity-low);
+  --soc-enterprise-severity-informational: var(--soc-info);
+
+  --soc-enterprise-chart-grid: var(--soc-border);
   --soc-enterprise-chart-axis: #6b7c93;
-  --soc-enterprise-chart-tick: #a7b4c3;
+  --soc-enterprise-chart-tick: var(--soc-text-muted);
 
-  --soc-enterprise-radius: 2px;
-  --soc-enterprise-radius-sm: 3px;
+  --soc-enterprise-radius: var(--soc-radius-sm);
+  --soc-enterprise-radius-sm: var(--soc-radius-md);
 }
 
 :root.light {
-  --soc-enterprise-bg: #f5f7fa;
-  --soc-enterprise-bg-subtle: #eef2f6;
-  --soc-enterprise-surface: #ffffff;
-  --soc-enterprise-surface-muted: #f8fafc;
-  --soc-enterprise-panel: #ffffff;
-  --soc-enterprise-panel-elevated: #ffffff;
-  --soc-enterprise-border: #d8dee8;
-  --soc-enterprise-border-strong: #b7c2d0;
+  --soc-bg: #f5f7fa;
+  --soc-bg-subtle: #eef2f6;
+  --soc-surface: #ffffff;
+  --soc-surface-muted: #f8fafc;
+  --soc-panel: #ffffff;
+  --soc-panel-elevated: #ffffff;
+  --soc-border: #d8dee8;
+  --soc-border-strong: #b7c2d0;
 
-  --soc-enterprise-text: #18212f;
-  --soc-enterprise-text-muted: #44546a;
-  --soc-enterprise-text-subtle: #667085;
-  --soc-enterprise-text-disabled: #98a2b3;
+  --soc-text: #18212f;
+  --soc-text-muted: #44546a;
+  --soc-text-subtle: #667085;
+  --soc-text-disabled: #98a2b3;
 
-  --soc-enterprise-accent: #0078d4;
-  --soc-enterprise-accent-muted: #106ebe;
-  --soc-enterprise-focus: #2563eb;
+  --soc-primary: #0078d4;
+  --soc-primary-muted: #106ebe;
+  --soc-focus: #2563eb;
 
-  --soc-enterprise-success: #107c10;
-  --soc-enterprise-warning: #ca5010;
-  --soc-enterprise-danger: #d13438;
-  --soc-enterprise-info: #0078d4;
-  --soc-enterprise-purple: #5c2d91;
+  --soc-success: #107c10;
+  --soc-warning: #ca5010;
+  --soc-error: #d13438;
+  --soc-info: #0078d4;
+  --soc-executive: #5c2d91;
 
-  --soc-enterprise-severity-critical: #d13438;
-  --soc-enterprise-severity-high: #ca5010;
-  --soc-enterprise-severity-medium: #f2c811;
-  --soc-enterprise-severity-low: #107c10;
-  --soc-enterprise-severity-informational: #0078d4;
+  --soc-severity-critical: #d13438;
+  --soc-severity-high: #ca5010;
+  --soc-severity-medium: #b7791f;
+  --soc-severity-low: #2563eb;
 
-  --soc-enterprise-chart-grid: #d8dee8;
-  --soc-enterprise-chart-axis: #667085;
-  --soc-enterprise-chart-tick: #44546a;
+  --soc-enterprise-bg: var(--soc-bg);
+  --soc-enterprise-bg-subtle: var(--soc-bg-subtle);
+  --soc-enterprise-surface: var(--soc-surface);
+  --soc-enterprise-surface-muted: var(--soc-surface-muted);
+  --soc-enterprise-panel: var(--soc-panel);
+  --soc-enterprise-panel-elevated: var(--soc-panel-elevated);
+  --soc-enterprise-border: var(--soc-border);
+  --soc-enterprise-border-strong: var(--soc-border-strong);
+
+  --soc-enterprise-text: var(--soc-text);
+  --soc-enterprise-text-muted: var(--soc-text-muted);
+  --soc-enterprise-text-subtle: var(--soc-text-subtle);
+  --soc-enterprise-text-disabled: var(--soc-text-disabled);
+
+  --soc-enterprise-accent: var(--soc-primary);
+  --soc-enterprise-accent-muted: var(--soc-primary-muted);
+  --soc-enterprise-focus: var(--soc-focus);
+
+  --soc-enterprise-success: var(--soc-success);
+  --soc-enterprise-warning: var(--soc-warning);
+  --soc-enterprise-danger: var(--soc-error);
+  --soc-enterprise-info: var(--soc-info);
+  --soc-enterprise-purple: var(--soc-executive);
+
+  --soc-enterprise-severity-critical: var(--soc-severity-critical);
+  --soc-enterprise-severity-high: var(--soc-severity-high);
+  --soc-enterprise-severity-medium: var(--soc-severity-medium);
+  --soc-enterprise-severity-low: var(--soc-severity-low);
+  --soc-enterprise-severity-informational: var(--soc-info);
+
+  --soc-enterprise-chart-grid: var(--soc-border);
+  --soc-enterprise-chart-axis: var(--soc-text-subtle);
+  --soc-enterprise-chart-tick: var(--soc-text-muted);
 }
-

@@ -3,13 +3,16 @@
 import { authFetch } from "@/lib/auth";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import Link from "next/link";
-import AppNavigation from "../../components/AppNavigation";
-import { EnterpriseButton } from "../../components/enterprise";
+import AppShell from "@/components/AppShell";
+import {
+  EnterpriseBadge, EnterpriseBreadcrumbs, EnterpriseButton, EnterpriseEmptyState,
+  EnterpriseErrorState, EnterpriseMetricCard, EnterpriseMetricStrip, EnterprisePageHeader,
+  EnterpriseSection, EnterpriseSearchInput, EnterpriseSelect, EnterpriseSkeleton,
+} from "@/components/enterprise";
+import { SOC_TONE_CLASSES } from "@/lib/semantic-styles";
+
 import {
   Activity,
-  AlertTriangle,
-  ArrowLeft,
   Database,
   Globe2,
   RefreshCw,
@@ -64,27 +67,6 @@ const DNS_BADGE_BASE =
   "inline-flex h-5 w-fit items-center whitespace-nowrap rounded-sm border px-1.5 text-[10px] font-medium uppercase leading-none tracking-wide";
 const COUNT_BADGE_BASE =
   "inline-flex h-5 min-w-8 items-center justify-center rounded-sm border border-slate-700 bg-slate-950 px-2 font-mono text-[10px] font-semibold text-slate-300";
-const CONTROL_CLASS =
-  "h-8 rounded-sm border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-cyan-500";
-
-type DnsMetricTone = "neutral" | "primary" | "success" | "warning" | "danger";
-
-const dnsMetricToneClasses: Record<DnsMetricTone, string> = {
-  neutral: "border-slate-800 bg-slate-900 text-slate-100",
-  primary: "border-cyan-900 bg-cyan-950/30 text-cyan-100",
-  success: "border-emerald-900 bg-emerald-950/30 text-emerald-100",
-  warning: "border-orange-900 bg-orange-950/30 text-orange-100",
-  danger: "border-red-900 bg-red-950/30 text-red-100",
-};
-
-const dnsMetricIconClasses: Record<DnsMetricTone, string> = {
-  neutral: "bg-slate-950 text-slate-400",
-  primary: "bg-cyan-950 text-cyan-300",
-  success: "bg-emerald-950 text-emerald-300",
-  warning: "bg-orange-950 text-orange-300",
-  danger: "bg-red-950 text-red-300",
-};
-
 function formatDate(value: string | null | undefined) {
   if (!value) return "—";
 
@@ -116,9 +98,9 @@ function formatFreshness(seconds: number | null | undefined) {
 function queryTypeClasses(type: string | null) {
   const value = (type ?? "").toUpperCase();
 
-  if (value === "A") return "border-emerald-800 bg-emerald-950/30 text-emerald-200";
-  if (value === "AAAA") return "border-cyan-800 bg-cyan-950/30 text-cyan-200";
-  if (value === "HTTPS") return "border-violet-800 bg-violet-950/30 text-violet-200";
+  if (value === "A") return SOC_TONE_CLASSES.low.badge;
+  if (value === "AAAA") return SOC_TONE_CLASSES.primary.badge;
+  if (value === "HTTPS") return SOC_TONE_CLASSES.executive.badge;
   if (value === "CNAME") return "border-blue-800 bg-blue-950/30 text-blue-200";
   if (value === "TXT") return "border-orange-800 bg-orange-950/30 text-orange-200";
 
@@ -212,139 +194,68 @@ export default function DnsTelemetryPage() {
   const topQueryType = byQueryType[0]?.query_type ?? "—";
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto max-w-[1600px] px-4 py-4">
-        <AppNavigation />
+    <AppShell>
 
-        <header className="mb-2 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div>
-            <Link
-              href="/"
-              className="mb-3 inline-flex items-center gap-2 text-sm text-cyan-300 hover:text-cyan-200"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              Back to dashboard
-            </Link>
+        <EnterprisePageHeader
+          title="DNS Telemetry"
+          eyebrow="Operations / Telemetry"
+          density="compact"
+          icon={<Globe2 aria-hidden="true" className="h-3.5 w-3.5" />}
+          breadcrumbs={<EnterpriseBreadcrumbs items={[{ label: "Dashboard", href: "/" }, { label: "DNS Telemetry" }]} />}
+          metadata={<EnterpriseBadge tone="muted">Read-only / Wazuh endpoint DNS evidence</EnterpriseBadge>}
+          secondaryActions={<EnterpriseButton onClick={loadData} disabled={refreshing} size="xs"
+            icon={<RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />}>Refresh</EnterpriseButton>}
+        />
 
-            <div className="mb-2 flex items-center gap-2 text-sm text-cyan-300">
-              <Globe2 className="h-4 w-4" />
-              DNS telemetry
-            </div>
-
-            <h1 className="text-xl font-semibold tracking-tight text-slate-100">
-              DNS Telemetry
-            </h1>
-
-            <p className="mt-2 max-w-3xl text-xs leading-5 text-slate-500">
-              Read-only endpoint DNS evidence collected through Wazuh. DNS observations enrich
-              investigations and are not converted into incidents, blocks or remediation actions automatically.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap gap-1.5">
-            <EnterpriseButton
-              onClick={loadData}
-              disabled={refreshing}
-              tone="secondary"
-              size="xs"
-              icon={<RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />}
-            >
-              Refresh
-            </EnterpriseButton>
-          </div>
-        </header>
-
-        {error && (
-          <div className="mb-3 flex items-start gap-2 rounded-sm border border-red-800 bg-red-950/50 px-3 py-2 text-xs text-red-200">
-            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <div>
-              <p className="font-semibold">Unable to load DNS telemetry</p>
-              <p className="mt-1 text-red-200/80">API error: {error}</p>
-            </div>
-          </div>
-        )}
+        {error && <EnterpriseErrorState className="mb-3" title="Unable to load DNS telemetry"
+          message={`${error}${summary ? " Previous snapshot retained." : ""}`} onRetry={loadData} />}
 
         {loading ? (
-          <div className="rounded-sm border border-slate-800 bg-slate-900 px-3 py-8 text-center text-sm text-slate-400">
-            Loading DNS telemetry...
-          </div>
-        ) : (
+          <EnterpriseSkeleton label="Loading DNS telemetry" rows={6} />
+        ) : summary && events ? (
           <>
-            <section className="mb-3 grid gap-1.5 md:grid-cols-2 xl:grid-cols-4">
-              <DnsMetric
+            <EnterpriseMetricStrip className="mb-3">
+              <EnterpriseMetricCard stacked
                 title="DNS events"
                 value={summary?.total ?? 0}
                 subtitle="Normalized endpoint DNS observations"
                 icon={<Database className="h-4 w-4" />}
                 tone="primary"
               />
-              <DnsMetric
+              <EnterpriseMetricCard stacked
                 title="Latest DNS event freshness"
                 value={formatFreshness(summary?.latest_event_freshness_seconds)}
                 subtitle={formatDate(latestEvent?.event_timestamp)}
                 icon={<Activity className="h-4 w-4" />}
                 tone={(summary?.latest_event_freshness_seconds ?? 999999) > 3600 ? "warning" : "success"}
               />
-              <DnsMetric
+              <EnterpriseMetricCard stacked
                 title="Top DNS client"
                 value={compactValue(topClient)}
                 subtitle={`${topClients[0]?.count ?? 0} observed queries`}
                 icon={<Server className="h-4 w-4" />}
                 tone="neutral"
               />
-              <DnsMetric
+              <EnterpriseMetricCard stacked
                 title="Top query type"
                 value={compactValue(topQueryType)}
                 subtitle={`${byQueryType[0]?.count ?? 0} observations`}
                 icon={<Shield className="h-4 w-4" />}
                 tone="neutral"
               />
-            </section>
+            </EnterpriseMetricStrip>
 
-            <section className="grid gap-3 xl:grid-cols-[360px_minmax(0,1fr)]">
-              <div className="space-y-3">
+            <section className="grid gap-3 xl:grid-cols-[320px_minmax(0,1fr)]">
+              <div className="min-w-0 space-y-3">
                 <Panel title="DNS event filters" subtitle="Query DNS telemetry without changing incident state.">
                   <div className="grid gap-2">
-                    <label className="grid gap-1 text-xs text-slate-400">
-                      Domain contains
-                      <div className="relative">
-                        <Search className="pointer-events-none absolute left-2 top-2 h-3.5 w-3.5 text-slate-500" />
-                        <input
-                          value={queryName}
-                          onChange={(event) => setQueryName(event.target.value)}
-                          placeholder="github.com"
-                          className={`${CONTROL_CLASS} w-full pl-7`}
-                        />
-                      </div>
-                    </label>
-
-                    <label className="grid gap-1 text-xs text-slate-400">
-                      Client IP
-                      <input
-                        value={clientIp}
-                        onChange={(event) => setClientIp(event.target.value)}
-                        placeholder="192.168.1.148"
-                        className={`${CONTROL_CLASS} w-full`}
-                      />
-                    </label>
-
-                    <label className="grid gap-1 text-xs text-slate-400">
-                      Query type
-                      <select
-                        value={queryType}
-                        onChange={(event) => setQueryType(event.target.value)}
-                        className={`${CONTROL_CLASS} w-full`}
-                      >
-                        {QUERY_TYPES.map((type) => (
-                          <option key={type || "all"} value={type}>
-                            {type || "All query types"}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                    <EnterpriseSearchInput label="Domain contains" value={queryName} onChange={setQueryName} placeholder="github.com" />
+                    <EnterpriseSearchInput label="Client IP" value={clientIp} onChange={setClientIp} placeholder="192.168.1.148" />
+                    <EnterpriseSelect label="Query type" value={queryType} onChange={setQueryType}
+                      options={QUERY_TYPES.map((type) => ({ value: type, label: type || "All query types" }))} />
 
                     <div className="flex gap-1.5 pt-1">
-                      <EnterpriseButton onClick={loadData} tone="primary" size="xs">
+                      <EnterpriseButton onClick={loadData} disabled={refreshing} tone="primary" size="xs" icon={<Search className="h-3.5 w-3.5" />}>
                         Apply filters
                       </EnterpriseButton>
                       <EnterpriseButton
@@ -401,15 +312,13 @@ export default function DnsTelemetryPage() {
                 </Panel>
               </div>
 
-              <div className="space-y-3">
+              <div className="min-w-0 space-y-3">
                 <Panel title="Recent DNS queries" subtitle="Endpoint DNS observations collected through Wazuh.">
                   {visibleEvents.length === 0 ? (
-                    <div className="rounded-sm border border-slate-800 bg-slate-950 px-3 py-8 text-center text-xs text-slate-500">
-                      No DNS events match the current filters.
-                    </div>
+                    <EnterpriseEmptyState title="No DNS events match the current filters." />
                   ) : (
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full text-left text-xs">
+                    <div className="overflow-x-auto" role="region" aria-label="DNS events" tabIndex={0}>
+                      <table className="w-full min-w-[850px] table-fixed text-left text-xs">
                         <thead className="border-b border-slate-800 text-[10px] uppercase tracking-wide text-slate-500">
                           <tr>
                             <th className="px-2 py-2 font-medium">Time</th>
@@ -489,46 +398,8 @@ export default function DnsTelemetryPage() {
               </div>
             </section>
           </>
-        )}
-      </div>
-    </main>
-  );
-}
-
-function DnsMetric({
-  title,
-  value,
-  subtitle,
-  icon,
-  tone = "neutral",
-}: {
-  title: string;
-  value: ReactNode;
-  subtitle: string;
-  icon: ReactNode;
-  tone?: DnsMetricTone;
-}) {
-  return (
-    <div
-      className={`flex min-h-[58px] items-center justify-between gap-3 rounded-sm border px-2.5 py-2 shadow-sm ${dnsMetricToneClasses[tone]}`}
-    >
-      <div className="min-w-0">
-        <div className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
-          {title}
-        </div>
-        <div className="mt-0.5 flex min-w-0 items-baseline gap-2">
-          <span className="truncate text-xl font-semibold leading-6 text-slate-100">
-            {value}
-          </span>
-          {subtitle && (
-            <span className="min-w-0 truncate text-[11px] leading-4 text-slate-500">
-              {subtitle}
-            </span>
-          )}
-        </div>
-      </div>
-      <div className={`shrink-0 rounded-sm p-1.5 ${dnsMetricIconClasses[tone]}`}>{icon}</div>
-    </div>
+        ) : null}
+    </AppShell>
   );
 }
 
@@ -542,12 +413,8 @@ function Panel({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-sm border border-slate-800 bg-slate-900 p-3 shadow-sm">
-      <div className="mb-2">
-        <h2 className="text-sm font-semibold text-slate-100">{title}</h2>
-        {subtitle && <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p>}
-      </div>
+    <EnterpriseSection title={title} description={subtitle} className="!border-0 !bg-transparent !p-0 !shadow-none">
       {children}
-    </section>
+    </EnterpriseSection>
   );
 }

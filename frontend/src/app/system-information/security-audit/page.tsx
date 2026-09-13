@@ -1,16 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronLeft, ChevronRight, FileJson, RefreshCw, ShieldCheck } from "lucide-react";
+import AppShell from "@/components/AppShell";
 import {
-  AlertTriangle,
-  FileJson,
-  ListFilter,
-  RefreshCw,
-  Search,
-  ShieldCheck,
-} from "lucide-react";
-import AppNavigation from "../../../components/AppNavigation";
+  EnterpriseBadge,
+  EnterpriseBreadcrumbs,
+  EnterpriseButton,
+  EnterpriseEmptyState,
+  EnterpriseErrorState,
+  EnterpriseMetricCard,
+  EnterpriseMetricStrip,
+  EnterprisePageHeader,
+  EnterpriseSearchInput,
+  EnterpriseSection,
+  EnterpriseSelect,
+  EnterpriseSkeleton,
+} from "@/components/enterprise";
+import { SOC_CONTROL_CLASSES, statusTone } from "@/lib/semantic-styles";
 import { authFetch, fetchCurrentUser, type AuthUser } from "../../../lib/auth";
 
 type SecurityAuditEvent = {
@@ -61,14 +68,7 @@ const EVENT_TYPES = [
 
 const OUTCOMES = ["ALL", "SUCCESS", "FAILURE", "DENIED"];
 
-const TARGET_TYPES = [
-  "ALL",
-  "USER",
-  "SYNTHETIC_TEST",
-  "INCIDENT",
-  "CASE",
-  "CASE_ACTION",
-];
+const TARGET_TYPES = ["ALL", "USER", "SYNTHETIC_TEST", "INCIDENT", "CASE", "CASE_ACTION"];
 
 function formatTimestamp(value: string | null) {
   if (!value) return "-";
@@ -83,32 +83,11 @@ function formatTimestamp(value: string | null) {
   }
 }
 
-function eventBadgeClass(eventType: string) {
-  if (eventType.includes("FAILURE") || eventType.includes("DENIED")) {
-    return "border-red-800 bg-red-950 text-red-200";
-  }
-
-  if (eventType.startsWith("AUTH_")) {
-    return "border-cyan-800 bg-cyan-950 text-cyan-200";
-  }
-
-  if (eventType.startsWith("USER_")) {
-    return "border-violet-800 bg-violet-950 text-violet-200";
-  }
-
-  return "border-slate-700 bg-slate-950 text-slate-300";
-}
-
-function outcomeBadgeClass(outcome: string) {
-  if (outcome === "SUCCESS") {
-    return "border-emerald-700 bg-emerald-950 text-emerald-200";
-  }
-
-  if (outcome === "DENIED") {
-    return "border-amber-700 bg-amber-950 text-amber-200";
-  }
-
-  return "border-red-800 bg-red-950 text-red-200";
+function eventTone(eventType: string) {
+  if (!EVENT_TYPES.includes(eventType)) return "neutral";
+  if (eventType.startsWith("AUTH_")) return "primary";
+  if (eventType.startsWith("USER_")) return "executive";
+  return "neutral";
 }
 
 function detailsPreview(details: Record<string, unknown> | null) {
@@ -134,6 +113,8 @@ export default function AdminSecurityAuditPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [checkingAccess, setCheckingAccess] = useState(true);
+  const loadSequence = useRef(0);
 
   const [page, setPage] = useState(1);
   const [eventType, setEventType] = useState("ALL");
@@ -163,24 +144,18 @@ export default function AdminSecurityAuditPage() {
     if (dateTo) params.set("date_to", dateTo);
 
     return params.toString();
-  }, [
-    actorUsername,
-    dateFrom,
-    dateTo,
-    eventType,
-    outcome,
-    page,
-    search,
-    targetId,
-    targetType,
-  ]);
+  }, [actorUsername, dateFrom, dateTo, eventType, outcome, page, search, targetId, targetType]);
 
   const loadEvents = useCallback(async () => {
+    const sequence = ++loadSequence.current;
+    let verifiedAdmin = false;
+    setCheckingAccess(true);
     try {
       setRefreshing(true);
       setError(null);
 
       const current = await fetchCurrentUser();
+      if (sequence !== loadSequence.current) return;
       setCurrentUser(current);
 
       if (current.role !== "ADMIN") {
@@ -188,21 +163,48 @@ export default function AdminSecurityAuditPage() {
         setError("Forbidden: Security Audit is available only to ADMIN users.");
         return;
       }
+      verifiedAdmin = true;
 
       const response = await authFetch(`/security-audit/events?${queryString}`);
+      if (sequence !== loadSequence.current) return;
 
       if (!response.ok) {
-        const body = await response.json().catch(() => null);
-        throw new Error(String(body?.detail ?? `API error ${response.status}`));
+        if (response.status === 401 || response.status === 403) {
+          setData(null);
+          setCurrentUser(null);
+        }
+        throw new Error(
+          response.status === 403
+            ? "Forbidden: Security Audit is available only to ADMIN users."
+            : response.status === 401
+              ? "Session expired. Please sign in again."
+              : response.status === 400 || response.status === 422
+                ? "Invalid audit filters. Check the selected dates and values."
+                : "Security Audit service unavailable. Please try again.",
+        );
       }
 
       const payload = (await response.json()) as SecurityAuditResponse;
-      setData(payload);
+      if (sequence === loadSequence.current) setData(payload);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
+      if (sequence !== loadSequence.current) return;
+      setData(null);
+      if (!verifiedAdmin) setCurrentUser(null);
+      setError(
+        !verifiedAdmin
+          ? "Unable to verify account access. Sign in again or retry when the authentication service is available."
+          : err instanceof TypeError || err instanceof SyntaxError
+            ? "Security Audit service unavailable. Please try again."
+            : err instanceof Error
+              ? err.message
+              : "Unable to load Security Audit.",
+      );
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (sequence === loadSequence.current) {
+        setLoading(false);
+        setRefreshing(false);
+        setCheckingAccess(false);
+      }
     }
   }, [queryString]);
 
@@ -211,7 +213,10 @@ export default function AdminSecurityAuditPage() {
       void loadEvents();
     }, 0);
 
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      loadSequence.current += 1;
+    };
   }, [loadEvents]);
 
   function resetFilters() {
@@ -226,356 +231,337 @@ export default function AdminSecurityAuditPage() {
     setDateTo("");
   }
 
-  const items = data?.items ?? [];
-  const deniedOrFailed = items.filter((item) =>
-    ["DENIED", "FAILURE"].includes(item.outcome)
-  ).length;
+  const visibleData = checkingAccess ? null : data;
+  const items = visibleData?.items ?? [];
+  const deniedOrFailed = items.filter((item) => ["DENIED", "FAILURE"].includes(item.outcome)).length;
   const rbacDenied = items.filter((item) => item.event_type === "RBAC_DENIED").length;
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto max-w-[1600px] px-4 py-4">
-        <AppNavigation />
-
-        <header className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div>
-            <Link
-              href="/"
-              className="mb-2 inline-flex items-center gap-1.5 text-xs text-cyan-300 hover:text-cyan-200"
-            >
-              ← Dashboard
-            </Link>
-
-            <div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-cyan-300">
-              <ShieldCheck className="h-3.5 w-3.5" />
-              System Information
-            </div>
-
-            <h1 className="text-xl font-semibold tracking-tight">
-              Security Audit Trail
-            </h1>
-
-            <p className="mt-1 max-w-4xl text-xs leading-5 text-slate-500">
-              Review authentication, authorization, user management and privileged SOC
-              activity captured by the Sovereign AI SOC control plane.
-            </p>
-          </div>
-
-          <button
+    <AppShell>
+      <EnterprisePageHeader
+        title="Security Audit Trail"
+        eyebrow="Governance"
+        density="compact"
+        icon={<ShieldCheck aria-hidden="true" className="h-3.5 w-3.5" />}
+        breadcrumbs={
+          <EnterpriseBreadcrumbs items={[{ label: "Dashboard", href: "/" }, { label: "Security Audit" }]} />
+        }
+        metadata={
+          <>
+            <EnterpriseBadge tone="neutral">ADMIN only</EnterpriseBadge>
+            <EnterpriseBadge tone="muted">Read-only / browser-local time</EnterpriseBadge>
+          </>
+        }
+        secondaryActions={
+          <EnterpriseButton
             onClick={loadEvents}
             disabled={refreshing}
-            className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 text-xs text-slate-200 shadow-sm hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+            size="xs"
+            icon={<RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />}
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
             Refresh
-          </button>
-        </header>
+          </EnterpriseButton>
+        }
+      />
 
-        {error && (
-          <div className="mb-3 rounded-lg border border-red-800 bg-red-950/60 p-3 text-xs text-red-200">
-            {error}
-          </div>
-        )}
+      {error && (
+        <EnterpriseErrorState
+          className="mb-3"
+          title="Security Audit request failed"
+          message={error}
+          onRetry={!refreshing ? loadEvents : undefined}
+        />
+      )}
 
-        {isAdmin && (
-          <div className="space-y-3">
-            <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
-              <MetricCard
-                label="Total matching events"
-                value={data?.total ?? 0}
-                description="Across all selected filters"
+      {(checkingAccess || loading) && !isAdmin && (
+        <EnterpriseSkeleton label="Loading Security Audit / checking access" rows={5} />
+      )}
+      {isAdmin && (
+        <div className="space-y-3">
+          <EnterpriseMetricStrip>
+            <EnterpriseMetricCard
+              title="Total matching events"
+              value={visibleData?.total ?? "-"}
+              subtitle="Across all selected filters"
+            />
+            <EnterpriseMetricCard
+              title="Events on page"
+              value={visibleData ? items.length : "-"}
+              subtitle={`Page ${visibleData?.page ?? page} of ${visibleData?.total_pages ?? 1}`}
+            />
+            <EnterpriseMetricCard
+              title="Denied / failed"
+              value={visibleData ? deniedOrFailed : "-"}
+              subtitle="Current page only"
+            />
+            <EnterpriseMetricCard
+              title="RBAC denied"
+              value={visibleData ? rbacDenied : "-"}
+              subtitle="Current page only"
+            />
+          </EnterpriseMetricStrip>
+
+          <EnterpriseSection title="Filters" className="!border-0 !bg-transparent !p-0 !shadow-none">
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8">
+              <Select
+                label="Event type"
+                value={eventType}
+                onChange={(value) => {
+                  setPage(1);
+                  setEventType(value);
+                }}
+                options={EVENT_TYPES}
               />
-              <MetricCard
-                label="Events on page"
-                value={items.length}
-                description={`Page ${data?.page ?? page} of ${data?.total_pages ?? 1}`}
+
+              <Select
+                label="Outcome"
+                value={outcome}
+                onChange={(value) => {
+                  setPage(1);
+                  setOutcome(value);
+                }}
+                options={OUTCOMES}
               />
-              <MetricCard
-                label="Denied / failed"
-                value={deniedOrFailed}
-                description="Current page only"
+
+              <Select
+                label="Target type"
+                value={targetType}
+                onChange={(value) => {
+                  setPage(1);
+                  setTargetType(value);
+                }}
+                options={TARGET_TYPES}
               />
-              <MetricCard
-                label="RBAC denied"
-                value={rbacDenied}
-                description="Current page only"
+
+              <Input
+                label="Actor"
+                value={actorUsername}
+                onChange={(value) => {
+                  setPage(1);
+                  setActorUsername(value);
+                }}
+                placeholder="username"
               />
-            </section>
 
-            <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
-              <div className="mb-3 flex items-center gap-2">
-                <ListFilter className="h-3.5 w-3.5 text-cyan-300" />
-                <h2 className="text-sm font-semibold">Filters</h2>
+              <Input
+                label="Target ID"
+                value={targetId}
+                onChange={(value) => {
+                  setPage(1);
+                  setTargetId(value);
+                }}
+                placeholder="id"
+              />
+
+              <Input
+                label="Date from"
+                type="date"
+                value={dateFrom}
+                onChange={(value) => {
+                  setPage(1);
+                  setDateFrom(value);
+                }}
+              />
+
+              <Input
+                label="Date to"
+                type="date"
+                value={dateTo}
+                onChange={(value) => {
+                  setPage(1);
+                  setDateTo(value);
+                }}
+              />
+
+              <div className="flex items-end">
+                <EnterpriseButton onClick={resetFilters} size="xs" tone="ghost" className="w-full">
+                  Reset
+                </EnterpriseButton>
               </div>
+            </div>
 
-              <div className="grid gap-2 md:grid-cols-4 xl:grid-cols-8">
-                <Select
-                  label="Event type"
-                  value={eventType}
-                  onChange={(value) => {
-                    setPage(1);
-                    setEventType(value);
-                  }}
-                  options={EVENT_TYPES}
-                />
+            <EnterpriseSearchInput
+              label="Search audit events"
+              containerClassName="mt-2"
+              value={search}
+              onChange={(value) => {
+                setPage(1);
+                setSearch(value);
+              }}
+              onClear={() => {
+                setPage(1);
+                setSearch("");
+              }}
+              placeholder="Search event, actor, role, path, IP or details..."
+            />
+          </EnterpriseSection>
 
-                <Select
-                  label="Outcome"
-                  value={outcome}
-                  onChange={(value) => {
-                    setPage(1);
-                    setOutcome(value);
-                  }}
-                  options={OUTCOMES}
-                />
+          <EnterpriseSection
+            title="Audit events"
+            actions={<EnterpriseBadge tone="neutral">{visibleData?.total ?? "-"}</EnterpriseBadge>}
+            className="!border-0 !bg-transparent !p-0 !shadow-none"
+          >
+            {loading || checkingAccess ? (
+              <EnterpriseSkeleton label="Loading security audit events" rows={5} />
+            ) : !data && error ? null : items.length === 0 ? (
+              <EnterpriseEmptyState title="No security audit events match the selected filters." />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[1160px] text-left text-xs">
+                  <thead className="border-b border-slate-800 text-[10px] uppercase tracking-wide text-slate-500">
+                    <tr>
+                      <th scope="col" className="px-2 py-1.5">
+                        Time
+                      </th>
+                      <th scope="col" className="px-2 py-1.5">
+                        Event
+                      </th>
+                      <th scope="col" className="px-2 py-1.5">
+                        Outcome
+                      </th>
+                      <th scope="col" className="px-2 py-1.5">
+                        Actor
+                      </th>
+                      <th scope="col" className="px-2 py-1.5">
+                        Target
+                      </th>
+                      <th scope="col" className="px-2 py-1.5">
+                        Request
+                      </th>
+                      <th scope="col" className="px-2 py-1.5">
+                        Client
+                      </th>
+                      <th scope="col" className="px-2 py-1.5">
+                        Details
+                      </th>
+                    </tr>
+                  </thead>
 
-                <Select
-                  label="Target type"
-                  value={targetType}
-                  onChange={(value) => {
-                    setPage(1);
-                    setTargetType(value);
-                  }}
-                  options={TARGET_TYPES}
-                />
+                  <tbody className="divide-y divide-slate-800/80">
+                    {items.map((item) => (
+                      <tr key={item.id} className="align-top hover:bg-slate-800/40">
+                        <td
+                          className="whitespace-nowrap px-2 py-2 text-slate-300"
+                          title={item.created_at ?? undefined}
+                        >
+                          {formatTimestamp(item.created_at)}
+                          <div className="text-[11px] text-slate-500">Event #{item.id}</div>
+                        </td>
 
-                <Input
-                  label="Actor"
-                  value={actorUsername}
-                  onChange={(value) => {
-                    setPage(1);
-                    setActorUsername(value);
-                  }}
-                  placeholder="username"
-                />
+                        <td className="px-2 py-2">
+                          <EnterpriseBadge tone={eventTone(item.event_type)} size="compact">
+                            {item.event_type}
+                          </EnterpriseBadge>
+                        </td>
 
-                <Input
-                  label="Target ID"
-                  value={targetId}
-                  onChange={(value) => {
-                    setPage(1);
-                    setTargetId(value);
-                  }}
-                  placeholder="id"
-                />
+                        <td className="px-2 py-2">
+                          <EnterpriseBadge
+                            tone={
+                              OUTCOMES.slice(1).includes(item.outcome) ? statusTone(item.outcome) : "neutral"
+                            }
+                            size="compact"
+                          >
+                            {item.outcome}
+                          </EnterpriseBadge>
+                        </td>
 
-                <Input
-                  label="Date from"
-                  type="date"
-                  value={dateFrom}
-                  onChange={(value) => {
-                    setPage(1);
-                    setDateFrom(value);
-                  }}
-                />
+                        <td className="px-2 py-2 text-slate-300">
+                          <div className="font-medium text-slate-100">{item.actor_username ?? "system"}</div>
+                          <div className="text-[11px] text-slate-500">{item.actor_role ?? "-"}</div>
+                        </td>
 
-                <Input
-                  label="Date to"
-                  type="date"
-                  value={dateTo}
-                  onChange={(value) => {
-                    setPage(1);
-                    setDateTo(value);
-                  }}
-                />
+                        <td className="px-2 py-2 text-slate-300">
+                          <div className="font-medium text-slate-100">{item.target_type ?? "-"}</div>
+                          <div className="text-[11px] text-slate-500">
+                            {item.target_username ?? item.target_id ?? "-"}
+                          </div>
+                        </td>
 
-                <div className="flex items-end">
-                  <button
-                    onClick={resetFilters}
-                    className="h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-xs text-slate-300 hover:bg-slate-800"
-                  >
-                    Reset
-                  </button>
-                </div>
-              </div>
+                        <td className="px-2 py-2 text-slate-300">
+                          <div>{item.method ?? "-"}</div>
+                          <div className="max-w-[260px] break-all text-[11px] text-slate-500">
+                            {item.path ?? "-"}
+                          </div>
+                        </td>
 
-              <div className="mt-2 flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-950 px-2">
-                <Search className="h-3.5 w-3.5 text-slate-500" />
-                <input
-                  value={search}
-                  onChange={(event) => {
-                    setPage(1);
-                    setSearch(event.target.value);
-                  }}
-                  placeholder="Search event, actor, role, path, IP or details..."
-                  className="h-9 w-full bg-transparent text-xs text-slate-100 outline-none placeholder:text-slate-600"
-                />
-              </div>
-            </section>
+                        <td className="px-2 py-2 text-slate-300">
+                          <div>{item.client_ip ?? "-"}</div>
+                          <div
+                            className="max-w-[240px] truncate text-[11px] text-slate-500"
+                            title={item.user_agent ?? undefined}
+                          >
+                            {item.user_agent ?? "-"}
+                          </div>
+                        </td>
 
-            <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
-              <div className="mb-2 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <FileJson className="h-3.5 w-3.5 text-cyan-300" />
-                  <h2 className="text-sm font-semibold">Audit events</h2>
-                </div>
+                        <td className="px-2 py-2">
+                          <EnterpriseButton
+                            onClick={() => setExpandedId(expandedId === item.id ? null : item.id)}
+                            size="xs"
+                            ariaLabel={`${expandedId === item.id ? "Hide" : "Show"} details for event ${item.id}`}
+                            aria-expanded={expandedId === item.id}
+                            aria-controls={`audit-details-${item.id}`}
+                            icon={<FileJson className="h-3.5 w-3.5" />}
+                          >
+                            {expandedId === item.id ? "Hide" : detailsPreview(item.details)}
+                          </EnterpriseButton>
 
-                <span className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-400">
-                  {data?.total ?? 0}
-                </span>
-              </div>
-
-              {loading ? (
-                <div className="rounded-md border border-slate-800 bg-slate-950 p-3 text-xs text-slate-400">
-                  Loading security audit events...
-                </div>
-              ) : items.length === 0 ? (
-                <div className="rounded-md border border-slate-800 bg-slate-950 p-6 text-center text-xs text-slate-500">
-                  <AlertTriangle className="mx-auto mb-2 h-5 w-5 text-slate-600" />
-                  No security audit events match the selected filters.
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-left text-xs">
-                    <thead className="border-b border-slate-800 text-[10px] uppercase tracking-wide text-slate-500">
-                      <tr>
-                        <th className="px-2 py-1.5">Time</th>
-                        <th className="px-2 py-1.5">Event</th>
-                        <th className="px-2 py-1.5">Outcome</th>
-                        <th className="px-2 py-1.5">Actor</th>
-                        <th className="px-2 py-1.5">Target</th>
-                        <th className="px-2 py-1.5">Request</th>
-                        <th className="px-2 py-1.5">Client</th>
-                        <th className="px-2 py-1.5">Details</th>
-                      </tr>
-                    </thead>
-
-                    <tbody className="divide-y divide-slate-800/80">
-                      {items.map((item) => (
-                        <tr key={item.id} className="align-top hover:bg-slate-800/40">
-                          <td className="whitespace-nowrap px-2 py-2 text-slate-300">
-                            {formatTimestamp(item.created_at)}
-                          </td>
-
-                          <td className="px-2 py-2">
-                            <span
-                              className={`inline-flex rounded-md border px-2 py-0.5 text-[11px] ${eventBadgeClass(
-                                item.event_type
-                              )}`}
-                            >
-                              {item.event_type}
-                            </span>
-                          </td>
-
-                          <td className="px-2 py-2">
-                            <span
-                              className={`inline-flex rounded-md border px-2 py-0.5 text-[11px] ${outcomeBadgeClass(
-                                item.outcome
-                              )}`}
-                            >
-                              {item.outcome}
-                            </span>
-                          </td>
-
-                          <td className="px-2 py-2 text-slate-300">
-                            <div className="font-medium text-slate-100">
-                              {item.actor_username ?? "system"}
-                            </div>
-                            <div className="text-[11px] text-slate-500">
-                              {item.actor_role ?? "-"}
-                            </div>
-                          </td>
-
-                          <td className="px-2 py-2 text-slate-300">
-                            <div className="font-medium text-slate-100">
-                              {item.target_type ?? "-"}
-                            </div>
-                            <div className="text-[11px] text-slate-500">
-                              {item.target_username ?? item.target_id ?? "-"}
-                            </div>
-                          </td>
-
-                          <td className="px-2 py-2 text-slate-300">
-                            <div>{item.method ?? "-"}</div>
-                            <div className="max-w-[260px] break-all text-[11px] text-slate-500">
-                              {item.path ?? "-"}
-                            </div>
-                          </td>
-
-                          <td className="px-2 py-2 text-slate-300">
-                            <div>{item.client_ip ?? "-"}</div>
-                            <div className="max-w-[240px] truncate text-[11px] text-slate-500">
-                              {item.user_agent ?? "-"}
-                            </div>
-                          </td>
-
-                          <td className="px-2 py-2">
-                            <button
-                              onClick={() =>
-                                setExpandedId(expandedId === item.id ? null : item.id)
-                              }
-                              className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-800"
-                            >
-                              {expandedId === item.id
-                                ? "Hide"
-                                : detailsPreview(item.details)}
-                            </button>
-
-                            {expandedId === item.id && (
-                              <pre className="mt-2 max-h-56 w-[420px] overflow-auto rounded-md border border-slate-800 bg-slate-950 p-2 text-[11px] leading-4 text-slate-300">
+                          {expandedId === item.id && (
+                            <div id={`audit-details-${item.id}`} className="mt-2 w-[420px] text-xs">
+                              <pre
+                                aria-label={`Details JSON for event ${item.id}`}
+                                className="max-h-56 overflow-auto rounded-sm border border-slate-800 bg-slate-950 p-2 text-[11px] leading-4 text-slate-300"
+                              >
                                 {detailsJson(item.details)}
                               </pre>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-
-              <div className="mt-3 flex items-center justify-between border-t border-slate-800 pt-3 text-xs text-slate-400">
-                <button
-                  disabled={!data || data.page <= 1}
-                  onClick={() => setPage((value) => Math.max(value - 1, 1))}
-                  className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-1.5 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Previous
-                </button>
-
-                <span>
-                  Page {data?.page ?? page} of {data?.total_pages ?? 1}
-                </span>
-
-                <button
-                  disabled={!data || data.page >= data.total_pages}
-                  onClick={() => setPage((value) => value + 1)}
-                  className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-1.5 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Next
-                </button>
+                              <details className="mt-2">
+                                <summary className={`cursor-pointer ${SOC_CONTROL_CLASSES.focus}`}>
+                                  Full event / raw metadata
+                                </summary>
+                                <pre
+                                  aria-label={`Full event JSON for event ${item.id}`}
+                                  className="mt-2 max-h-72 overflow-auto text-[11px]"
+                                >
+                                  {JSON.stringify(item, null, 2)}
+                                </pre>
+                              </details>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            </section>
-          </div>
-        )}
-      </div>
-    </main>
-  );
-}
+            )}
 
-function MetricCard({
-  label,
-  value,
-  description,
-}: {
-  label: string;
-  value: number;
-  description: string;
-}) {
-  return (
-    <div className="flex min-h-[58px] items-center justify-between gap-3 rounded-sm border border-slate-800 bg-slate-900 px-2.5 py-2 text-slate-100 shadow-sm">
-      <div className="min-w-0">
-        <div className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
-          {label}
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-800 pt-3 text-xs text-slate-400">
+              <EnterpriseButton
+                size="xs"
+                icon={<ChevronLeft className="h-3.5 w-3.5" />}
+                disabled={!visibleData || visibleData.page <= 1}
+                onClick={() => setPage((value) => Math.max(value - 1, 1))}
+              >
+                Previous
+              </EnterpriseButton>
+
+              <span>
+                Page {visibleData?.page ?? page} of {visibleData?.total_pages ?? 1}
+              </span>
+
+              <EnterpriseButton
+                size="xs"
+                icon={<ChevronRight className="h-3.5 w-3.5" />}
+                disabled={!visibleData || visibleData.page >= visibleData.total_pages}
+                onClick={() => setPage((value) => value + 1)}
+              >
+                Next
+              </EnterpriseButton>
+            </div>
+          </EnterpriseSection>
         </div>
-        <div className="mt-0.5 flex min-w-0 items-baseline gap-2">
-          <span className="text-xl font-semibold leading-6">{value}</span>
-          <span className="min-w-0 truncate text-[11px] leading-4 text-slate-500">
-            {description}
-          </span>
-        </div>
-      </div>
-    </div>
+      )}
+    </AppShell>
   );
 }
 
@@ -593,7 +579,7 @@ function Input({
   type?: string;
 }) {
   return (
-    <label>
+    <label className="block min-w-0">
       <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-slate-500">
         {label}
       </span>
@@ -602,7 +588,7 @@ function Input({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none placeholder:text-slate-600 focus:border-cyan-500"
+        className={`h-8 w-full px-2 text-xs ${SOC_CONTROL_CLASSES.input} ${SOC_CONTROL_CLASSES.focus}`}
       />
     </label>
   );
@@ -620,21 +606,11 @@ function Select({
   options: string[];
 }) {
   return (
-    <label>
-      <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-slate-500">
-        {label}
-      </span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-500"
-      >
-        {options.map((item) => (
-          <option key={item} value={item}>
-            {item}
-          </option>
-        ))}
-      </select>
-    </label>
+    <EnterpriseSelect
+      label={label}
+      value={value}
+      onChange={onChange}
+      options={options.map((value) => ({ value, label: value }))}
+    />
   );
 }

@@ -1,14 +1,6 @@
 "use client";
 
-import {
-  Bot,
-  CheckCircle2,
-  Loader2,
-  RotateCcw,
-  Send,
-  ShieldCheck,
-  Square,
-} from "lucide-react";
+import { Bot, RotateCcw, Send, ShieldCheck, Square } from "lucide-react";
 import {
   useEffect,
   useMemo,
@@ -18,6 +10,16 @@ import {
   type KeyboardEvent,
 } from "react";
 
+import {
+  EnterpriseBadge,
+  EnterpriseBreadcrumbs,
+  EnterpriseButton,
+  EnterpriseEmptyState,
+  EnterpriseErrorState,
+  EnterpriseIconButton,
+  EnterprisePageHeader,
+  EnterpriseSkeleton,
+} from "@/components/enterprise";
 import {
   ASSISTANT_MESSAGE_MAX_LENGTH,
   fetchAssistantCapabilities,
@@ -29,17 +31,29 @@ import {
   type NormalizedAssistantError,
 } from "@/lib/assistant";
 import { fetchCurrentUser, type AuthUser } from "@/lib/auth";
+import { SOC_CONTROL_CLASSES, cx, type SocTone } from "@/lib/semantic-styles";
 import AssistantAnswer from "./AssistantAnswer";
+import AssistantCapabilityDetails from "./AssistantCapabilityDetails";
+import {
+  AssistantFailureState,
+  AssistantGenerationState,
+} from "./AssistantStates";
+
+type AssistantRequestContext = {
+  question: string;
+  requestedMode: AssistantMode;
+  semanticMemoryRequested: boolean;
+};
 
 type ConversationTurn =
   | { id: string; role: "user"; text: string }
-  | {
+  | ({
       id: string;
       role: "assistant";
       status: "pending" | "completed" | "error";
       response?: AssistantQueryResponse;
       error?: NormalizedAssistantError;
-    };
+    } & AssistantRequestContext);
 
 const STARTER_QUERIES = [
   "Which hosts generated the most incidents in the last 7 days?",
@@ -48,17 +62,25 @@ const STARTER_QUERIES = [
   "Which cases exceeded their SLA?",
 ];
 
-function runtimeLabel(capabilities: AssistantCapabilities | null) {
-  if (!capabilities) return "Checking";
-  if (!capabilities.enabled) return "Disabled";
-  if (capabilities.runtime_state === "ready") return "Ready";
-  if (capabilities.runtime_state === "warming") return "Warming";
-  return "Unavailable";
+function runtimePresentation(capabilities: AssistantCapabilities | null): {
+  label: string;
+  tone: SocTone;
+} {
+  if (!capabilities) return { label: "Checking", tone: "neutral" };
+  if (!capabilities.enabled) return { label: "Disabled", tone: "muted" };
+  if (capabilities.runtime_state === "ready") {
+    return { label: "Ready", tone: "success" };
+  }
+  if (capabilities.runtime_state === "warming") {
+    return { label: "Warming", tone: "warning" };
+  }
+  return { label: "Unavailable", tone: "danger" };
 }
 
 export default function GlobalAssistantWorkspace() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [capabilities, setCapabilities] = useState<AssistantCapabilities | null>(null);
+  const [capabilitiesLoading, setCapabilitiesLoading] = useState(true);
   const [capabilityError, setCapabilityError] =
     useState<NormalizedAssistantError | null>(null);
   const [question, setQuestion] = useState("");
@@ -67,7 +89,9 @@ export default function GlobalAssistantWorkspace() {
   const [turns, setTurns] = useState<ConversationTurn[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
-  const controllerRef = useRef<AbortController | null>(null);
+  const capabilityControllerRef = useRef<AbortController | null>(null);
+  const queryControllerRef = useRef<AbortController | null>(null);
+  const mountedRef = useRef(true);
   const conversationIdRef = useRef<string | null>(null);
   const timelineEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -75,6 +99,7 @@ export default function GlobalAssistantWorkspace() {
   const eligible = user?.role === "ADMIN" || user?.role === "ANALYST";
   const globalSupported = capabilities?.supported_scopes.includes("global") ?? true;
   const controlsDisabled =
+    capabilitiesLoading ||
     submitting ||
     !eligible ||
     !capabilities?.enabled ||
@@ -89,6 +114,18 @@ export default function GlobalAssistantWorkspace() {
     () => capabilities?.supported_modes ?? ["auto", "standard"],
     [capabilities],
   );
+  const runtime = runtimePresentation(capabilities);
+
+  function applyCapabilities(payload: AssistantCapabilities) {
+    setCapabilities(payload);
+    setCapabilityError(null);
+    setSemanticDiscovery(payload.semantic_memory_supported);
+    setMode(
+      payload.supported_modes.includes("auto")
+        ? "auto"
+        : payload.supported_modes[0] ?? "auto",
+    );
+  }
 
   function conversationId() {
     if (!conversationIdRef.current) {
@@ -99,31 +136,40 @@ export default function GlobalAssistantWorkspace() {
 
   useEffect(() => {
     let active = true;
+    mountedRef.current = true;
     const controller = new AbortController();
-    Promise.all([
-      fetchCurrentUser(),
-      fetchAssistantCapabilities(controller.signal),
-    ])
-      .then(([currentUser, currentCapabilities]) => {
+    capabilityControllerRef.current = controller;
+
+    async function loadWorkspace() {
+      try {
+        const currentUser = await fetchCurrentUser();
         if (!active) return;
         setUser(currentUser);
-        setCapabilities(currentCapabilities);
-        setSemanticDiscovery(currentCapabilities.semantic_memory_supported);
-        setMode(
-          currentCapabilities.supported_modes.includes("auto")
-            ? "auto"
-            : currentCapabilities.supported_modes[0] ?? "auto",
+
+        if (currentUser.role !== "ADMIN" && currentUser.role !== "ANALYST") {
+          return;
+        }
+
+        const currentCapabilities = await fetchAssistantCapabilities(
+          controller.signal,
         );
-      })
-      .catch((error: unknown) => {
+        if (!active) return;
+        applyCapabilities(currentCapabilities);
+      } catch (error: unknown) {
         if (!active) return;
         const normalized = normalizeAssistantApiError(error, "global");
         if (normalized.kind !== "aborted") setCapabilityError(normalized);
-      });
+      } finally {
+        if (active) setCapabilitiesLoading(false);
+      }
+    }
+
+    void loadWorkspace();
     return () => {
       active = false;
+      mountedRef.current = false;
       controller.abort();
-      controllerRef.current?.abort();
+      queryControllerRef.current?.abort();
     };
   }, []);
 
@@ -131,7 +177,35 @@ export default function GlobalAssistantWorkspace() {
     timelineEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [turns]);
 
-  async function submit(text: string) {
+  async function retryCapabilities() {
+    capabilityControllerRef.current?.abort();
+    const controller = new AbortController();
+    capabilityControllerRef.current = controller;
+    setCapabilitiesLoading(true);
+    setCapabilityError(null);
+    try {
+      const payload = await fetchAssistantCapabilities(controller.signal);
+      if (!mountedRef.current || capabilityControllerRef.current !== controller) {
+        return;
+      }
+      applyCapabilities(payload);
+    } catch (error: unknown) {
+      if (!mountedRef.current || capabilityControllerRef.current !== controller) {
+        return;
+      }
+      const normalized = normalizeAssistantApiError(error, "global");
+      if (normalized.kind !== "aborted") setCapabilityError(normalized);
+    } finally {
+      if (mountedRef.current && capabilityControllerRef.current === controller) {
+        setCapabilitiesLoading(false);
+      }
+    }
+  }
+
+  async function submit(
+    text: string,
+    requestContext?: Omit<AssistantRequestContext, "question">,
+  ) {
     const normalized = text.trim();
     if (
       controlsDisabled ||
@@ -140,17 +214,32 @@ export default function GlobalAssistantWorkspace() {
     ) {
       return;
     }
+
+    const submittedMode = requestContext?.requestedMode ?? mode;
+    const submittedSemanticMemory =
+      requestContext?.semanticMemoryRequested ?? semanticDiscovery;
+    const turnContext: AssistantRequestContext = {
+      question: normalized,
+      requestedMode: submittedMode,
+      semanticMemoryRequested: submittedSemanticMemory,
+    };
     const userTurnId = globalThis.crypto.randomUUID();
     const assistantTurnId = globalThis.crypto.randomUUID();
     const controller = new AbortController();
-    controllerRef.current = controller;
+    queryControllerRef.current = controller;
     setQuestion("");
     setSubmitting(true);
     setTurns((current) => [
       ...current,
       { id: userTurnId, role: "user", text: normalized },
-      { id: assistantTurnId, role: "assistant", status: "pending" },
+      {
+        id: assistantTurnId,
+        role: "assistant",
+        status: "pending",
+        ...turnContext,
+      },
     ]);
+
     try {
       const response = await submitAssistantQuery(
         {
@@ -158,41 +247,40 @@ export default function GlobalAssistantWorkspace() {
           scope: "global",
           incident_id: null,
           case_id: null,
-          requested_mode: mode,
-          include_semantic_memory: semanticDiscovery,
+          requested_mode: submittedMode,
+          include_semantic_memory: submittedSemanticMemory,
           conversation_id: conversationId(),
         },
         controller.signal,
       );
+      if (!mountedRef.current || queryControllerRef.current !== controller) {
+        return;
+      }
       setTurns((current) =>
         current.map((turn) =>
-          turn.id === assistantTurnId
-            ? { id: assistantTurnId, role: "assistant", status: "completed", response }
+          turn.id === assistantTurnId && turn.role === "assistant"
+            ? { ...turn, status: "completed", response }
             : turn,
         ),
       );
     } catch (error: unknown) {
-      const normalizedError = normalizeAssistantApiError(error, "global");
-      if (normalizedError.kind === "aborted") {
-        setTurns((current) => current.filter((turn) => turn.id !== assistantTurnId));
-      } else {
-        setTurns((current) =>
-          current.map((turn) =>
-            turn.id === assistantTurnId
-              ? {
-                  id: assistantTurnId,
-                  role: "assistant",
-                  status: "error",
-                  error: normalizedError,
-                }
-              : turn,
-          ),
-        );
+      if (!mountedRef.current || queryControllerRef.current !== controller) {
+        return;
       }
+      const normalizedError = normalizeAssistantApiError(error, "global");
+      setTurns((current) =>
+        current.map((turn) =>
+          turn.id === assistantTurnId && turn.role === "assistant"
+            ? { ...turn, status: "error", error: normalizedError }
+            : turn,
+        ),
+      );
     } finally {
-      setSubmitting(false);
-      controllerRef.current = null;
-      textareaRef.current?.focus();
+      if (mountedRef.current && queryControllerRef.current === controller) {
+        setSubmitting(false);
+        queryControllerRef.current = null;
+        textareaRef.current?.focus();
+      }
     }
   }
 
@@ -209,73 +297,109 @@ export default function GlobalAssistantWorkspace() {
   }
 
   function resetConversation() {
-    controllerRef.current?.abort();
+    const controller = queryControllerRef.current;
+    queryControllerRef.current = null;
+    controller?.abort();
     conversationIdRef.current = null;
     setTurns([]);
     setQuestion("");
+    setSubmitting(false);
     textareaRef.current?.focus();
   }
 
+  const header = (
+    <EnterprisePageHeader
+      density="compact"
+      divided
+      breadcrumbs={
+        <EnterpriseBreadcrumbs
+          items={[{ label: "AI" }, { label: "Assistant" }]}
+        />
+      }
+      eyebrow="AI workspace"
+      title="AI SOC Assistant"
+      description="Read-only global analysis across incidents, cases, trends and recorded relationships."
+      icon={<Bot aria-hidden="true" className="h-4 w-4" />}
+      metadata={
+        <>
+          <EnterpriseBadge tone="primary" size="compact">
+            Global context
+          </EnterpriseBadge>
+          <EnterpriseBadge tone="neutral" size="compact">
+            Read only
+          </EnterpriseBadge>
+          <EnterpriseBadge
+            tone="neutral"
+            size="compact"
+            icon={<ShieldCheck aria-hidden="true" className="h-3 w-3" />}
+          >
+            V3.2 proof gate
+          </EnterpriseBadge>
+        </>
+      }
+      status={
+        <EnterpriseBadge tone={runtime.tone} size="compact">
+          Runtime: {runtime.label}
+        </EnterpriseBadge>
+      }
+      secondaryActions={
+        <EnterpriseIconButton
+          onClick={resetConversation}
+          icon={<RotateCcw aria-hidden="true" className="h-3.5 w-3.5" />}
+          label="New conversation"
+          size="xs"
+        />
+      }
+    />
+  );
+
   if (user && !eligible) {
     return (
-      <div className="flex min-h-[70vh] items-center justify-center px-5 text-sm text-slate-400">
-        This role is not permitted to use the AI SOC Assistant.
+      <div className="min-h-[calc(100vh-2rem)] border border-slate-800 bg-slate-950 p-4 sm:p-6">
+        {header}
+        <EnterpriseErrorState
+          title="Assistant access restricted"
+          message="This role is not permitted to use the AI SOC Assistant."
+        />
       </div>
     );
   }
 
   return (
     <div className="flex min-h-[calc(100vh-2rem)] min-w-0 flex-col border border-slate-800 bg-slate-950">
-      <header className="flex min-h-14 flex-wrap items-center justify-between gap-3 border-b border-slate-800 px-4 py-3 sm:px-6">
-        <div className="flex min-w-0 items-center gap-2.5">
-          <Bot className="h-4 w-4 shrink-0 text-cyan-300" strokeWidth={1.75} />
-          <div className="min-w-0">
-            <h1 className="truncate text-base font-semibold text-slate-100">
-              AI SOC Assistant
-            </h1>
-            <div className="flex items-center gap-2 text-[11px] text-slate-500">
-              <span>Global scope</span>
-              <span aria-hidden="true">/</span>
-              <span className="inline-flex items-center gap-1 text-emerald-300">
-                <ShieldCheck className="h-3 w-3" /> V3.2 proof gate
-              </span>
-            </div>
-          </div>
+      <div className="px-4 pt-4 sm:px-6">{header}</div>
+
+      {capabilities?.decision_boundary ? (
+        <p className="px-4 pb-3 text-[11px] leading-5 text-slate-500 sm:px-6">
+          {capabilities.decision_boundary}
+        </p>
+      ) : null}
+      {capabilities ? (
+        <div className="px-4 pb-3 sm:px-6">
+          <AssistantCapabilityDetails capabilities={capabilities} />
         </div>
-        <div className="flex items-center gap-2">
-          <span className="inline-flex h-7 items-center gap-1.5 border border-slate-700 px-2 text-[11px] text-slate-300">
-            {capabilities?.runtime_state === "ready" ? (
-              <CheckCircle2 className="h-3 w-3 text-emerald-400" />
-            ) : (
-              <span className="h-1.5 w-1.5 bg-amber-400" />
-            )}
-            {runtimeLabel(capabilities)}
-          </span>
-          <button
-            type="button"
-            onClick={resetConversation}
-            title="New conversation"
-            aria-label="New conversation"
-            className="inline-flex h-7 w-7 items-center justify-center border border-slate-700 text-slate-400 hover:border-slate-600 hover:bg-slate-900 hover:text-slate-100"
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      </header>
+      ) : null}
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex min-h-full w-full max-w-5xl flex-col px-4 py-6 sm:px-8">
-          {turns.length === 0 ? (
-            <div className="my-auto py-10">
-              <div className="mb-7 flex items-center gap-3 border-b border-slate-800 pb-4">
-                <div className="flex h-9 w-9 items-center justify-center border border-cyan-900 bg-cyan-950/30 text-cyan-300">
-                  <Bot className="h-4 w-4" />
-                </div>
-                <div>
-                  <div className="text-sm font-medium text-slate-200">Global analytics</div>
-                  <div className="text-xs text-slate-500">Incidents, cases, trends and relationships</div>
-                </div>
-              </div>
+        <div
+          className="mx-auto flex min-h-full w-full max-w-5xl flex-col px-4 py-5 sm:px-8"
+        >
+          {capabilitiesLoading ? (
+            <EnterpriseSkeleton label="Checking Assistant availability" rows={3} />
+          ) : capabilityError ? (
+            <EnterpriseErrorState
+              title="Assistant availability could not be confirmed"
+              message={capabilityError.message}
+              onRetry={capabilityError.retryable ? retryCapabilities : undefined}
+              retryLabel="Retry availability check"
+            />
+          ) : turns.length === 0 ? (
+            <div className="my-auto py-8">
+              <EnterpriseEmptyState
+                title="Start a global SOC analysis"
+                description="Choose a bounded analytics question or enter a question below."
+                icon={<Bot aria-hidden="true" className="h-5 w-5" />}
+              />
               <div className="grid gap-px border border-slate-800 bg-slate-800 sm:grid-cols-2">
                 {STARTER_QUERIES.map((starter) => (
                   <button
@@ -283,7 +407,10 @@ export default function GlobalAssistantWorkspace() {
                     type="button"
                     onClick={() => void submit(starter)}
                     disabled={controlsDisabled}
-                    className="min-h-16 bg-slate-950 px-4 py-3 text-left text-xs leading-5 text-slate-300 hover:bg-slate-900 hover:text-cyan-200 disabled:cursor-not-allowed disabled:text-slate-600"
+                    className={cx(
+                      "min-h-16 bg-slate-950 px-4 py-3 text-left text-xs leading-5 text-slate-300 transition hover:bg-slate-900 hover:text-cyan-200 disabled:cursor-not-allowed disabled:text-slate-600",
+                      SOC_CONTROL_CLASSES.focus,
+                    )}
                   >
                     {starter}
                   </button>
@@ -291,40 +418,58 @@ export default function GlobalAssistantWorkspace() {
               </div>
             </div>
           ) : (
-            <div className="space-y-7">
+            <div
+              role="log"
+              aria-label="Global SOC Assistant conversation"
+              aria-live="polite"
+              className="space-y-7"
+            >
               {turns.map((turn) =>
                 turn.role === "user" ? (
                   <div key={turn.id} className="flex justify-end pl-8 sm:pl-20">
                     <div className="max-w-3xl rounded-sm border border-slate-700 bg-slate-900 px-3.5 py-2.5 text-sm leading-6 text-slate-100">
-                      {turn.text}
+                      <p className="whitespace-pre-wrap break-words">{turn.text}</p>
                     </div>
                   </div>
                 ) : (
-                  <div key={turn.id} className="grid grid-cols-[24px_minmax(0,1fr)] gap-3">
+                  <div
+                    key={turn.id}
+                    className="grid grid-cols-[24px_minmax(0,1fr)] gap-3"
+                  >
                     <div className="mt-0.5 flex h-6 w-6 items-center justify-center border border-cyan-900 text-cyan-300">
-                      <Bot className="h-3.5 w-3.5" />
+                      <Bot aria-hidden="true" className="h-3.5 w-3.5" />
                     </div>
                     <div className="min-w-0">
                       {turn.status === "pending" ? (
-                        <div className="flex min-h-8 items-center gap-2 text-xs text-slate-400">
-                          <Loader2 className="h-3.5 w-3.5 animate-spin text-cyan-300" />
-                          Waiting for the validated response
-                        </div>
+                        <AssistantGenerationState scope="global" />
                       ) : turn.status === "completed" && turn.response ? (
                         <AssistantAnswer
                           response={turn.response}
                           anchorPrefix={`global-assistant-${turn.id}`}
+                          requestedMode={turn.requestedMode}
+                          semanticMemoryRequested={turn.semanticMemoryRequested}
                         />
-                      ) : (
-                        <div role="alert" className="text-sm text-red-300">
-                          {turn.error?.message ?? "The assistant request failed."}
-                        </div>
-                      )}
+                      ) : turn.error ? (
+                        <AssistantFailureState
+                          error={turn.error}
+                          scope="global"
+                          onRetry={
+                            turn.error.retryable && !submitting
+                              ? () =>
+                                  submit(turn.question, {
+                                    requestedMode: turn.requestedMode,
+                                    semanticMemoryRequested:
+                                      turn.semanticMemoryRequested,
+                                  })
+                              : undefined
+                          }
+                        />
+                      ) : null}
                     </div>
                   </div>
                 ),
               )}
-              <div ref={timelineEndRef} />
+              <div ref={timelineEndRef} aria-hidden="true" />
             </div>
           )}
         </div>
@@ -332,64 +477,62 @@ export default function GlobalAssistantWorkspace() {
 
       <div className="sticky bottom-0 border-t border-slate-800 bg-slate-950 px-4 py-3 sm:px-6">
         <form onSubmit={handleSubmit} className="mx-auto w-full max-w-5xl">
-          {capabilityError ? (
-            <div role="alert" className="mb-2 text-xs text-amber-300">
-              {capabilityError.message}
-            </div>
-          ) : null}
           <div className="flex items-end gap-2 border border-slate-700 bg-slate-950 p-2 focus-within:border-cyan-700">
+            <label htmlFor="global-assistant-question" className="sr-only">
+              Assistant question
+            </label>
             <textarea
               ref={textareaRef}
+              id="global-assistant-question"
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
               onKeyDown={handleKeyDown}
               rows={2}
               maxLength={ASSISTANT_MESSAGE_MAX_LENGTH}
               disabled={controlsDisabled}
-              aria-label="Assistant question"
               placeholder="Ask an authoritative SOC analytics question"
               className="max-h-36 min-h-11 flex-1 resize-y bg-transparent px-1 py-1.5 text-sm leading-5 text-slate-100 outline-none placeholder:text-slate-600 disabled:cursor-not-allowed"
             />
             {submitting ? (
-              <button
-                type="button"
-                onClick={() => controllerRef.current?.abort()}
-                title="Cancel request"
-                aria-label="Cancel request"
-                className="inline-flex h-9 w-9 shrink-0 items-center justify-center border border-slate-700 text-slate-300 hover:bg-slate-900"
-              >
-                <Square className="h-3.5 w-3.5" />
-              </button>
+              <EnterpriseIconButton
+                onClick={() => queryControllerRef.current?.abort()}
+                icon={<Square aria-hidden="true" className="h-3.5 w-3.5" />}
+                label="Cancel request"
+                tone="danger"
+                size="md"
+              />
             ) : (
-              <button
+              <EnterpriseIconButton
                 type="submit"
                 disabled={!canSubmit}
-                title="Send"
-                aria-label="Send"
-                className="inline-flex h-9 w-9 shrink-0 items-center justify-center border border-cyan-600 bg-cyan-500 text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:border-slate-800 disabled:bg-slate-900 disabled:text-slate-600"
-              >
-                <Send className="h-4 w-4" />
-              </button>
+                icon={<Send aria-hidden="true" className="h-4 w-4" />}
+                label="Send question"
+                tone="primary"
+                size="md"
+              />
             )}
           </div>
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-            <div className="inline-flex border border-slate-800" aria-label="Assistant mode">
+            <div
+              role="group"
+              className="flex flex-wrap gap-1"
+              aria-label="Assistant mode"
+            >
               {(["auto", "standard"] as AssistantMode[])
                 .filter((value) => supportedModes.includes(value))
                 .map((value) => (
-                  <button
+                  <EnterpriseButton
                     key={value}
                     type="button"
                     onClick={() => setMode(value)}
                     disabled={submitting}
-                    className={`h-7 px-2.5 text-[11px] font-medium capitalize ${
-                      mode === value
-                        ? "bg-slate-800 text-cyan-200"
-                        : "text-slate-500 hover:text-slate-200"
-                    }`}
+                    tone={mode === value ? "primary" : "ghost"}
+                    size="xs"
+                    ariaPressed={mode === value}
+                    className="capitalize"
                   >
                     {value}
-                  </button>
+                  </EnterpriseButton>
                 ))}
             </div>
             <label className="inline-flex items-center gap-2 text-[11px] text-slate-500">
@@ -398,7 +541,7 @@ export default function GlobalAssistantWorkspace() {
                 checked={semanticDiscovery}
                 onChange={(event) => setSemanticDiscovery(event.target.checked)}
                 disabled={!capabilities?.semantic_memory_supported || submitting}
-                className="h-3.5 w-3.5 accent-cyan-500"
+                className={cx("h-3.5 w-3.5 accent-cyan-500", SOC_CONTROL_CLASSES.focus)}
               />
               Semantic discovery
             </label>

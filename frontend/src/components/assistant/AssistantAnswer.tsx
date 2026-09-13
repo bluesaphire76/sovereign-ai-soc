@@ -1,254 +1,305 @@
 "use client";
 
-import { AlertTriangle } from "lucide-react";
-
-import type { AssistantQueryResponse } from "@/lib/assistant";
-import AssistantSources from "./AssistantSources";
 import {
-  formatAssistantLatency,
+  AlertTriangle,
+  CheckCircle2,
+  FileWarning,
+  ShieldCheck,
+  ShieldX,
+  Sparkles,
+} from "lucide-react";
+
+import { EnterpriseBadge } from "@/components/enterprise";
+import type {
+  AssistantMode,
+  AssistantQueryResponse,
+  AssistantResponseBlock,
+} from "@/lib/assistant";
+import { SOC_CONTROL_CLASSES, cx } from "@/lib/semantic-styles";
+import AssistantSources from "./AssistantSources";
+import AssistantTechnicalDetails from "./AssistantTechnicalDetails";
+import {
+  ASSISTANT_BLOCK_LABELS,
+  ASSISTANT_PROVENANCE,
   humanizeAssistantLimitation,
   humanizeAssistantValue,
+  sourceAnchorId,
 } from "./assistantPresentation";
 
 type AssistantAnswerProps = {
   response: AssistantQueryResponse;
   anchorPrefix: string;
+  requestedMode: AssistantMode;
+  semanticMemoryRequested: boolean;
 };
 
-export default function AssistantAnswer({
-  response,
-  anchorPrefix,
-}: AssistantAnswerProps) {
-  const limitations = response.limitations
-    .map(humanizeAssistantLimitation)
-    .filter(Boolean);
-  const italian = response.metadata.response_language === "it";
-
-  return (
-    <div className="space-y-3">
-      <div className="max-w-4xl space-y-3 text-sm leading-6 text-slate-200">
-        {response.blocks.map((block) => (
-          <div
-            key={`${block.kind}-${block.text}`}
-          >
-            <p className="whitespace-pre-wrap break-words">
-              {block.text}
-            </p>
-          </div>
-        ))}
-      </div>
-
-      {response.generation_kind === "deterministic_fallback" ? (
-        <div
-          role="status"
-          className="flex items-start gap-2 text-[11px] leading-5 text-amber-200/80"
-        >
-          <AlertTriangle
-            aria-hidden="true"
-            className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-300"
-          />
-          {italian
-            ? "È mostrata una risposta deterministica fondata sui dati recuperati."
-            : "A deterministic response grounded in retrieved data is shown."}
-        </div>
-      ) : null}
-
-      {limitations.length > 0 ? (
-        <ul className="space-y-1 text-xs leading-5 text-slate-500">
-          {limitations.map((limitation) => (
-            <li key={limitation}>{limitation}</li>
-          ))}
-        </ul>
-      ) : null}
-
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-slate-800 pt-3">
-        {response.sources.length > 0 ? (
-          <details className="min-w-0">
-            <summary className="cursor-pointer text-xs font-semibold text-slate-300">
-              Sources ({response.sources.length})
-            </summary>
-            <div className="mt-3">
-              <AssistantSources
-                sources={response.sources}
-                anchorPrefix={anchorPrefix}
-              />
-            </div>
-          </details>
-        ) : null}
-        {response.metadata.semantic_degraded ? (
-          <span
-            role="status"
-            className="inline-flex items-center gap-1.5 text-[11px] text-amber-300/80"
-            title={
-              italian
-                ? "La risposta resta fondata sui dati autorevoli disponibili."
-                : "The answer remains grounded in available authoritative data."
-            }
-          >
-            <AlertTriangle aria-hidden="true" className="h-3 w-3" />
-            Semantic: {humanizeAssistantValue(response.metadata.semantic_status)}
-          </span>
-        ) : null}
-      </div>
-
-      <details>
-        <summary className="cursor-pointer text-xs font-semibold text-slate-400">
-          Technical details
-        </summary>
-        <dl className="mt-3 grid gap-x-5 gap-y-2 text-[11px] text-slate-500 sm:grid-cols-2">
-          <TechnicalDetail
-            label="Architecture"
-            value={response.metadata.response_architecture}
-          />
-          <TechnicalDetail
-            label="Effective intent"
-            value={
-              response.metadata.assistant_intent
-                ? humanizeAssistantValue(response.metadata.assistant_intent)
-                : null
-            }
-          />
-          <TechnicalDetail
-            label="Analysis scope"
-            value={
-              response.metadata.analysis_scope
-                ? humanizeAssistantValue(response.metadata.analysis_scope)
-                : null
-            }
-          />
-          <TechnicalDetail
-            label="Analytics operation"
-            value={response.metadata.analytics_operation}
-          />
-          <TechnicalDetail
-            label="Analytics entity"
-            value={response.metadata.analytics_entity}
-          />
-          <TechnicalDetail
-            label="Analytics definition"
-            value={response.metadata.analytics_definition_id}
-          />
-          <TechnicalDetail
-            label="Resolved window"
-            value={
-              response.metadata.analytics_window_start_utc &&
-              response.metadata.analytics_window_end_utc
-                ? `${response.metadata.analytics_window_start_utc} - ${response.metadata.analytics_window_end_utc}`
-                : null
-            }
-          />
-          <TechnicalDetail
-            label="Cross-incident context"
-            value={
-              response.metadata.cross_incident_candidates > 0
-                ? "Used"
-                : "Not used"
-            }
-          />
-          <TechnicalDetail
-            label="Generation kind"
-            value={humanizeAssistantValue(response.generation_kind)}
-          />
-          <TechnicalDetail
-            label="Provider generations"
-            value={String(response.metadata.provider_generation_count)}
-          />
-          <TechnicalDetail
-            label="Automatic retries"
-            value={String(response.metadata.automatic_retries)}
-          />
-          <TechnicalDetail
-            label="Model switches"
-            value={String(response.metadata.model_switches)}
-          />
-          <TechnicalDetail
-            label="Queue wait"
-            value={formatAssistantLatency(response.metadata.queue_wait_ms)}
-          />
-          <TechnicalDetail
-            label="Generation time"
-            value={formatAssistantLatency(response.metadata.generation_ms)}
-          />
-          <TechnicalDetail
-            label="Total latency"
-            value={formatAssistantLatency(response.metadata.total_latency_ms)}
-          />
-          <TechnicalDetail
-            label="Profile"
-            value={response.metadata.effective_profile}
-          />
-          <TechnicalDetail
-            label="Model"
-            value={response.metadata.effective_model}
-          />
-          <TechnicalDetail
-            label="Semantic status"
-            value={humanizeAssistantValue(response.metadata.semantic_status)}
-          />
-          <TechnicalDetail
-            label="Semantic index"
-            value={humanizeAssistantValue(
-              response.metadata.semantic_index_status,
-            )}
-          />
-          <TechnicalDetail
-            label="Plan validation"
-            value={humanizeAssistantValue(
-              response.metadata.plan_validation_status,
-            )}
-          />
-          <TechnicalDetail
-            label="Context build"
-            value={formatAssistantLatency(response.metadata.context_build_ms)}
-          />
-          <TechnicalDetail
-            label="Semantic elapsed"
-            value={formatAssistantLatency(response.metadata.semantic_elapsed_ms)}
-          />
-          <TechnicalDetail
-            label="Grounding validation"
-            value={humanizeAssistantValue(
-              response.metadata.grounding_validation,
-            )}
-          />
-          <TechnicalDetail
-            label="Focus validation"
-            value={humanizeAssistantValue(response.metadata.focus_validation)}
-          />
-          <TechnicalDetail
-            label="Fallback reason"
-            value={
-              response.metadata.fallback_reason
-                ? humanizeAssistantValue(response.metadata.fallback_reason)
-                : "none"
-            }
-          />
-          <TechnicalDetail
-            label="Source count"
-            value={String(response.metadata.source_count)}
-          />
-          <TechnicalDetail
-            label="Thinking disabled"
-            value={response.metadata.thinking_disabled ? "Yes" : "No"}
-          />
-        </dl>
-      </details>
-    </div>
-  );
-}
-
-function TechnicalDetail({
+function ValidationBadge({
   label,
   value,
 }: {
   label: string;
-  value: string | null;
+  value: "passed" | "failed" | "not_run" | "unavailable";
 }) {
-  if (!value) return null;
+  const tone =
+    value === "passed"
+      ? "success"
+      : value === "failed"
+        ? "danger"
+        : value === "unavailable"
+          ? "warning"
+          : "neutral";
+  const icon =
+    value === "passed" ? (
+      <CheckCircle2 aria-hidden="true" className="h-3 w-3" />
+    ) : value === "failed" ? (
+      <ShieldX aria-hidden="true" className="h-3 w-3" />
+    ) : value === "unavailable" ? (
+      <AlertTriangle aria-hidden="true" className="h-3 w-3" />
+    ) : null;
+
   return (
-    <div>
-      <dt>{label}</dt>
-      <dd className="mt-0.5 break-words text-slate-300">{value}</dd>
-    </div>
+    <EnterpriseBadge tone={tone} size="compact" icon={icon}>
+      {label}: {humanizeAssistantValue(value)}
+    </EnterpriseBadge>
+  );
+}
+
+function AssistantBlock({
+  block,
+  anchorPrefix,
+  sourceIndexes,
+  showHeading = true,
+}: {
+  block: AssistantResponseBlock;
+  anchorPrefix: string;
+  sourceIndexes: Map<string, number>;
+  showHeading?: boolean;
+}) {
+  return (
+    <section className="min-w-0">
+      {showHeading ? (
+        <div className="mb-1.5 flex flex-wrap items-center gap-2">
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-300">
+            {ASSISTANT_BLOCK_LABELS[block.kind]}
+          </h4>
+          {block.provenance_classes.map((provenanceClass) => (
+            <EnterpriseBadge
+              key={provenanceClass}
+              tone={ASSISTANT_PROVENANCE[provenanceClass].tone}
+              size="compact"
+            >
+              {ASSISTANT_PROVENANCE[provenanceClass].label}
+            </EnterpriseBadge>
+          ))}
+        </div>
+      ) : null}
+      <p className="whitespace-pre-wrap break-words text-sm leading-6 text-slate-200">
+        {block.text}
+      </p>
+      {block.source_ids.length > 0 ? (
+        <div
+          className="mt-1.5 flex flex-wrap items-center gap-1.5"
+          aria-label={`Sources for ${ASSISTANT_BLOCK_LABELS[block.kind]}`}
+        >
+          <span className="text-[10px] uppercase tracking-wide text-slate-500">
+            Cites
+          </span>
+          {block.source_ids.map((sourceId) => {
+            const sourceIndex = sourceIndexes.get(sourceId);
+            if (sourceIndex === undefined) {
+              return (
+                <span key={sourceId} className="text-[11px] text-slate-400">
+                  [{sourceId}]
+                </span>
+              );
+            }
+            const sourceTargetId = sourceAnchorId(anchorPrefix, sourceIndex);
+            return (
+              <a
+                key={sourceId}
+                href={`#${sourceTargetId}`}
+                onClick={() => document.getElementById(sourceTargetId)?.focus()}
+                className={cx(
+                  "rounded-sm text-[11px] font-semibold text-cyan-300 hover:text-cyan-200",
+                  SOC_CONTROL_CLASSES.focus,
+                )}
+                aria-label={`Jump to source ${sourceId}`}
+              >
+                [{sourceId}]
+              </a>
+            );
+          })}
+        </div>
+      ) : null}
+      {block.kind === "recommended_checks" || block.kind === "next_check" ? (
+        <p className="mt-1.5 text-[11px] leading-5 text-amber-200/80">
+          Generated guidance for analyst review. No action has been executed or approved.
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+export default function AssistantAnswer({
+  response,
+  anchorPrefix,
+  requestedMode,
+  semanticMemoryRequested,
+}: AssistantAnswerProps) {
+  const limitations = response.limitations
+    .map(humanizeAssistantLimitation)
+    .filter(Boolean);
+  const answerBlocks = response.blocks.filter(
+    (block) => block.kind !== "limitations",
+  );
+  const limitationBlocks = response.blocks.filter(
+    (block) => block.kind === "limitations",
+  );
+  const sourceIndexes = new Map(
+    response.sources.map((source, index) => [source.source_id, index] as const),
+  );
+  const italian = response.metadata.response_language === "it";
+
+  return (
+    <article className="space-y-4" aria-label="SOC Assistant response">
+      <section aria-labelledby={`${anchorPrefix}-answer-heading`}>
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <h3
+            id={`${anchorPrefix}-answer-heading`}
+            className="text-sm font-semibold text-slate-100"
+          >
+            Generated analysis
+          </h3>
+          <EnterpriseBadge
+            tone={
+              response.generation_kind === "deterministic_fallback"
+                ? "warning"
+                : "primary"
+            }
+            size="compact"
+            icon={
+              response.generation_kind === "deterministic_fallback" ? (
+                <FileWarning aria-hidden="true" className="h-3 w-3" />
+              ) : (
+                <Sparkles aria-hidden="true" className="h-3 w-3" />
+              )
+            }
+          >
+            {response.generation_kind === "deterministic_fallback"
+              ? "Deterministic fallback"
+              : "AI generated"}
+          </EnterpriseBadge>
+          <ValidationBadge
+            label="Grounding"
+            value={response.metadata.grounding_validation}
+          />
+          <ValidationBadge
+            label="Semantic proof"
+            value={response.metadata.semantic_proof_status}
+          />
+          {response.metadata.semantic_degraded ? (
+            <EnterpriseBadge
+              tone="warning"
+              size="compact"
+              icon={<AlertTriangle aria-hidden="true" className="h-3 w-3" />}
+            >
+              Semantic retrieval degraded
+            </EnterpriseBadge>
+          ) : null}
+        </div>
+
+        <div className="max-w-4xl space-y-4">
+          {answerBlocks.map((block, index) => (
+            <AssistantBlock
+              key={`${block.kind}-${index}`}
+              block={block}
+              anchorPrefix={anchorPrefix}
+              sourceIndexes={sourceIndexes}
+            />
+          ))}
+        </div>
+
+        {response.generation_kind === "deterministic_fallback" ? (
+          <div
+            role="status"
+            className="mt-3 flex items-start gap-2 border-l-2 border-amber-700 pl-3 text-[11px] leading-5 text-amber-200/90"
+          >
+            <AlertTriangle
+              aria-hidden="true"
+              className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-300"
+            />
+            {italian
+              ? "La generazione del modello non è stata pubblicata. È mostrata una risposta deterministica fondata sui dati recuperati."
+              : "Model generation was not published. A deterministic response grounded in retrieved data is shown."}
+          </div>
+        ) : null}
+      </section>
+
+      <section
+        aria-labelledby={`${anchorPrefix}-sources-heading`}
+        className="border-t border-slate-800 pt-3"
+      >
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <h3
+            id={`${anchorPrefix}-sources-heading`}
+            className="text-xs font-semibold uppercase tracking-wide text-slate-300"
+          >
+            Evidence and sources
+          </h3>
+          <EnterpriseBadge tone="neutral" size="compact">
+            {response.sources.length}
+          </EnterpriseBadge>
+        </div>
+        <AssistantSources sources={response.sources} anchorPrefix={anchorPrefix} />
+      </section>
+
+      <section
+        aria-labelledby={`${anchorPrefix}-limitations-heading`}
+        className="border-t border-slate-800 pt-3"
+      >
+        <div className="mb-2 flex items-center gap-2">
+          <ShieldCheck aria-hidden="true" className="h-3.5 w-3.5 text-amber-300" />
+          <h3
+            id={`${anchorPrefix}-limitations-heading`}
+            className="text-xs font-semibold uppercase tracking-wide text-slate-300"
+          >
+            Limitations
+          </h3>
+        </div>
+        {limitationBlocks.length > 0 ? (
+          <div className="space-y-3">
+            {limitationBlocks.map((block, index) => (
+              <AssistantBlock
+                key={`limitation-${index}`}
+                block={block}
+                anchorPrefix={anchorPrefix}
+                sourceIndexes={sourceIndexes}
+                showHeading={false}
+              />
+            ))}
+          </div>
+        ) : null}
+        {limitations.length > 0 ? (
+          <ul className="mt-2 space-y-1 text-xs leading-5 text-slate-500">
+            {limitations.map((limitation, index) => (
+              <li key={`${limitation}-${index}`} className="flex items-start gap-2">
+                <span aria-hidden="true" className="mt-2 h-1 w-1 shrink-0 bg-slate-600" />
+                <span>{limitation}</span>
+              </li>
+            ))}
+          </ul>
+        ) : limitationBlocks.length === 0 ? (
+          <p className="text-xs leading-5 text-slate-500">
+            No explicit limitations were returned with this response.
+          </p>
+        ) : null}
+      </section>
+
+      <AssistantTechnicalDetails
+        response={response}
+        requestedMode={requestedMode}
+        semanticMemoryRequested={semanticMemoryRequested}
+      />
+    </article>
   );
 }

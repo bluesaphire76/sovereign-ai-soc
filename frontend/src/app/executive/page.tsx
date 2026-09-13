@@ -4,7 +4,26 @@ import { authFetch } from "@/lib/auth";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import AppNavigation from "../../components/AppNavigation";
+import AppShell from "@/components/AppShell";
+import {
+  EnterpriseBadge,
+  EnterpriseBreadcrumbs,
+  EnterpriseButton,
+  EnterpriseEmptyState,
+  EnterpriseErrorState,
+  EnterpriseMetricCard,
+  EnterpriseMetricStrip,
+  EnterprisePageHeader,
+  EnterprisePanel,
+  EnterpriseSkeleton,
+} from "@/components/enterprise";
+import {
+  SOC_TONE_CLASSES,
+  riskScoreTone,
+  severityTone,
+  statusTone,
+  type SocTone,
+} from "@/lib/semantic-styles";
 import {
   AlertTriangle,
   BarChart3,
@@ -119,7 +138,7 @@ type ExecutiveSummary = {
   recommendations: string[];
 };
 
-type Tone = "success" | "warning" | "danger" | "primary" | "neutral" | "executive";
+type Tone = SocTone;
 
 type ExposureCategory = "Incidents" | "Cases" | "Priority";
 
@@ -165,30 +184,6 @@ function shortText(value: string | null | undefined, max = 96) {
   return `${value.slice(0, max - 1)}...`;
 }
 
-function toneForRisk(score: number | null | undefined): Tone {
-  const value = score ?? 0;
-
-  if (value >= 80) return "danger";
-  if (value >= 60) return "warning";
-  if (value >= 40) return "primary";
-  return "success";
-}
-
-function toneForStatus(status: string | null | undefined): Tone {
-  const value = (status ?? "OK").toUpperCase();
-
-  if (value === "BREACHED") return "danger";
-  if (value === "CRITICAL" || value === "ESCALATED") return "danger";
-  if (value === "ATTENTION" || value === "HIGH") return "warning";
-  if (value === "MEDIUM" || value === "TRIAGED" || value === "INVESTIGATING") {
-    return "primary";
-  }
-  if (value === "CLOSED" || value === "RESOLVED" || value === "OK") return "success";
-  if (value === "FALSE_POSITIVE") return "executive";
-
-  return "neutral";
-}
-
 function toneForDecision(decision: string | null | undefined): Tone {
   const value = (decision ?? "MONITOR").toUpperCase();
 
@@ -204,49 +199,6 @@ function statusMessage(status: ExecutiveStatus) {
   if (status === "ATTENTION") return "Management attention recommended";
   if (status === "CRITICAL") return "Immediate executive review required";
   return "Executive posture requires review";
-}
-
-function toneClasses(tone: Tone) {
-  const classes: Record<Tone, { panel: string; badge: string; text: string; bar: string }> = {
-    success: {
-      panel: "border-emerald-900/70 bg-emerald-950/20",
-      badge: "border-emerald-700 bg-emerald-950 text-emerald-200",
-      text: "text-emerald-300",
-      bar: "bg-emerald-400",
-    },
-    warning: {
-      panel: "border-orange-900/70 bg-orange-950/20",
-      badge: "border-orange-700 bg-orange-950 text-orange-200",
-      text: "text-orange-300",
-      bar: "bg-orange-400",
-    },
-    danger: {
-      panel: "border-red-900/70 bg-red-950/25",
-      badge: "border-red-800 bg-red-950 text-red-200",
-      text: "text-red-300",
-      bar: "bg-red-400",
-    },
-    primary: {
-      panel: "border-cyan-900/70 bg-cyan-950/20",
-      badge: "border-cyan-700 bg-cyan-950 text-cyan-200",
-      text: "text-cyan-300",
-      bar: "bg-cyan-400",
-    },
-    neutral: {
-      panel: "border-slate-800 bg-slate-900",
-      badge: "border-slate-700 bg-slate-950 text-slate-300",
-      text: "text-slate-300",
-      bar: "bg-slate-400",
-    },
-    executive: {
-      panel: "border-violet-900/70 bg-violet-950/20",
-      badge: "border-violet-700 bg-violet-950 text-violet-200",
-      text: "text-violet-300",
-      bar: "bg-violet-400",
-    },
-  };
-
-  return classes[tone];
 }
 
 function formatPercent(value: number, total: number) {
@@ -368,12 +320,7 @@ export default function ExecutivePage() {
     ];
   }, [incidentStatusRows, caseStatusRows, priorityRows]);
 
-  const postureTone: Tone =
-    data?.status === "CRITICAL"
-      ? "danger"
-      : data?.status === "ATTENTION"
-        ? "warning"
-        : "success";
+  const postureTone = statusTone(data?.status);
 
   const correlationCoverage = data
     ? Math.round(
@@ -384,61 +331,56 @@ export default function ExecutivePage() {
     : 0;
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto max-w-[1600px] px-4 py-4">
-        <AppNavigation />
-
-        <header className="mb-3 flex flex-col gap-3 border-b border-slate-800 pb-3 md:flex-row md:items-start md:justify-between">
-          <div>
-            <Link
-              href="/"
-              className="mb-2 inline-flex items-center gap-1.5 text-xs text-cyan-300 hover:text-cyan-200"
-            >
-              Dashboard
-            </Link>
-
-            <div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-cyan-300">
-              <BarChart3 className="h-3.5 w-3.5" />
-              Executive Command Record
-            </div>
-
-            <h1 className="text-xl font-semibold tracking-tight">
-              SOC Executive Dashboard
-            </h1>
-
-            <p className="mt-1 max-w-4xl text-xs leading-5 text-slate-500">
-              Decision-first view of SOC posture, management pressure, exposure
-              distribution, active work queues and AI case analysis.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-800 bg-slate-900 px-2.5 text-[11px] text-slate-400">
-              <Clock className="h-3.5 w-3.5 text-slate-500" />
-              Auto-refresh 30s
-            </span>
-            <button
-              onClick={loadExecutiveSummary}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-700 bg-slate-900 px-3 text-xs text-slate-200 shadow-sm hover:bg-slate-800"
-            >
+    <AppShell>
+      <EnterprisePageHeader
+        breadcrumbs={
+          <EnterpriseBreadcrumbs
+            items={[{ label: "Dashboard", href: "/" }, { label: "Executive" }]}
+          />
+        }
+        eyebrow="Executive Overview"
+        title="SOC Executive Dashboard"
+        description="Decision-first view of SOC posture, management pressure, exposure distribution, active work queues and AI case analysis."
+        icon={<BarChart3 aria-hidden="true" className="h-3.5 w-3.5" />}
+        metadata={
+          <EnterpriseBadge
+            tone="muted"
+            icon={<Clock aria-hidden="true" className="h-3.5 w-3.5" />}
+          >
+            Auto-refresh 30s
+          </EnterpriseBadge>
+        }
+        secondaryActions={
+          <EnterpriseButton
+            onClick={loadExecutiveSummary}
+            tone="secondary"
+            size="xs"
+            icon={
               <RefreshCw
+                aria-hidden="true"
                 className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`}
               />
-              Refresh
-            </button>
-          </div>
-        </header>
+            }
+          >
+            Refresh
+          </EnterpriseButton>
+        }
+        divided
+      />
 
         {error && (
-          <div className="mb-3 rounded-md border border-red-800 bg-red-950/60 p-3 text-xs text-red-200">
-            API error: {error}
-          </div>
+          <EnterpriseErrorState
+            title="Unable to load executive posture"
+            message={`API error: ${error}${data ? ". Last loaded data remains visible." : ""}`}
+            onRetry={loadExecutiveSummary}
+            className="mb-3"
+          />
         )}
 
         {loading ? (
-          <section className="rounded-md border border-slate-800 bg-slate-900 p-3 text-xs text-slate-300">
-            Loading executive summary...
-          </section>
+          <EnterprisePanel>
+            <EnterpriseSkeleton label="Loading executive summary" rows={4} />
+          </EnterprisePanel>
         ) : data ? (
           <div className="space-y-3">
             <ExecutivePulseBar
@@ -447,29 +389,29 @@ export default function ExecutivePage() {
               correlationCoverage={correlationCoverage}
             />
 
-            <section className="grid gap-px xl:grid-cols-[1.35fr_repeat(5,minmax(0,1fr))]">
-              <div className="xl:col-span-4">
+            <section className="grid gap-3 xl:grid-cols-2">
+              <div className="min-w-0">
                 <ExecutiveDecisionBrief data={data} />
               </div>
-              <div className="xl:col-span-2">
-                <OperatingAssurance data={data} />
+              <div className="min-w-0">
+                <ManagementActionQueue data={data} />
               </div>
             </section>
 
-            <section className="grid gap-px xl:grid-cols-[1.35fr_repeat(5,minmax(0,1fr))]">
-              <div className="xl:col-span-4">
-                <ManagementActionQueue data={data} />
+            <section className="grid gap-3 xl:grid-cols-2">
+              <div className="min-w-0">
+                <OperatingAssurance data={data} />
               </div>
-              <div className="xl:col-span-2">
+              <div className="min-w-0">
                 <LatestAiAnalysis analysis={data.latest_case_analysis} />
               </div>
             </section>
 
             <section className="grid gap-px xl:grid-cols-[1.35fr_repeat(5,minmax(0,1fr))]">
-              <div className="xl:col-span-4">
+              <div className="min-w-0 xl:col-span-4">
                 <ExposureMatrix rows={exposureRows} />
               </div>
-              <div className="xl:col-span-2">
+              <div className="min-w-0 xl:col-span-2">
                 <OperationalHotspots
                   hosts={data.top_hosts}
                   correlationTypes={data.top_correlation_types}
@@ -483,8 +425,7 @@ export default function ExecutivePage() {
             </section>
           </div>
         ) : null}
-      </div>
-    </main>
+    </AppShell>
   );
 }
 
@@ -497,7 +438,6 @@ function ExecutivePulseBar({
   tone: Tone;
   correlationCoverage: number;
 }) {
-  const classes = toneClasses(tone);
   const summary = data.summary;
   const signals = [
     {
@@ -505,7 +445,6 @@ function ExecutivePulseBar({
       value: summary.open_incidents + summary.open_cases,
       meta: `${summary.open_incidents} inc / ${summary.open_cases} cases`,
       tone: summary.open_incidents + summary.open_cases > 0 ? "primary" : "success",
-      icon: <AlertTriangle className="h-3.5 w-3.5" />,
     },
     {
       title: "Critical pressure",
@@ -517,7 +456,6 @@ function ExecutivePulseBar({
           : summary.high_or_critical_incidents > 0
             ? "warning"
             : "success",
-      icon: <ShieldAlert className="h-3.5 w-3.5" />,
     },
     {
       title: "Escalation load",
@@ -527,63 +465,45 @@ function ExecutivePulseBar({
         summary.escalated_incidents + summary.escalated_cases > 0
           ? "danger"
           : "success",
-      icon: <Briefcase className="h-3.5 w-3.5" />,
     },
     {
       title: "Correlation",
       value: `${correlationCoverage}%`,
       meta: `${summary.correlated_incidents} linked`,
       tone: correlationCoverage >= 60 ? "executive" : "neutral",
-      icon: <TrendingUp className="h-3.5 w-3.5" />,
     },
     {
       title: "Risk ceiling",
       value: summary.max_risk_score,
       meta: `avg ${summary.average_risk_score}`,
-      tone: toneForRisk(summary.max_risk_score),
-      icon: <BarChart3 className="h-3.5 w-3.5" />,
+      tone: riskScoreTone(summary.max_risk_score),
     },
   ] satisfies Array<{
     title: string;
     value: string | number;
     meta: string;
     tone: Tone;
-    icon: ReactNode;
   }>;
 
   return (
-    <section className="rounded-sm border border-slate-800 bg-slate-900 p-2 shadow-sm">
-      <div className="grid gap-1.5 md:grid-cols-2 xl:grid-cols-[1.35fr_repeat(5,minmax(0,1fr))]">
-        <div className={`flex min-h-[58px] items-center justify-between gap-3 rounded-sm border px-2.5 py-2 shadow-sm ${classes.panel}`}>
-          <div className="min-w-0">
-            <div className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
-              SOC posture
-            </div>
-            <div className="mt-0.5 flex min-w-0 items-baseline gap-2">
-              <span className="truncate text-xl font-semibold leading-6 text-slate-100">
-                {data.status}
-              </span>
-              <span className="min-w-0 truncate text-[11px] leading-4 text-slate-400" title={statusMessage(data.status)}>
-                {statusMessage(data.status)}
-              </span>
-            </div>
-          </div>
-          <div className={`shrink-0 rounded-sm bg-slate-950 p-1.5 ${classes.text}`}>
-              {data.status === "CRITICAL" ? (
-                <AlertTriangle className="h-3.5 w-3.5" />
-              ) : data.status === "ATTENTION" ? (
-                <ShieldAlert className="h-3.5 w-3.5" />
-              ) : (
-                <CheckCircle2 className="h-3.5 w-3.5" />
-              )}
-          </div>
-        </div>
+    <EnterpriseMetricStrip className="lg:grid-cols-3 xl:grid-cols-6">
+      <EnterpriseMetricCard
+        title="SOC posture"
+        value={data.status}
+        subtitle={statusMessage(data.status)}
+        tone={tone}
+      />
 
-        {signals.map((signal) => (
-          <PulseMetric key={signal.title} {...signal} />
-        ))}
-      </div>
-    </section>
+      {signals.map((signal) => (
+        <EnterpriseMetricCard
+          key={signal.title}
+          title={signal.title}
+          value={signal.value}
+          subtitle={signal.meta}
+          tone={signal.tone}
+        />
+      ))}
+    </EnterpriseMetricStrip>
   );
 }
 
@@ -672,7 +592,7 @@ function OperatingAssurance({ data }: { data: ExecutiveSummary }) {
       <div className="divide-y divide-slate-800 overflow-hidden rounded-md border border-slate-800 bg-slate-950">
         <AssuranceRow
           title="SLA posture"
-          tone={toneForStatus(sla.status)}
+          tone={statusTone(sla.status)}
           value={sla.status}
           detail={`${sla.overdue} overdue / ${sla.due_soon} due soon`}
           meta={`${sla.coverage_percent}% covered / ${sla.missing_sla} missing`}
@@ -765,11 +685,11 @@ function LatestAiAnalysis({
           <CompactField label="Model" value={analysis.model ?? "-"} />
           <CompactField
             label="Recommended status"
-            value={<Badge tone={toneForStatus(analysis.recommended_status)}>{analysis.recommended_status ?? "-"}</Badge>}
+            value={<Badge tone={statusTone(analysis.recommended_status)}>{analysis.recommended_status ?? "-"}</Badge>}
           />
           <CompactField
             label="Recommended severity"
-            value={<Badge tone={toneForStatus(analysis.recommended_severity)}>{analysis.recommended_severity ?? "-"}</Badge>}
+            value={<Badge tone={severityTone(analysis.recommended_severity)}>{analysis.recommended_severity ?? "-"}</Badge>}
           />
           <CompactField label="Created" value={shortTimestamp(analysis.created_at)} />
         </div>
@@ -791,7 +711,7 @@ function ExposureMatrix({ rows }: { rows: ExposureRow[] }) {
       {visibleRows.length === 0 ? (
         <EmptyState label="No distribution data available." />
       ) : (
-        <div className="overflow-x-auto rounded-md border border-slate-800">
+        <div className="overflow-x-auto rounded-md border border-slate-800" role="region" aria-label="Exposure distribution" tabIndex={0}>
           <table className="min-w-full text-left text-xs">
             <thead className="border-b border-slate-800 bg-slate-950 text-[10px] uppercase tracking-wide text-slate-500">
               <tr>
@@ -804,7 +724,10 @@ function ExposureMatrix({ rows }: { rows: ExposureRow[] }) {
             </thead>
             <tbody className="divide-y divide-slate-800/80 bg-slate-950">
               {visibleRows.map((row) => {
-                const tone = toneForStatus(row.label);
+                const tone =
+                  row.category === "Priority"
+                    ? severityTone(row.label)
+                    : statusTone(row.label);
                 const width = progressWidth(row.value, row.total);
 
                 return (
@@ -824,7 +747,7 @@ function ExposureMatrix({ rows }: { rows: ExposureRow[] }) {
                     <td className="min-w-36 px-2 py-2">
                       <div className="h-1.5 rounded-full bg-slate-800">
                         <div
-                          className={`h-1.5 rounded-full ${toneClasses(tone).bar}`}
+                          className={`h-1.5 rounded-full ${SOC_TONE_CLASSES[tone].bar}`}
                           style={{ width: `${width}%` }}
                         />
                       </div>
@@ -864,7 +787,7 @@ function OperationalHotspots({
                 title={host.agent ?? "unknown"}
                 meta={`${host.count} incidents / avg ${host.average_risk}`}
                 value={`max ${host.max_risk}`}
-                tone={toneForRisk(host.max_risk)}
+                tone={riskScoreTone(host.max_risk)}
               />
             ))
           )}
@@ -899,7 +822,7 @@ function CasesQueue({ cases }: { cases: ExecutiveSummary["latest_cases"] }) {
       icon={<Briefcase className="h-3.5 w-3.5" />}
     >
       {cases.length === 0 ? (
-        <EmptyTable colSpan={6} label="No open cases requiring attention." />
+        <EmptyTable label="No open cases requiring attention." />
       ) : (
         <div className="overflow-x-auto rounded-md border border-slate-800">
           <table className="min-w-full text-left text-xs">
@@ -926,10 +849,10 @@ function CasesQueue({ cases }: { cases: ExecutiveSummary["latest_cases"] }) {
                     </Link>
                   </td>
                   <td className="px-2 py-2">
-                    <Badge tone={toneForStatus(item.status)}>{item.status ?? "OPEN"}</Badge>
+                    <Badge tone={statusTone(item.status)}>{item.status ?? "UNKNOWN"}</Badge>
                   </td>
                   <td className="px-2 py-2">
-                    <Badge tone={toneForStatus(item.severity)}>{item.severity ?? "LOW"}</Badge>
+                    <Badge tone={severityTone(item.severity)}>{item.severity ?? "UNKNOWN"}</Badge>
                   </td>
                   <td className="max-w-[120px] truncate px-2 py-2 text-slate-400">
                     {item.agent ?? "unknown"}
@@ -963,7 +886,7 @@ function HighRiskIncidentQueue({
       icon={<AlertTriangle className="h-3.5 w-3.5" />}
     >
       {incidents.length === 0 ? (
-        <EmptyTable colSpan={6} label="No high-risk incidents available." />
+        <EmptyTable label="No high-risk incidents available." />
       ) : (
         <div className="overflow-x-auto rounded-md border border-slate-800">
           <table className="min-w-full text-left text-xs">
@@ -1001,12 +924,14 @@ function HighRiskIncidentQueue({
                     {shortText(incident.rule, 80)}
                   </td>
                   <td className="px-2 py-2 text-right">
-                    <Badge tone={toneForRisk(incident.risk_score)}>
-                      {incident.risk_score ?? 0}
+                    <Badge tone={incident.risk_score == null ? "neutral" : riskScoreTone(incident.risk_score)}>
+                      {incident.risk_score ?? "-"}
                     </Badge>
                   </td>
-                  <td className="px-2 py-2 text-slate-400">
-                    {incident.recommended_priority ?? "-"}
+                  <td className="px-2 py-2">
+                    <Badge tone={severityTone(incident.recommended_priority)}>
+                      {incident.recommended_priority ?? "UNKNOWN"}
+                    </Badge>
                   </td>
                 </tr>
               ))}
@@ -1064,45 +989,6 @@ function classifyRecommendation(
   };
 }
 
-function PulseMetric({
-  title,
-  value,
-  meta,
-  tone,
-  icon,
-}: {
-  title: string;
-  value: string | number;
-  meta: string;
-  tone: Tone;
-  icon: ReactNode;
-}) {
-  const classes = toneClasses(tone);
-
-  return (
-    <div
-      className={`flex min-h-[58px] items-center justify-between gap-3 rounded-sm border px-2.5 py-2 shadow-sm ${classes.panel}`}
-    >
-      <div className="min-w-0">
-        <div className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
-          {title}
-        </div>
-        <div className="mt-0.5 flex min-w-0 items-baseline gap-2">
-          <span className="text-xl font-semibold leading-6 text-slate-100">
-            {value}
-          </span>
-          <span className="min-w-0 truncate text-[11px] leading-4 text-slate-500" title={meta}>
-            {meta}
-          </span>
-        </div>
-      </div>
-      <div className={`shrink-0 rounded-sm bg-slate-950 p-1.5 ${classes.text}`}>
-        {icon}
-      </div>
-    </div>
-  );
-}
-
 function BriefCell({
   label,
   children,
@@ -1115,7 +1001,7 @@ function BriefCell({
       <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
         {label}
       </div>
-      <div className="mt-1 line-clamp-2 text-xs leading-5 text-slate-200">
+      <div className="mt-1 break-words text-xs leading-5 text-slate-200">
         {children}
       </div>
     </div>
@@ -1137,7 +1023,7 @@ function AssuranceRow({
 }) {
   return (
     <div className="grid gap-2 px-2.5 py-2 md:grid-cols-[150px_72px_minmax(0,1fr)]">
-      <div className="truncate text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+      <div title={title} className="truncate text-[10px] font-semibold uppercase tracking-wide text-slate-500">
         {title}
       </div>
       <div className="flex md:justify-end">
@@ -1169,31 +1055,25 @@ function Panel({
   children: ReactNode;
 }) {
   return (
-    <section className="h-full rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm">
-      <div className="mb-2 flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            {icon && <div className="text-cyan-300">{icon}</div>}
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-200">
-              {title}
-            </h2>
-          </div>
-          {description && (
-            <p className="mt-0.5 text-[11px] leading-4 text-slate-500">
-              {description}
-            </p>
-          )}
-        </div>
-
-        {typeof count === "number" && (
-          <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-md border border-slate-700 bg-slate-950 px-2 text-[10px] leading-none text-slate-400">
+    <EnterprisePanel
+      title={
+        <span className="flex items-center gap-2">
+          {icon && <span className="text-cyan-300">{icon}</span>}
+          {title}
+        </span>
+      }
+      description={description}
+      actions={
+        typeof count === "number" ? (
+          <EnterpriseBadge tone="muted" size="compact">
             {count}
-          </span>
-        )}
-      </div>
-
+          </EnterpriseBadge>
+        ) : undefined
+      }
+      className="h-full bg-slate-900"
+    >
       {children}
-    </section>
+    </EnterprisePanel>
   );
 }
 
@@ -1264,34 +1144,20 @@ function ConsoleRow({
 
 function Badge({ tone, children }: { tone: Tone; children: ReactNode }) {
   return (
-    <span
-      className={`inline-flex h-5 items-center justify-center rounded-md border px-2 text-[10px] font-medium leading-none ${toneClasses(tone).badge}`}
-    >
+    <EnterpriseBadge tone={tone} size="compact">
       {children}
-    </span>
+    </EnterpriseBadge>
   );
 }
 
 function EmptyState({ label }: { label: string }) {
-  return (
-    <div className="rounded-md border border-slate-800 bg-slate-950 p-2 text-xs text-slate-500">
-      {label}
-    </div>
-  );
+  return <EnterpriseEmptyState title={label} className="py-4" />;
 }
 
-function EmptyTable({ colSpan, label }: { colSpan: number; label: string }) {
+function EmptyTable({ label }: { label: string }) {
   return (
     <div className="overflow-hidden rounded-md border border-slate-800">
-      <table className="min-w-full text-left text-xs">
-        <tbody>
-          <tr>
-            <td colSpan={colSpan} className="bg-slate-950 px-2 py-4 text-center text-slate-500">
-              {label}
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <EnterpriseEmptyState title={label} className="bg-slate-950 py-6" />
     </div>
   );
 }

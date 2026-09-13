@@ -6,7 +6,25 @@ import { authFetch, fetchCurrentUser, getStoredUser, type AuthUser } from "@/lib
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import AppNavigation from "../../../components/AppNavigation";
+import AppShell from "@/components/AppShell";
+import IncidentRiskScore from "@/components/incidents/IncidentRiskScore";
+import {
+  EnterpriseBadge,
+  EnterpriseBreadcrumbs,
+  EnterpriseButton,
+  EnterpriseErrorState,
+  EnterprisePageHeader,
+  EnterprisePanel,
+  EnterpriseSection,
+  EnterpriseSelect,
+  EnterpriseSkeleton,
+  EnterpriseStatusBadge,
+} from "@/components/enterprise";
+import {
+  SOC_TONE_CLASSES,
+  riskScoreTone,
+  type SocTone,
+} from "@/lib/semantic-styles";
 import ContextualAssistantPanel from "../../../components/assistant/ContextualAssistantPanel";
 import IncidentTimeline from "../../../components/incidents/IncidentTimeline";
 import InvestigationGraph from "../../../components/investigation-graph/InvestigationGraph";
@@ -440,7 +458,7 @@ type CorrelationTimelineEvent = {
   relationship: "current" | "related";
 };
 
-type Tone = "success" | "warning" | "danger" | "primary" | "neutral" | "executive";
+type Tone = SocTone;
 
 type IncidentAiAssessmentInput = {
   ai_analysis: string | null;
@@ -539,22 +557,8 @@ const AI_SUBSECTION_HEADINGS = [
   ...AI_REMEDIATION_HEADINGS,
 ];
 
-function riskLabel(score: number | null | undefined) {
-  const value = score ?? 0;
-
-  if (value >= 80) return "Critical";
-  if (value >= 60) return "High";
-  if (value >= 40) return "Medium";
-  return "Low";
-}
-
 function toneForRisk(score: number | null | undefined): Tone {
-  const value = score ?? 0;
-
-  if (value >= 80) return "danger";
-  if (value >= 60) return "warning";
-  if (value >= 40) return "primary";
-  return "success";
+  return riskScoreTone(score);
 }
 
 function toneForDryRunStatus(status: string | null | undefined): Tone {
@@ -613,40 +617,7 @@ function toneForEvidenceCoverage(coverage: string | null | undefined): Tone {
 }
 
 function toneClasses(tone: Tone) {
-  const classes: Record<Tone, { panel: string; badge: string; text: string }> = {
-    success: {
-      panel: "border-emerald-900/70 bg-emerald-950/20",
-      badge: "border-emerald-700 bg-emerald-950 text-emerald-200",
-      text: "text-emerald-300",
-    },
-    warning: {
-      panel: "border-orange-900/70 bg-orange-950/20",
-      badge: "border-orange-700 bg-orange-950 text-orange-200",
-      text: "text-orange-300",
-    },
-    danger: {
-      panel: "border-red-900/70 bg-red-950/25",
-      badge: "border-red-800 bg-red-950 text-red-200",
-      text: "text-red-300",
-    },
-    primary: {
-      panel: "border-cyan-900/70 bg-cyan-950/20",
-      badge: "border-cyan-700 bg-cyan-950 text-cyan-200",
-      text: "text-cyan-300",
-    },
-    neutral: {
-      panel: "border-slate-800 bg-slate-900",
-      badge: "border-slate-700 bg-slate-950 text-slate-300",
-      text: "text-slate-300",
-    },
-    executive: {
-      panel: "border-violet-900/70 bg-violet-950/20",
-      badge: "border-violet-700 bg-violet-950 text-violet-200",
-      text: "text-violet-300",
-    },
-  };
-
-  return classes[tone];
+  return SOC_TONE_CLASSES[tone];
 }
 
 function prettyJson(value: string | null) {
@@ -1327,30 +1298,25 @@ function Panel({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-md border border-slate-800 bg-slate-900/80 shadow-sm">
-      <div className="flex items-start justify-between gap-3 border-b border-slate-800 px-3 py-2">
-        <div>
-          <div className="flex items-center gap-2">
-            {icon && <div className="text-cyan-300">{icon}</div>}
-            <h2 className="text-sm font-semibold uppercase tracking-wide">{title}</h2>
-          </div>
-          {description && (
-            <p className="mt-0.5 text-[11px] leading-4 text-slate-500">
-              {description}
-            </p>
-          )}
-        </div>
-      </div>
-      <div className="p-3">{children}</div>
-    </section>
+    <EnterprisePanel
+      title={
+        <span className="flex items-center gap-2">
+          {icon && <span className="text-cyan-300">{icon}</span>}
+          <span>{title}</span>
+        </span>
+      }
+      description={description}
+    >
+      {children}
+    </EnterprisePanel>
   );
 }
 
 function Badge({ tone, children }: { tone: Tone; children: ReactNode }) {
   return (
-    <span className={`inline-flex h-5 items-center justify-center rounded-md border px-2 text-[10px] font-medium leading-none ${toneClasses(tone).badge}`}>
+    <EnterpriseBadge tone={tone} size="compact">
       {children}
-    </span>
+    </EnterpriseBadge>
   );
 }
 
@@ -1386,51 +1352,15 @@ function CommandButton({
   disabled?: boolean;
   onClick?: () => void;
 }) {
-  const className =
-    tone === "success"
-      ? "border-emerald-700 bg-emerald-500 text-slate-950 hover:bg-emerald-400"
-      : tone === "primary"
-        ? "border-cyan-700 bg-cyan-500 text-slate-950 hover:bg-cyan-400"
-        : "border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800";
-
   return (
-    <button
-      type="button"
+    <EnterpriseButton
       onClick={onClick}
       disabled={disabled}
-      className={`inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium shadow-sm disabled:cursor-not-allowed disabled:opacity-50 ${className}`}
+      tone={tone === "neutral" ? "secondary" : tone}
+      size="xs"
     >
       {children}
-    </button>
-  );
-}
-
-function LinkCommand({
-  children,
-  tone = "neutral",
-  onClick,
-}: {
-  children: ReactNode;
-  tone?: "neutral" | "primary";
-  onClick: () => void;
-}) {
-  const className =
-    tone === "primary"
-      ? "border-cyan-700 bg-cyan-500 text-slate-950 hover:bg-cyan-400"
-      : "border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800";
-
-  return (
-    <a
-      href="#"
-      onClick={(event) => {
-        event.preventDefault();
-        onClick();
-      }}
-      download
-      className={`inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium shadow-sm ${className}`}
-    >
-      {children}
-    </a>
+    </EnterpriseButton>
   );
 }
 
@@ -3390,317 +3320,416 @@ function IncidentCommandCenterRefoundation({
 
   return (
     <div className="space-y-3">
-      <section className="rounded-md border border-slate-800 bg-slate-950">
-        <div className="bg-slate-950 p-4">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-cyan-300">
-              Incident Command Center
-            </div>
-            <h2 className="mt-1 text-lg font-semibold tracking-tight text-slate-100">
-              {decision}
-            </h2>
-            <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-400">
-              {briefSummary}
-            </p>
+      <EnterpriseSection
+        title="Identity & lifecycle"
+        description="Authoritative incident identity, current state and observed timing."
+        actions={
+          <div className="flex flex-wrap items-center gap-1.5">
+            <IncidentRiskScore score={incident.risk_score} />
+            <EnterpriseStatusBadge value={currentStatus} size="compact" />
+          </div>
+        }
+      >
+        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="grid gap-px overflow-hidden rounded-sm border border-slate-800 bg-slate-800 sm:grid-cols-2 xl:grid-cols-4">
+            <DenseField label="Incident ID" value={`#${incident.id}`} />
+            <DenseField label="Host" value={incident.agent ?? "unknown"} />
+            <DenseField
+              label="Detected"
+              value={incident.timestamp_local ?? formatTimestamp(incident.timestamp)}
+            />
+            <DenseField label="Timezone" value={incident.timezone ?? "-"} />
+          </div>
 
-            <div className="mt-3 max-w-xl rounded-md border border-slate-800 bg-slate-950 p-3">
-              <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                Lifecycle
-              </label>
-              <div className="mt-1 flex gap-1.5">
-                <select
-                  value={statusDraft}
-                  disabled={!canOperate}
-                  onChange={(event) => onStatusDraftChange(event.target.value)}
-                  className="h-8 min-w-0 flex-1 rounded-sm border border-slate-700 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-cyan-400 disabled:opacity-50"
-                >
-                  {INCIDENT_STATUSES.map((status) => (
-                    <option key={status} value={status}>
-                      {status}
-                    </option>
-                  ))}
-                </select>
-                <CommandButton
-                  disabled={!canOperate || statusDraft === currentStatus}
-                  onClick={onApplyStatus}
-                >
-                  Update
-                </CommandButton>
-              </div>
+          <div className="rounded-sm border border-slate-800 bg-slate-950 p-3">
+            <div className="flex items-end gap-1.5">
+              <EnterpriseSelect
+                label="Lifecycle status"
+                value={statusDraft}
+                options={INCIDENT_STATUSES.map((status) => ({
+                  label: status,
+                  value: status,
+                }))}
+                onChange={onStatusDraftChange}
+                disabled={!canOperate}
+                className="min-w-0 flex-1"
+              />
+              <EnterpriseButton
+                disabled={!canOperate || statusDraft === currentStatus}
+                onClick={onApplyStatus}
+                tone="primary"
+                size="xs"
+              >
+                Update
+              </EnterpriseButton>
             </div>
-
-            <div className="mt-3 grid gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800 md:grid-cols-4">
-              <DenseField label="Risk" value={`${riskLabel(incident.risk_score)} · ${incident.risk_score ?? 0}`} />
-              <DenseField label="Status" value={currentStatus} />
-              <DenseField label="Host" value={incident.agent ?? "unknown"} />
-              <DenseField label="Detected" value={incident.timestamp_local ?? formatTimestamp(incident.timestamp)} />
-            </div>
+            {!canOperate ? (
+              <p className="mt-2 text-[11px] leading-4 text-slate-500">
+                Lifecycle updates are read-only for this role.
+              </p>
+            ) : null}
+          </div>
         </div>
+      </EnterpriseSection>
+
+      <EnterpriseSection
+        title="What happened"
+        description="Observed detection and source context from the incident record."
+      >
+        <div className="grid gap-px overflow-hidden rounded-sm border border-slate-800 bg-slate-800 sm:grid-cols-2 xl:grid-cols-3">
+          <DenseField label="Detection rule" value={incident.rule ?? "-"} />
+          <DenseField label="Wazuh document" value={incident.wazuh_doc_id ?? "-"} />
+          <DenseField label="Agent / host" value={incident.agent ?? "unknown"} />
+          <DenseField label="Wazuh level" value={incident.level ?? 0} />
+          <DenseField label="Observed at" value={formatTimestamp(incident.timestamp)} />
+          <DenseField label="Local timestamp" value={incident.timestamp_local ?? "-"} />
+        </div>
+      </EnterpriseSection>
+
+      <section aria-labelledby="incident-why-heading" className="space-y-3">
+        <div className="border-b border-slate-800 pb-2">
+          <h2 id="incident-why-heading" className="text-sm font-semibold uppercase tracking-wide text-slate-200">
+            Why it matters
+          </h2>
+          <p className="mt-1 text-xs leading-5 text-slate-500">
+            Risk, MITRE and correlation signals that inform analyst priority.
+          </p>
+        </div>
+
+        <CompactDisclosure
+          title="Correlation & threat context"
+          description="Correlation explanation, attack chain and related incidents."
+          icon={<GitBranch className="h-3.5 w-3.5" />}
+        >
+          <div className="space-y-3">
+            <DecisionMatrix incident={incident} />
+            <CorrelationConsole
+              incident={incident}
+              parsedCorrelationSummary={parsedCorrelationSummary ?? null}
+              matchedPatterns={matchedPatterns}
+              matchedAttackChains={matchedAttackChains}
+              relatedCorrelationEvents={relatedCorrelationEvents}
+            />
+          </div>
+        </CompactDisclosure>
       </section>
 
-      <div className="min-w-0 space-y-3">
-          <CompactDisclosure
-            title="AI Situation Brief"
-            description="Structured AI assessment, evidence, limitations and next checks."
-            icon={<Brain className="h-3.5 w-3.5" />}
-          >
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
-                <span>Brief: <AsyncLine loading={aiBriefLoading || aiBriefGenerating} error={aiBriefError} ready={Boolean(aiBrief)} /></span>
-                <span>Plan: <AsyncLine loading={remediationLoading} error={remediationError} ready={Boolean(remediationPlan)} /></span>
-                {remediationGenerationStatus !== "idle" ? (
-                  <span className="font-medium text-cyan-300">
-                    {remediationGenerationStatus.charAt(0).toUpperCase() +
-                      remediationGenerationStatus.slice(1)}
-                  </span>
-                ) : null}
-              </div>
-              <ExecutiveBrief
-                lines={briefSummary ? splitAiSentences(briefSummary) : sections[0]?.lines ?? []}
-                decision={decision}
-                action={
-                  canOperate ? (
-                    <div className="flex flex-wrap gap-2">
-                      <CommandButton disabled={aiBriefGenerating} onClick={onGenerateAiBrief}>
-                        <RefreshCw className={`h-3.5 w-3.5 ${aiBriefGenerating ? "animate-spin" : ""}`} />
-                        Refresh AI brief
-                      </CommandButton>
-                      <CommandButton
-                        disabled={
-                          remediationLoading ||
-                          remediationGenerationStatus === "queued" ||
-                          remediationGenerationStatus === "running"
-                        }
-                        onClick={onGenerateRemediationAnalysis}
-                      >
-                        <Brain className="h-3.5 w-3.5" />
-                        Generate remediation analysis
-                      </CommandButton>
-                    </div>
-                  ) : null
-                }
-              />
-              {aiBrief?.provider_metadata ? (
-                <div className="grid gap-px overflow-hidden rounded-md border border-slate-800 bg-slate-800 md:grid-cols-4">
-                  <DenseField
-                    label="Provider"
-                    value={aiBrief.provider_metadata.provider_key || "local_ollama"}
-                  />
-                  <DenseField
-                    label="Model"
-                    value={aiBrief.provider_metadata.model || "unknown"}
-                  />
-                  <DenseField
-                    label="External AI"
-                    value={aiBrief.provider_metadata.used_external_provider ? "yes" : "no"}
-                  />
-                  <DenseField
-                    label="Redaction"
-                    value={
-                      aiBrief.provider_metadata.redaction_applied
-                        ? aiBrief.provider_metadata.redaction_mode || "applied"
-                        : "not applied"
-                    }
-                  />
-                </div>
-              ) : null}
-              <DecisionMatrix incident={incident} />
-              <ResponseBoard
-                incident={incident}
-                sections={sections}
-                remediationPlan={remediationPlan}
-                remediationLoading={remediationLoading}
-                remediationError={remediationError}
-              />
-              {brief?.limitations?.length ? (
-                <GovernanceList
-                  title="AI limitations"
-                  tone="warning"
-                  items={brief.limitations.slice(0, 6)}
-                  emptyLabel="No AI limitations were returned."
-                />
-              ) : null}
-            </div>
-          </CompactDisclosure>
+      <section aria-labelledby="incident-investigation-heading" className="space-y-3">
+        <div className="border-b border-slate-800 pb-2">
+          <h2 id="incident-investigation-heading" className="text-sm font-semibold uppercase tracking-wide text-slate-200">
+            Investigation
+          </h2>
+          <p className="mt-1 text-xs leading-5 text-slate-500">
+            Telemetry, relationships, analyst notes and original technical evidence.
+          </p>
+        </div>
 
-          <ContextualAssistantPanel
-            scope="incident"
-            targetId={incident.id}
-            targetLabel={`Incident #${incident.id}`}
-            userRole={currentUser?.role}
+        <CompactDisclosure
+          title="Telemetry evidence"
+          description="Network and DNS context observed around this incident."
+          icon={<Network className="h-3.5 w-3.5" />}
+        >
+          <div className="grid gap-3 xl:grid-cols-2">
+            <NetworkEvidencePanel evidence={networkEvidence ?? null} />
+            <DnsEvidencePanel evidence={dnsEvidence ?? null} />
+          </div>
+        </CompactDisclosure>
+
+        <IncidentTimeline incidentId={incident.id} />
+
+        <CompactDisclosure
+          title="Investigation Graph"
+          description="Read-only relationship view across incidents, cases, alerts, entities, timeline and AI context."
+          icon={<Network className="h-3.5 w-3.5" />}
+        >
+          <InvestigationGraph scope="incident" scopeId={incident.id} />
+        </CompactDisclosure>
+
+        <CompactDisclosure
+          title="Human Review Workspace"
+          description="Notes, analyst review and handoff."
+          icon={<NotebookPen className="h-3.5 w-3.5" />}
+        >
+          <AnalystNotesPanel
+            notes={notes}
+            noteDraft={noteDraft}
+            savingNote={savingNote}
+            canOperate={canOperate}
+            isViewer={isViewer}
+            onNoteDraftChange={onNoteDraftChange}
+            onAddNote={onAddNote}
           />
+        </CompactDisclosure>
 
-          {canOperate && (
-            <CompactDisclosure
-              title="Recommended Playbooks"
-              description="Read-only Qdrant knowledge-base guidance for this incident context."
-              icon={<BookOpen className="h-3.5 w-3.5" />}
-            >
-              <RecommendedPlaybooksPanel
-                response={playbookRecommendations ?? null}
-                loading={Boolean(playbookRecommendationsLoading)}
-                error={playbookRecommendationsError ?? null}
-                generationStatus={playbookGenerationStatus}
-                onGenerate={onGeneratePlaybookRecommendations}
-              />
-            </CompactDisclosure>
-          )}
-
-          <CompactDisclosure
-            title="Evidence & Correlation"
-            description="Correlation explanation, attack chain, related incidents and telemetry context."
-            icon={<GitBranch className="h-3.5 w-3.5" />}
-          >
-            <div className="space-y-3">
-              <CorrelationConsole
-                incident={incident}
-                parsedCorrelationSummary={parsedCorrelationSummary ?? null}
-                matchedPatterns={matchedPatterns}
-                matchedAttackChains={matchedAttackChains}
-                relatedCorrelationEvents={relatedCorrelationEvents}
-              />
-              <div className="grid gap-3 xl:grid-cols-2">
-                <NetworkEvidencePanel evidence={networkEvidence ?? null} />
-                <DnsEvidencePanel evidence={dnsEvidence ?? null} />
-              </div>
+        <CompactDisclosure
+          title="Technical Evidence Appendix"
+          description="MITRE metadata, raw alert and original payloads."
+          icon={<Database className="h-3.5 w-3.5" />}
+        >
+          <div className="grid gap-3 xl:grid-cols-2">
+            <Panel title="MITRE / Metadata" icon={<Database className="h-3.5 w-3.5" />}>
+              <EvidenceBlock title="MITRE evidence">
+                {incident.mitre ?? "No MITRE data available."}
+              </EvidenceBlock>
+            </Panel>
+            <Panel title="Correlation summary" icon={<FileText className="h-3.5 w-3.5" />}>
+              <EvidenceBlock title="Structured payload">
+                {correlationSummary || "No correlation summary available."}
+              </EvidenceBlock>
+            </Panel>
+            <div className="xl:col-span-2">
+              <Panel title="Raw Wazuh alert" icon={<FileText className="h-3.5 w-3.5" />}>
+                <EvidenceBlock title="Raw JSON evidence">
+                  {rawAlert || "No raw alert available."}
+                </EvidenceBlock>
+              </Panel>
             </div>
-          </CompactDisclosure>
+          </div>
+        </CompactDisclosure>
+      </section>
 
-          <IncidentTimeline incidentId={incident.id} />
+      <section aria-labelledby="incident-ai-heading" className="space-y-3">
+        <div className="border-b border-slate-800 pb-2">
+          <h2 id="incident-ai-heading" className="text-sm font-semibold uppercase tracking-wide text-slate-200">
+            AI analysis
+          </h2>
+          <p className="mt-1 text-xs leading-5 text-slate-500">
+            Generated assessment and advisory semantic context, kept separate from authoritative evidence.
+          </p>
+        </div>
 
+        <CompactDisclosure
+          title="AI Situation Brief"
+          description="Structured AI assessment, provenance, limitations and next checks."
+          icon={<Brain className="h-3.5 w-3.5" />}
+        >
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+              <span>Brief: <AsyncLine loading={aiBriefLoading || aiBriefGenerating} error={aiBriefError} ready={Boolean(aiBrief)} /></span>
+              <span>Plan: <AsyncLine loading={remediationLoading} error={remediationError} ready={Boolean(remediationPlan)} /></span>
+              {remediationGenerationStatus !== "idle" ? (
+                <span className="font-medium text-cyan-300">
+                  {remediationGenerationStatus.charAt(0).toUpperCase() +
+                    remediationGenerationStatus.slice(1)}
+                </span>
+              ) : null}
+            </div>
+            {aiBriefError ? (
+              <div className="rounded-sm border border-amber-900/70 bg-amber-950/20 px-3 py-2 text-xs text-amber-200" role="status">
+                AI brief unavailable: {aiBriefError}
+              </div>
+            ) : null}
+            <ExecutiveBrief
+              lines={briefSummary ? splitAiSentences(briefSummary) : sections[0]?.lines ?? []}
+              decision={decision}
+              action={
+                canOperate ? (
+                  <div className="flex flex-wrap gap-2">
+                    <CommandButton disabled={aiBriefGenerating} onClick={onGenerateAiBrief}>
+                      <RefreshCw className={`h-3.5 w-3.5 ${aiBriefGenerating ? "animate-spin" : ""}`} />
+                      Refresh AI brief
+                    </CommandButton>
+                    <CommandButton
+                      disabled={
+                        remediationLoading ||
+                        remediationGenerationStatus === "queued" ||
+                        remediationGenerationStatus === "running"
+                      }
+                      onClick={onGenerateRemediationAnalysis}
+                    >
+                      <Brain className="h-3.5 w-3.5" />
+                      Generate remediation analysis
+                    </CommandButton>
+                  </div>
+                ) : null
+              }
+            />
+            {aiBrief?.provider_metadata ? (
+              <div className="grid gap-px overflow-hidden rounded-sm border border-slate-800 bg-slate-800 sm:grid-cols-2 xl:grid-cols-4">
+                <DenseField
+                  label="Brief source"
+                  value={aiBrief.source || "unknown"}
+                />
+                <DenseField
+                  label="Provider"
+                  value={aiBrief.provider_metadata.provider_key || "local_ollama"}
+                />
+                <DenseField
+                  label="Model"
+                  value={aiBrief.provider_metadata.model || "unknown"}
+                />
+                <DenseField
+                  label="Profile"
+                  value={aiBrief.provider_metadata.llm_profile || "unknown"}
+                />
+                <DenseField
+                  label="Fallback"
+                  value={
+                    typeof aiBrief.provider_metadata.llm_fallback_used === "boolean"
+                      ? aiBrief.provider_metadata.llm_fallback_used
+                        ? "used"
+                        : "not used"
+                      : "unknown"
+                  }
+                />
+                <DenseField
+                  label="Latency"
+                  value={
+                    typeof aiBrief.provider_metadata.llm_latency_ms === "number"
+                      ? `${aiBrief.provider_metadata.llm_latency_ms} ms`
+                      : "unknown"
+                  }
+                />
+                <DenseField
+                  label="External AI"
+                  value={aiBrief.provider_metadata.used_external_provider ? "yes" : "no"}
+                />
+                <DenseField
+                  label="Redaction"
+                  value={
+                    aiBrief.provider_metadata.redaction_applied
+                      ? aiBrief.provider_metadata.redaction_mode || "applied"
+                      : "not applied"
+                  }
+                />
+              </div>
+            ) : null}
+            <ResponseBoard
+              incident={incident}
+              sections={sections}
+              remediationPlan={remediationPlan}
+              remediationLoading={remediationLoading}
+              remediationError={remediationError}
+            />
+            {brief?.limitations?.length ? (
+              <GovernanceList
+                title="AI limitations"
+                tone="warning"
+                items={brief.limitations.slice(0, 6)}
+                emptyLabel="No AI limitations were returned."
+              />
+            ) : null}
+          </div>
+        </CompactDisclosure>
+
+        <ContextualAssistantPanel
+          scope="incident"
+          targetId={incident.id}
+          targetLabel={`Incident #${incident.id}`}
+          userRole={currentUser?.role}
+        />
+
+        {canOperate && (
           <CompactDisclosure
-            title="Investigation Graph"
-            description="Read-only relationship view across incidents, cases, alerts, entities, timeline and AI context."
-            icon={<Network className="h-3.5 w-3.5" />}
+            title="Recommended Playbooks"
+            description="Read-only Qdrant knowledge-base guidance for this incident context."
+            icon={<BookOpen className="h-3.5 w-3.5" />}
           >
-            <InvestigationGraph scope="incident" scopeId={incident.id} />
-          </CompactDisclosure>
-
-          <CompactDisclosure
-            title="Governed Remediation"
-            description="Create, review, approve and convert governed remediation proposals."
-            icon={<ShieldCheck className="h-3.5 w-3.5" />}
-          >
-            <GovernedRemediationPanel
-              scope="incident"
-              incidentId={incident.id}
-              currentUser={currentUser}
-              canOperate={canOperate}
-              aiRecommendations={governedRecommendations}
-              onChanged={onGovernedRemediationChanged}
+            <RecommendedPlaybooksPanel
+              response={playbookRecommendations ?? null}
+              loading={Boolean(playbookRecommendationsLoading)}
+              error={playbookRecommendationsError ?? null}
+              generationStatus={playbookGenerationStatus}
+              onGenerate={onGeneratePlaybookRecommendations}
             />
           </CompactDisclosure>
+        )}
+      </section>
 
-          <CompactDisclosure
-            title="Remediation Governance"
-            description="Plan, dry-run, rollback, audit trail and controlled SOAR eligibility."
-            icon={<ShieldCheck className="h-3.5 w-3.5" />}
-          >
-            <div className="space-y-3">
-              <div className="rounded-md border border-slate-800 bg-slate-950 p-3">
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                  Remediation objective
-                </div>
-                <p className="mt-1 text-sm leading-6 text-slate-300">{planObjective}</p>
-                <p className="mt-2 text-xs leading-5 text-slate-500">
-                  No target-system execution is available from the AI plan endpoint. Only allowlisted product workflow records may be created when policy gates pass.
-                </p>
+      <section aria-labelledby="incident-response-heading" className="space-y-3">
+        <div className="border-b border-slate-800 pb-2">
+          <h2 id="incident-response-heading" className="text-sm font-semibold uppercase tracking-wide text-slate-200">
+            Actions & response
+          </h2>
+          <p className="mt-1 text-xs leading-5 text-slate-500">
+            Governed remediation, lifecycle audit and controlled workflow actions.
+          </p>
+        </div>
+
+        <CompactDisclosure
+          title="Governed Remediation"
+          description="Create, review, approve and convert governed remediation proposals."
+          icon={<ShieldCheck className="h-3.5 w-3.5" />}
+        >
+          <GovernedRemediationPanel
+            scope="incident"
+            incidentId={incident.id}
+            currentUser={currentUser}
+            canOperate={canOperate}
+            aiRecommendations={governedRecommendations}
+            onChanged={onGovernedRemediationChanged}
+          />
+        </CompactDisclosure>
+
+        <CompactDisclosure
+          title="Remediation Governance"
+          description="Plan, dry-run, rollback, audit trail and controlled SOAR eligibility."
+          icon={<ShieldCheck className="h-3.5 w-3.5" />}
+        >
+          <div className="space-y-3">
+            <div className="rounded-md border border-slate-800 bg-slate-950 p-3">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                Remediation objective
               </div>
-              <AIGovernancePanel governance={remediationPlan?.governance} loading={remediationLoading} error={remediationError} />
-              <RemediationDryRunPanel
-                dryRun={remediationDryRun}
-                loading={remediationDryRunLoading}
-                error={remediationDryRunError}
-                waitingForPlan={Boolean(remediationLoading)}
-              />
-              <RollbackReadinessPanel
-                readiness={rollbackReadiness}
-                loading={rollbackReadinessLoading}
-                error={rollbackReadinessError}
-                waitingForPlan={Boolean(remediationLoading)}
-              />
-              <ReplaySimulationPanel
-                replay={remediationReplay}
-                loading={remediationReplayLoading}
-                error={remediationReplayError}
-                waitingForPlan={Boolean(remediationLoading)}
-                canOperate={canOperate}
-                isViewer={isViewer}
-                executionResult={controlledExecutionResult}
-                executionLoadingActionId={controlledExecutionLoadingActionId}
-                executionError={controlledExecutionError}
-                onExecuteApprovedAction={onExecuteApprovedAction}
-              />
-              {controlledResultForAction && (
-                <div className="rounded-md border border-emerald-900/60 bg-emerald-950/20 p-3 text-xs leading-5 text-emerald-200">
-                  {controlledResultForAction.summary}
-                </div>
-              )}
+              <p className="mt-1 text-sm leading-6 text-slate-300">{planObjective}</p>
+              <p className="mt-2 text-xs leading-5 text-slate-500">
+                No target-system execution is available from the AI plan endpoint. Only allowlisted product workflow records may be created when policy gates pass.
+              </p>
             </div>
-          </CompactDisclosure>
-
-          <CompactDisclosure
-            title="Human Review Workspace"
-            description="Notes, analyst review and handoff."
-            icon={<NotebookPen className="h-3.5 w-3.5" />}
-          >
-            <AnalystNotesPanel
-              notes={notes}
-              noteDraft={noteDraft}
-              savingNote={savingNote}
-              canOperate={canOperate}
-              isViewer={isViewer}
-              onNoteDraftChange={onNoteDraftChange}
-              onAddNote={onAddNote}
-            />
-          </CompactDisclosure>
-
-          <CompactDisclosure
-            title="Audit"
-            description="Incident lifecycle audit events."
-            icon={<ClipboardList className="h-3.5 w-3.5" />}
-          >
-            <AuditTrail auditEvents={auditEvents} />
-          </CompactDisclosure>
-
-          <CompactDisclosure
-            title="Remediation audit"
-            description="Read-only remediation governance chain."
-            icon={<FileText className="h-3.5 w-3.5" />}
-          >
-            <RemediationAuditTrailPanel
-              auditTrail={remediationAuditTrail}
-              loading={remediationAuditTrailLoading}
-              error={remediationAuditTrailError}
+            <AIGovernancePanel governance={remediationPlan?.governance} loading={remediationLoading} error={remediationError} />
+            <RemediationDryRunPanel
+              dryRun={remediationDryRun}
+              loading={remediationDryRunLoading}
+              error={remediationDryRunError}
               waitingForPlan={Boolean(remediationLoading)}
             />
-          </CompactDisclosure>
-
-          <CompactDisclosure
-            title="Technical Evidence Appendix"
-            description="MITRE metadata, raw alert and original payloads."
-            icon={<Database className="h-3.5 w-3.5" />}
-          >
-            <div className="grid gap-3 xl:grid-cols-2">
-              <Panel title="MITRE / Metadata" icon={<Database className="h-3.5 w-3.5" />}>
-                <EvidenceBlock title="MITRE evidence">
-                  {incident.mitre ?? "No MITRE data available."}
-                </EvidenceBlock>
-              </Panel>
-              <Panel title="Correlation summary" icon={<FileText className="h-3.5 w-3.5" />}>
-                <EvidenceBlock title="Structured payload">
-                  {correlationSummary || "No correlation summary available."}
-                </EvidenceBlock>
-              </Panel>
-              <div className="xl:col-span-2">
-                <Panel title="Raw Wazuh alert" icon={<FileText className="h-3.5 w-3.5" />}>
-                  <EvidenceBlock title="Raw JSON evidence">
-                    {rawAlert || "No raw alert available."}
-                  </EvidenceBlock>
-                </Panel>
+            <RollbackReadinessPanel
+              readiness={rollbackReadiness}
+              loading={rollbackReadinessLoading}
+              error={rollbackReadinessError}
+              waitingForPlan={Boolean(remediationLoading)}
+            />
+            <ReplaySimulationPanel
+              replay={remediationReplay}
+              loading={remediationReplayLoading}
+              error={remediationReplayError}
+              waitingForPlan={Boolean(remediationLoading)}
+              canOperate={canOperate}
+              isViewer={isViewer}
+              executionResult={controlledExecutionResult}
+              executionLoadingActionId={controlledExecutionLoadingActionId}
+              executionError={controlledExecutionError}
+              onExecuteApprovedAction={onExecuteApprovedAction}
+            />
+            {controlledResultForAction && (
+              <div className="rounded-md border border-emerald-900/60 bg-emerald-950/20 p-3 text-xs leading-5 text-emerald-200">
+                {controlledResultForAction.summary}
               </div>
-            </div>
-          </CompactDisclosure>
-      </div>
+            )}
+          </div>
+        </CompactDisclosure>
+
+        <CompactDisclosure
+          title="Audit"
+          description="Incident lifecycle audit events."
+          icon={<ClipboardList className="h-3.5 w-3.5" />}
+        >
+          <AuditTrail auditEvents={auditEvents} />
+        </CompactDisclosure>
+
+        <CompactDisclosure
+          title="Remediation audit"
+          description="Read-only remediation governance chain."
+          icon={<FileText className="h-3.5 w-3.5" />}
+        >
+          <RemediationAuditTrailPanel
+            auditTrail={remediationAuditTrail}
+            loading={remediationAuditTrailLoading}
+            error={remediationAuditTrailError}
+            waitingForPlan={Boolean(remediationLoading)}
+          />
+        </CompactDisclosure>
+      </section>
     </div>
   );
 }
@@ -4321,86 +4350,106 @@ function IncidentDetailPageContent({ incidentId }: { incidentId: string }) {
     parsedCorrelationSummary?.related_event_details ?? [];
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto max-w-[1600px] px-4 py-3">
-        <AppNavigation />
-
-        <header className="mb-3 flex flex-col gap-3 border-b border-slate-900 pb-3 md:flex-row md:items-start md:justify-between">
-          <div>
-            <Link
-              href="/"
-              className="mb-1.5 inline-flex items-center gap-1.5 text-xs text-cyan-300 hover:text-cyan-200"
-            >
-              Back to dashboard
-            </Link>
-
-            <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-cyan-300">
-              <ShieldAlert className="h-3.5 w-3.5" />
-              Incident command record
+    <AppShell padding="compact">
+      <EnterprisePageHeader
+        breadcrumbs={
+          <EnterpriseBreadcrumbs
+            items={[
+              { label: "Incidents", href: "/incidents" },
+              { label: `Incident #${incidentId}` },
+            ]}
+          />
+        }
+        eyebrow="Incident command record"
+        title={incident?.rule?.trim() || `Incident #${incidentId}`}
+        description="Triage, lifecycle, evidence, AI assessment and governed response for this incident."
+        icon={<ShieldAlert aria-hidden="true" className="h-3.5 w-3.5" />}
+        status={
+          incident ? (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <EnterpriseStatusBadge value={incident.status ?? "NEW"} size="compact" />
+              <IncidentRiskScore score={incident.risk_score} />
             </div>
-
-            <h1 className="text-xl font-semibold tracking-tight">
-              Incident #{incidentId}
-            </h1>
-
-            <p className="mt-1 max-w-4xl text-xs leading-5 text-slate-500">
-              Enterprise SOC console for triage, lifecycle, AI assessment, response planning and evidence review.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap gap-1.5">
-            <CommandButton onClick={loadIncident}>
-              <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
+          ) : null
+        }
+        metadata={
+          <EnterpriseButton href="/" tone="ghost" size="xs">
+            Back to dashboard
+          </EnterpriseButton>
+        }
+        density="compact"
+        divided
+        secondaryActions={
+          <>
+            <EnterpriseButton
+              onClick={loadIncident}
+              disabled={refreshing}
+              tone="secondary"
+              size="xs"
+              icon={
+                <RefreshCw
+                  aria-hidden="true"
+                  className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`}
+                />
+              }
+            >
               Refresh
-            </CommandButton>
-
-            {canOperate && (
-              <CommandButton
-                tone="success"
-                disabled={creatingCase}
-                onClick={createCaseFromIncident}
-              >
-                {creatingCase ? "Creating case..." : "Create case"}
-              </CommandButton>
-            )}
-
-            <LinkCommand
-              tone="primary"
+            </EnterpriseButton>
+            <EnterpriseButton
               onClick={() =>
                 downloadBackendFile(
                   `/reports/incidents/${incidentId}?format=markdown`,
                   `incident-${incidentReportId}-enterprise-report.md`
-                ).catch((error) => alert(error.message))
+                ).catch((reportError) => alert(reportError.message))
               }
+              tone="secondary"
+              size="xs"
+              icon={<FileDown aria-hidden="true" className="h-3.5 w-3.5" />}
             >
-              <FileDown className="h-3.5 w-3.5" />
               Markdown
-            </LinkCommand>
-
-            <LinkCommand
+            </EnterpriseButton>
+            <EnterpriseButton
               onClick={() =>
                 downloadBackendFile(
                   `/reports/incidents/${incidentId}?format=json`,
                   `incident-${incidentReportId}-enterprise-report.json`
-                ).catch((error) => alert(error.message))
+                ).catch((reportError) => alert(reportError.message))
               }
+              tone="secondary"
+              size="xs"
+              icon={<FileDown aria-hidden="true" className="h-3.5 w-3.5" />}
             >
-              <FileDown className="h-3.5 w-3.5" />
               JSON
-            </LinkCommand>
-          </div>
-        </header>
+            </EnterpriseButton>
+          </>
+        }
+        primaryAction={
+          canOperate ? (
+            <EnterpriseButton
+              tone="success"
+              size="xs"
+              disabled={creatingCase}
+              onClick={createCaseFromIncident}
+            >
+              {creatingCase ? "Creating case..." : "Create case"}
+            </EnterpriseButton>
+          ) : null
+        }
+      />
 
+      <div className="space-y-3">
         {loading && (
-          <section className="rounded-md border border-slate-800 bg-slate-900 p-3 text-xs text-slate-300">
-            Loading incident...
-          </section>
+          <EnterprisePanel>
+            <EnterpriseSkeleton label="Loading incident" rows={5} />
+          </EnterprisePanel>
         )}
 
         {error && (
-          <div className="mb-3 rounded-md border border-red-800 bg-red-950/60 p-3 text-xs text-red-200">
-            API error: {error}
-          </div>
+          <EnterpriseErrorState
+            title="Incident request failed"
+            message={`API error: ${error}`}
+            onRetry={loadIncident}
+          />
         )}
 
         {incident && (
@@ -4461,6 +4510,6 @@ function IncidentDetailPageContent({ incidentId }: { incidentId: string }) {
           />
         )}
       </div>
-    </main>
+    </AppShell>
   );
 }

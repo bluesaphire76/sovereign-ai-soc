@@ -1,42 +1,21 @@
 import type { ReactNode } from "react";
+import {
+  SOC_TONE_CLASSES,
+  cx,
+  type SocTone,
+} from "@/lib/semantic-styles";
 
-type EnterpriseMetricTone =
-  | "neutral"
-  | "primary"
-  | "success"
-  | "warning"
-  | "danger"
-  | "executive";
+type EnterpriseMetricTone = SocTone;
 
 type EnterpriseMetricCardProps = {
   title: string;
-  value: string | number;
+  value: ReactNode;
   subtitle?: string;
   icon?: ReactNode;
   tone?: EnterpriseMetricTone;
   compact?: boolean;
-};
-
-function cx(...classes: Array<string | false | null | undefined>) {
-  return classes.filter(Boolean).join(" ");
-}
-
-const toneClasses: Record<EnterpriseMetricTone, string> = {
-  neutral: "border-slate-800 bg-slate-900 text-slate-100",
-  primary: "border-cyan-900 bg-cyan-950/30 text-cyan-100",
-  success: "border-emerald-900 bg-emerald-950/30 text-emerald-100",
-  warning: "border-orange-900 bg-orange-950/30 text-orange-100",
-  danger: "border-red-900 bg-red-950/30 text-red-100",
-  executive: "border-violet-900 bg-violet-950/30 text-violet-100",
-};
-
-const iconToneClasses: Record<EnterpriseMetricTone, string> = {
-  neutral: "bg-slate-950 text-slate-400",
-  primary: "bg-cyan-950 text-cyan-300",
-  success: "bg-emerald-950 text-emerald-300",
-  warning: "bg-orange-950 text-orange-300",
-  danger: "bg-red-950 text-red-300",
-  executive: "bg-violet-950 text-violet-300",
+  stacked?: boolean;
+  className?: string;
 };
 
 export default function EnterpriseMetricCard({
@@ -46,34 +25,63 @@ export default function EnterpriseMetricCard({
   icon,
   tone = "neutral",
   compact = true,
+  stacked = false,
+  className,
 }: EnterpriseMetricCardProps) {
+  const valueTitle =
+    typeof value === "string" || typeof value === "number"
+      ? String(value)
+      : undefined;
+
   return (
     <div
       className={cx(
-        "rounded-sm border shadow-sm",
-        toneClasses[tone],
-        compact ? "p-3" : "p-4"
+        "relative min-w-0 rounded-sm border shadow-sm",
+        SOC_TONE_CLASSES[tone].card,
+        compact
+          ? "flex min-h-[58px] items-center justify-between gap-3 px-2.5 py-2"
+          : "p-4",
+        className
       )}
     >
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+      <div className="min-w-0">
+        <div
+          title={title}
+          className={cx(
+            "truncate text-[10px] font-medium uppercase tracking-wide text-slate-500",
+            !compact && Boolean(icon) && "pr-7"
+          )}
+        >
           {title}
         </div>
-
-        {icon && (
-          <div className={cx("rounded-sm p-1.5", iconToneClasses[tone])}>
-            {icon}
-          </div>
-        )}
+        <div className={cx("min-w-0", compact && "mt-0.5", compact && !stacked && "flex items-baseline gap-2")}>
+          <span
+            title={valueTitle}
+            className={
+              compact
+                ? cx("block text-xl font-semibold leading-6", stacked ? "break-words" : "max-w-full shrink-0 truncate")
+                : "mt-1 block break-words text-xl font-semibold leading-7"
+            }
+          >
+            {value}
+          </span>
+          {subtitle && (
+            <span
+              title={subtitle}
+              className={cx(
+                "text-[11px] text-slate-500",
+                compact ? "block min-w-0 truncate leading-4" : "mt-1 block break-words leading-5"
+              )}
+            >
+              {subtitle}
+            </span>
+          )}
+        </div>
       </div>
 
-      <div className={compact ? "text-2xl font-semibold" : "text-3xl font-semibold"}>
-        {value}
-      </div>
-
-      {subtitle && (
-        <div className="mt-1 truncate text-[11px] leading-5 text-slate-500">
-          {subtitle}
+      {icon && (
+        <div aria-hidden="true" className={cx("shrink-0 rounded-sm p-1.5", !compact && "absolute right-3 top-3", SOC_TONE_CLASSES[tone].icon)}>
+          {icon}
         </div>
       )}
     </div>

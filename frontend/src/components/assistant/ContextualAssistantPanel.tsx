@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  AlertTriangle,
   Bot,
   Database,
   Loader2,
@@ -30,7 +29,20 @@ import {
   type ContextualAssistantScope,
   type NormalizedAssistantError,
 } from "@/lib/assistant";
+import {
+  EnterpriseBadge,
+  EnterpriseButton,
+  EnterpriseErrorState,
+  EnterpriseIconButton,
+  EnterpriseSkeleton,
+} from "@/components/enterprise";
+import { SOC_CONTROL_CLASSES, cx, type SocTone } from "@/lib/semantic-styles";
 import AssistantAnswer from "./AssistantAnswer";
+import AssistantCapabilityDetails from "./AssistantCapabilityDetails";
+import {
+  AssistantFailureState,
+  AssistantGenerationState,
+} from "./AssistantStates";
 import {
   ASSISTANT_MODE_OPTIONS,
   ASSISTANT_SUGGESTIONS,
@@ -53,6 +65,8 @@ type AssistantTimelineTurn =
       id: string;
       role: "assistant";
       question: string;
+      requestedMode: AssistantMode;
+      semanticMemoryRequested: boolean;
       status: "pending" | "completed" | "error";
       response?: AssistantQueryResponse;
       error?: NormalizedAssistantError;
@@ -64,41 +78,41 @@ function capabilityBadge(
   error: NormalizedAssistantError | null,
   scopeSupported: boolean,
   runtimeDisabled: boolean,
-) {
+): { label: string; tone: SocTone } {
   if (loading) {
     return {
       label: "CHECKING",
-      className: "border-cyan-900 text-cyan-300",
+      tone: "primary",
     };
   }
   if (error?.kind === "forbidden") {
     return {
       label: "RESTRICTED",
-      className: "border-red-900 text-red-300",
+      tone: "danger",
     };
   }
   if (error || !scopeSupported) {
     return {
       label: "UNAVAILABLE",
-      className: "border-amber-900 text-amber-300",
+      tone: "warning",
     };
   }
   if (!capabilities?.enabled || runtimeDisabled) {
     return {
       label: "DISABLED",
-      className: "border-slate-700 text-slate-400",
+      tone: "muted",
     };
   }
   if (capabilities.runtime_state === "warming") {
     return {
       label: "WARMING",
-      className: "border-amber-800 text-amber-300",
+      tone: "warning",
     };
   }
   if (capabilities.runtime_state === "ready") {
     return {
       label: "READY",
-      className: "border-emerald-800 text-emerald-300",
+      tone: "success",
     };
   }
   if (
@@ -107,12 +121,12 @@ function capabilityBadge(
   ) {
     return {
       label: "UNAVAILABLE",
-      className: "border-amber-900 text-amber-300",
+      tone: "danger",
     };
   }
   return {
     label: "AVAILABLE",
-    className: "border-emerald-800 text-emerald-300",
+    tone: "success",
   };
 }
 
@@ -292,8 +306,18 @@ function ContextualAssistantPanelContent({
     }
   }
 
-  async function submitQuestion(message: string) {
+  async function submitQuestion(
+    message: string,
+    requestContext?: {
+      requestedMode: AssistantMode;
+      semanticMemoryRequested: boolean;
+    },
+  ) {
     if (submitting || !assistantEnabled || interactionLocked) return;
+    const requestedMode = requestContext?.requestedMode ?? mode;
+    const semanticMemoryRequested =
+      requestContext?.semanticMemoryRequested ??
+      (semanticMemorySupported && includeSemanticMemory);
     const controller = new AbortController();
     const userTurnId = globalThis.crypto.randomUUID();
     const assistantTurnId = globalThis.crypto.randomUUID();
@@ -312,6 +336,8 @@ function ContextualAssistantPanelContent({
         id: assistantTurnId,
         role: "assistant",
         question: message,
+        requestedMode,
+        semanticMemoryRequested,
         status: "pending",
       },
     ]);
@@ -326,9 +352,8 @@ function ContextualAssistantPanelContent({
           scope,
           incident_id: scope === "incident" ? targetId : null,
           case_id: scope === "case" ? targetId : null,
-          requested_mode: mode,
-          include_semantic_memory:
-            semanticMemorySupported && includeSemanticMemory,
+          requested_mode: requestedMode,
+          include_semantic_memory: semanticMemoryRequested,
           conversation_id: currentConversationId(),
         },
         controller.signal,
@@ -469,24 +494,19 @@ function ContextualAssistantPanelContent({
               SOC Assistant
             </h2>
             <span className="text-xs text-slate-400">{targetLabel}</span>
-            <span className="border border-cyan-900 px-1.5 py-0.5 text-[10px] font-semibold text-cyan-300">
+            <EnterpriseBadge tone="primary" size="compact">
               READ ONLY
-            </span>
-            <span
-              className={`border px-1.5 py-0.5 text-[10px] font-semibold ${badge.className}`}
-            >
+            </EnterpriseBadge>
+            <EnterpriseBadge tone={badge.tone} size="compact">
               {badge.label}
-            </span>
+            </EnterpriseBadge>
             {!capabilitiesLoading && capabilities ? (
-              <button
-                type="button"
+              <EnterpriseIconButton
                 onClick={() => void handleRetryCapabilities()}
-                className="inline-flex h-7 w-7 items-center justify-center border border-slate-700 text-slate-400 hover:border-cyan-800 hover:text-cyan-200"
-                aria-label="Refresh Assistant readiness"
-                title="Refresh Assistant readiness"
-              >
-                <RefreshCw aria-hidden="true" className="h-3.5 w-3.5" />
-              </button>
+                icon={<RefreshCw aria-hidden="true" className="h-3.5 w-3.5" />}
+                label="Refresh Assistant readiness"
+                size="xs"
+              />
             ) : null}
           </div>
           <p className="mt-2 max-w-4xl text-xs leading-5 text-slate-400">
@@ -506,39 +526,23 @@ function ContextualAssistantPanelContent({
       </div>
 
       {capabilitiesLoading ? (
-        <div
-          className="mt-4 space-y-2 px-3 sm:px-4"
-          aria-live="polite"
-          aria-label="Checking SOC Assistant availability"
-        >
-          <div className="h-3 w-48 animate-pulse bg-slate-800" />
-          <div className="h-16 w-full animate-pulse bg-slate-900" />
-        </div>
+        <EnterpriseSkeleton
+          label="Checking SOC Assistant availability"
+          rows={2}
+          className="mx-3 mt-4 sm:mx-4"
+        />
       ) : null}
 
       {!capabilitiesLoading && capabilityError ? (
-        <div
-          className={`mx-3 mt-4 border-l-2 px-3 py-2 text-xs leading-5 sm:mx-4 ${
-            capabilityError.kind === "forbidden"
-              ? "border-red-700 bg-red-950/30 text-red-200"
-              : "border-amber-700 bg-amber-950/20 text-amber-100"
-          }`}
-          role="alert"
-        >
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <span>{capabilityError.message}</span>
-            {capabilityError.retryable ? (
-              <button
-                type="button"
-                onClick={() => void handleRetryCapabilities()}
-                className="inline-flex min-h-8 w-fit items-center gap-1.5 border border-slate-700 bg-slate-900 px-2.5 font-medium text-slate-200 hover:bg-slate-800"
-              >
-                <RefreshCw aria-hidden="true" className="h-3.5 w-3.5" />
-                Retry availability check
-              </button>
-            ) : null}
-          </div>
-        </div>
+        <EnterpriseErrorState
+          title="Assistant availability could not be confirmed"
+          message={capabilityError.message}
+          onRetry={
+            capabilityError.retryable ? handleRetryCapabilities : undefined
+          }
+          retryLabel="Retry availability check"
+          className="mx-3 mt-4 sm:mx-4"
+        />
       ) : null}
 
       {!capabilitiesLoading && capabilities ? (
@@ -588,41 +592,29 @@ function ContextualAssistantPanelContent({
                     </div>
                     <div className="min-w-0 max-w-4xl flex-1">
                       {turn.status === "pending" ? (
-                        <div className="inline-flex items-start gap-2 text-sm leading-6 text-slate-300">
-                          <Loader2
-                            aria-hidden="true"
-                            className="mt-1 h-4 w-4 shrink-0 animate-spin text-cyan-300"
-                          />
-                          Validating scope and evidence, then generating one grounded response.
-                        </div>
+                        <AssistantGenerationState scope={scope} />
                       ) : turn.status === "completed" && turn.response ? (
                         <AssistantAnswer
                           response={turn.response}
                           anchorPrefix={`${anchorPrefix}-turn-${index}`}
+                          requestedMode={turn.requestedMode}
+                          semanticMemoryRequested={turn.semanticMemoryRequested}
                         />
                       ) : turn.error ? (
-                        <div
-                          role="alert"
-                          className="border-l-2 border-amber-700 pl-3 text-xs leading-5 text-amber-100"
-                        >
-                          <span className="inline-flex items-start gap-2">
-                            <AlertTriangle
-                              aria-hidden="true"
-                              className="mt-0.5 h-3.5 w-3.5 shrink-0"
-                            />
-                            {turn.error.message}
-                          </span>
-                          {turn.error.retryable && !submitting ? (
-                            <button
-                              type="button"
-                              onClick={() => void submitQuestion(turn.question)}
-                              className="mt-2 inline-flex min-h-8 items-center gap-1.5 border border-slate-700 bg-slate-900 px-2.5 font-medium text-slate-200 hover:bg-slate-800"
-                            >
-                              <RefreshCw aria-hidden="true" className="h-3.5 w-3.5" />
-                              Try again
-                            </button>
-                          ) : null}
-                        </div>
+                        <AssistantFailureState
+                          error={turn.error}
+                          scope={scope}
+                          onRetry={
+                            turn.error.retryable && !submitting
+                              ? () =>
+                                  submitQuestion(turn.question, {
+                                    requestedMode: turn.requestedMode,
+                                    semanticMemoryRequested:
+                                      turn.semanticMemoryRequested,
+                                  })
+                              : undefined
+                          }
+                        />
                       ) : null}
                     </div>
                   </div>
@@ -644,7 +636,10 @@ function ContextualAssistantPanelContent({
                       key={suggestion}
                       type="button"
                       onClick={() => handleSuggestion(suggestion)}
-                      className="min-h-8 max-w-full border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-left text-xs leading-5 text-slate-300 hover:border-cyan-800 hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-50"
+                      className={cx(
+                        "min-h-8 max-w-full rounded-sm border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-left text-xs leading-5 text-slate-300 hover:border-cyan-800 hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-50",
+                        SOC_CONTROL_CLASSES.focus,
+                      )}
                     >
                       {suggestion}
                     </button>
@@ -674,7 +669,11 @@ function ContextualAssistantPanelContent({
                 }`}
                 aria-invalid={Boolean(validationError)}
                 placeholder={`Ask a read-only question about this ${scope}.`}
-                className="mt-2 min-h-28 w-full resize-y border border-slate-700 bg-slate-950 px-3 py-2 text-sm leading-6 text-slate-100 outline-none placeholder:text-slate-600 focus:border-cyan-500 disabled:cursor-not-allowed disabled:opacity-50"
+                className={cx(
+                  "mt-2 min-h-28 w-full resize-y px-3 py-2 text-sm leading-6 placeholder:text-slate-600",
+                  SOC_CONTROL_CLASSES.input,
+                  SOC_CONTROL_CLASSES.focus,
+                )}
               />
               <div className="mt-1 flex flex-col gap-1 text-[11px] text-slate-500 sm:flex-row sm:items-center sm:justify-between">
                 <span id={`${anchorPrefix}-question-hint`}>
@@ -721,7 +720,10 @@ function ContextualAssistantPanelContent({
                           value={option.value}
                           checked={mode === option.value}
                           onChange={() => setMode(option.value)}
-                          className="h-3.5 w-3.5 accent-cyan-500"
+                          className={cx(
+                            "h-3.5 w-3.5 accent-cyan-500",
+                            SOC_CONTROL_CLASSES.focus,
+                          )}
                         />
                         <span className="text-xs font-semibold">{option.label}</span>
                       </span>
@@ -745,7 +747,10 @@ function ContextualAssistantPanelContent({
                       setIncludeSemanticMemory(event.target.checked)
                     }
                     disabled={controlsDisabled || !semanticMemorySupported}
-                    className="mt-0.5 h-4 w-4 accent-cyan-500"
+                    className={cx(
+                      "mt-0.5 h-4 w-4 accent-cyan-500",
+                      SOC_CONTROL_CLASSES.focus,
+                    )}
                   />
                   <span>
                     <span className="block text-xs font-medium text-slate-200">
@@ -765,27 +770,30 @@ function ContextualAssistantPanelContent({
               </p>
               <div className="flex shrink-0 flex-wrap gap-2">
                 {submitting ? (
-                  <button
-                    type="button"
+                  <EnterpriseButton
                     onClick={handleCancel}
-                    className="inline-flex min-h-9 items-center gap-2 border border-red-800 bg-red-950/40 px-3 text-xs font-medium text-red-200 hover:bg-red-950/70"
+                    tone="danger"
+                    size="sm"
+                    icon={<X aria-hidden="true" className="h-4 w-4" />}
                   >
-                    <X aria-hidden="true" className="h-4 w-4" />
                     Cancel
-                  </button>
+                  </EnterpriseButton>
                 ) : null}
-                <button
+                <EnterpriseButton
                   type="submit"
                   disabled={!canSubmit}
-                  className="inline-flex min-h-9 items-center gap-2 border border-cyan-700 bg-cyan-500 px-3 text-xs font-semibold text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-800 disabled:text-slate-500"
+                  tone="primary"
+                  size="sm"
+                  icon={
+                    submitting ? (
+                      <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Send aria-hidden="true" className="h-4 w-4" />
+                    )
+                  }
                 >
-                  {submitting ? (
-                    <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Send aria-hidden="true" className="h-4 w-4" />
-                  )}
                   {submitting ? "Generating response" : "Ask SOC Assistant"}
-                </button>
+                </EnterpriseButton>
               </div>
             </div>
           </form>
@@ -804,6 +812,7 @@ function ContextualAssistantPanelContent({
             SQL-backed operational records are authoritative. Semantic-memory
             matches and AI synthesis are advisory; human review remains required.
           </div>
+          <AssistantCapabilityDetails capabilities={capabilities} />
         </div>
       ) : null}
     </section>

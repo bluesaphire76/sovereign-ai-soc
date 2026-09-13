@@ -4,6 +4,12 @@ New to the repository? Read the
 [External User Quickstart](docs/external-user-quickstart.md) first for the
 shortest safe path, component requirements, and project boundaries.
 
+Existing v0.8.x deployments: follow the [v0.9.0 upgrade procedure](docs/operations/v0.9.0-upgrade.md)
+and [release gate](docs/validation/v0.9.0-release-readiness.md). After replacing the
+production Next.js build used by `next start`, restart `ai-soc-frontend.service`
+before validating current JS/CSS assets. Isolated preview builds do not require
+that production restart. API activation is also required for the last-ADMIN fix.
+
 ## What this guide covers
 
 This guide prepares Sovereign AI SOC for a local lab or product demo and
@@ -49,9 +55,9 @@ recommended.
 
 The frontend requires Node.js and npm. Docker Engine and the Docker Compose
 plugin are system prerequisites for infrastructure stacks. Ollama is optional
-for deterministic fallback workflows and provides the default full AI
-experience. llama.cpp is an optional local runtime path for deployments that
-manage a local router and GGUF models. PostgreSQL, Qdrant, Grafana,
+for deterministic fallback workflows but is not an active generation path in
+gateway mode. The active local AI path uses an operator-managed llama.cpp router,
+standard GGUF alias and inference gateway. PostgreSQL, Qdrant, Grafana,
 Prometheus, Alertmanager, Loki, Grafana Alloy, Wazuh and Suricata depend on
 the selected deployment mode.
 
