@@ -22,6 +22,9 @@ investigation and AI governance workflows. UX-01 through UX-12 are user-approved
 - Backend protection against removing the final enabled administrator, including
   concurrent role changes, disabling and deletion. Rejected operations return a
   controlled conflict; normal multi-administrator management remains available.
+- Dependency security hardening: Next.js 16.3.5, sharp 0.35.4 with libheif 1.23.2,
+  and development-only js-yaml 4.3.2 resolve the four reported dependency advisories.
+  The committed frontend lockfile passes `npm audit` with zero reported vulnerabilities.
 
 Existing backend security and domain semantics are preserved except for the new
 last-ADMIN safety protection. No new roles, severity values, AI generation paths,

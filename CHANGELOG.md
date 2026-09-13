@@ -20,6 +20,8 @@ passed; systemd restart propagation is accepted operational behavior.
 
 - Prevent account operations from leaving no enabled administrator, including
   concurrent requests; retain existing RBAC and self-service boundaries.
+- Update Next.js to 16.3.5, sharp to 0.35.4 (libheif 1.23.2), and the development
+  dependency js-yaml to 4.3.2 to address four dependency security advisories.
 
 ### Validation
 
