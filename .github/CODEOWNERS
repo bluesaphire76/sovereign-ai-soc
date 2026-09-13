@@ -1,0 +1,19 @@
+# Sovereign AI SOC repository ownership
+#
+# Primary repository ownership.
+# Extend this file when additional maintainers are introduced.
+
+* @bluesaphire76
+
+# Repository governance and CI
+/.github/ @bluesaphire76
+
+# Security-sensitive areas
+/SECURITY.md @bluesaphire76
+/auth_utils.py @bluesaphire76
+/routers/ @bluesaphire76
+/services/ @bluesaphire76
+
+# Deployment and operational controls
+/deploy/ @bluesaphire76
+/scripts/ @bluesaphire76
