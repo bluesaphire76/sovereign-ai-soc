@@ -14,7 +14,7 @@ POSTGRES_USER = os.getenv("POSTGRES_USER")
 POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD")
 
 DATABASE_URL = (
-    f"postgresql://"
+    f"postgresql+psycopg2://"
     f"{POSTGRES_USER}:"
     f"{POSTGRES_PASSWORD}@"
     f"{POSTGRES_HOST}:"
